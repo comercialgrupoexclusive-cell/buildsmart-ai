@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { HardHat, BarChart3, BotMessageSquare, CheckSquare, Square } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { useProfile, ProfileProvider } from '@/lib/profile-context'
+import { useProfile } from '@/lib/profile-context'
 
 const STEPS = [
   {
@@ -99,9 +99,5 @@ function OnboardingContent() {
 }
 
 export default function OnboardingPage() {
-  return (
-    <ProfileProvider>
-      <OnboardingContent />
-    </ProfileProvider>
-  )
+  return <OnboardingContent />
 }

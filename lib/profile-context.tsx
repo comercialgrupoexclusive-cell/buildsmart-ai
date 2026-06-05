@@ -17,33 +17,42 @@ const ProfileContext = createContext<ProfileContextType>({
   toggleTheme: () => {},
 })
 
-export function ProfileProvider({ children }: { children: ReactNode }) {
-  const [currentProfile, setCurrentProfileState] = useState<Profile | null>(null)
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
-
-  useEffect(() => {
+// Lê localStorage de forma síncrona na inicialização do estado
+// Isso garante que currentProfile está disponível ANTES de qualquer useEffect rodar
+function loadProfileFromStorage(): Profile | null {
+  if (typeof window === 'undefined') return null
+  try {
     const stored = localStorage.getItem('buildsmart_profile')
-    if (stored) {
-      try {
-        const profile = JSON.parse(stored) as Profile
-        setCurrentProfileState(profile)
-        setTheme(profile.dark_mode ? 'dark' : 'light')
-        applyTheme(profile.dark_mode ? 'dark' : 'light', profile.theme_color)
-      } catch {
-        localStorage.removeItem('buildsmart_profile')
-      }
+    return stored ? (JSON.parse(stored) as Profile) : null
+  } catch {
+    return null
+  }
+}
+
+function applyTheme(t: 'dark' | 'light', accentColor?: string) {
+  document.documentElement.removeAttribute('data-theme')
+  if (t === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light')
+  }
+  if (accentColor) {
+    document.documentElement.style.setProperty('--accent', accentColor)
+  }
+}
+
+export function ProfileProvider({ children }: { children: ReactNode }) {
+  // Inicialização lazy síncrona — lê localStorage no primeiro render
+  const [currentProfile, setCurrentProfileState] = useState<Profile | null>(loadProfileFromStorage)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const p = loadProfileFromStorage()
+    return p?.dark_mode === false ? 'light' : 'dark'
+  })
+
+  // Aplica o tema do perfil após montar (só afeta DOM, não causa redirect)
+  useEffect(() => {
+    if (currentProfile) {
+      applyTheme(currentProfile.dark_mode ? 'dark' : 'light', currentProfile.theme_color)
     }
   }, [])
-
-  function applyTheme(t: 'dark' | 'light', accentColor?: string) {
-    document.documentElement.removeAttribute('data-theme')
-    if (t === 'light') {
-      document.documentElement.setAttribute('data-theme', 'light')
-    }
-    if (accentColor) {
-      document.documentElement.style.setProperty('--accent', accentColor)
-    }
-  }
 
   function setCurrentProfile(profile: Profile | null) {
     setCurrentProfileState(profile)

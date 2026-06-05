@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Pencil, X, CheckSquare, Square } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { useProfile, ProfileProvider } from '@/lib/profile-context'
+import { useProfile } from '@/lib/profile-context'
 import { Profile } from '@/lib/types'
 
 const ACCENT_OPTIONS = [
@@ -255,9 +255,5 @@ function ProfileSelectionPage() {
 }
 
 export default function Home() {
-  return (
-    <ProfileProvider>
-      <ProfileSelectionPage />
-    </ProfileProvider>
-  )
+  return <ProfileSelectionPage />
 }
