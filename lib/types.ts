@@ -5,6 +5,7 @@ export type Profile = {
   theme_color: string
   dark_mode: boolean
   onboarding_done: boolean
+  password_hash: string | null
   created_at: string
 }
 
@@ -33,11 +34,16 @@ export type Orcamento = {
 export type OrcamentoItem = {
   id: string
   orcamento_id: string
-  composicao_id: string
+  composicao_id: string | null
+  sinapi_composicao_id: string | null
   quantidade: number
   preco_unitario_snapshot: number
+  descricao_snapshot: string | null
+  codigo_snapshot: string | null
+  unidade_snapshot: string | null
   updated_at: string
   composicao?: ComposicaoPropria | null
+  sinapi_composicao?: SinapiComposicao | null
 }
 
 export type SinapiInsumo = {

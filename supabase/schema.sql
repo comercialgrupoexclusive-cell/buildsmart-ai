@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   theme_color TEXT NOT NULL DEFAULT '#3B7BF8',
   dark_mode BOOLEAN NOT NULL DEFAULT true,
   onboarding_done BOOLEAN NOT NULL DEFAULT false,
+  password_hash TEXT,          -- opcional: só pedido se preenchido
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -84,9 +85,13 @@ CREATE TABLE IF NOT EXISTS orcamentos (
 CREATE TABLE IF NOT EXISTS orcamento_itens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   orcamento_id UUID NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
-  composicao_id UUID REFERENCES composicoes_proprias(id),
+  composicao_id UUID REFERENCES composicoes_proprias(id),              -- composição própria (opcional)
+  sinapi_composicao_id UUID REFERENCES sinapi_composicoes(id),        -- composição SINAPI (opcional)
   quantidade NUMERIC(12,4) NOT NULL DEFAULT 1,
   preco_unitario_snapshot NUMERIC(12,4) NOT NULL DEFAULT 0,
+  descricao_snapshot TEXT,     -- cópia da descrição no momento da adição
+  codigo_snapshot TEXT,        -- cópia do código
+  unidade_snapshot TEXT,       -- cópia da unidade
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -165,3 +170,26 @@ INSERT INTO sinapi_insumos (codigo, descricao, unidade, preco_unitario, estado, 
 ('00002716', 'VERGALHAO CA-60, 5.0 MM', 'KG', 11.25, 'RS', '2024-11', 'MATERIAL'),
 ('00004392', 'COMPENSADO RESINADO 18MM', 'M2', 85.00, 'RS', '2024-11', 'MATERIAL')
 ON CONFLICT (codigo, estado, mes_referencia) DO NOTHING;
+
+-- =============================================
+-- Seed de perfis (Admin para testes)
+-- =============================================
+INSERT INTO profiles (name, photo_url, theme_color, dark_mode, onboarding_done)
+VALUES
+  ('Admin', NULL, '#3B7BF8', true, true),
+  ('Engenheiro', NULL, '#10B981', true, true)
+ON CONFLICT DO NOTHING;
+
+-- =============================================
+-- Seed de composições próprias (exemplos)
+-- =============================================
+INSERT INTO composicoes_proprias (codigo, descricao, unidade, grupo) VALUES
+('CP-001', 'Fundação em concreto armado FCK 25 MPa', 'M3', 'FUNDACAO'),
+('CP-002', 'Alvenaria de bloco cerâmico 9x19x19 cm', 'M2', 'ALVENARIA'),
+('CP-003', 'Reboco interno argamassa industrializada', 'M2', 'REVESTIMENTO'),
+('CP-004', 'Instalação elétrica ponto de luz', 'PT', 'INSTALACOES'),
+('CP-005', 'Instalação hidráulica ponto de água fria', 'PT', 'INSTALACOES'),
+('CP-006', 'Cobertura com telha cerâmica tipo portuguesa', 'M2', 'COBERTURA'),
+('CP-007', 'Contrapiso em concreto magro e = 5 cm', 'M2', 'PISO'),
+('CP-008', 'Pintura látex PVA 2 demãos', 'M2', 'ACABAMENTO')
+ON CONFLICT (codigo) DO NOTHING;

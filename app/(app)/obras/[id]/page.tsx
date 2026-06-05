@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, use } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
@@ -23,9 +24,13 @@ const TABS: { id: Tab; label: string }[] = [
 
 export default function ObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const searchParams = useSearchParams()
   const supabase = createClient()
   const [obra, setObra] = useState<Obra | null>(null)
-  const [tab, setTab] = useState<Tab>('visao-geral')
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = searchParams.get('tab') as Tab | null
+    return (t && TABS.some(x => x.id === t)) ? t : 'visao-geral'
+  })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
