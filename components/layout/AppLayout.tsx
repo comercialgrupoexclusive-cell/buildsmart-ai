@@ -11,17 +11,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
+  useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
-    if (mounted && !currentProfile) {
-      router.replace('/')
-    }
+    if (mounted && !currentProfile) router.replace('/')
   }, [mounted, currentProfile, router])
 
-  // Aguarda hidratação + leitura do localStorage antes de decidir
   if (!mounted) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
@@ -35,8 +30,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
       <Sidebar />
+      {/* Sidebar tem 56px fixo — o conteúdo fica em ml-14 sempre */}
       <Header />
-      <main className="ml-60 pt-16 min-h-screen">
+      <main className="ml-14 pt-16 min-h-screen">
         <div className="p-6">
           {children}
         </div>

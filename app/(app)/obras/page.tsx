@@ -19,7 +19,7 @@ export default function ObrasPage() {
   const supabase = createClient()
   const [obras, setObras] = useState<Obra[]>([])
   const [loading, setLoading] = useState(true)
-  const [filtro, setFiltro] = useState('todas')
+  const [filtro, setFiltro] = useState('ativa')
   const [busca, setBusca] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -115,7 +115,7 @@ export default function ObrasPage() {
               value={busca}
               onChange={e => setBusca(e.target.value)}
               placeholder="Buscar obra..."
-              className="input-base pl-9"
+              className="input-base input-search"
             />
           </div>
           <Button onClick={() => setShowModal(true)} icon={<Plus size={16} />}>

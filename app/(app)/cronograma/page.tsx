@@ -102,8 +102,8 @@ export default function CronogramaPage() {
             </h2>
             <div className="flex flex-col gap-2">
               {etapas.map(etapa => {
-                const dias = diasAteData(etapa.data_inicio)
-                const critica = dias <= 7 && etapa.status !== 'concluida'
+                const dias = etapa.data_inicio ? diasAteData(etapa.data_inicio) : null
+                const critica = dias !== null && dias <= 7 && etapa.status !== 'concluida'
                 return (
                   <div
                     key={etapa.id}
@@ -126,10 +126,10 @@ export default function CronogramaPage() {
                         </span>
                       </div>
                       <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                        {formatDate(etapa.data_inicio)} → {formatDate(etapa.data_fim)}
-                        {dias > 0 && ` · inicia em ${dias} dias`}
-                        {dias === 0 && ' · começa hoje'}
-                        {dias < 0 && ` · iniciou há ${Math.abs(dias)} dias`}
+                        {etapa.data_inicio ? `${formatDate(etapa.data_inicio)} → ${formatDate(etapa.data_fim)}` : 'Datas a definir'}
+                        {dias !== null && dias > 0 && ` · inicia em ${dias} dias`}
+                        {dias !== null && dias === 0 && ' · começa hoje'}
+                        {dias !== null && dias < 0 && ` · iniciou há ${Math.abs(dias)} dias`}
                       </p>
                     </div>
                     <select

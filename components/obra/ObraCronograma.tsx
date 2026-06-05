@@ -65,8 +65,8 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
     setForm({ nome: '', data_inicio: '', data_fim: '', status: 'planejada' })
   }
 
-  const hoje = new Date().toISOString().split('T')[0]
   const proximos30 = etapas.filter(e => {
+    if (!e.data_inicio) return true // sem data = aparece sempre
     const inicio = new Date(e.data_inicio)
     const limite = new Date()
     limite.setDate(limite.getDate() + 30)
@@ -108,8 +108,8 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
             ) : (
               <div className="flex flex-col gap-2">
                 {proximos30.map(etapa => {
-                  const dias = diasAteData(etapa.data_inicio)
-                  const esCritica = dias <= 7 && etapa.status !== 'concluida'
+                  const dias = etapa.data_inicio ? diasAteData(etapa.data_inicio) : null
+                  const esCritica = dias !== null && dias <= 7 && etapa.status !== 'concluida'
                   return (
                     <div
                       key={etapa.id}
@@ -128,10 +128,10 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
                           </span>
                         </div>
                         <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                          {formatDate(etapa.data_inicio)} → {formatDate(etapa.data_fim)}
-                          {dias > 0 && ` · inicia em ${dias} dias`}
-                          {dias === 0 && ' · começa hoje'}
-                          {dias < 0 && ` · iniciou há ${Math.abs(dias)} dias`}
+                          {etapa.data_inicio ? `${formatDate(etapa.data_inicio)} → ${formatDate(etapa.data_fim)}` : 'Datas a definir'}
+                          {dias !== null && dias > 0 && ` · inicia em ${dias} dias`}
+                          {dias !== null && dias === 0 && ' · começa hoje'}
+                          {dias !== null && dias < 0 && ` · iniciou há ${Math.abs(dias)} dias`}
                         </p>
                       </div>
                     </div>

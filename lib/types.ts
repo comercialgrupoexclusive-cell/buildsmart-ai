@@ -34,6 +34,7 @@ export type Orcamento = {
 export type OrcamentoItem = {
   id: string
   orcamento_id: string
+  etapa_id: string | null
   composicao_id: string | null
   sinapi_composicao_id: string | null
   quantidade: number
@@ -90,8 +91,8 @@ export type Etapa = {
   id: string
   obra_id: string
   nome: string
-  data_inicio: string
-  data_fim: string
+  data_inicio: string | null
+  data_fim: string | null
   status: 'planejada' | 'em_andamento' | 'concluida' | 'atrasada'
   ordem: number
 }

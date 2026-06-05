@@ -3,15 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard,
-  HardHat,
-  FileText,
-  CalendarDays,
-  Package,
-  ClipboardList,
-  BotMessageSquare,
-  BarChart3,
-  Settings,
+  LayoutDashboard, HardHat, FileText, CalendarDays,
+  Package, ClipboardList, BotMessageSquare, BarChart3, Settings, Wrench,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -22,12 +15,12 @@ const NAV_ITEMS = [
   { href: '/cronograma',   label: 'Cronograma',      icon: CalendarDays },
   { href: '/materiais',    label: 'Materiais',       icon: Package },
   { href: '/medicoes',     label: 'Medições',        icon: ClipboardList },
+  { href: '/servicos',     label: 'Serviços',        icon: Wrench },
   { href: '/buildassist',  label: 'BuildAssist IA',  icon: BotMessageSquare },
 ]
-
 const NAV_BOTTOM = [
-  { href: '/relatorios',   label: 'Relatórios',      icon: BarChart3 },
-  { href: '/configuracoes',label: 'Configurações',   icon: Settings },
+  { href: '/relatorios',    label: 'Relatórios',     icon: BarChart3 },
+  { href: '/configuracoes', label: 'Configurações',  icon: Settings },
 ]
 
 export function Sidebar() {
@@ -37,71 +30,78 @@ export function Sidebar() {
     return pathname === href || pathname.startsWith(href + '/')
   }
 
-  function linkStyle(href: string) {
-    return isActive(href)
-      ? { background: 'var(--accent)', color: 'white' }
-      : { color: 'var(--text-secondary)' }
-  }
-
   return (
     <aside
-      className="fixed left-0 top-0 h-full w-60 flex flex-col z-40"
-      style={{ background: 'var(--bg-secondary)', borderRight: '1px solid var(--border)' }}
+      className="fixed left-0 top-0 h-full z-50 flex flex-col group/sidebar overflow-hidden"
+      style={{
+        width: '56px',
+        background: 'var(--bg-secondary)',
+        borderRight: '1px solid var(--border)',
+        transition: 'width 0.2s ease',
+      }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.width = '232px' }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.width = '56px' }}
     >
       {/* Logo */}
-      <div className="px-6 py-6 border-b" style={{ borderColor: 'var(--border)' }}>
-        <div className="flex items-center gap-2.5">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm"
-            style={{ background: 'var(--accent)' }}
-          >
-            B
-          </div>
-          <div>
-            <p className="font-semibold text-sm leading-tight" style={{ color: 'var(--text-primary)', fontFamily: 'DM Serif Display, serif' }}>
-              BuildSmart
-            </p>
-            <p className="text-xs" style={{ color: 'var(--accent)' }}>AI</p>
-          </div>
+      <div className="flex items-center h-16 px-3.5 flex-shrink-0 border-b overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+          style={{ background: 'var(--accent)' }}
+        >
+          B
+        </div>
+        <div className="ml-3 overflow-hidden whitespace-nowrap" style={{ transition: 'opacity 0.15s ease' }}>
+          <p className="font-semibold text-sm leading-tight" style={{ color: 'var(--text-primary)', fontFamily: 'DM Serif Display, serif' }}>
+            BuildSmart
+          </p>
+          <p className="text-xs" style={{ color: 'var(--accent)' }}>AI</p>
         </div>
       </div>
 
       {/* Nav principal */}
-      <nav className="flex-1 px-3 py-4 flex flex-col gap-1 overflow-y-auto">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
-              isActive(href) ? 'text-white' : 'hover:bg-[var(--bg-card)]'
-            )}
-            style={linkStyle(href)}
-          >
-            <Icon size={18} />
-            {label}
-          </Link>
-        ))}
+      <nav className="flex-1 py-3 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden">
+        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          const active = isActive(href)
+          return (
+            <Link
+              key={href}
+              href={href}
+              title={label}
+              className={cn(
+                'flex items-center gap-3 mx-1.5 px-2.5 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 overflow-hidden whitespace-nowrap',
+                active ? 'text-white' : 'hover:bg-[var(--bg-card)]'
+              )}
+              style={active ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+            >
+              <Icon size={18} className="flex-shrink-0" />
+              <span className="overflow-hidden">{label}</span>
+            </Link>
+          )
+        })}
       </nav>
 
       {/* Nav inferior */}
-      <div className="px-3 py-3 border-t flex flex-col gap-1" style={{ borderColor: 'var(--border)' }}>
-        {NAV_BOTTOM.map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
-              isActive(href) ? 'text-white' : 'hover:bg-[var(--bg-card)]'
-            )}
-            style={linkStyle(href)}
-          >
-            <Icon size={18} />
-            {label}
-          </Link>
-        ))}
-        <p className="text-xs px-3 pt-2" style={{ color: 'var(--text-secondary)' }}>
-          BuildSmart AI v1.0
+      <div className="py-3 border-t flex flex-col gap-0.5 overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+        {NAV_BOTTOM.map(({ href, label, icon: Icon }) => {
+          const active = isActive(href)
+          return (
+            <Link
+              key={href}
+              href={href}
+              title={label}
+              className={cn(
+                'flex items-center gap-3 mx-1.5 px-2.5 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 overflow-hidden whitespace-nowrap',
+                active ? 'text-white' : 'hover:bg-[var(--bg-card)]'
+              )}
+              style={active ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+            >
+              <Icon size={18} className="flex-shrink-0" />
+              <span className="overflow-hidden">{label}</span>
+            </Link>
+          )
+        })}
+        <p className="text-xs px-3.5 pt-1 overflow-hidden whitespace-nowrap" style={{ color: 'var(--text-secondary)', opacity: 0.6 }}>
+          v1.0
         </p>
       </div>
     </aside>

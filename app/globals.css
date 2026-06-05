@@ -146,4 +146,9 @@ body {
 }
 .input-base::placeholder {
   color: var(--text-secondary);
+  opacity: 1;
+}
+/* Input com ícone à esquerda — garante que placeholder não sobreponha o ícone */
+.input-search {
+  padding-left: 2.25rem !important; /* 36px = espaço para ícone de 14px em left-3 */
 }

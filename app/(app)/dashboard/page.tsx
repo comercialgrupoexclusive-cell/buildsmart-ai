@@ -170,12 +170,12 @@ export default function DashboardPage() {
           ) : (
             <div className="flex flex-col gap-3">
               {data.etapasProximas.slice(0, 5).map((etapa) => {
-                const dias = diasAteData(etapa.data_inicio)
+                const dias = etapa.data_inicio ? diasAteData(etapa.data_inicio) : null
                 return (
                   <div key={etapa.id} className="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
                     <div className="w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
-                      style={{ background: dias <= 2 ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)', color: dias <= 2 ? 'var(--danger)' : 'var(--warning)' }}>
-                      {dias}d
+                      style={{ background: dias !== null && dias <= 2 ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)', color: dias !== null && dias <= 2 ? 'var(--danger)' : 'var(--warning)' }}>
+                      {dias !== null ? `${dias}d` : '—'}
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</p>
