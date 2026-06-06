@@ -9,6 +9,9 @@ import { createClient } from '@/lib/supabase/client'
 import { Obra, Etapa, Material } from '@/lib/types'
 import { formatCurrency, diasAteData, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
 import Link from 'next/link'
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts'
 
 type DashboardData = {
   obras: Obra[]
@@ -134,13 +137,24 @@ export default function DashboardPage() {
     })
   }
 
-  // Composição de obras por status (dados reais)
-  const statusDistrib = [
-    { label: 'Ativa', count: data.obras.filter(o => o.status === 'ativa').length, color: '#10B981' },
-    { label: 'Orçamento', count: data.obras.filter(o => o.status === 'orcamento').length, color: 'var(--accent)' },
-    { label: 'Concluída', count: data.obras.filter(o => o.status === 'concluida').length, color: '#6B7280' },
-    { label: 'Paralisada', count: data.obras.filter(o => o.status === 'paralisada').length, color: '#F59E0B' },
-  ].filter(s => s.count > 0)
+  // Tendência real: obras cadastradas por mês, agrupadas por status (ativa / em orçamento)
+  const portfolioTrend = (() => {
+    const map = new Map<string, { ord: string; mes: string; ativa: number; orcamento: number }>()
+    ;[...data.obras]
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .forEach(o => {
+        const d = new Date(o.created_at)
+        const ord = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        const mes = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '')
+        if (!map.has(ord)) map.set(ord, { ord, mes, ativa: 0, orcamento: 0 })
+        const entry = map.get(ord)!
+        if (o.status === 'ativa') entry.ativa += 1
+        else if (o.status === 'orcamento') entry.orcamento += 1
+      })
+    return Array.from(map.values())
+      .sort((a, b) => a.ord.localeCompare(b.ord))
+      .slice(-8)
+  })()
 
   if (loading) {
     return (
@@ -183,7 +197,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2 mb-6">
             <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
             <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Composição do Portfólio
+              Composição do Portfólio — Obras por mês de cadastro
             </h2>
           </div>
 
@@ -194,40 +208,29 @@ export default function DashboardPage() {
               <Link href="/obras" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>+ Nova obra</Link>
             </div>
           ) : (
-            <div className="flex flex-col gap-4">
-              {/* Barras de status */}
-              {statusDistrib.map(({ label, count, color }) => {
-                const pct = data.obras.length > 0 ? (count / data.obras.length) * 100 : 0
-                return (
-                  <div key={label}>
-                    <div className="flex justify-between text-sm mb-1.5">
-                      <span style={{ color: 'var(--text-primary)' }}>{label}</span>
-                      <span className="font-semibold" style={{ color }}>{count} obra{count !== 1 ? 's' : ''} · {pct.toFixed(0)}%</span>
-                    </div>
-                    <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
-                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
-                    </div>
-                  </div>
-                )
-              })}
-
-              {/* Lista das obras mais recentes */}
-              <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
-                <p className="text-xs font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>OBRAS RECENTES</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {data.obras.slice(0, 4).map(o => (
-                    <Link key={o.id} href={`/obras/${o.id}`}
-                      className="flex items-center gap-2 p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
-                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{
-                        background: o.status === 'ativa' ? '#10B981' : o.status === 'orcamento' ? 'var(--accent)' : '#6B7280'
-                      }} />
-                      <span className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{o.nome}</span>
-                      <ChevronRight size={11} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={portfolioTrend}>
+                <defs>
+                  <linearGradient id="colorAtivas" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--success)" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorOrcamento" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="mes" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '12px' }}
+                  labelStyle={{ color: 'var(--text-primary)' }}
+                />
+                <Area type="monotone" dataKey="ativa" stroke="var(--success)" fill="url(#colorAtivas)" strokeWidth={2} name="Ativas" stackId="1" />
+                <Area type="monotone" dataKey="orcamento" stroke="var(--accent)" fill="url(#colorOrcamento)" strokeWidth={2} name="Em orçamento" stackId="1" />
+              </AreaChart>
+            </ResponsiveContainer>
           )}
         </div>
 

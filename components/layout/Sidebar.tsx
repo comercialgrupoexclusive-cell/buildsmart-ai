@@ -55,7 +55,7 @@ export function Sidebar() {
           <p className="font-semibold text-sm leading-tight" style={{ color: 'var(--text-primary)', fontFamily: 'DM Serif Display, serif' }}>
             BuildSmart
           </p>
-          <p className="text-xs" style={{ color: 'var(--accent)' }}>AI</p>
+          <p className="text-xs" style={{ color: 'var(--accent)', fontFamily: 'DM Serif Display, serif' }}>AI</p>
         </div>
       </div>
 

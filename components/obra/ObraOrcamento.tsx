@@ -67,6 +67,15 @@ function overrideKey(itemId: string, insumoKey: string) {
   return `${itemId}_${insumoKey}`
 }
 
+// ─── Composição de custo direto por categoria ───────────────────────────────
+type CustoCategoria = { material: number; maoDeObra: number; equipamento: number; outros: number }
+const CATEGORIAS_CUSTO: { key: keyof CustoCategoria; label: string; cor: string }[] = [
+  { key: 'material', label: 'Materiais', cor: 'var(--accent)' },
+  { key: 'maoDeObra', label: 'Mão de obra', cor: 'var(--success)' },
+  { key: 'equipamento', label: 'Equipamentos', cor: 'var(--warning)' },
+  { key: 'outros', label: 'Outros / não classificados', cor: 'var(--text-secondary)' },
+]
+
 export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   obraId: string
   areaM2?: number | null
@@ -83,6 +92,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   // Cascata + overrides
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
   const [insumoOverrides, setInsumoOverrides] = useState<Record<string, number>>({})
+
+  // Lookup de insumos SINAPI (referência lógica via sinapi_codigo — sem FK real,
+  // então buscamos classificação + preços por UF numa query separada e montamos um mapa)
+  const [sinapiInsumoMap, setSinapiInsumoMap] = useState<Record<string, { classificacao: string; precos: Record<string, number> }>>({})
 
   // Modal adicionar item
   const [showAddItem, setShowAddItem] = useState(false)
@@ -178,6 +191,26 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       }
     })
     setItens(enriched)
+
+    // composicao_itens.sinapi_codigo é referência LÓGICA (sem FK real) — o PostgREST
+    // não consegue fazer embed automático. Buscamos os insumos referenciados numa
+    // query separada e montamos um mapa código → { classificacao, precos } no cliente.
+    const codigos = Array.from(new Set(
+      enriched.flatMap(i => (i.composicao_itens || [])
+        .filter(ci => ci.tipo === 'SINAPI_INSUMO' && ci.sinapi_codigo)
+        .map(ci => ci.sinapi_codigo as string))
+    ))
+    if (codigos.length > 0) {
+      const { data: insumos } = await supabase
+        .from('sinapi_insumos')
+        .select('codigo, classificacao, precos')
+        .in('codigo', codigos)
+      const map: Record<string, { classificacao: string; precos: Record<string, number> }> = {}
+      for (const ins of insumos || []) map[(ins as any).codigo] = { classificacao: (ins as any).classificacao, precos: (ins as any).precos || {} }
+      setSinapiInsumoMap(map)
+    } else {
+      setSinapiInsumoMap({})
+    }
   }
 
   async function loadEtapas() {
@@ -204,28 +237,54 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }
 
   // ─── Totais com override ─────────────────────────────────────────────────
-  // Quando sinapi_insumos.precos estiver disponível (pós-Supabase), buscar preco[obraUf].
-  // Por agora, usa preco_unitario_snapshot como fallback.
+  // sinapi_codigo é referência lógica (sem FK real) — os preços/classificação vêm
+  // do mapa sinapiInsumoMap, montado em loadItens via query separada + merge no cliente.
   const getItemTotal = useCallback((item: ItemEnriquecido): number => {
     const itensComp = item.composicao_itens || []
     if (itensComp.length === 0) return item.preco_unitario_snapshot * item.quantidade
-    // Se algum item tem preços carregados via join (futuro), usa-os.
-    // Por enquanto fallback para snapshot.
-    const temPreco = itensComp.some((ins: any) => (ins.sinapi_insumo?.precos?.[obraUf] ?? 0) > 0)
+    const temPreco = itensComp.some(ins => ((ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0) > 0)
     if (!temPreco) return item.preco_unitario_snapshot * item.quantidade
-    return itensComp.reduce((total, ins: any) => {
+    return itensComp.reduce((total, ins) => {
       const key = overrideKey(item.id, ins.sinapi_codigo || ins.id)
       const qtdCalculada = item.quantidade * ins.coeficiente
       const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
-      const preco = ins.sinapi_insumo?.precos?.[obraUf] ?? 0
+      const preco = (ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0
       return total + qtdAdotada * preco
     }, 0)
-  }, [insumoOverrides, obraUf])
+  }, [insumoOverrides, obraUf, sinapiInsumoMap])
 
   const subtotal = itens.reduce((a, i) => a + getItemTotal(i), 0)
   const totalBdi = subtotal * (bdi / 100)
   const totalGeral = subtotal + totalBdi
   const custoPorM2 = areaM2 && areaM2 > 0 ? totalGeral / areaM2 : null
+
+  // ─── Composição de custos diretos por categoria (Material / Mão de obra / Equipamentos) ──
+  // Espelha exatamente a lógica de getItemTotal para que material+maoDeObra+equipamento+outros === subtotal
+  const custoPorCategoria: CustoCategoria = (() => {
+    const acc: CustoCategoria = { material: 0, maoDeObra: 0, equipamento: 0, outros: 0 }
+    for (const item of itens) {
+      const itensComp = item.composicao_itens || []
+      const totalItem = getItemTotal(item)
+      if (itensComp.length === 0) { acc.outros += totalItem; continue }
+      const temPreco = itensComp.some(ins => ((ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0) > 0)
+      if (!temPreco) { acc.outros += totalItem; continue }
+      for (const ins of itensComp) {
+        const info = ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo] : undefined
+        const preco = info?.precos?.[obraUf] ?? 0
+        const key = overrideKey(item.id, ins.sinapi_codigo || ins.id)
+        const qtdCalculada = item.quantidade * ins.coeficiente
+        const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
+        const valor = qtdAdotada * preco
+        switch (info?.classificacao) {
+          case 'MATERIAL': acc.material += valor; break
+          case 'MAO_DE_OBRA': acc.maoDeObra += valor; break
+          case 'EQUIPAMENTO': acc.equipamento += valor; break
+          default: acc.outros += valor
+        }
+      }
+    }
+    return acc
+  })()
 
   // ─── Handlers de override ────────────────────────────────────────────────
   function handleOverrideInsumo(itemId: string, insumoKey: string, value: number | null) {
@@ -353,7 +412,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
           const key = overrideKey(item.id, insumoKey)
           const qtdCalculada = item.quantidade * ins.coeficiente
           const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
-          const preco = (ins as any).sinapi_insumo?.precos?.[obraUf] ?? 0
+          const preco = (ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0
           return {
             codigo: ins.sinapi_codigo || '',
             descricao: ins.descricao,
@@ -479,19 +538,15 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   return (
     <div className="flex flex-col gap-4">
 
-      {/* ── Sticky header com totais ── */}
+      {/* ── Painel de totais e composição de custos ── */}
       <div
-        className="sticky top-0 z-20 rounded-xl overflow-hidden"
+        className="sticky top-0 z-20 rounded-2xl overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
       >
-        <div className="flex flex-wrap items-center divide-x" style={{ borderColor: 'var(--border)' }}>
-          <StickyKpi label="Total Geral" value={formatCurrency(totalGeral)} accent />
-          <StickyKpi label="Subtotal s/ BDI" value={formatCurrency(subtotal)} />
-          <StickyKpi label={`BDI ${bdi}%`} value={formatCurrency(totalBdi)} />
-          {custoPorM2 !== null && (
-            <StickyKpi label="Custo / m²" value={formatCurrency(custoPorM2)} />
-          )}
-          <div className="px-4 py-3 flex items-center gap-2 ml-auto">
+        <div className="p-5 flex flex-col gap-5">
+
+          {/* Linha 1 — status + ações */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <span
               className="text-xs px-2.5 py-1 rounded-full font-medium"
               style={{
@@ -501,68 +556,140 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
             >
               v{orcamento.versao} · {isReadonly ? 'Finalizado' : 'Rascunho'}
             </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Barra de ações ── */}
-      <div className="card p-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>BDI %</label>
-            <input
-              type="number" value={bdi}
-              onChange={e => setBdi(Number(e.target.value))}
-              onBlur={handleUpdateBdi}
-              disabled={isReadonly}
-              className="input-base w-20 text-center py-1"
-              min={0} max={100}
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {itens.length > 0 && (
-            <Button
-              size="sm"
-              icon={<FileSpreadsheet size={14} />}
-              variant="secondary"
-              onClick={handleExportXLSX}
-            >
-              Exportar Excel
-            </Button>
-          )}
-          {!isReadonly && (
-            <Button size="sm" icon={<FolderPlus size={14} />} variant="secondary" onClick={() => openItemModal()}>
-              Novo item
-            </Button>
-          )}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setShowMenu(v => !v)}
-              className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              <MoreHorizontal size={16} />
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 top-full mt-1.5 w-44 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                {!isReadonly ? (
-                  <button onClick={handleFinalizar}
-                    className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                    style={{ color: 'var(--text-primary)' }}>
-                    <Lock size={13} style={{ color: 'var(--text-secondary)' }} /> Finalizar orçamento
-                  </button>
-                ) : (
-                  <button onClick={handleReabrir}
-                    className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                    style={{ color: 'var(--text-primary)' }}>
-                    <Unlock size={13} style={{ color: 'var(--text-secondary)' }} /> Reabrir (nova versão)
-                  </button>
+            <div className="flex items-center gap-2">
+              {itens.length > 0 && (
+                <Button size="sm" icon={<FileSpreadsheet size={14} />} variant="secondary" onClick={handleExportXLSX}>
+                  Exportar Excel
+                </Button>
+              )}
+              {!isReadonly && (
+                <Button size="sm" icon={<FolderPlus size={14} />} variant="secondary" onClick={() => openItemModal()}>
+                  Novo item
+                </Button>
+              )}
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setShowMenu(v => !v)}
+                  className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+                {showMenu && (
+                  <div className="absolute right-0 top-full mt-1.5 w-48 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                    {!isReadonly ? (
+                      <button onClick={handleFinalizar}
+                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                        style={{ color: 'var(--text-primary)' }}>
+                        <Lock size={13} style={{ color: 'var(--text-secondary)' }} /> Finalizar orçamento
+                      </button>
+                    ) : (
+                      <button onClick={handleReabrir}
+                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                        style={{ color: 'var(--text-primary)' }}>
+                        <Unlock size={13} style={{ color: 'var(--text-secondary)' }} /> Reabrir (nova versão)
+                      </button>
+                    )}
+                  </div>
                 )}
+              </div>
+            </div>
+          </div>
+
+          {/* Linha 2 — números hero: valor total + custo/m² */}
+          <div className="flex flex-wrap items-end justify-between gap-6 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
+            <div>
+              <p className="text-xs uppercase tracking-wide font-medium" style={{ color: 'var(--text-secondary)' }}>
+                Valor total da obra (com BDI)
+              </p>
+              <p className="text-3xl sm:text-4xl font-bold mt-1 leading-tight" style={{ color: 'var(--accent)', fontFamily: 'DM Serif Display, serif' }}>
+                {formatCurrency(totalGeral)}
+              </p>
+            </div>
+            {custoPorM2 !== null && (
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-wide font-medium" style={{ color: 'var(--text-secondary)' }}>
+                  Custo por m²
+                </p>
+                <p className="text-xl font-semibold mt-1" style={{ color: 'var(--text-primary)' }}>
+                  {formatCurrency(custoPorM2)}
+                  <span className="text-sm font-normal ml-1" style={{ color: 'var(--text-secondary)' }}>/m²</span>
+                </p>
               </div>
             )}
           </div>
+
+          {/* Linha 3 — subtotal / BDI editável + valor / custo direto por m² */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <MetricMini label="Subtotal (sem BDI)" value={formatCurrency(subtotal)} />
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+              <div>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>BDI <span className="opacity-70">(editável)</span></p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <input
+                    type="number" value={bdi}
+                    onChange={e => setBdi(Number(e.target.value))}
+                    onBlur={handleUpdateBdi}
+                    disabled={isReadonly}
+                    className="input-base w-16 text-center py-1 text-sm"
+                    min={0} max={100}
+                  />
+                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Valor do BDI</p>
+                <p className="text-base font-semibold mt-1" style={{ color: 'var(--text-primary)' }}>{formatCurrency(totalBdi)}</p>
+              </div>
+            </div>
+            <MetricMini
+              label="Custo direto / m²"
+              value={areaM2 && areaM2 > 0 ? `${formatCurrency(subtotal / areaM2)}/m²` : '—'}
+            />
+          </div>
+
+          {/* Linha 4 — composição do custo direto por categoria (material / mão de obra / equipamentos) */}
+          {subtotal > 0 && (
+            <div className="pt-1">
+              <p className="text-xs uppercase tracking-wide font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
+                Composição do custo direto por categoria
+              </p>
+              <div className="h-3 rounded-full overflow-hidden flex" style={{ background: 'var(--bg-secondary)' }}>
+                {CATEGORIAS_CUSTO.map(cat => {
+                  const valor = custoPorCategoria[cat.key]
+                  const pct = subtotal > 0 ? (valor / subtotal) * 100 : 0
+                  if (pct <= 0) return null
+                  return (
+                    <div
+                      key={cat.key}
+                      style={{ width: `${pct}%`, background: cat.cor }}
+                      title={`${cat.label}: ${formatCurrency(valor)} (${pct.toFixed(1)}%)`}
+                    />
+                  )
+                })}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                {CATEGORIAS_CUSTO.map(cat => {
+                  const valor = custoPorCategoria[cat.key]
+                  const pct = subtotal > 0 ? (valor / subtotal) * 100 : 0
+                  const porM2 = areaM2 && areaM2 > 0 ? valor / areaM2 : null
+                  return (
+                    <div key={cat.key} className="flex flex-col gap-1 px-3 py-2.5 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cat.cor }} />
+                        <span className="text-xs font-medium truncate" style={{ color: 'var(--text-secondary)' }}>{cat.label}</span>
+                      </div>
+                      <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(valor)}</span>
+                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        {pct.toFixed(1)}%{porM2 !== null ? ` · ${formatCurrency(porM2)}/m²` : ''}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -595,6 +722,8 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
               insumoOverrides={insumoOverrides}
               onOverrideInsumo={handleOverrideInsumo}
               getItemTotal={getItemTotal}
+              sinapiInsumoMap={sinapiInsumoMap}
+              obraUf={obraUf}
             />
           )}
           {etapas.map(etapa => (
@@ -613,6 +742,8 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
               insumoOverrides={insumoOverrides}
               onOverrideInsumo={handleOverrideInsumo}
               getItemTotal={getItemTotal}
+              sinapiInsumoMap={sinapiInsumoMap}
+              obraUf={obraUf}
             />
           ))}
 
@@ -626,31 +757,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
             </button>
           )}
 
-          {/* Totais rodapé */}
-          <div className="card p-4">
-            <div className="flex justify-end">
-              <div className="flex flex-col gap-1 min-w-64">
-                <div className="flex justify-between text-sm">
-                  <span style={{ color: 'var(--text-secondary)' }}>Subtotal</span>
-                  <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span style={{ color: 'var(--text-secondary)' }}>BDI ({bdi}%)</span>
-                  <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(totalBdi)}</span>
-                </div>
-                {custoPorM2 !== null && (
-                  <div className="flex justify-between text-sm">
-                    <span style={{ color: 'var(--text-secondary)' }}>Custo / m²</span>
-                    <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(custoPorM2)}/m²</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-base font-bold pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-                  <span style={{ color: 'var(--text-primary)' }}>Total Geral</span>
-                  <span style={{ color: 'var(--accent)', fontSize: '1.1rem' }}>{formatCurrency(totalGeral)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -802,17 +908,12 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   )
 }
 
-// ─── Sticky KPI ──────────────────────────────────────────────────────────────
-function StickyKpi({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+// ─── Métrica compacta (painel de totais) ────────────────────────────────────
+function MetricMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="px-5 py-3 flex flex-col gap-0.5">
+    <div className="flex flex-col justify-center gap-1 px-4 py-3 rounded-xl" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
       <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-      <span
-        className="text-base font-bold leading-tight"
-        style={{ color: accent ? 'var(--accent)' : 'var(--text-primary)', fontFamily: 'DM Serif Display, serif' }}
-      >
-        {value}
-      </span>
+      <span className="text-base font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>{value}</span>
     </div>
   )
 }
@@ -821,6 +922,7 @@ function StickyKpi({ label, value, accent }: { label: string; value: string; acc
 function GrupoEtapa({
   nome, itens, isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
+  sinapiInsumoMap, obraUf,
 }: {
   nome: string
   itens: ItemEnriquecido[]
@@ -835,6 +937,8 @@ function GrupoEtapa({
   insumoOverrides: Record<string, number>
   onOverrideInsumo: (itemId: string, insumoId: string, value: number | null) => void
   getItemTotal: (item: ItemEnriquecido) => number
+  sinapiInsumoMap: Record<string, { classificacao: string; precos: Record<string, number> }>
+  obraUf: string
 }) {
   const subtotalGrupo = itens.reduce((a, i) => a + getItemTotal(i), 0)
   const totalGrupo = subtotalGrupo * (1 + bdi / 100)
@@ -943,8 +1047,7 @@ function GrupoEtapa({
                         const key = overrideKey(item.id, insumoKey)
                         const qtdCalculada = item.quantidade * ins.coeficiente
                         const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
-                        // preço pós-Supabase: (ins as any).sinapi_insumo?.precos?.[obraUf] ?? 0
-                        const preco = 0
+                        const preco = (ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0
                         const totalIns = qtdAdotada * preco
                         const isOverridden = insumoOverrides[key] !== undefined
 

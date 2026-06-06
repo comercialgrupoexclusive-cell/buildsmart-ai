@@ -14,10 +14,12 @@ import { useRouter } from 'next/navigation'
 
 const STATUS_FILTROS = ['todas', 'ativa', 'orcamento', 'concluida', 'paralisada']
 
+type ObraComAvanco = Obra & { avanco: number }
+
 export default function ObrasPage() {
   const router = useRouter()
   const supabase = createClient()
-  const [obras, setObras] = useState<Obra[]>([])
+  const [obras, setObras] = useState<ObraComAvanco[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState('ativa')
   const [busca, setBusca] = useState('')
@@ -39,7 +41,20 @@ export default function ObrasPage() {
   async function loadObras() {
     setLoading(true)
     const { data } = await supabase.from('obras').select('*').order('created_at', { ascending: false })
-    setObras(data || [])
+    const lista = data || []
+
+    // Avanço físico: última medição registrada de cada obra
+    const comAvanco = await Promise.all(lista.map(async (obra): Promise<ObraComAvanco> => {
+      const { data: meds } = await supabase
+        .from('medicoes')
+        .select('percentual_executado')
+        .eq('obra_id', obra.id)
+        .order('data_medicao', { ascending: false })
+        .limit(1)
+      return { ...obra, avanco: meds && meds.length > 0 ? (meds[0].percentual_executado ?? 0) : 0 }
+    }))
+
+    setObras(comAvanco)
     setLoading(false)
   }
 
@@ -238,13 +253,21 @@ export default function ObrasPage() {
 }
 
 // ─── Card galeria ────────────────────────────────────────────────────────────
-function ObraCard({ obra, index }: { obra: Obra; index: number }) {
+function ObraCard({ obra, index }: { obra: ObraComAvanco; index: number }) {
   const statusColor: Record<string, string> = {
     ativa: '#10B981',
     orcamento: '#F59E0B',
     concluida: '#3B7BF8',
     paralisada: '#EF4444',
   }
+
+  // Heurística: extrai "bairro" e "cidade" do final do endereço livre (ex: "Rua X, 123, Bairro Y, Cidade Z")
+  const partes = (obra.endereco || '').split(',').map(p => p.trim()).filter(Boolean)
+  const cidade = partes.length >= 1 ? partes[partes.length - 1] : ''
+  const bairro = partes.length >= 2 ? partes[partes.length - 2] : ''
+  const localidade = [cidade, obra.uf, bairro].filter(Boolean).join(' – ')
+
+  const avancoCor = obra.avanco >= 100 ? 'var(--success)' : obra.avanco >= 50 ? 'var(--accent)' : 'var(--warning)'
 
   return (
     <Link
@@ -290,17 +313,31 @@ function ObraCard({ obra, index }: { obra: Obra; index: number }) {
           </span>
         </div>
 
-        {/* Nome e endereço — sobre o gradiente, embaixo */}
+        {/* Nome e localidade — sobre o gradiente, embaixo */}
         <div className="absolute bottom-0 left-0 right-0 p-4">
           <h3 className="font-semibold text-base leading-tight truncate text-white">
             {obra.nome}
           </h3>
-          {obra.endereco && (
+          {localidade && (
             <div className="flex items-center gap-1.5 mt-1">
               <MapPin size={11} className="flex-shrink-0 text-white/60" />
-              <p className="text-xs truncate text-white/70">{obra.endereco}</p>
+              <p className="text-xs truncate text-white/70">{localidade}</p>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ── Execução: percentual + barra ── */}
+      <div className="px-4 pt-3 pb-1">
+        <div className="flex items-center justify-between text-xs mb-1.5">
+          <span style={{ color: 'var(--text-secondary)' }}>Execução</span>
+          <span className="font-semibold tabular-nums" style={{ color: avancoCor }}>{obra.avanco.toFixed(1)}%</span>
+        </div>
+        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+          <div
+            className="h-full rounded-full transition-all duration-700"
+            style={{ width: `${Math.min(100, obra.avanco)}%`, background: avancoCor }}
+          />
         </div>
       </div>
 

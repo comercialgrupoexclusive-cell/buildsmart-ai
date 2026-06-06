@@ -2,6 +2,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark;
   --bg-primary: #0F1117;
   --bg-secondary: #1A1D2E;
   --bg-card: #1E2235;
@@ -16,6 +17,7 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
   --bg-primary: #F8FAFC;
   --bg-secondary: #F1F5F9;
   --bg-card: #FFFFFF;
@@ -60,6 +62,20 @@ body {
   font-family: 'DM Sans', sans-serif;
   min-height: 100%;
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Garante que TODO campo de entrada/seleção/botão use a mesma fonte do sistema
+   (evita que o navegador aplique a fonte padrão do SO ao digitar/selecionar) */
+input, textarea, select, button, option, optgroup {
+  font-family: 'DM Sans', sans-serif;
+}
+
+/* Lista suspensa (<option>) de QUALQUER <select> segue o tema (claro/escuro) —
+   sem isso o navegador renderiza o menu nativo com fundo branco mesmo no escuro */
+select option,
+select optgroup {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
 }
 
 /* Scrollbar */
