@@ -1,14 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { HardHat, FileText, AlertTriangle, TrendingUp, Calendar, Package } from 'lucide-react'
+import {
+  HardHat, FileText, AlertTriangle, TrendingUp, Calendar,
+  Package, ShoppingCart, Zap, CheckCircle2, ChevronRight,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { useProfile } from '@/lib/profile-context'
 import { Obra, Etapa, Material } from '@/lib/types'
 import { formatCurrency, diasAteData, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
 import Link from 'next/link'
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 
 type DashboardData = {
@@ -18,8 +20,15 @@ type DashboardData = {
   alertas: number
 }
 
+type AcaoPrioritaria = {
+  icon: typeof HardHat
+  color: string
+  titulo: string
+  subtitulo: string
+  href: string
+}
+
 export default function DashboardPage() {
-  const { currentProfile } = useProfile()
   const supabase = createClient()
   const [data, setData] = useState<DashboardData>({
     obras: [],
@@ -29,9 +38,7 @@ export default function DashboardPage() {
   })
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadDashboard()
-  }, [])
+  useEffect(() => { loadDashboard() }, [])
 
   async function loadDashboard() {
     setLoading(true)
@@ -51,10 +58,11 @@ export default function DashboardPage() {
     ])
 
     const obras = obrasRes.data || []
+
     const etapas = (etapasRes.data || []).map((e: any) => ({
       ...e,
       obra_nome: e.obras?.nome || '',
-    })).filter((e: any) => diasAteData(e.data_inicio) <= 7)
+    })).filter((e: any) => e.data_inicio && diasAteData(e.data_inicio) <= 7)
 
     const materiais = (materiaisRes.data || []).map((m: any) => ({
       ...m,
@@ -62,19 +70,73 @@ export default function DashboardPage() {
       insumo_descricao: m.sinapi_insumos?.descricao || '',
     }))
 
-    setData({
-      obras,
-      etapasProximas: etapas,
-      materiaisPendentes: materiais,
-      alertas: etapas.length,
-    })
+    setData({ obras, etapasProximas: etapas, materiaisPendentes: materiais, alertas: etapas.length })
     setLoading(false)
   }
 
   const obrasAtivas = data.obras.filter(o => o.status === 'ativa').length
   const orcamentosAndamento = data.obras.filter(o => o.status === 'orcamento').length
 
-  // Dados fictícios de tendência para o gráfico (substituir por dados reais)
+  // ─── Painel preditivo: ações calculadas dos dados já carregados ───────────
+  const acoesPrioritarias: AcaoPrioritaria[] = []
+
+  // 1. Materiais com prazo ≤ 3 dias
+  data.materiaisPendentes
+    .filter(m => m.data_necessidade && diasAteData(m.data_necessidade) <= 3)
+    .slice(0, 2)
+    .forEach(m => {
+      const dias = m.data_necessidade ? diasAteData(m.data_necessidade) : null
+      acoesPrioritarias.push({
+        icon: ShoppingCart,
+        color: 'var(--danger)',
+        titulo: `Compra urgente: ${m.insumo_descricao.substring(0, 38)}`,
+        subtitulo: `${m.obra_nome}${dias !== null ? ` · vence em ${dias}d` : ''}`,
+        href: `/obras/${m.obra_id}`,
+      })
+    })
+
+  // 2. Etapas críticas (≤ 5 dias)
+  data.etapasProximas
+    .filter(e => e.data_inicio && diasAteData(e.data_inicio) <= 5)
+    .slice(0, 2)
+    .forEach(e => {
+      const dias = e.data_inicio ? diasAteData(e.data_inicio) : null
+      acoesPrioritarias.push({
+        icon: AlertTriangle,
+        color: 'var(--warning)',
+        titulo: `Etapa iminente: ${e.nome}`,
+        subtitulo: `${e.obra_nome}${dias !== null ? ` · inicia em ${dias}d` : ''}`,
+        href: `/obras/${e.obra_id}`,
+      })
+    })
+
+  // 3. Obras em orçamento (sem cronograma ativo)
+  data.obras
+    .filter(o => o.status === 'orcamento')
+    .slice(0, 1)
+    .forEach(o => {
+      acoesPrioritarias.push({
+        icon: FileText,
+        color: 'var(--accent)',
+        titulo: `Orçamento em elaboração`,
+        subtitulo: o.nome,
+        href: `/obras/${o.id}`,
+      })
+    })
+
+  // 4. Materiais sem prazo definido (pendentes sem data)
+  const semPrazo = data.materiaisPendentes.filter(m => !m.data_necessidade)
+  if (semPrazo.length > 0 && acoesPrioritarias.length < 4) {
+    acoesPrioritarias.push({
+      icon: Package,
+      color: 'var(--text-secondary)',
+      titulo: `${semPrazo.length} ${semPrazo.length === 1 ? 'material sem' : 'materiais sem'} data de compra`,
+      subtitulo: 'Defina prazos para monitoramento automático',
+      href: '/obras',
+    })
+  }
+
+  // Tendência (dados fictícios — substituir por dados reais futuramente)
   const trendData = [
     { dia: 'Hoje', consumo: 12, estoque: 45 },
     { dia: 'D+2', consumo: 18, estoque: 38 },
@@ -96,7 +158,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* KPIs */}
+      {/* ── KPIs ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KpiCard
           icon={HardHat}
@@ -121,9 +183,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Gráfico + Próximos 7 dias */}
+      {/* ── Gráfico + Próximos 7 dias ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Gráfico de tendência */}
         <div className="card p-6 lg:col-span-2">
           <div className="flex items-center gap-2 mb-6">
             <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
@@ -162,10 +223,9 @@ export default function DashboardPage() {
             <Calendar size={18} style={{ color: 'var(--accent)' }} />
             <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Próximos 7 dias</h2>
           </div>
-
           {data.etapasProximas.length === 0 ? (
             <p className="text-sm py-8 text-center" style={{ color: 'var(--text-secondary)' }}>
-              Nenhuma etapa crítica nos próximos 7 dias
+              Nenhuma etapa crítica
             </p>
           ) : (
             <div className="flex flex-col gap-3">
@@ -173,8 +233,13 @@ export default function DashboardPage() {
                 const dias = etapa.data_inicio ? diasAteData(etapa.data_inicio) : null
                 return (
                   <div key={etapa.id} className="flex items-start gap-3 p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
-                      style={{ background: dias !== null && dias <= 2 ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)', color: dias !== null && dias <= 2 ? 'var(--danger)' : 'var(--warning)' }}>
+                    <div
+                      className="w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
+                      style={{
+                        background: dias !== null && dias <= 2 ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)',
+                        color: dias !== null && dias <= 2 ? 'var(--danger)' : 'var(--warning)',
+                      }}
+                    >
                       {dias !== null ? `${dias}d` : '—'}
                     </div>
                     <div className="min-w-0">
@@ -189,7 +254,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Alertas de materiais + Obras recentes */}
+      {/* ── Materiais pendentes + Ações Prioritárias ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Materiais pendentes */}
         {data.materiaisPendentes.length > 0 && (
@@ -202,7 +267,11 @@ export default function DashboardPage() {
             </div>
             <div className="flex flex-col gap-2">
               {data.materiaisPendentes.slice(0, 4).map((m) => (
-                <div key={m.id} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: 'var(--border)' }}>
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between py-2 border-b last:border-0"
+                  style={{ borderColor: 'var(--border)' }}
+                >
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{m.insumo_descricao}</p>
                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{m.obra_nome}</p>
@@ -215,52 +284,44 @@ export default function DashboardPage() {
             </div>
             {data.materiaisPendentes.length > 4 && (
               <p className="text-xs mt-3" style={{ color: 'var(--text-secondary)' }}>
-                + {data.materiaisPendentes.length - 4} outros materiais pendentes
+                + {data.materiaisPendentes.length - 4} outros pendentes
               </p>
             )}
           </div>
         )}
 
-        {/* Obras recentes */}
+        {/* Ações Prioritárias — substitui "Obras Recentes" */}
         <div className="card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <HardHat size={18} style={{ color: 'var(--accent)' }} />
-              <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Obras Recentes</h2>
-            </div>
-            <Link href="/obras" className="text-xs font-medium" style={{ color: 'var(--accent)' }}>
-              Ver todas →
-            </Link>
+          <div className="flex items-center gap-2 mb-4">
+            <Zap size={18} style={{ color: 'var(--accent)' }} />
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Ações Prioritárias</h2>
           </div>
 
-          {data.obras.length === 0 ? (
-            <div className="py-8 text-center">
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma obra cadastrada</p>
-              <Link href="/obras" className="text-sm font-medium mt-2 inline-block" style={{ color: 'var(--accent)' }}>
-                Criar primeira obra →
-              </Link>
+          {acoesPrioritarias.length === 0 ? (
+            <div className="py-8 text-center flex flex-col items-center gap-2">
+              <CheckCircle2 size={30} style={{ color: 'var(--success)' }} />
+              <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Tudo em dia</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Nenhuma ação urgente no momento</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
-              {data.obras.slice(0, 4).map((obra) => (
-                <Link key={obra.id} href={`/obras/${obra.id}`}
-                  className="flex items-center justify-between p-3 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {obra.foto_url ? (
-                      <img src={obra.foto_url} alt={obra.nome} className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)' }}>
-                        <HardHat size={16} style={{ color: 'var(--text-secondary)' }} />
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{obra.nome}</p>
-                      <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{obra.endereco}</p>
-                    </div>
+            <div className="flex flex-col gap-1">
+              {acoesPrioritarias.map((acao, i) => (
+                <Link
+                  key={i}
+                  href={acao.href}
+                  className="flex items-center gap-3 p-3 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
+                >
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ background: `${acao.color.replace('var(--', '').replace(')', '')}15` || '#ffffff10' }}
+                  >
+                    <acao.icon size={15} style={{ color: acao.color }} />
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ml-2 border ${STATUS_OBRA_COLOR[obra.status]}`}>
-                    {STATUS_OBRA_LABEL[obra.status]}
-                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{acao.titulo}</p>
+                    <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{acao.subtitulo}</p>
+                  </div>
+                  <ChevronRight size={14} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
                 </Link>
               ))}
             </div>

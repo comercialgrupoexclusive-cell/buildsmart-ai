@@ -147,7 +147,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       {/* Conteúdo da tab */}
       <div className="animate-enter">
         {tab === 'visao-geral' && <ObraVisaoGeral obra={obra} />}
-        {tab === 'orcamento' && <ObraOrcamento obraId={id} />}
+        {tab === 'orcamento' && <ObraOrcamento obraId={id} areaM2={obra.area_m2} obraName={obra.nome} obraUf={obra.uf || 'SP'} />}
         {tab === 'cronograma' && <ObraCronograma obraId={id} />}
         {tab === 'materiais' && <ObraMateriais obraId={id} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} />}
@@ -169,6 +169,8 @@ function ObraVisaoGeral({ obra }: { obra: Obra }) {
             { label: 'Status', value: STATUS_OBRA_LABEL[obra.status] },
             { label: 'Data de início', value: formatDate(obra.data_inicio) },
             { label: 'Previsão de conclusão', value: formatDate(obra.data_previsao) },
+            { label: 'Área construída', value: obra.area_m2 ? `${obra.area_m2} m²` : '—' },
+            { label: 'UF (preços SINAPI)', value: obra.uf || '—' },
             { label: 'Criado em', value: formatDate(obra.created_at) },
           ].map(({ label, value }) => (
             <div key={label} className="flex justify-between text-sm">

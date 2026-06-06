@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, HardHat, FileText, CalendarDays,
-  Package, ClipboardList, BotMessageSquare, BarChart3, Settings, Wrench,
+  Package, ClipboardList, BotMessageSquare, BarChart3, Settings, Wrench, Database,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/medicoes',     label: 'Medições',        icon: ClipboardList },
   { href: '/servicos',     label: 'Serviços',        icon: Wrench },
   { href: '/buildassist',  label: 'BuildAssist IA',  icon: BotMessageSquare },
+  { href: '/sinapi',       label: 'Base SINAPI',      icon: Database },
 ]
 const NAV_BOTTOM = [
   { href: '/relatorios',    label: 'Relatórios',     icon: BarChart3 },

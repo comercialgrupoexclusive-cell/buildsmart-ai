@@ -159,10 +159,14 @@ function ProfileSelectionPage() {
         ) : (
           <div className="flex flex-wrap gap-4 justify-center">
             {profiles.map((profile) => (
-              <button
+              // div em vez de button para evitar button-dentro-de-button (hydration error)
+              <div
                 key={profile.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => handleSelectProfile(profile)}
-                className="relative group flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all duration-200 hover:scale-105 w-36"
+                onKeyDown={e => e.key === 'Enter' && handleSelectProfile(profile)}
+                className="relative group flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all duration-200 hover:scale-105 w-36 cursor-pointer"
                 style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
               >
                 {profile.photo_url ? (
@@ -184,7 +188,7 @@ function ProfileSelectionPage() {
                     <X size={12} />
                   </button>
                 </div>
-              </button>
+              </div>
             ))}
 
             <button

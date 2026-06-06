@@ -1,3 +1,4 @@
+// ─── Perfil ───────────────────────────────────────────────────────────────────
 export type Profile = {
   id: string
   name: string
@@ -9,6 +10,7 @@ export type Profile = {
   created_at: string
 }
 
+// ─── Obra ─────────────────────────────────────────────────────────────────────
 export type Obra = {
   id: string
   nome: string
@@ -18,9 +20,12 @@ export type Obra = {
   data_inicio: string | null
   data_previsao: string | null
   responsavel: string | null
+  area_m2: number | null
+  uf: string                   // CHAR(2): AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA, PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO
   created_at: string
 }
 
+// ─── Orçamento ────────────────────────────────────────────────────────────────
 export type Orcamento = {
   id: string
   obra_id: string
@@ -31,10 +36,12 @@ export type Orcamento = {
   created_at: string
 }
 
+// ─── Orçamento — Item ─────────────────────────────────────────────────────────
 export type OrcamentoItem = {
   id: string
   orcamento_id: string
   etapa_id: string | null
+  subetapa: string | null
   composicao_id: string | null
   sinapi_composicao_id: string | null
   quantidade: number
@@ -47,26 +54,59 @@ export type OrcamentoItem = {
   sinapi_composicao?: SinapiComposicao | null
 }
 
+// ─── Orçamento — Insumo por item (override de quantidade) ────────────────────
+export type OrcamentoItemInsumo = {
+  id: string
+  orcamento_item_id: string
+  sinapi_codigo: string
+  quantidade_calculada: number
+  quantidade_adotada: number | null   // null = usar calculada
+  preco_unitario_snapshot: number
+}
+
+// ─── SINAPI — Insumo (ISE) ────────────────────────────────────────────────────
+// precos = mapa UF → preço mediano (R$)
+// Ex: {"AC": 302.08, "AL": 195.46, "SP": 198.69, ...}
 export type SinapiInsumo = {
   id: string
   codigo: string
+  classificacao: string          // SERVIÇOS | MATERIAL | MAO_DE_OBRA | EQUIPAMENTO
   descricao: string
   unidade: string
-  preco_unitario: number
-  estado: string
-  mes_referencia: string
-  categoria: string
+  origem_preco: string | null    // C | CR
+  precos: Record<string, number> // {"AC": 302.08, ...}
+  mes_referencia: string         // "04/2026"
+  created_at: string
 }
 
+// ─── SINAPI — Composição (CSD) ────────────────────────────────────────────────
 export type SinapiComposicao = {
   id: string
   codigo: string
+  grupo: string
   descricao: string
   unidade: string
-  custo_unitario: number
-  grupo: string
+  situacao: string               // COM CUSTO | SEM CUSTO
+  custos: Record<string, number> // {"AC": 280.81, "SP": 198.69, ...}
+  mes_referencia: string
+  created_at: string
+  itens?: SinapiComposicaoItem[]
 }
 
+// ─── SINAPI — Item da Composição (Analítico) ──────────────────────────────────
+export type SinapiComposicaoItem = {
+  id: string
+  composicao_codigo: string
+  mes_referencia: string
+  tipo: 'INSUMO' | 'COMPOSICAO'
+  item_codigo: string
+  item_descricao: string
+  item_unidade: string
+  coeficiente: number
+  situacao: string
+}
+
+// ─── Composição Própria ───────────────────────────────────────────────────────
 export type ComposicaoPropria = {
   id: string
   codigo: string
@@ -75,18 +115,26 @@ export type ComposicaoPropria = {
   grupo: string
   ativo: boolean
   created_at: string
-  insumos?: ComposicaoInsumo[]
-  custo_calculado?: number
+  itens?: ComposicaoItem[]
+  custo_calculado?: number       // calculado em runtime com UF da obra
 }
 
-export type ComposicaoInsumo = {
+// ─── Item de Composição Própria ───────────────────────────────────────────────
+export type ComposicaoItem = {
   id: string
   composicao_id: string
-  insumo_id: string
+  tipo: 'SINAPI_INSUMO' | 'SINAPI_COMPOSICAO' | 'MANUAL'
+  sinapi_codigo: string | null
+  descricao: string
+  unidade: string
   coeficiente: number
-  insumo?: SinapiInsumo
+  ordem: number
+  // join runtime:
+  insumo?: SinapiInsumo | null
+  composicao?: SinapiComposicao | null
 }
 
+// ─── Etapa ────────────────────────────────────────────────────────────────────
 export type Etapa = {
   id: string
   obra_id: string
@@ -97,26 +145,22 @@ export type Etapa = {
   ordem: number
 }
 
-export type EtapaComposicao = {
-  id: string
-  etapa_id: string
-  composicao_id: string
-  quantidade: number
-}
-
+// ─── Material ─────────────────────────────────────────────────────────────────
 export type Material = {
   id: string
   obra_id: string
   etapa_id: string | null
-  insumo_id: string
+  sinapi_codigo: string
+  descricao: string
+  unidade: string
   quantidade_total: number
   quantidade_comprada: number
   status_compra: 'nao_comprado' | 'parcial' | 'comprado'
   data_necessidade: string | null
-  insumo?: SinapiInsumo
   etapa?: Etapa
 }
 
+// ─── Medição ──────────────────────────────────────────────────────────────────
 export type Medicao = {
   id: string
   obra_id: string
@@ -128,6 +172,7 @@ export type Medicao = {
   created_at: string
 }
 
+// ─── Dashboard ────────────────────────────────────────────────────────────────
 export type AlertaPreditivo = {
   obra_id: string
   obra_nome: string
@@ -135,3 +180,18 @@ export type AlertaPreditivo = {
   dias_para_inicio: number
   materiais_pendentes: number
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Retorna o preço do insumo para a UF da obra, ou 0 se não disponível.
+export function getPrecoInsumo(insumo: SinapiInsumo, uf: string): number {
+  return insumo.precos?.[uf] ?? 0
+}
+
+// Lista de UFs brasileiras (mesma ordem do SINAPI ISE)
+export const SINAPI_UFS = [
+  'AC','AL','AM','AP','BA','CE','DF','ES','GO',
+  'MA','MG','MS','MT','PA','PB','PE','PI','PR',
+  'RJ','RN','RO','RR','RS','SC','SE','SP','TO',
+] as const
+
+export type SINAPI_UF = typeof SINAPI_UFS[number]

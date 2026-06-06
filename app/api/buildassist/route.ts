@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
-
 export async function POST(req: NextRequest) {
+  // Instanciado dentro do handler para não quebrar o build sem env vars
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || 'placeholder' })
   try {
-    const { messages, profileId } = await req.json()
+    const { messages, complex } = await req.json()
 
     const supabase = await createClient()
 
@@ -42,29 +40,32 @@ ${contextData}
 
 INSTRUÇÕES:
 - Responda sempre em português brasileiro, de forma direta e prática
-- Foque em antecipação: alertas de materiais, otimização de cronograma, clima
+- Foque em antecipação: alertas de materiais, otimização de cronograma, riscos
 - Nunca invente dados — use apenas o contexto fornecido
 - Seja conciso e objetivo (máximo 3 parágrafos por resposta)
 - Use listas quando for listar itens
 - Se houver etapas críticas (início ≤ 7 dias), sempre mencione
 - Se houver materiais pendentes, sempre mencione`
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
+    // Modelo: gpt-4o-mini para chat geral | gpt-4.1-mini para operações complexas (anexos, geração de orçamento)
+    const model = complex ? 'gpt-4.1-mini' : 'gpt-4o-mini'
+
+    const response = await openai.chat.completions.create({
+      model,
       max_tokens: 1024,
-      system: systemPrompt,
-      messages: messages.map((m: any) => ({
-        role: m.role,
-        content: m.content,
-      })),
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages.map((m: any) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
+      ],
     })
 
-    const content = response.content[0]
-    if (content.type !== 'text') {
-      throw new Error('Resposta inesperada da IA')
-    }
+    const content = response.choices[0]?.message?.content
+    if (!content) throw new Error('Resposta vazia da IA')
 
-    return NextResponse.json({ message: content.text })
+    return NextResponse.json({ message: content })
   } catch (error) {
     console.error('BuildAssist error:', error)
     return NextResponse.json({ error: 'Erro ao processar mensagem' }, { status: 500 })
