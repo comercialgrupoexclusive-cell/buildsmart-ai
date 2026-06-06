@@ -9,9 +9,6 @@ import { createClient } from '@/lib/supabase/client'
 import { Obra, Etapa, Material } from '@/lib/types'
 import { formatCurrency, diasAteData, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
 import Link from 'next/link'
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-} from 'recharts'
 
 type DashboardData = {
   obras: Obra[]
@@ -52,7 +49,8 @@ export default function DashboardPage() {
         .order('data_inicio'),
       supabase
         .from('materiais')
-        .select('*, obras(nome), sinapi_insumos(descricao)')
+        // schema v3: descricao é coluna direta, não via join sinapi_insumos
+        .select('*, obras(nome)')
         .neq('status_compra', 'comprado')
         .order('data_necessidade'),
     ])
@@ -67,7 +65,7 @@ export default function DashboardPage() {
     const materiais = (materiaisRes.data || []).map((m: any) => ({
       ...m,
       obra_nome: m.obras?.nome || '',
-      insumo_descricao: m.sinapi_insumos?.descricao || '',
+      insumo_descricao: m.descricao || '',   // schema v3: coluna direta
     }))
 
     setData({ obras, etapasProximas: etapas, materiaisPendentes: materiais, alertas: etapas.length })
@@ -136,17 +134,13 @@ export default function DashboardPage() {
     })
   }
 
-  // Tendência (dados fictícios — substituir por dados reais futuramente)
-  const trendData = [
-    { dia: 'Hoje', consumo: 12, estoque: 45 },
-    { dia: 'D+2', consumo: 18, estoque: 38 },
-    { dia: 'D+4', consumo: 8, estoque: 32 },
-    { dia: 'D+6', consumo: 22, estoque: 28 },
-    { dia: 'D+8', consumo: 15, estoque: 20 },
-    { dia: 'D+10', consumo: 30, estoque: 12 },
-    { dia: 'D+12', consumo: 10, estoque: 8 },
-    { dia: 'D+14', consumo: 5, estoque: 5 },
-  ]
+  // Composição de obras por status (dados reais)
+  const statusDistrib = [
+    { label: 'Ativa', count: data.obras.filter(o => o.status === 'ativa').length, color: '#10B981' },
+    { label: 'Orçamento', count: data.obras.filter(o => o.status === 'orcamento').length, color: 'var(--accent)' },
+    { label: 'Concluída', count: data.obras.filter(o => o.status === 'concluida').length, color: '#6B7280' },
+    { label: 'Paralisada', count: data.obras.filter(o => o.status === 'paralisada').length, color: '#F59E0B' },
+  ].filter(s => s.count > 0)
 
   if (loading) {
     return (
@@ -189,32 +183,52 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2 mb-6">
             <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
             <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Tendência: Consumo vs Estoque (15 dias)
+              Composição do Portfólio
             </h2>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={trendData}>
-              <defs>
-                <linearGradient id="colorConsumo" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="colorEstoque" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--success)" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="dia" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
-              <Tooltip
-                contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '12px' }}
-                labelStyle={{ color: 'var(--text-primary)' }}
-              />
-              <Area type="monotone" dataKey="consumo" stroke="var(--accent)" fill="url(#colorConsumo)" strokeWidth={2} name="Consumo" />
-              <Area type="monotone" dataKey="estoque" stroke="var(--success)" fill="url(#colorEstoque)" strokeWidth={2} name="Estoque" />
-            </AreaChart>
-          </ResponsiveContainer>
+
+          {data.obras.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 gap-3">
+              <HardHat size={36} style={{ color: 'var(--border)' }} />
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Cadastre obras para ver o painel</p>
+              <Link href="/obras" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>+ Nova obra</Link>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {/* Barras de status */}
+              {statusDistrib.map(({ label, count, color }) => {
+                const pct = data.obras.length > 0 ? (count / data.obras.length) * 100 : 0
+                return (
+                  <div key={label}>
+                    <div className="flex justify-between text-sm mb-1.5">
+                      <span style={{ color: 'var(--text-primary)' }}>{label}</span>
+                      <span className="font-semibold" style={{ color }}>{count} obra{count !== 1 ? 's' : ''} · {pct.toFixed(0)}%</span>
+                    </div>
+                    <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: color }} />
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Lista das obras mais recentes */}
+              <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                <p className="text-xs font-semibold mb-3" style={{ color: 'var(--text-secondary)' }}>OBRAS RECENTES</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {data.obras.slice(0, 4).map(o => (
+                    <Link key={o.id} href={`/obras/${o.id}`}
+                      className="flex items-center gap-2 p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{
+                        background: o.status === 'ativa' ? '#10B981' : o.status === 'orcamento' ? 'var(--accent)' : '#6B7280'
+                      }} />
+                      <span className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{o.nome}</span>
+                      <ChevronRight size={11} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Próximos 7 dias */}
