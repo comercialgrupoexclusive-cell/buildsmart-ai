@@ -92,7 +92,7 @@ export default function DashboardPage() {
         color: 'var(--danger)',
         titulo: `Compra urgente: ${m.insumo_descricao.substring(0, 38)}`,
         subtitulo: `${m.obra_nome}${dias !== null ? ` · vence em ${dias}d` : ''}`,
-        href: `/obras/${m.obra_id}`,
+        href: `/obras/${m.obra_id}?tab=materiais`,
       })
     })
 
@@ -133,7 +133,7 @@ export default function DashboardPage() {
       color: 'var(--text-secondary)',
       titulo: `${semPrazo.length} ${semPrazo.length === 1 ? 'material sem' : 'materiais sem'} data de compra`,
       subtitulo: 'Defina prazos para monitoramento automático',
-      href: '/obras',
+      href: '/materiais',
     })
   }
 
@@ -184,7 +184,7 @@ export default function DashboardPage() {
         />
         <KpiCard
           icon={AlertTriangle}
-          label="Alertas do Dia"
+          label="Próximas Ações"
           value={String(data.alertas)}
           color={data.alertas > 0 ? 'var(--warning)' : 'var(--success)'}
           hint={data.alertas > 0 ? 'etapas críticas' : 'tudo em dia'}
@@ -279,7 +279,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2 mb-4">
               <Package size={18} style={{ color: 'var(--warning)' }} />
               <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Materiais com compra pendente
+                Compras pendentes
               </h2>
             </div>
             <div className="flex flex-col gap-2">

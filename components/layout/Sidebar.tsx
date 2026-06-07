@@ -13,7 +13,7 @@ const NAV_ITEMS = [
   { href: '/obras',        label: 'Obras',           icon: HardHat },
   { href: '/orcamentos',   label: 'Orçamentos',      icon: FileText },
   { href: '/cronograma',   label: 'Cronograma',      icon: CalendarDays },
-  { href: '/materiais',    label: 'Materiais',       icon: Package },
+  { href: '/materiais',    label: 'Compras',         icon: Package },
   { href: '/medicoes',     label: 'Medições',        icon: ClipboardList },
   { href: '/servicos',     label: 'Composições',     icon: Wrench },
   { href: '/buildassist',  label: 'BuildAssist IA',  icon: BotMessageSquare },

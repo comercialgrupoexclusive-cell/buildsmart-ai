@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import {
-  Package, AlertTriangle, CheckCircle, Clock,
-  Plus, Pencil, Trash2, X,
+  Package, AlertTriangle, CheckCircle,
+  Plus, Pencil, Trash2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { diasAteData } from '@/lib/utils'
@@ -38,13 +38,21 @@ type MaterialRow = {
   etapas?: { nome: string } | null
 }
 
+function statusOperacional(material: MaterialRow) {
+  if (material.status_compra === 'comprado') return 'comprado'
+  const dias = material.data_necessidade ? diasAteData(material.data_necessidade) : null
+  if (dias !== null && dias <= 7) return 'agora'
+  if (material.status_compra === 'parcial') return 'parcial'
+  return 'pendente'
+}
+
 export function ObraMateriais({ obraId }: { obraId: string }) {
   const supabase = createClient()
   const [materiais, setMateriais] = useState<MaterialRow[]>([])
   const [etapas, setEtapas] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroEtapa, setFiltroEtapa] = useState('todas')
-  const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [filtroStatus, setFiltroStatus] = useState('abertas')
 
   // Modal editar / novo
   const [editando, setEditando] = useState<MaterialRow | null>(null)
@@ -151,7 +159,12 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
   const materiaisFiltrados = materiais.filter(m => {
     const matchEtapa = filtroEtapa === 'todas' || m.etapa_id === filtroEtapa
-    const matchStatus = filtroStatus === 'todos' || m.status_compra === filtroStatus
+    const estado = statusOperacional(m)
+    const matchStatus =
+      filtroStatus === 'todos' ||
+      (filtroStatus === 'abertas' && m.status_compra !== 'comprado') ||
+      filtroStatus === estado ||
+      filtroStatus === m.status_compra
     return matchEtapa && matchStatus
   })
 
@@ -184,10 +197,11 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       )}
 
       {/* KPIs mini */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
+          { label: 'Comprar agora', value: urgentes.length, color: urgentes.length > 0 ? 'var(--danger)' : 'var(--success)' },
+          { label: 'Em aberto', value: pendentes.length, color: pendentes.length > 0 ? 'var(--warning)' : 'var(--success)' },
           { label: 'Total', value: materiais.length, color: 'var(--accent)' },
-          { label: 'Pendentes', value: pendentes.length, color: pendentes.length > 0 ? 'var(--warning)' : 'var(--success)' },
           { label: 'Comprados', value: materiais.length - pendentes.length, color: 'var(--success)' },
         ].map(({ label, value, color }) => (
           <div key={label} className="card p-3 text-center">
@@ -200,6 +214,26 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       {/* Barra filtros + botão */}
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex gap-2 flex-wrap">
+          {[
+            { id: 'abertas', label: 'Em aberto' },
+            { id: 'agora', label: 'Comprar agora' },
+            { id: 'parcial', label: 'Parciais' },
+            { id: 'comprado', label: 'Comprados' },
+            { id: 'todos', label: 'Todos' },
+          ].map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setFiltroStatus(id)}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+              style={filtroStatus === id
+                ? { background: 'var(--accent)', color: 'white' }
+                : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="hidden">
           {/* Filtro status */}
           {[
             { id: 'todos', label: 'Todos' },
@@ -260,7 +294,76 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           action={<Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar material</Button>}
         />
       ) : (
-        <div className="card overflow-hidden">
+        <>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          {materiaisFiltrados.map(m => {
+            const falta = Math.max(0, m.quantidade_total - m.quantidade_comprada)
+            const diasParaNecessidade = m.data_necessidade ? diasAteData(m.data_necessidade) : null
+            const urgente = diasParaNecessidade !== null && diasParaNecessidade <= 7 && m.status_compra !== 'comprado'
+            const pctComprado = m.quantidade_total > 0 ? Math.min(100, (m.quantidade_comprada / m.quantidade_total) * 100) : 0
+
+            return (
+              <div key={m.id} className="card p-4 flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{m.descricao}</p>
+                    <div className="flex flex-wrap gap-2 mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      {m.sinapi_codigo && <span style={{ fontFamily: 'JetBrains Mono, monospace' }}>{m.sinapi_codigo}</span>}
+                      <span>{(m as any).etapas?.nome || 'Sem etapa'}</span>
+                    </div>
+                  </div>
+                  <span
+                    className="text-xs font-semibold px-2 py-1 rounded-full flex-shrink-0"
+                    style={{ color: urgente ? 'var(--danger)' : STATUS_DOT[m.status_compra], background: 'var(--bg-secondary)' }}
+                  >
+                    {urgente ? 'Comprar agora' : STATUS_LABEL[m.status_compra]}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <CompraInfo label="Precisa" value={`${m.quantidade_total} ${m.unidade}`} />
+                  <CompraInfo label="Comprado" value={`${m.quantidade_comprada} ${m.unidade}`} />
+                  <CompraInfo label="Falta" value={falta > 0 ? `${falta} ${m.unidade}` : '0'} color={falta > 0 ? 'var(--danger)' : 'var(--success)'} />
+                </div>
+
+                <div>
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+                    <div className="h-full rounded-full transition-all" style={{ width: `${pctComprado}%`, background: 'var(--success)' }} />
+                  </div>
+                  <div className="flex items-center justify-between mt-2 text-xs" style={{ color: urgente ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                    <span className="inline-flex items-center gap-1">
+                      {urgente && <AlertTriangle size={12} />}
+                      {m.data_necessidade ? new Date(m.data_necessidade + 'T12:00').toLocaleDateString('pt-BR') : 'Sem data'}
+                    </span>
+                    {diasParaNecessidade !== null && m.status_compra !== 'comprado' && (
+                      <span>{diasParaNecessidade <= 0 ? 'vence hoje' : `${diasParaNecessidade} dias`}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {m.status_compra !== 'comprado' && (
+                    <button
+                      onClick={() => marcarComprado(m)}
+                      className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-colors"
+                      style={{ background: 'rgba(16,185,129,0.14)', color: 'var(--success)' }}
+                    >
+                      <CheckCircle size={15} /> Marcar comprado
+                    </button>
+                  )}
+                  <button onClick={() => openEdit(m)} title="Editar" className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
+                    <Pencil size={15} style={{ color: 'var(--text-secondary)' }} />
+                  </button>
+                  <button onClick={() => handleDelete(m.id)} title="Remover" className="p-2 rounded-lg hover:bg-red-500/20 transition-colors">
+                    <Trash2 size={15} style={{ color: 'var(--danger)' }} />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="hidden">
           <div className="overflow-x-auto">
             <table className="w-full table-zebra">
               <thead>
@@ -369,6 +472,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
             </table>
           </div>
         </div>
+        </>
       )}
 
       {/* Modal editar/criar */}
@@ -470,6 +574,15 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           </div>
         </div>
       </Modal>
+    </div>
+  )
+}
+
+function CompraInfo({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="rounded-lg p-2" style={{ background: 'var(--bg-secondary)' }}>
+      <p className="text-[10px] font-medium uppercase" style={{ color: 'var(--text-secondary)' }}>{label}</p>
+      <p className="text-sm font-semibold truncate" style={{ color: color || 'var(--text-primary)' }}>{value}</p>
     </div>
   )
 }

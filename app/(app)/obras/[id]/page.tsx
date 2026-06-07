@@ -22,7 +22,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
   { id: 'cronograma', label: 'Cronograma' },
-  { id: 'materiais', label: 'Materiais' },
+  { id: 'materiais', label: 'Compras' },
   { id: 'medicoes', label: 'Medições' },
 ]
 
@@ -429,7 +429,7 @@ function ObraVisaoGeral({ obra }: { obra: Obra }) {
         </div>
         <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Obra em andamento</p>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          Use as abas acima para gerenciar orçamento, cronograma, materiais e medições.
+          Use as abas acima para gerenciar orçamento, cronograma, compras e medições.
         </p>
       </div>
     </div>
