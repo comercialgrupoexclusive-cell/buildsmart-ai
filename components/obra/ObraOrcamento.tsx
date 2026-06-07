@@ -591,136 +591,97 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   return (
     <div className="flex flex-col gap-4">
 
-      {/* ── Painéis fixos: KPIs gerais + composição de custos ── */}
-      <div className="sticky top-0 z-20 flex flex-col gap-3 pb-1">
-
-        {/* Card 1 — KPIs gerais da obra */}
-        <div
-          className="rounded-2xl overflow-hidden"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
-        >
-          <div className="p-5 flex flex-col gap-4">
-            {/* Ações do orçamento */}
-            <div className="flex items-center justify-end gap-2">
-              {itens.length > 0 && (
-                <Button size="sm" icon={<FileSpreadsheet size={14} />} variant="secondary" onClick={handleExportXLSX}>
-                  Exportar Excel
-                </Button>
+      {/* ── Card 1 — KPIs gerais da obra (rola normalmente, não fixo) ── */}
+      <div
+        className="rounded-2xl overflow-hidden"
+        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
+      >
+        <div className="p-4 flex flex-col gap-3">
+          {/* Ações do orçamento */}
+          <div className="flex items-center justify-end gap-2">
+            {itens.length > 0 && (
+              <Button size="sm" icon={<FileSpreadsheet size={14} />} variant="secondary" onClick={handleExportXLSX}>
+                Exportar Excel
+              </Button>
+            )}
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => setShowMenu(v => !v)}
+                className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <MoreHorizontal size={16} />
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 top-full mt-1.5 w-48 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                  {!isReadonly ? (
+                    <button onClick={handleFinalizar}
+                      className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                      style={{ color: 'var(--text-primary)' }}>
+                      <Lock size={13} style={{ color: 'var(--text-secondary)' }} /> Finalizar orçamento
+                    </button>
+                  ) : (
+                    <button onClick={handleReabrir}
+                      className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                      style={{ color: 'var(--text-primary)' }}>
+                      <Unlock size={13} style={{ color: 'var(--text-secondary)' }} /> Reabrir (nova versão)
+                    </button>
+                  )}
+                </div>
               )}
-              <div className="relative" ref={menuRef}>
-                <button
-                  onClick={() => setShowMenu(v => !v)}
-                  className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  <MoreHorizontal size={16} />
-                </button>
-                {showMenu && (
-                  <div className="absolute right-0 top-full mt-1.5 w-48 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
-                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                    {!isReadonly ? (
-                      <button onClick={handleFinalizar}
-                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                        style={{ color: 'var(--text-primary)' }}>
-                        <Lock size={13} style={{ color: 'var(--text-secondary)' }} /> Finalizar orçamento
-                      </button>
-                    ) : (
-                      <button onClick={handleReabrir}
-                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                        style={{ color: 'var(--text-primary)' }}>
-                        <Unlock size={13} style={{ color: 'var(--text-secondary)' }} /> Reabrir (nova versão)
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Tira de KPIs discretos */}
-            <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-              <KpiMini label="Área construída" value={areaM2 && areaM2 > 0 ? `${areaM2.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} m²` : '—'} />
-              <KpiMini label="Custo direto / m²" value={areaM2 && areaM2 > 0 ? formatCurrency(subtotal / areaM2) : '—'} />
-              <KpiMini label="Custo final / m²" value={custoPorM2 !== null ? formatCurrency(custoPorM2) : '—'} />
-              <KpiMini label="Etapas" value={String(etapas.length)} />
-              <KpiMini label="Composições" value={String(itens.length)} />
             </div>
           </div>
+
+          {/* Tira de KPIs discretos */}
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-2">
+            <KpiMini label="Área construída" value={areaM2 && areaM2 > 0 ? `${areaM2.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} m²` : '—'} />
+            <KpiMini label="Custo direto / m²" value={areaM2 && areaM2 > 0 ? formatCurrency(subtotal / areaM2) : '—'} />
+            <KpiMini label="Custo final / m²" value={custoPorM2 !== null ? formatCurrency(custoPorM2) : '—'} />
+            <KpiMini label="Etapas" value={String(etapas.length)} />
+            <KpiMini label="Composições" value={String(itens.length)} />
+          </div>
         </div>
+      </div>
 
-        {/* Card 2 — composição de custos (material, mão de obra, direto, BDI, total) */}
-        <div
-          className="rounded-2xl overflow-hidden"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
-        >
-          <div className="p-5 flex flex-col gap-5">
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-              <CustoCard
-                icon={Boxes} cor="var(--accent)" label="Custo Material"
-                value={formatCurrency(custoPorCategoria.material)}
-                hint={subtotal > 0 ? `${((custoPorCategoria.material / subtotal) * 100).toFixed(1)}% do custo direto` : undefined}
-              />
-              <CustoCard
-                icon={Users} cor="var(--success)" label="Custo Mão de Obra"
-                value={formatCurrency(custoPorCategoria.maoDeObra)}
-                hint={subtotal > 0 ? `${((custoPorCategoria.maoDeObra / subtotal) * 100).toFixed(1)}% do custo direto` : undefined}
-              />
-              <CustoCard
-                icon={FileText} cor="var(--text-secondary)" label="Valor Direto"
-                value={formatCurrency(subtotal)} hint="Sem BDI"
-              />
-              <CustoCard icon={Percent} cor="var(--warning)" label="BDI" hint={formatCurrency(totalBdi)}>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    type="number" value={bdi}
-                    onChange={e => setBdi(Number(e.target.value))}
-                    onBlur={handleUpdateBdi}
-                    disabled={isReadonly}
-                    className="input-base w-16 text-center py-1 text-sm"
-                    min={0} max={100}
-                  />
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
-                </div>
-              </CustoCard>
-              <CustoCard
-                icon={Wallet} cor="var(--accent)" label="Valor Total da Obra"
-                value={formatCurrency(totalGeral)} hint="Com BDI" highlight
-              />
-            </div>
-
-            {/* Distribuição do custo direto: materiais vs. mão de obra */}
-            {subtotal > 0 && (() => {
-              const materialValor = custoPorCategoria.material
-              const restanteValor = Math.max(subtotal - materialValor, 0)
-              const materialPct = subtotal > 0 ? (materialValor / subtotal) * 100 : 0
-              const restantePct = Math.max(100 - materialPct, 0)
-              return (
-                <div className="pt-1">
-                  <p className="text-xs uppercase tracking-wide font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
-                    Distribuição do custo direto
-                  </p>
-                  <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: 'var(--bg-secondary)' }}>
-                    {materialPct > 0 && (
-                      <div style={{ width: `${materialPct}%`, background: 'var(--accent)' }}
-                        title={`Material: ${formatCurrency(materialValor)} (${materialPct.toFixed(1)}%)`} />
-                    )}
-                    {restantePct > 0 && (
-                      <div style={{ width: `${restantePct}%`, background: 'var(--success)' }}
-                        title={`Mão de obra: ${formatCurrency(restanteValor)} (${restantePct.toFixed(1)}%)`} />
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3">
-                    <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      <span className="w-2 h-2 rounded-full" style={{ background: 'var(--accent)' }} />
-                      Material <strong style={{ color: 'var(--text-primary)' }}>{materialPct.toFixed(1)}%</strong>
-                    </span>
-                    <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      <span className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
-                      Mão de obra <strong style={{ color: 'var(--text-primary)' }}>{restantePct.toFixed(1)}%</strong>
-                    </span>
-                  </div>
-                </div>
-              )
-            })()}
+      {/* ── Card 2 — composição de custos (fixo ao rolar) ── */}
+      <div
+        className="sticky top-0 z-20 rounded-2xl overflow-hidden"
+        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
+      >
+        <div className="px-4 py-3 flex flex-col gap-2.5">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+            <CustoCard
+              icon={Boxes} cor="var(--accent)" label="Custo Material"
+              value={formatCurrency(custoPorCategoria.material)}
+              hint={subtotal > 0 ? `${((custoPorCategoria.material / subtotal) * 100).toFixed(1)}% do direto` : undefined}
+            />
+            <CustoCard
+              icon={Users} cor="var(--success)" label="Mão de Obra"
+              value={formatCurrency(custoPorCategoria.maoDeObra)}
+              hint={subtotal > 0 ? `${((custoPorCategoria.maoDeObra / subtotal) * 100).toFixed(1)}% do direto` : undefined}
+            />
+            <CustoCard
+              icon={FileText} cor="var(--text-secondary)" label="Valor Direto"
+              value={formatCurrency(subtotal)} hint="Sem BDI"
+            />
+            <CustoCard icon={Percent} cor="var(--warning)" label="BDI" hint={formatCurrency(totalBdi)}>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number" value={bdi}
+                  onChange={e => setBdi(Number(e.target.value))}
+                  onBlur={handleUpdateBdi}
+                  disabled={isReadonly}
+                  className="input-base w-14 text-center py-0.5 text-sm"
+                  min={0} max={100}
+                />
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
+              </div>
+            </CustoCard>
+            <CustoCard
+              icon={Wallet} cor="var(--accent)" label="Total da Obra"
+              value={formatCurrency(totalGeral)} hint="Com BDI" highlight
+            />
           </div>
         </div>
       </div>
@@ -987,22 +948,24 @@ function CustoCard({ icon: Icon, cor, label, value, hint, highlight, children }:
 }) {
   return (
     <div
-      className="flex flex-col gap-2 px-4 py-3 rounded-xl"
+      className="flex flex-col gap-1 px-3 py-2 rounded-xl"
       style={{
         background: highlight ? 'color-mix(in srgb, var(--accent) 10%, var(--bg-secondary))' : 'var(--bg-secondary)',
         border: `1px solid ${highlight ? 'var(--accent)' : 'var(--border)'}`,
       }}
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <Icon size={14} style={{ color: cor }} className="flex-shrink-0" />
-        <span className="text-xs font-medium truncate" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <div className="flex items-center gap-1.5 min-w-0">
+        <Icon size={12} style={{ color: cor }} className="flex-shrink-0" />
+        <span className="text-[10px] font-medium truncate" style={{ color: 'var(--text-secondary)' }}>{label}</span>
       </div>
-      {children ?? (
-        <span className="text-base font-semibold leading-tight truncate" style={{ color: highlight ? 'var(--accent)' : 'var(--text-primary)' }}>
-          {value}
-        </span>
-      )}
-      {hint && <span className="text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>{hint}</span>}
+      <div className="flex items-baseline gap-1.5 min-w-0">
+        {children ?? (
+          <span className="text-sm font-semibold leading-tight truncate" style={{ color: highlight ? 'var(--accent)' : 'var(--text-primary)' }}>
+            {value}
+          </span>
+        )}
+        {hint && <span className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>{hint}</span>}
+      </div>
     </div>
   )
 }
