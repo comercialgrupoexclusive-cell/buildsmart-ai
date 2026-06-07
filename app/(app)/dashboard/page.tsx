@@ -279,7 +279,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2 mb-4">
               <Package size={18} style={{ color: 'var(--warning)' }} />
               <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Compras pendentes
+                Compras de materiais pendentes
               </h2>
             </div>
             <div className="flex flex-col gap-2">

@@ -22,7 +22,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
   { id: 'cronograma', label: 'Cronograma' },
-  { id: 'materiais', label: 'Compras' },
+  { id: 'materiais', label: 'Compras de Materiais' },
   { id: 'medicoes', label: 'Medições' },
 ]
 
