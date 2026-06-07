@@ -109,7 +109,7 @@ export default function MedicoesPage() {
           )}
           {obraId && (
             <Button icon={<Plus size={16} />} onClick={() => setShowModal(true)}>
-              Nova Medição
+              Novo registro
             </Button>
           )}
         </div>
@@ -119,7 +119,7 @@ export default function MedicoesPage() {
       {avancoPorEtapa.length > 0 && (
         <div className="card p-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Avanço Físico Global</h2>
+            <h2 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>Avanço físico previsto / executado</h2>
             <span className="text-2xl font-bold" style={{ color: 'var(--accent)' }}>{formatPercent(avancoGlobal)}</span>
           </div>
           <div className="w-full h-3 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
@@ -145,16 +145,16 @@ export default function MedicoesPage() {
           <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
         </div>
       ) : !obraId ? (
-        <EmptyState icon={ClipboardList} title="Selecione uma obra" description="Escolha uma obra para ver as medições." />
+        <EmptyState icon={ClipboardList} title="Selecione uma obra" description="Escolha uma obra para ver diário, avanço e medições." />
       ) : medicoes.length === 0 ? (
-        <EmptyState icon={ClipboardList} title="Nenhuma medição registrada"
+        <EmptyState icon={ClipboardList} title="Nenhum registro diário"
           description="Registre o percentual executado por etapa para acompanhar o avanço físico da obra."
-          action={<Button icon={<Plus size={16} />} onClick={() => setShowModal(true)}>Nova Medição</Button>}
+          action={<Button icon={<Plus size={16} />} onClick={() => setShowModal(true)}>Novo registro diário</Button>}
         />
       ) : (
         <div className="card overflow-hidden">
           <div className="px-5 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
-            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Histórico de Medições</h3>
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Diário e medições registradas</h3>
           </div>
           <table className="w-full table-zebra">
             <thead>
@@ -193,7 +193,7 @@ export default function MedicoesPage() {
         </div>
       )}
 
-      <Modal open={showModal} onClose={() => { setShowModal(false); resetForm() }} title="Nova Medição" size="md">
+      <Modal open={showModal} onClose={() => { setShowModal(false); resetForm() }} title="Novo registro diário / medição" size="md">
         <div className="flex flex-col gap-4">
           <Select
             label="Etapa (opcional)"
@@ -222,7 +222,7 @@ export default function MedicoesPage() {
             label="Observação"
             value={form.observacao}
             onChange={e => setForm(f => ({ ...f, observacao: e.target.value }))}
-            placeholder="Anotações da medição..."
+            placeholder="O que foi executado, equipe presente, fotos pendentes, decisões e observações..."
           />
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" className="flex-1" onClick={() => { setShowModal(false); resetForm() }}>Cancelar</Button>

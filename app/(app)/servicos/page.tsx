@@ -81,9 +81,15 @@ function infoDoItem(it: ComposicaoItem, uf: string): { codigo: string; descricao
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-export default function ServicosPage() {
+export default function ServicosPage({
+  initialTab = 'composicoes',
+  embedded = false,
+}: {
+  initialTab?: 'composicoes' | 'insumos'
+  embedded?: boolean
+}) {
   const supabase = createClient()
-  const [aba, setAba] = useState<'composicoes' | 'insumos'>('composicoes')
+  const [aba, setAba] = useState<'composicoes' | 'insumos'>(initialTab)
 
   const [composicoes, setComposicoes] = useState<ComposicaoPropria[]>([])
   const [loading, setLoading] = useState(true)
@@ -179,7 +185,7 @@ export default function ServicosPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Abas */}
+      {!embedded && (
       <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
         <button
           onClick={() => setAba('composicoes')}
@@ -200,6 +206,7 @@ export default function ServicosPage() {
           <Package size={15} /> Insumos
         </button>
       </div>
+      )}
 
       {aba === 'insumos' ? (
         <InsumosTab />

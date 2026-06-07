@@ -1,7 +1,10 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Send, Bot, User, Cloud, Package, Users2, Loader2, RefreshCw } from 'lucide-react'
+import {
+  Bot, CalendarDays, Cloud, FileSearch, FileText, Loader2,
+  Package, RefreshCw, Send, Upload, Users2,
+} from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
 
@@ -28,13 +31,12 @@ export default function BuildAssistPage() {
   const [openingMsg, setOpeningMsg] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    loadContext()
-  }, [])
+  useEffect(() => { loadContext() }, [])
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  function aplicarPrompt(texto: string) {
+    setInput(texto)
+  }
 
   async function loadContext() {
     const [etapasRes, materiaisRes] = await Promise.all([
@@ -46,7 +48,7 @@ export default function BuildAssistPage() {
         .limit(5),
       supabase
         .from('materiais')
-        .select('*, sinapi_insumos(descricao), obras(nome)')
+        .select('*, obras(nome)')
         .neq('status_compra', 'comprado')
         .limit(5),
     ])
@@ -54,56 +56,49 @@ export default function BuildAssistPage() {
     const etapas = etapasRes.data || []
     const materiais = materiaisRes.data || []
 
-    // Montar mensagem de abertura contextual
-    let msg = `Olá${currentProfile ? `, ${currentProfile.name}` : ''}! 👋 `
+    let msg = `Olá${currentProfile ? `, ${currentProfile.name}` : ''}! `
     if (etapas.length > 0) {
       const prox = etapas[0]
       const dias = Math.round((new Date(prox.data_inicio).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-      msg += `A etapa **${prox.nome}** (${prox.obras?.nome}) começa em ${dias} dias. `
+      msg += `A etapa **${prox.nome}** (${prox.obras?.nome}) está prevista para começar em ${dias} dias. `
     }
     if (materiais.length > 0) {
-      msg += `Há ${materiais.length} ${materiais.length === 1 ? 'material pendente' : 'materiais pendentes'} de compra. `
+      msg += `Há ${materiais.length} ${materiais.length === 1 ? 'material previsto' : 'materiais previstos'} para acompanhamento. `
     }
-    msg += 'Como posso ajudar?'
+    msg += 'Posso ajudar a interpretar projetos, organizar orçamento, prever materiais e apoiar decisões da obra.'
     setOpeningMsg(msg)
 
-    // Insights automáticos
     const newInsights: Insight[] = []
-
     if (materiais.length > 0) {
       newInsights.push({
         icon: <Package size={16} />,
-        label: 'SUPRIMENTOS',
-        title: `${materiais.length} itens pendentes`,
-        description: `${materiais[0]?.sinapi_insumos?.descricao || 'Material'} em ${materiais[0]?.obras?.nome || 'obra'}`,
+        label: 'MATERIAIS',
+        title: `${materiais.length} materiais previstos`,
+        description: `${materiais[0]?.descricao || 'Material'} em ${materiais[0]?.obras?.nome || 'obra'}`,
         color: 'var(--warning)',
       })
     }
-
     if (etapas.length > 0) {
       newInsights.push({
         icon: <Users2 size={16} />,
-        label: 'EQUIPE',
-        title: 'Próxima etapa crítica',
-        description: `${etapas[0].nome} começa em breve`,
+        label: 'CRONOGRAMA',
+        title: 'Próxima etapa prevista',
+        description: `${etapas[0].nome} está na sequência da obra`,
         color: 'var(--accent)',
       })
     }
-
     newInsights.push({
       icon: <Cloud size={16} />,
       label: 'CLIMA',
-      title: 'Janela de oportunidade',
-      description: 'Configure a API de clima para alertas meteorológicos',
+      title: 'Previsão do tempo',
+      description: 'Clima poderá apoiar decisões de execução no MVP online',
       color: 'var(--success)',
     })
-
     setInsights(newInsights)
   }
 
   async function sendMessage() {
     if (!input.trim() || loading) return
-
     const userMsg: Message = { role: 'user', content: input.trim() }
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
@@ -114,26 +109,17 @@ export default function BuildAssistPage() {
       const res = await fetch('/api/buildassist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: newMessages,
-          profileId: currentProfile?.id,
-        }),
+        body: JSON.stringify({ messages: newMessages, profileId: currentProfile?.id }),
       })
-
       const data = await res.json()
-
-      if (data.message) {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.message }])
-      } else {
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: 'Desculpe, ocorreu um erro ao processar sua mensagem. Verifique a configuração da API.',
-        }])
-      }
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.message || 'Não consegui processar agora. Verifique a configuração da IA.',
+      }])
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Erro de conexão. Verifique sua chave de API Anthropic nas configurações.',
+        content: 'Erro de conexão com a IA. Nesta fase local, use os botões para preparar prompts e validar o fluxo.',
       }])
     } finally {
       setLoading(false)
@@ -149,9 +135,7 @@ export default function BuildAssistPage() {
 
   return (
     <div className="flex gap-4 h-[calc(100vh-8rem)]">
-      {/* Chat principal */}
       <div className="flex-1 flex flex-col card overflow-hidden">
-        {/* Mensagem de abertura */}
         {messages.length === 0 && openingMsg && (
           <div className="p-4 border-b" style={{ borderColor: 'var(--border)', background: 'rgba(59,123,248,0.05)' }}>
             <div className="flex items-start gap-3">
@@ -164,7 +148,6 @@ export default function BuildAssistPage() {
           </div>
         )}
 
-        {/* Histórico de mensagens */}
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
           {messages.map((msg, i) => (
             <div key={i} className={`flex items-start gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
@@ -174,15 +157,13 @@ export default function BuildAssistPage() {
               >
                 {msg.role === 'user'
                   ? <span className="text-white text-xs font-bold">{currentProfile?.name.charAt(0).toUpperCase() || 'U'}</span>
-                  : <Bot size={14} className="text-white" />
-                }
+                  : <Bot size={14} className="text-white" />}
               </div>
               <div
                 className="max-w-[80%] p-3 rounded-xl text-sm leading-relaxed"
                 style={msg.role === 'user'
                   ? { background: 'var(--accent)', color: 'white', borderRadius: '12px 4px 12px 12px' }
-                  : { background: 'var(--bg-secondary)', color: 'var(--text-primary)', borderRadius: '4px 12px 12px 12px' }
-                }
+                  : { background: 'var(--bg-secondary)', color: 'var(--text-primary)', borderRadius: '4px 12px 12px 12px' }}
                 dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }}
               />
             </div>
@@ -198,18 +179,35 @@ export default function BuildAssistPage() {
               </div>
             </div>
           )}
-
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
-        <div className="p-4 border-t" style={{ borderColor: 'var(--border)' }}>
+        <div className="p-4 border-t flex flex-col gap-3" style={{ borderColor: 'var(--border)' }}>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            {[
+              { icon: Upload, label: 'Enviar projeto', prompt: 'Vou enviar um projeto. Ajude a interpretar os principais dados para orçamento, cronograma e materiais.' },
+              { icon: FileSearch, label: 'Ler arquivos da obra', prompt: 'Leia os arquivos anexados desta obra e resuma informações úteis para orçamento, cronograma e materiais.' },
+              { icon: FileText, label: 'Ajudar no orçamento', prompt: 'Com base na obra atual, sugira um caminho simples para montar o orçamento executivo.' },
+              { icon: CalendarDays, label: 'Gerar previsões', prompt: 'Gere previsões objetivas de próximas etapas, materiais e pontos de decisão da obra.' },
+            ].map(action => (
+              <button
+                key={action.label}
+                onClick={() => aplicarPrompt(action.prompt)}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--bg-secondary)]"
+                style={{ color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+              >
+                <action.icon size={14} style={{ color: 'var(--accent)' }} />
+                {action.label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex gap-3">
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-              placeholder="Pergunte sobre otimização, clima ou suprimentos..."
+              placeholder="Pergunte sobre projeto, orçamento, cronograma, materiais ou previsões..."
               className="input-base flex-1"
               disabled={loading}
             />
@@ -225,7 +223,7 @@ export default function BuildAssistPage() {
           {messages.length > 0 && (
             <button
               onClick={() => setMessages([])}
-              className="mt-2 flex items-center gap-1.5 text-xs transition-colors"
+              className="flex items-center gap-1.5 text-xs transition-colors"
               style={{ color: 'var(--text-secondary)' }}
             >
               <RefreshCw size={12} /> Nova conversa
@@ -234,15 +232,12 @@ export default function BuildAssistPage() {
         </div>
       </div>
 
-      {/* Painel de insights */}
       <div className="w-64 flex flex-col gap-3">
         <h2 className="text-sm font-semibold px-1" style={{ color: 'var(--text-secondary)' }}>
-          Insights automáticos
+          Previsões do sistema
         </h2>
         {insights.map((insight, i) => (
-          <div key={i} className="card p-4 cursor-pointer hover:scale-[1.02] transition-transform" onClick={() => {
-            setInput(`Me dê mais detalhes sobre: ${insight.title}`)
-          }}>
+          <div key={i} className="card p-4 cursor-pointer hover:scale-[1.02] transition-transform" onClick={() => setInput(`Me dê mais detalhes sobre: ${insight.title}`)}>
             <div className="flex items-center gap-2 mb-2">
               <div className="w-6 h-6 rounded-md flex items-center justify-center" style={{ background: `${insight.color}20`, color: insight.color }}>
                 {insight.icon}
@@ -255,12 +250,6 @@ export default function BuildAssistPage() {
             <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{insight.description}</p>
           </div>
         ))}
-
-        <div className="card p-4 border-dashed" style={{ borderStyle: 'dashed' }}>
-          <p className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>
-            Clique em um insight para perguntar ao BuildAssist sobre ele
-          </p>
-        </div>
       </div>
     </div>
   )

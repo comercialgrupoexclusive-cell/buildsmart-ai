@@ -8,6 +8,8 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import ServicosPage from '@/app/(app)/servicos/page'
+import SinapiPage from '@/app/(app)/sinapi/page'
 
 type OrcamentoComObra = {
   id: string
@@ -28,6 +30,7 @@ export default function OrcamentosPage() {
   const [orcamentos, setOrcamentos] = useState<OrcamentoComObra[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<string>('todos')
+  const [aba, setAba] = useState<'orcamentos' | 'composicoes' | 'insumos' | 'base'>('orcamentos')
 
   useEffect(() => {
     loadOrcamentos()
@@ -74,6 +77,34 @@ export default function OrcamentosPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <div>
+        <div className="flex gap-1 p-1 rounded-xl w-fit flex-wrap" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          {[
+            { id: 'orcamentos', label: 'Orçamentos' },
+            { id: 'composicoes', label: 'Composições' },
+            { id: 'insumos', label: 'Insumos' },
+            { id: 'base', label: 'Base de referência' },
+          ].map(item => (
+            <button
+              key={item.id}
+              onClick={() => setAba(item.id as typeof aba)}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+              style={aba === item.id
+                ? { background: 'var(--accent)', color: 'white' }
+                : { color: 'var(--text-secondary)' }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {aba === 'composicoes' && <ServicosPage initialTab="composicoes" embedded />}
+      {aba === 'insumos' && <ServicosPage initialTab="insumos" embedded />}
+      {aba === 'base' && <SinapiPage />}
+
+      {aba === 'orcamentos' && (
+      <>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex gap-2 flex-wrap">
           {['todos', 'rascunho', 'ativo', 'finalizado'].map(s => (
@@ -161,6 +192,8 @@ export default function OrcamentosPage() {
             </Link>
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   )

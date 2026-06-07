@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, use, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -15,15 +15,16 @@ import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
+import { ObraArquivos } from '@/components/obra/ObraArquivos'
 
-type Tab = 'visao-geral' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
   { id: 'cronograma', label: 'Cronograma' },
-  { id: 'materiais', label: 'Compras de Materiais' },
-  { id: 'medicoes', label: 'Medições' },
+  { id: 'materiais', label: 'Materiais' },
+  { id: 'medicoes', label: 'Diário / Medições' },
 ]
 
 export default function ObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -35,11 +36,11 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   const [obra, setObra] = useState<Obra | null>(null)
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab') as Tab | null
-    return (t && TABS.some(x => x.id === t)) ? t : 'visao-geral'
+    return (t && (t === 'arquivos' || TABS.some(x => x.id === t))) ? t : 'visao-geral'
   })
   const [loading, setLoading] = useState(true)
 
-  // Menu de ações + edição/exclusão/duplicação
+  // Menu de aÃ§Ãµes + ediÃ§Ã£o/exclusÃ£o/duplicaÃ§Ã£o
   const [menuOpen, setMenuOpen] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -120,7 +121,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     const { data: nova } = await supabase
       .from('obras')
       .insert({
-        nome: `${obra.nome} (cópia)`,
+        nome: `${obra.nome} (cÃ³pia)`,
         endereco: obra.endereco,
         responsavel: obra.responsavel,
         data_inicio: null,
@@ -134,7 +135,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       .single()
 
     if (nova) {
-      // Copia o orçamento (cabeçalho) mais recente, se existir
+      // Copia o orÃ§amento (cabeÃ§alho) mais recente, se existir
       const { data: orcs } = await supabase
         .from('orcamentos')
         .select('tipo, bdi_percentual, status, versao')
@@ -158,7 +159,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
 
   async function handleDelete() {
     if (!obra) return
-    if (!confirm(`Excluir definitivamente "${obra.nome}"? Todos os dados vinculados (orçamento, cronograma, materiais, medições) serão removidos. Esta ação não pode ser desfeita.`)) return
+    if (!confirm(`Excluir definitivamente "${obra.nome}"? Todos os dados vinculados (orÃ§amento, cronograma, materiais, mediÃ§Ãµes) serÃ£o removidos. Esta aÃ§Ã£o nÃ£o pode ser desfeita.`)) return
     setDeleting(true)
     setMenuOpen(false)
     await supabase.from('obras').delete().eq('id', id)
@@ -177,8 +178,8 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   if (!obra) {
     return (
       <div className="text-center py-16">
-        <p style={{ color: 'var(--text-secondary)' }}>Obra não encontrada.</p>
-        <Link href="/obras" className="text-sm mt-2 inline-block" style={{ color: 'var(--accent)' }}>← Voltar para Obras</Link>
+        <p style={{ color: 'var(--text-secondary)' }}>Obra nÃ£o encontrada.</p>
+        <Link href="/obras" className="text-sm mt-2 inline-block" style={{ color: 'var(--accent)' }}>â† Voltar para Obras</Link>
       </div>
     )
   }
@@ -239,13 +240,13 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
                     <option value="concluida" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Concluída</option>
                   </select>
 
-                  {/* Menu de ações: editar / duplicar / excluir */}
+                  {/* Menu de aÃ§Ãµes: editar / duplicar / excluir */}
                   <div className="relative" ref={menuRef}>
                     <button
                       onClick={() => setMenuOpen(v => !v)}
                       className="p-2 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
                       style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-                      title="Mais ações"
+                      title="Mais aÃ§Ãµes"
                     >
                       <MoreVertical size={16} />
                     </button>
@@ -306,11 +307,22 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
             {label}
           </button>
         ))}
+        <button
+          onClick={() => setTab('arquivos')}
+          className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+          style={tab === 'arquivos'
+            ? { background: 'var(--accent)', color: 'white' }
+            : { color: 'var(--text-secondary)' }
+          }
+        >
+          Arquivos
+        </button>
       </div>
 
-      {/* Conteúdo da tab */}
+      {/* ConteÃºdo da tab */}
       <div className="animate-enter">
         {tab === 'visao-geral' && <ObraVisaoGeral obra={obra} />}
+        {tab === 'arquivos' && <ObraArquivos obraId={id} />}
         {tab === 'orcamento' && <ObraOrcamento obraId={id} areaM2={obra.area_m2} obraName={obra.nome} obraUf={obra.uf || 'SP'} />}
         {tab === 'cronograma' && <ObraCronograma obraId={id} />}
         {tab === 'materiais' && <ObraMateriais obraId={id} />}
@@ -324,20 +336,20 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
             label="Nome da obra *"
             value={editForm.nome}
             onChange={e => setEditForm(f => ({ ...f, nome: e.target.value }))}
-            placeholder="Ex: Residência Silva - Caxias do Sul"
+            placeholder="Ex: ResidÃªncia Silva - Caxias do Sul"
           />
           <Input
             label="Endereço"
             value={editForm.endereco}
             onChange={e => setEditForm(f => ({ ...f, endereco: e.target.value }))}
-            placeholder="Rua, número, bairro, cidade"
+            placeholder="Rua, nÃºmero, bairro, cidade"
           />
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Responsável técnico"
+              label="Responsável tÃ©cnico"
               value={editForm.responsavel}
               onChange={e => setEditForm(f => ({ ...f, responsavel: e.target.value }))}
-              placeholder="Engenheiro responsável"
+              placeholder="Engenheiro responsÃ¡vel"
             />
             <Input
               label="Área construída (m²)"
@@ -406,13 +418,13 @@ function ObraVisaoGeral({ obra }: { obra: Obra }) {
         <dl className="flex flex-col gap-3">
           {[
             { label: 'Nome', value: obra.nome },
-            { label: 'Endereço', value: obra.endereco || '—' },
-            { label: 'Responsável', value: obra.responsavel || '—' },
+            { label: 'Endereço', value: obra.endereco || 'â€”' },
+            { label: 'Responsável', value: obra.responsavel || 'â€”' },
             { label: 'Status', value: STATUS_OBRA_LABEL[obra.status] },
             { label: 'Data de início', value: formatDate(obra.data_inicio) },
             { label: 'Previsão de conclusão', value: formatDate(obra.data_previsao) },
-            { label: 'Área construída', value: obra.area_m2 ? `${obra.area_m2} m²` : '—' },
-            { label: 'UF (preços SINAPI)', value: obra.uf || '—' },
+            { label: 'Área construída', value: obra.area_m2 ? `${obra.area_m2} mÂ²` : 'â€”' },
+            { label: 'UF (preços SINAPI)', value: obra.uf || 'â€”' },
             { label: 'Criado em', value: formatDate(obra.created_at) },
           ].map(({ label, value }) => (
             <div key={label} className="flex justify-between text-sm">
@@ -429,7 +441,7 @@ function ObraVisaoGeral({ obra }: { obra: Obra }) {
         </div>
         <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Obra em andamento</p>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          Use as abas acima para gerenciar orçamento, cronograma, compras e medições.
+          Use as abas acima para gerenciar orÃ§amento, cronograma, compras e mediÃ§Ãµes.
         </p>
       </div>
     </div>

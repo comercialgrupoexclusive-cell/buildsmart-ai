@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import {
@@ -52,7 +52,7 @@ export default function DashboardPage() {
         .order('data_inicio'),
       supabase
         .from('materiais')
-        // schema v3: descricao é coluna direta, não via join sinapi_insumos
+        // schema v3: descricao Ã© coluna direta, nÃ£o via join sinapi_insumos
         .select('*, obras(nome)')
         .neq('status_compra', 'comprado')
         .order('data_necessidade'),
@@ -78,10 +78,10 @@ export default function DashboardPage() {
   const obrasAtivas = data.obras.filter(o => o.status === 'ativa').length
   const orcamentosAndamento = data.obras.filter(o => o.status === 'orcamento').length
 
-  // ─── Painel preditivo: ações calculadas dos dados já carregados ───────────
+  // â”€â”€â”€ Painel preditivo: aÃ§Ãµes calculadas dos dados jÃ¡ carregados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const acoesPrioritarias: AcaoPrioritaria[] = []
 
-  // 1. Materiais com prazo ≤ 3 dias
+  // 1. Materiais com prazo â‰¤ 3 dias
   data.materiaisPendentes
     .filter(m => m.data_necessidade && diasAteData(m.data_necessidade) <= 3)
     .slice(0, 2)
@@ -90,13 +90,13 @@ export default function DashboardPage() {
       acoesPrioritarias.push({
         icon: ShoppingCart,
         color: 'var(--danger)',
-        titulo: `Compra urgente: ${m.insumo_descricao.substring(0, 38)}`,
-        subtitulo: `${m.obra_nome}${dias !== null ? ` · vence em ${dias}d` : ''}`,
+        titulo: `Material previsto: ${m.insumo_descricao.substring(0, 38)}`,
+        subtitulo: `${m.obra_nome}${dias !== null ? ` · previsto em ${dias}d` : ''}`,
         href: `/obras/${m.obra_id}?tab=materiais`,
       })
     })
 
-  // 2. Etapas críticas (≤ 5 dias)
+  // 2. Etapas crÃ­ticas (â‰¤ 5 dias)
   data.etapasProximas
     .filter(e => e.data_inicio && diasAteData(e.data_inicio) <= 5)
     .slice(0, 2)
@@ -105,13 +105,13 @@ export default function DashboardPage() {
       acoesPrioritarias.push({
         icon: AlertTriangle,
         color: 'var(--warning)',
-        titulo: `Etapa iminente: ${e.nome}`,
-        subtitulo: `${e.obra_nome}${dias !== null ? ` · inicia em ${dias}d` : ''}`,
+        titulo: `Próxima etapa: ${e.nome}`,
+        subtitulo: `${e.obra_nome}${dias !== null ? ` · prevista em ${dias}d` : ''}`,
         href: `/obras/${e.obra_id}`,
       })
     })
 
-  // 3. Obras em orçamento (sem cronograma ativo)
+  // 3. Obras em orÃ§amento (sem cronograma ativo)
   data.obras
     .filter(o => o.status === 'orcamento')
     .slice(0, 1)
@@ -137,7 +137,7 @@ export default function DashboardPage() {
     })
   }
 
-  // Tendência real: obras cadastradas por mês, agrupadas por status (ativa / em orçamento)
+  // TendÃªncia real: obras cadastradas por mÃªs, agrupadas por status (ativa / em orÃ§amento)
   const portfolioTrend = (() => {
     const map = new Map<string, { ord: string; mes: string; ativa: number; orcamento: number }>()
     ;[...data.obras]
@@ -166,7 +166,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* ── KPIs ── */}
+      {/* â”€â”€ KPIs â”€â”€ */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KpiCard
           icon={HardHat}
@@ -177,7 +177,7 @@ export default function DashboardPage() {
         />
         <KpiCard
           icon={FileText}
-          label="Orçamentos em Andamento"
+          label="Orçamentos em andamento"
           value={String(orcamentosAndamento)}
           color="var(--accent)"
           hint="em elaboração"
@@ -187,17 +187,17 @@ export default function DashboardPage() {
           label="Próximas Ações"
           value={String(data.alertas)}
           color={data.alertas > 0 ? 'var(--warning)' : 'var(--success)'}
-          hint={data.alertas > 0 ? 'etapas críticas' : 'tudo em dia'}
+          hint={data.alertas > 0 ? 'etapas previstas' : 'sem previsões próximas'}
         />
       </div>
 
-      {/* ── Gráfico + Próximos 7 dias ── */}
+      {/* â”€â”€ GrÃ¡fico + Próximos 7 dias â”€â”€ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="card p-6 lg:col-span-2">
           <div className="flex items-center gap-2 mb-6">
             <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
             <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Composição do Portfólio — Obras por mês de cadastro
+              Portfólio de obras por mês
             </h2>
           </div>
 
@@ -242,7 +242,7 @@ export default function DashboardPage() {
           </div>
           {data.etapasProximas.length === 0 ? (
             <p className="text-sm py-8 text-center" style={{ color: 'var(--text-secondary)' }}>
-              Nenhuma etapa crítica
+              Nenhuma etapa prevista para os próximos dias
             </p>
           ) : (
             <div className="flex flex-col gap-3">
@@ -257,7 +257,7 @@ export default function DashboardPage() {
                         color: dias !== null && dias <= 2 ? 'var(--danger)' : 'var(--warning)',
                       }}
                     >
-                      {dias !== null ? `${dias}d` : '—'}
+                      {dias !== null ? `${dias}d` : 'â€”'}
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</p>
@@ -271,7 +271,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Materiais pendentes + Ações Prioritárias ── */}
+      {/* â”€â”€ Materiais pendentes + Ações Prioritárias â”€â”€ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Materiais pendentes */}
         {data.materiaisPendentes.length > 0 && (
@@ -279,7 +279,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2 mb-4">
               <Package size={18} style={{ color: 'var(--warning)' }} />
               <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Compras de materiais pendentes
+                Materiais previstos
               </h2>
             </div>
             <div className="flex flex-col gap-2">
@@ -301,13 +301,13 @@ export default function DashboardPage() {
             </div>
             {data.materiaisPendentes.length > 4 && (
               <p className="text-xs mt-3" style={{ color: 'var(--text-secondary)' }}>
-                + {data.materiaisPendentes.length - 4} outros pendentes
+                + {data.materiaisPendentes.length - 4} outros materiais previstos
               </p>
             )}
           </div>
         )}
 
-        {/* Ações Prioritárias — substitui "Obras Recentes" */}
+        {/* Ações Prioritárias â€” substitui "Obras Recentes" */}
         <div className="card p-6">
           <div className="flex items-center gap-2 mb-4">
             <Zap size={18} style={{ color: 'var(--accent)' }} />
@@ -318,7 +318,7 @@ export default function DashboardPage() {
             <div className="py-8 text-center flex flex-col items-center gap-2">
               <CheckCircle2 size={30} style={{ color: 'var(--success)' }} />
               <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Tudo em dia</p>
-              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Nenhuma ação urgente no momento</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Nenhum ponto de decisão previsto no momento</p>
             </div>
           ) : (
             <div className="flex flex-col gap-1">

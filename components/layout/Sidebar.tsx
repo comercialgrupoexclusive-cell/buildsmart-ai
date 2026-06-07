@@ -4,24 +4,23 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, HardHat, FileText, CalendarDays,
-  Package, ClipboardList, BotMessageSquare, BarChart3, Settings, Wrench, Database,
+  Package, ClipboardList, BotMessageSquare, BarChart3, Settings,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
-  { href: '/dashboard',    label: 'Dashboard',      icon: LayoutDashboard },
-  { href: '/obras',        label: 'Obras',           icon: HardHat },
-  { href: '/orcamentos',   label: 'Orçamentos',      icon: FileText },
-  { href: '/cronograma',   label: 'Cronograma',      icon: CalendarDays },
-  { href: '/materiais',    label: 'Compras',         icon: Package },
-  { href: '/medicoes',     label: 'Medições',        icon: ClipboardList },
-  { href: '/servicos',     label: 'Composições',     icon: Wrench },
-  { href: '/buildassist',  label: 'BuildAssist IA',  icon: BotMessageSquare },
-  { href: '/sinapi',       label: 'Base SINAPI',      icon: Database },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/obras', label: 'Obras', icon: HardHat },
+  { href: '/orcamentos', label: 'Orçamentos', icon: FileText },
+  { href: '/cronograma', label: 'Cronograma', icon: CalendarDays },
+  { href: '/materiais', label: 'Materiais', icon: Package },
+  { href: '/medicoes', label: 'Diário / Medições', icon: ClipboardList },
+  { href: '/buildassist', label: 'BuildAssistente IA', icon: BotMessageSquare, featured: true },
 ]
+
 const NAV_BOTTOM = [
-  { href: '/relatorios',    label: 'Relatórios',     icon: BarChart3 },
-  { href: '/configuracoes', label: 'Configurações',  icon: Settings },
+  { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
+  { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ]
 
 export function Sidebar() {
@@ -43,7 +42,6 @@ export function Sidebar() {
       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.width = '232px' }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.width = '56px' }}
     >
-      {/* Logo */}
       <div className="flex items-center h-16 px-3.5 flex-shrink-0 border-b overflow-hidden" style={{ borderColor: 'var(--border)' }}>
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
@@ -59,9 +57,8 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Nav principal */}
       <nav className="flex-1 py-3 flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {NAV_ITEMS.map(({ href, label, icon: Icon, featured }) => {
           const active = isActive(href)
           return (
             <Link
@@ -72,7 +69,11 @@ export function Sidebar() {
                 'flex items-center gap-3 mx-1.5 px-2.5 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 overflow-hidden whitespace-nowrap',
                 active ? 'text-white' : 'hover:bg-[var(--bg-card)]'
               )}
-              style={active ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+              style={active
+                ? { background: 'var(--accent)', color: 'white' }
+                : featured
+                  ? { color: 'var(--accent)', background: 'rgba(59,123,248,0.08)' }
+                  : { color: 'var(--text-secondary)' }}
             >
               <Icon size={18} className="flex-shrink-0" />
               <span className="overflow-hidden">{label}</span>
@@ -81,7 +82,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Nav inferior */}
       <div className="py-3 border-t flex flex-col gap-0.5 overflow-hidden" style={{ borderColor: 'var(--border)' }}>
         {NAV_BOTTOM.map(({ href, label, icon: Icon }) => {
           const active = isActive(href)

@@ -6,16 +6,17 @@ import { useProfile } from '@/lib/profile-context'
 import { useState, useRef, useEffect } from 'react'
 
 const PAGE_TITLES: Record<string, string> = {
-  '/dashboard':    'Dashboard',
-  '/obras':        'Obras',
-  '/orcamentos':   'Orçamentos',
-  '/cronograma':   'Cronograma',
-  '/materiais':    'Compras de Materiais',
-  '/medicoes':     'Medições',
-  '/servicos':     'Composições',
-  '/buildassist':  'BuildAssist IA',
-  '/relatorios':   'Relatórios',
-  '/configuracoes':'Configurações',
+  '/dashboard': 'Dashboard',
+  '/obras': 'Obras',
+  '/orcamentos': 'Orçamentos',
+  '/cronograma': 'Cronograma',
+  '/materiais': 'Materiais',
+  '/medicoes': 'Diário / Medições',
+  '/servicos': 'Composições',
+  '/sinapi': 'Base de referência',
+  '/buildassist': 'BuildAssistente IA',
+  '/relatorios': 'Relatórios',
+  '/configuracoes': 'Configurações',
 }
 
 function getTitle(pathname: string): string {
@@ -31,7 +32,6 @@ export function Header() {
   const [toast, setToast] = useState<string | null>(null)
   const dropRef = useRef<HTMLDivElement>(null)
 
-  // Fecha dropdown ao clicar fora
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (dropRef.current && !dropRef.current.contains(e.target as Node)) {
@@ -69,7 +69,6 @@ export function Header() {
         </h1>
 
         <div className="flex items-center gap-2">
-          {/* Toggle tema */}
           <button
             onClick={handleToggleTheme}
             className="p-2 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
@@ -79,7 +78,6 @@ export function Header() {
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
-          {/* Perfil com dropdown */}
           {currentProfile && (
             <div className="relative" ref={dropRef}>
               <button
@@ -114,7 +112,6 @@ export function Header() {
                 />
               </button>
 
-              {/* Dropdown */}
               {dropdownOpen && (
                 <div
                   className="absolute right-0 top-full mt-1.5 w-44 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
@@ -144,7 +141,6 @@ export function Header() {
         </div>
       </header>
 
-      {/* Toast de tema */}
       {toast && (
         <div
           className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-lg animate-enter"
