@@ -4,6 +4,10 @@ import { useEffect, useState, useRef, useCallback, Fragment } from 'react'
 import {
   Plus, Lock, Unlock, Search, Trash2, MoreHorizontal,
   ChevronDown, ChevronRight, FolderPlus, RotateCcw, FileSpreadsheet,
+  Boxes, Users, FileText, Percent, Wallet,
+  HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
+  Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
+  type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Orcamento, ComposicaoPropria, SinapiComposicao, Etapa } from '@/lib/types'
@@ -69,12 +73,30 @@ function overrideKey(itemId: string, insumoKey: string) {
 
 // ─── Composição de custo direto por categoria ───────────────────────────────
 type CustoCategoria = { material: number; maoDeObra: number; equipamento: number; outros: number }
-const CATEGORIAS_CUSTO: { key: keyof CustoCategoria; label: string; cor: string }[] = [
-  { key: 'material', label: 'Materiais', cor: 'var(--accent)' },
-  { key: 'maoDeObra', label: 'Mão de obra', cor: 'var(--success)' },
-  { key: 'equipamento', label: 'Equipamentos', cor: 'var(--warning)' },
-  { key: 'outros', label: 'Outros / não classificados', cor: 'var(--text-secondary)' },
+
+// ─── Ícone + cor discretos por tipo de etapa (heurística por palavra-chave) ──
+const ETAPA_ICON_RULES: { match: RegExp; icon: LucideIcon; cor: string }[] = [
+  { match: /preliminar|mobiliza|administra|canteiro/i, icon: HardHat, cor: '#3B7BF8' },
+  { match: /terra|terraplenagem|escava/i, icon: Mountain, cor: '#A16207' },
+  { match: /funda/i, icon: Layers, cor: '#F59E0B' },
+  { match: /estrutura/i, icon: Building2, cor: '#8B5CF6' },
+  { match: /alvenaria|veda/i, icon: Grid3x3, cor: '#10B981' },
+  { match: /cobertura|telhado/i, icon: Home, cor: '#EF4444' },
+  { match: /impermeabiliza/i, icon: ShieldCheck, cor: '#06B6D4' },
+  { match: /hidr[oá]ssanit|hidráulic/i, icon: Droplets, cor: '#0EA5E9' },
+  { match: /el[ée]tric/i, icon: Zap, cor: '#EAB308' },
+  { match: /especial/i, icon: Wrench, cor: '#64748B' },
+  { match: /esquadri/i, icon: DoorOpen, cor: '#F97316' },
+  { match: /revestimento/i, icon: Square, cor: '#22C55E' },
+  { match: /piso/i, icon: Grid3x3, cor: '#84CC16' },
+  { match: /pintura/i, icon: PaintBucket, cor: '#EC4899' },
+  { match: /lou[çc]a|metai/i, icon: Bath, cor: '#6366F1' },
+  { match: /complementar/i, icon: Package, cor: '#94A3B8' },
 ]
+function getEtapaIcone(nome: string): { icon: LucideIcon; cor: string } {
+  const found = ETAPA_ICON_RULES.find(r => r.match.test(nome))
+  return found ? { icon: found.icon, cor: found.cor } : { icon: FolderPlus, cor: '#64748B' }
+}
 
 export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   obraId: string
@@ -120,6 +142,13 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   // Grupos colapsados (nível etapa)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
+  // Busca na Estrutura da Obra (filtra por etapa ou descrição de composição)
+  const [buscaEstrutura, setBuscaEstrutura] = useState('')
+
+  // Menu de etapa (excluir etapa)
+  const [etapaMenuAberto, setEtapaMenuAberto] = useState<string | null>(null)
+  const etapaMenuRef = useRef<HTMLDivElement>(null)
+
   // Menu ...
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -152,6 +181,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false)
+      if (etapaMenuRef.current && !etapaMenuRef.current.contains(e.target as Node)) setEtapaMenuAberto(null)
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
@@ -383,6 +413,32 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     setItens(prev => prev.filter(i => i.id !== itemId))
   }
 
+  // ─── Excluir etapa (e suas composições) ─────────────────────────────────
+  // etapas.id não tem ON DELETE CASCADE em orcamento_itens — removemos os itens
+  // (abatendo materiais gerados) antes de excluir a etapa em si.
+  async function handleRemoveEtapa(etapaId: string, nome: string) {
+    const itensDaEtapa = itens.filter(i => i.etapa_id === etapaId)
+    const aviso = itensDaEtapa.length > 0
+      ? `Excluir a etapa "${nome}" e suas ${itensDaEtapa.length} composições? Esta ação não pode ser desfeita.`
+      : `Excluir a etapa "${nome}"?`
+    if (!confirm(aviso)) return
+
+    for (const item of itensDaEtapa) {
+      if (item.composicao_itens?.length) {
+        await abaterMateriaisDaComposicao(item.composicao_itens, item.quantidade, item.etapa_id)
+      }
+      setInsumoOverrides(prev => {
+        const next = { ...prev }
+        Object.keys(next).filter(k => k.startsWith(item.id)).forEach(k => delete next[k])
+        return next
+      })
+      await supabase.from('orcamento_itens').delete().eq('id', item.id)
+    }
+    await supabase.from('etapas').delete().eq('id', etapaId)
+    setItens(prev => prev.filter(i => i.etapa_id !== etapaId))
+    setEtapas(prev => prev.filter(e => e.id !== etapaId))
+  }
+
   async function handleUpdateBdi() {
     if (!orcamento) return
     await supabase.from('orcamentos').update({ bdi_percentual: bdi }).eq('id', orcamento.id)
@@ -597,103 +653,88 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
             </div>
           </div>
 
-          {/* Linha 2 — números hero: valor total + custo/m² */}
-          <div className="flex flex-wrap items-end justify-between gap-6 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
-            <div>
-              <p className="text-xs uppercase tracking-wide font-medium" style={{ color: 'var(--text-secondary)' }}>
-                Valor total da obra (com BDI)
-              </p>
-              <p className="text-3xl sm:text-4xl font-bold mt-1 leading-tight" style={{ color: 'var(--accent)', fontFamily: 'DM Serif Display, serif' }}>
-                {formatCurrency(totalGeral)}
-              </p>
-            </div>
-            {custoPorM2 !== null && (
-              <div className="text-right">
-                <p className="text-xs uppercase tracking-wide font-medium" style={{ color: 'var(--text-secondary)' }}>
-                  Custo por m²
-                </p>
-                <p className="text-xl font-semibold mt-1" style={{ color: 'var(--text-primary)' }}>
-                  {formatCurrency(custoPorM2)}
-                  <span className="text-sm font-normal ml-1" style={{ color: 'var(--text-secondary)' }}>/m²</span>
-                </p>
-              </div>
-            )}
+          {/* Linha 2 — tira de KPIs discretos */}
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-3 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
+            <KpiMini label="Área construída" value={areaM2 && areaM2 > 0 ? `${areaM2.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} m²` : '—'} />
+            <KpiMini label="Custo direto / m²" value={areaM2 && areaM2 > 0 ? formatCurrency(subtotal / areaM2) : '—'} />
+            <KpiMini label="Custo final / m²" value={custoPorM2 !== null ? formatCurrency(custoPorM2) : '—'} />
+            <KpiMini label="Etapas" value={String(etapas.length)} />
+            <KpiMini label="Composições" value={String(itens.length)} />
           </div>
 
-          {/* Linha 3 — subtotal / BDI editável + valor / custo direto por m² */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <MetricMini label="Subtotal (sem BDI)" value={formatCurrency(subtotal)} />
-            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-              <div>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>BDI <span className="opacity-70">(editável)</span></p>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <input
-                    type="number" value={bdi}
-                    onChange={e => setBdi(Number(e.target.value))}
-                    onBlur={handleUpdateBdi}
-                    disabled={isReadonly}
-                    className="input-base w-16 text-center py-1 text-sm"
-                    min={0} max={100}
-                  />
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
-                </div>
+          {/* Linha 3 — cards de custo (ícones discretos) */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <CustoCard
+              icon={Boxes} cor="var(--accent)" label="Custo Material"
+              value={formatCurrency(custoPorCategoria.material)}
+              hint={subtotal > 0 ? `${((custoPorCategoria.material / subtotal) * 100).toFixed(1)}% do custo direto` : undefined}
+            />
+            <CustoCard
+              icon={Users} cor="var(--success)" label="Custo Mão de Obra"
+              value={formatCurrency(custoPorCategoria.maoDeObra)}
+              hint={subtotal > 0 ? `${((custoPorCategoria.maoDeObra / subtotal) * 100).toFixed(1)}% do custo direto` : undefined}
+            />
+            <CustoCard
+              icon={FileText} cor="var(--text-secondary)" label="Valor Direto"
+              value={formatCurrency(subtotal)} hint="Sem BDI"
+            />
+            <CustoCard icon={Percent} cor="var(--warning)" label="BDI" hint={formatCurrency(totalBdi)}>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number" value={bdi}
+                  onChange={e => setBdi(Number(e.target.value))}
+                  onBlur={handleUpdateBdi}
+                  disabled={isReadonly}
+                  className="input-base w-16 text-center py-1 text-sm"
+                  min={0} max={100}
+                />
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
               </div>
-              <div className="text-right">
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Valor do BDI</p>
-                <p className="text-base font-semibold mt-1" style={{ color: 'var(--text-primary)' }}>{formatCurrency(totalBdi)}</p>
-              </div>
-            </div>
-            <MetricMini
-              label="Custo direto / m²"
-              value={areaM2 && areaM2 > 0 ? `${formatCurrency(subtotal / areaM2)}/m²` : '—'}
+            </CustoCard>
+            <CustoCard
+              icon={Wallet} cor="var(--accent)" label="Valor Total da Obra"
+              value={formatCurrency(totalGeral)} hint="Com BDI" highlight
             />
           </div>
 
-          {/* Linha 4 — composição do custo direto por categoria (material / mão de obra / equipamentos) */}
-          {subtotal > 0 && (
-            <div className="pt-1">
-              <p className="text-xs uppercase tracking-wide font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
-                Composição do custo direto por categoria
-              </p>
-              <div className="h-3 rounded-full overflow-hidden flex" style={{ background: 'var(--bg-secondary)' }}>
-                {CATEGORIAS_CUSTO.map(cat => {
-                  const valor = custoPorCategoria[cat.key]
-                  const pct = subtotal > 0 ? (valor / subtotal) * 100 : 0
-                  if (pct <= 0) return null
-                  return (
-                    <div
-                      key={cat.key}
-                      style={{ width: `${pct}%`, background: cat.cor }}
-                      title={`${cat.label}: ${formatCurrency(valor)} (${pct.toFixed(1)}%)`}
-                    />
-                  )
-                })}
+          {/* Linha 4 — distribuição do custo direto: materiais vs. mão de obra */}
+          {subtotal > 0 && (() => {
+            const materialValor = custoPorCategoria.material
+            const restanteValor = Math.max(subtotal - materialValor, 0)
+            const materialPct = subtotal > 0 ? (materialValor / subtotal) * 100 : 0
+            const restantePct = Math.max(100 - materialPct, 0)
+            return (
+              <div className="pt-1">
+                <p className="text-xs uppercase tracking-wide font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
+                  Distribuição do custo direto
+                </p>
+                <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: 'var(--bg-secondary)' }}>
+                  {materialPct > 0 && (
+                    <div style={{ width: `${materialPct}%`, background: 'var(--accent)' }}
+                      title={`Material: ${formatCurrency(materialValor)} (${materialPct.toFixed(1)}%)`} />
+                  )}
+                  {restantePct > 0 && (
+                    <div style={{ width: `${restantePct}%`, background: 'var(--success)' }}
+                      title={`Mão de obra: ${formatCurrency(restanteValor)} (${restantePct.toFixed(1)}%)`} />
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3">
+                  <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    <span className="w-2 h-2 rounded-full" style={{ background: 'var(--accent)' }} />
+                    Material <strong style={{ color: 'var(--text-primary)' }}>{materialPct.toFixed(1)}%</strong>
+                  </span>
+                  <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    <span className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
+                    Mão de obra <strong style={{ color: 'var(--text-primary)' }}>{restantePct.toFixed(1)}%</strong>
+                  </span>
+                </div>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-                {CATEGORIAS_CUSTO.map(cat => {
-                  const valor = custoPorCategoria[cat.key]
-                  const pct = subtotal > 0 ? (valor / subtotal) * 100 : 0
-                  const porM2 = areaM2 && areaM2 > 0 ? valor / areaM2 : null
-                  return (
-                    <div key={cat.key} className="flex flex-col gap-1 px-3 py-2.5 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cat.cor }} />
-                        <span className="text-xs font-medium truncate" style={{ color: 'var(--text-secondary)' }}>{cat.label}</span>
-                      </div>
-                      <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(valor)}</span>
-                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        {pct.toFixed(1)}%{porM2 !== null ? ` · ${formatCurrency(porM2)}/m²` : ''}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+            )
+          })()}
         </div>
       </div>
 
-      {/* ── Grupos por etapa (cascata) ── */}
+      {/* ── Estrutura da Obra (etapas + composições em cascata) ── */}
       {etapas.length === 0 && itens.length === 0 ? (
         <EmptyState
           icon={FolderPlus}
@@ -705,60 +746,104 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
             </Button>
           ) : undefined}
         />
-      ) : (
-        <div className="flex flex-col gap-3">
-          {itensPorEtapa.sem_etapa.length > 0 && (
-            <GrupoEtapa
-              nome="Sem etapa"
-              itens={itensPorEtapa.sem_etapa}
-              isReadonly={isReadonly}
-              collapsed={collapsed['sem_etapa']}
-              onToggleGrupo={() => setCollapsed(c => ({ ...c, sem_etapa: !c['sem_etapa'] }))}
-              onAddItem={() => openItemModal(null)}
-              onRemove={handleRemoveItem}
-              bdi={bdi}
-              expandedItems={expandedItems}
-              onToggleItem={toggleItemExpanded}
-              insumoOverrides={insumoOverrides}
-              onOverrideInsumo={handleOverrideInsumo}
-              getItemTotal={getItemTotal}
-              sinapiInsumoMap={sinapiInsumoMap}
-              obraUf={obraUf}
-            />
-          )}
-          {etapas.map(etapa => (
-            <GrupoEtapa
-              key={etapa.id}
-              nome={etapa.nome}
-              itens={itensPorEtapa[etapa.id] || []}
-              isReadonly={isReadonly}
-              collapsed={collapsed[etapa.id]}
-              onToggleGrupo={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
-              onAddItem={() => openItemModal(etapa.id)}
-              onRemove={handleRemoveItem}
-              bdi={bdi}
-              expandedItems={expandedItems}
-              onToggleItem={toggleItemExpanded}
-              insumoOverrides={insumoOverrides}
-              onOverrideInsumo={handleOverrideInsumo}
-              getItemTotal={getItemTotal}
-              sinapiInsumoMap={sinapiInsumoMap}
-              obraUf={obraUf}
-            />
-          ))}
+      ) : (() => {
+        const termo = buscaEstrutura.trim().toLowerCase()
+        const filtraItens = (lista: ItemEnriquecido[]) =>
+          termo ? lista.filter(i => i.descricao.toLowerCase().includes(termo) || (i.subetapa || '').toLowerCase().includes(termo)) : lista
+        const semEtapaFiltrados = filtraItens(itensPorEtapa.sem_etapa)
+        const semEtapaVisivel = !termo || 'sem etapa'.includes(termo) || semEtapaFiltrados.length > 0
 
-          {!isReadonly && (
-            <button
-              onClick={() => openItemModal()}
-              className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed text-sm font-medium transition-colors hover:bg-[var(--bg-card)]"
-              style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
-            >
-              <FolderPlus size={16} /> Adicionar item
-            </button>
-          )}
+        return (
+          <div className="flex flex-col gap-3">
+            {/* Cabeçalho — busca + seleção */}
+            <div className="flex flex-wrap items-center gap-3 px-1">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
+                <input
+                  type="text"
+                  value={buscaEstrutura}
+                  onChange={e => setBuscaEstrutura(e.target.value)}
+                  placeholder="Buscar etapa ou composição..."
+                  className="input-base w-full pl-9 py-2 text-sm"
+                />
+              </div>
+              <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
+                {etapas.length} {etapas.length === 1 ? 'etapa' : 'etapas'} · {itens.length} {itens.length === 1 ? 'composição' : 'composições'}
+              </span>
+              {!isReadonly && (
+                <Button size="sm" icon={<FolderPlus size={14} />} onClick={() => openItemModal()}>
+                  Adicionar item
+                </Button>
+              )}
+            </div>
 
-        </div>
-      )}
+            {semEtapaVisivel && itensPorEtapa.sem_etapa.length > 0 && (
+              <GrupoEtapa
+                nome="Sem etapa"
+                itens={termo ? semEtapaFiltrados : itensPorEtapa.sem_etapa}
+                isReadonly={isReadonly}
+                collapsed={collapsed['sem_etapa']}
+                onToggleGrupo={() => setCollapsed(c => ({ ...c, sem_etapa: !c['sem_etapa'] }))}
+                onAddItem={() => openItemModal(null)}
+                onRemove={handleRemoveItem}
+                bdi={bdi}
+                expandedItems={expandedItems}
+                onToggleItem={toggleItemExpanded}
+                insumoOverrides={insumoOverrides}
+                onOverrideInsumo={handleOverrideInsumo}
+                getItemTotal={getItemTotal}
+                sinapiInsumoMap={sinapiInsumoMap}
+                obraUf={obraUf}
+                subtotalDireto={subtotal}
+              />
+            )}
+            {etapas.map(etapa => {
+              const itensDaEtapa = itensPorEtapa[etapa.id] || []
+              const itensFiltrados = filtraItens(itensDaEtapa)
+              const visivel = !termo || etapa.nome.toLowerCase().includes(termo) || itensFiltrados.length > 0
+              if (!visivel) return null
+              const { icon, cor } = getEtapaIcone(etapa.nome)
+              return (
+                <GrupoEtapa
+                  key={etapa.id}
+                  nome={etapa.nome}
+                  itens={termo ? itensFiltrados : itensDaEtapa}
+                  isReadonly={isReadonly}
+                  collapsed={collapsed[etapa.id]}
+                  onToggleGrupo={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
+                  onAddItem={() => openItemModal(etapa.id)}
+                  onRemove={handleRemoveItem}
+                  bdi={bdi}
+                  expandedItems={expandedItems}
+                  onToggleItem={toggleItemExpanded}
+                  insumoOverrides={insumoOverrides}
+                  onOverrideInsumo={handleOverrideInsumo}
+                  getItemTotal={getItemTotal}
+                  sinapiInsumoMap={sinapiInsumoMap}
+                  obraUf={obraUf}
+                  icon={icon}
+                  iconCor={cor}
+                  subtotalDireto={subtotal}
+                  onDeleteEtapa={!isReadonly ? () => handleRemoveEtapa(etapa.id, etapa.nome) : undefined}
+                  menuAberto={etapaMenuAberto === etapa.id}
+                  onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
+                  menuRef={etapaMenuAberto === etapa.id ? etapaMenuRef : undefined}
+                />
+              )
+            })}
+
+            {!isReadonly && (
+              <button
+                onClick={() => openItemModal()}
+                className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed text-sm font-medium transition-colors hover:bg-[var(--bg-card)]"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+              >
+                <FolderPlus size={16} /> Adicionar item
+              </button>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── Modal nova etapa ── */}
       <Modal open={showNovaEtapa} onClose={() => { setShowNovaEtapa(false); setNovaEtapaNome('') }} title="Nova Etapa" size="sm">
@@ -908,12 +993,44 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   )
 }
 
-// ─── Métrica compacta (painel de totais) ────────────────────────────────────
-function MetricMini({ label, value }: { label: string; value: string }) {
+// ─── Mini-KPI textual (tira de indicadores no topo do orçamento) ────────────
+function KpiMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col justify-center gap-1 px-4 py-3 rounded-xl" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-      <span className="text-base font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>{value}</span>
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] uppercase tracking-wide font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{value}</span>
+    </div>
+  )
+}
+
+// ─── Card de custo com ícone discreto ────────────────────────────────────────
+function CustoCard({ icon: Icon, cor, label, value, hint, highlight, children }: {
+  icon: LucideIcon
+  cor: string
+  label: string
+  value?: React.ReactNode
+  hint?: string
+  highlight?: boolean
+  children?: React.ReactNode
+}) {
+  return (
+    <div
+      className="flex flex-col gap-2 px-4 py-3 rounded-xl"
+      style={{
+        background: highlight ? 'color-mix(in srgb, var(--accent) 10%, var(--bg-secondary))' : 'var(--bg-secondary)',
+        border: `1px solid ${highlight ? 'var(--accent)' : 'var(--border)'}`,
+      }}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <Icon size={14} style={{ color: cor }} className="flex-shrink-0" />
+        <span className="text-xs font-medium truncate" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      </div>
+      {children ?? (
+        <span className="text-base font-semibold leading-tight truncate" style={{ color: highlight ? 'var(--accent)' : 'var(--text-primary)' }}>
+          {value}
+        </span>
+      )}
+      {hint && <span className="text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>{hint}</span>}
     </div>
   )
 }
@@ -922,7 +1039,8 @@ function MetricMini({ label, value }: { label: string; value: string }) {
 function GrupoEtapa({
   nome, itens, isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
-  sinapiInsumoMap, obraUf,
+  sinapiInsumoMap, obraUf, icon: Icon, iconCor, subtotalDireto,
+  onDeleteEtapa, menuAberto, onToggleMenu, menuRef,
 }: {
   nome: string
   itens: ItemEnriquecido[]
@@ -939,36 +1057,77 @@ function GrupoEtapa({
   getItemTotal: (item: ItemEnriquecido) => number
   sinapiInsumoMap: Record<string, { classificacao: string; precos: Record<string, number> }>
   obraUf: string
+  icon?: LucideIcon
+  iconCor?: string
+  subtotalDireto?: number
+  onDeleteEtapa?: () => void
+  menuAberto?: boolean
+  onToggleMenu?: () => void
+  menuRef?: React.RefObject<HTMLDivElement | null>
 }) {
   const subtotalGrupo = itens.reduce((a, i) => a + getItemTotal(i), 0)
   const totalGrupo = subtotalGrupo * (1 + bdi / 100)
+  const pctDoDireto = subtotalDireto && subtotalDireto > 0 ? (subtotalGrupo / subtotalDireto) * 100 : null
 
   return (
     <div className="card overflow-hidden">
       {/* Cabeçalho etapa */}
       <div
-        className="flex items-center gap-2 px-4 py-3 cursor-pointer select-none"
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
         style={{ background: 'var(--bg-secondary)', borderBottom: collapsed ? 'none' : '1px solid var(--border)' }}
         onClick={onToggleGrupo}
       >
         <span className="flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
         </span>
-        <span className="font-semibold text-sm flex-1" style={{ color: 'var(--text-primary)' }}>{nome}</span>
-        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {itens.length} {itens.length === 1 ? 'item' : 'itens'}
-        </span>
-        <span className="text-sm font-semibold ml-4" style={{ color: 'var(--accent)' }}>
+        {Icon && (
+          <span className="flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-card)', color: iconCor || 'var(--text-secondary)' }}>
+            <Icon size={14} />
+          </span>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{nome}</p>
+          <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+            {itens.length} {itens.length === 1 ? 'composição' : 'composições'}
+          </p>
+        </div>
+        {pctDoDireto !== null && (
+          <span className="hidden sm:inline text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+            {pctDoDireto.toFixed(1)}% do direto
+          </span>
+        )}
+        <span className="text-sm font-semibold ml-1 flex-shrink-0" style={{ color: 'var(--accent)' }}>
           {formatCurrency(totalGrupo)}
         </span>
         {!isReadonly && (
           <button
             onClick={e => { e.stopPropagation(); onAddItem() }}
-            className="ml-2 flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--bg-card)]"
+            className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--bg-card)] flex-shrink-0"
             style={{ color: 'var(--accent)', border: '1px solid var(--accent)', opacity: 0.8 }}
           >
             <Plus size={12} /> item
           </button>
+        )}
+        {onDeleteEtapa && (
+          <div className="relative flex-shrink-0" ref={menuRef} onClick={e => e.stopPropagation()}>
+            <button
+              onClick={onToggleMenu}
+              className="p-1.5 rounded-lg hover:bg-[var(--bg-card)] transition-colors"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <MoreHorizontal size={15} />
+            </button>
+            {menuAberto && (
+              <div className="absolute right-0 top-full mt-1.5 w-44 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                <button onClick={onDeleteEtapa}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                  style={{ color: 'var(--danger)' }}>
+                  <Trash2 size={13} /> Excluir etapa
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 

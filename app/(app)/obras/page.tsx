@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, HardHat, MapPin, Calendar, Search, AlertTriangle, User } from 'lucide-react'
+import { Plus, HardHat, MapPin, Calendar, Search, AlertTriangle, User, Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
@@ -16,6 +16,107 @@ const STATUS_FILTROS = ['todas', 'ativa', 'orcamento', 'concluida', 'paralisada'
 
 type ObraComAvanco = Obra & { avanco: number }
 
+// ─── Obra de exemplo (seed para o usuário explorar o sistema) ───────────────
+type ItemExemplo = { descricao: string; unidade: string; quantidade: number; preco: number }
+type EtapaExemplo = { nome: string; itens: ItemExemplo[] }
+
+const OBRA_EXEMPLO_NOME = 'Casa Geminada 42m² (Exemplo)'
+
+const OBRA_EXEMPLO: EtapaExemplo[] = [
+  {
+    nome: 'Serviços Preliminares',
+    itens: [
+      { descricao: 'Locação da obra (gabarito)', unidade: 'un', quantidade: 1, preco: 850 },
+      { descricao: 'Tapumes e proteções de obra', unidade: 'm', quantidade: 40, preco: 35 },
+      { descricao: 'Ligações provisórias de água e energia', unidade: 'vb', quantidade: 1, preco: 600 },
+    ],
+  },
+  {
+    nome: 'Fundações',
+    itens: [
+      { descricao: 'Escavação mecanizada de valas', unidade: 'm³', quantidade: 22, preco: 58 },
+      { descricao: 'Lastro de brita apiloada', unidade: 'm³', quantidade: 5, preco: 175 },
+      { descricao: 'Concreto magro de regularização', unidade: 'm³', quantidade: 3.5, preco: 470 },
+      { descricao: 'Forma de madeira para fundação', unidade: 'm²', quantidade: 65, preco: 72 },
+      { descricao: 'Armação em aço CA-50', unidade: 'kg', quantidade: 920, preco: 9.6 },
+      { descricao: 'Concreto usinado fck=25MPa para baldrames', unidade: 'm³', quantidade: 14, preco: 540 },
+    ],
+  },
+  {
+    nome: 'Estrutura',
+    itens: [
+      { descricao: 'Pilares em concreto armado', unidade: 'm³', quantidade: 9, preco: 1450 },
+      { descricao: 'Vigas em concreto armado', unidade: 'm³', quantidade: 11, preco: 1380 },
+      { descricao: 'Lajes maciças de concreto armado', unidade: 'm²', quantidade: 84, preco: 195 },
+      { descricao: 'Forma de madeira para estrutura', unidade: 'm²', quantidade: 240, preco: 68 },
+      { descricao: 'Armação em aço CA-50 para estrutura', unidade: 'kg', quantidade: 2100, preco: 9.8 },
+    ],
+  },
+  {
+    nome: 'Alvenaria',
+    itens: [
+      { descricao: 'Alvenaria de vedação em bloco cerâmico 9 furos', unidade: 'm²', quantidade: 210, preco: 78 },
+      { descricao: 'Vergas e contravergas pré-moldadas', unidade: 'm', quantidade: 48, preco: 32 },
+      { descricao: 'Vergalhão de amarração e cintamento', unidade: 'kg', quantidade: 90, preco: 9.5 },
+    ],
+  },
+  {
+    nome: 'Cobertura',
+    itens: [
+      { descricao: 'Estrutura de madeira para telhado', unidade: 'm²', quantidade: 50, preco: 110 },
+      { descricao: 'Telhamento em telha cerâmica', unidade: 'm²', quantidade: 50, preco: 65 },
+      { descricao: 'Calhas e rufos em chapa galvanizada', unidade: 'm', quantidade: 22, preco: 48 },
+    ],
+  },
+  {
+    nome: 'Instalações Hidrossanitárias',
+    itens: [
+      { descricao: 'Tubulação de água fria em PVC soldável', unidade: 'm', quantidade: 80, preco: 22 },
+      { descricao: 'Tubulação de esgoto em PVC série normal', unidade: 'm', quantidade: 60, preco: 28 },
+      { descricao: 'Caixa d\'água em polietileno 1000L', unidade: 'un', quantidade: 1, preco: 750 },
+      { descricao: 'Conjunto de louças e metais sanitários', unidade: 'cj', quantidade: 2, preco: 1450 },
+    ],
+  },
+  {
+    nome: 'Instalações Elétricas',
+    itens: [
+      { descricao: 'Eletrodutos, fiação e cabeamento', unidade: 'm', quantidade: 220, preco: 14 },
+      { descricao: 'Quadro de distribuição de circuitos', unidade: 'un', quantidade: 1, preco: 480 },
+      { descricao: 'Pontos de luz e tomadas instalados', unidade: 'pt', quantidade: 38, preco: 95 },
+    ],
+  },
+  {
+    nome: 'Esquadrias',
+    itens: [
+      { descricao: 'Janelas em alumínio com vidro', unidade: 'm²', quantidade: 16, preco: 480 },
+      { descricao: 'Portas internas em madeira', unidade: 'un', quantidade: 8, preco: 320 },
+      { descricao: 'Porta de entrada principal', unidade: 'un', quantidade: 1, preco: 850 },
+    ],
+  },
+  {
+    nome: 'Revestimentos',
+    itens: [
+      { descricao: 'Reboco em argamassa interno e externo', unidade: 'm²', quantidade: 380, preco: 32 },
+      { descricao: 'Revestimento cerâmico de paredes (áreas molhadas)', unidade: 'm²', quantidade: 70, preco: 58 },
+      { descricao: 'Piso cerâmico', unidade: 'm²', quantidade: 42, preco: 65 },
+    ],
+  },
+  {
+    nome: 'Pintura',
+    itens: [
+      { descricao: 'Pintura látex acrílica interna', unidade: 'm²', quantidade: 270, preco: 18 },
+      { descricao: 'Pintura acrílica para fachada externa', unidade: 'm²', quantidade: 140, preco: 22 },
+    ],
+  },
+  {
+    nome: 'Serviços Complementares',
+    itens: [
+      { descricao: 'Limpeza final da obra', unidade: 'vb', quantidade: 1, preco: 1200 },
+      { descricao: 'Calçada externa em concreto', unidade: 'm²', quantidade: 30, preco: 95 },
+    ],
+  },
+]
+
 export default function ObrasPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -25,6 +126,7 @@ export default function ObrasPage() {
   const [busca, setBusca] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [gerandoExemplo, setGerandoExemplo] = useState(false)
   const [form, setForm] = useState({
     nome: '',
     endereco: '',
@@ -95,6 +197,61 @@ export default function ObrasPage() {
     if (obra) router.push(`/obras/${obra.id}`)
   }
 
+  // ─── Gera uma obra de exemplo já populada (etapas + composições) ──────────
+  // Útil para o usuário explorar o sistema sem precisar montar um orçamento do zero.
+  async function handleGerarExemplo() {
+    if (gerandoExemplo) return
+    setGerandoExemplo(true)
+    try {
+      const { data: obra } = await supabase
+        .from('obras')
+        .insert({
+          nome: OBRA_EXEMPLO_NOME,
+          endereco: 'Rua das Acácias, 120, Jardim das Flores, Caxias do Sul',
+          responsavel: 'Eng. Ana Beatriz Souza',
+          area_m2: 42,
+          uf: 'SP',
+          status: 'orcamento',
+        })
+        .select()
+        .single()
+      if (!obra) return
+
+      const { data: orc } = await supabase
+        .from('orcamentos')
+        .insert({ obra_id: obra.id, tipo: 'executivo', bdi_percentual: 20, status: 'rascunho', versao: 1 })
+        .select()
+        .single()
+      if (!orc) return
+
+      for (let gi = 0; gi < OBRA_EXEMPLO.length; gi++) {
+        const grupo = OBRA_EXEMPLO[gi]
+        const { data: etapa } = await supabase
+          .from('etapas')
+          .insert({ obra_id: obra.id, nome: grupo.nome, status: 'planejada', ordem: gi })
+          .select()
+          .single()
+        if (!etapa) continue
+
+        const itensInsert = grupo.itens.map((it, ii) => ({
+          orcamento_id: orc.id,
+          etapa_id: etapa.id,
+          quantidade: it.quantidade,
+          preco_unitario_snapshot: it.preco,
+          descricao_snapshot: it.descricao,
+          codigo_snapshot: `${String(gi + 1).padStart(2, '0')}.${String(ii + 1).padStart(3, '0')}`,
+          unidade_snapshot: it.unidade,
+        }))
+        await supabase.from('orcamento_itens').insert(itensInsert)
+      }
+
+      await loadObras()
+      router.push(`/obras/${obra.id}`)
+    } finally {
+      setGerandoExemplo(false)
+    }
+  }
+
   function resetForm() {
     setForm({ nome: '', endereco: '', responsavel: '', data_inicio: '', data_previsao: '', foto_url: '', area_m2: '', uf: 'SP' })
   }
@@ -135,6 +292,15 @@ export default function ObrasPage() {
               className="input-base input-search"
             />
           </div>
+          <Button
+            variant="secondary"
+            onClick={handleGerarExemplo}
+            loading={gerandoExemplo}
+            icon={<Sparkles size={16} />}
+            title="Cria uma obra de exemplo já populada com etapas e composições para você explorar o sistema"
+          >
+            Gerar obra de exemplo
+          </Button>
           <Button onClick={() => setShowModal(true)} icon={<Plus size={16} />}>
             Nova Obra
           </Button>
@@ -152,9 +318,14 @@ export default function ObrasPage() {
           title="Nenhuma obra encontrada"
           description={obras.length === 0 ? 'Comece criando sua primeira obra.' : 'Tente ajustar os filtros.'}
           action={obras.length === 0 ? (
-            <Button onClick={() => setShowModal(true)} icon={<Plus size={16} />}>
-              Nova Obra
-            </Button>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Button onClick={() => setShowModal(true)} icon={<Plus size={16} />}>
+                Nova Obra
+              </Button>
+              <Button variant="secondary" onClick={handleGerarExemplo} loading={gerandoExemplo} icon={<Sparkles size={16} />}>
+                Gerar obra de exemplo
+              </Button>
+            </div>
           ) : undefined}
         />
       ) : (
