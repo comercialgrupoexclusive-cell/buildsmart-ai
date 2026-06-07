@@ -202,7 +202,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   async function loadItens(orcamentoId: string) {
     const { data } = await supabase
       .from('orcamento_itens')
-      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,composicao_insumos(*)), sinapi_composicoes(id,codigo,descricao,unidade,custo_unitario)`)
+      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,composicao_insumos(*)), sinapi_composicoes(id,codigo,descricao,unidade,custos,custo_unitario)`)
       .eq('orcamento_id', orcamentoId)
       .order('created_at')
 
