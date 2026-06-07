@@ -120,19 +120,18 @@ export type ComposicaoPropria = {
 }
 
 // ─── Item de Composição Própria ───────────────────────────────────────────────
+// Schema real da tabela `composicao_insumos`: design normalizado por FK —
+// cada item referencia OU um insumo da base SINAPI (insumo_id) OU um insumo
+// próprio da empresa (insumo_proprio_id). Não existe snapshot de
+// descrição/unidade/preço: esses dados vêm sempre do embed (join) em runtime.
 export type ComposicaoItem = {
   id: string
   composicao_id: string
-  tipo: 'SINAPI_INSUMO' | 'SINAPI_COMPOSICAO' | 'MANUAL' | 'INSUMO_PROPRIO'
-  sinapi_codigo: string | null
-  insumo_proprio_id?: string | null
-  descricao: string
-  unidade: string
+  insumo_id: string | null
+  insumo_proprio_id: string | null
   coeficiente: number
-  ordem: number
-  // join runtime:
+  // join runtime (PostgREST embed):
   insumo?: SinapiInsumo | null
-  composicao?: SinapiComposicao | null
   insumo_proprio?: InsumoProprio | null
 }
 

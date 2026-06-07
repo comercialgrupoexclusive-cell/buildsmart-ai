@@ -20,31 +20,64 @@ const GRUPOS = [
 
 const CATEGORIAS_INSUMO = ['MATERIAL', 'MAO_DE_OBRA', 'EQUIPAMENTO', 'SERVICO'] as const
 
+// O schema real (`composicao_insumos`) só representa 2 origens de insumo:
+// um insumo da base SINAPI (FK insumo_id) ou um insumo próprio da empresa
+// (FK insumo_proprio_id). Não existem os tipos "Comp. SINAPI" / "Manual".
 const TIPO_LABEL: Record<string, string> = {
   SINAPI_INSUMO: 'Insumo SINAPI',
-  SINAPI_COMPOSICAO: 'Comp. SINAPI',
   INSUMO_PROPRIO: 'Insumo Próprio',
-  MANUAL: 'Manual',
 }
 const TIPO_COLOR: Record<string, string> = {
   SINAPI_INSUMO: 'rgba(59,123,248,0.15)',
-  SINAPI_COMPOSICAO: 'rgba(139,92,246,0.15)',
   INSUMO_PROPRIO: 'rgba(16,185,129,0.15)',
-  MANUAL: 'rgba(245,158,11,0.15)',
 }
 const TIPO_TEXT: Record<string, string> = {
   SINAPI_INSUMO: '#3B7BF8',
-  SINAPI_COMPOSICAO: '#8B5CF6',
   INSUMO_PROPRIO: '#10B981',
-  MANUAL: '#F59E0B',
 }
 
 type SinapiInsumoLite = {
+  id: string
   codigo: string
   classificacao: string
   descricao: string
   unidade: string
   precos: Record<string, number>
+}
+
+// Embed PostgREST padrão para ler itens de `composicao_insumos` — schema
+// normalizado por FK (insumo_id → sinapi_insumos / insumo_proprio_id →
+// insumos_proprios); descrição/unidade/preço vêm sempre do embed.
+const COMPOSICAO_INSUMOS_SELECT = `
+  id, composicao_id, insumo_id, insumo_proprio_id, coeficiente,
+  insumo:sinapi_insumos(id,codigo,classificacao,descricao,unidade,precos),
+  insumo_proprio:insumos_proprios(id,codigo,descricao,unidade,categoria,preco_unitario)
+`
+
+// Deriva a "origem" do item — única classificação possível no schema real
+function tipoDoItem(it: ComposicaoItem): 'SINAPI_INSUMO' | 'INSUMO_PROPRIO' {
+  return it.insumo_proprio_id ? 'INSUMO_PROPRIO' : 'SINAPI_INSUMO'
+}
+
+// Deriva os dados de exibição/custo de um item, qualquer que seja sua origem
+function infoDoItem(it: ComposicaoItem, uf: string): { codigo: string; descricao: string; unidade: string; preco: number } {
+  if (it.insumo_proprio) {
+    return {
+      codigo: it.insumo_proprio.codigo,
+      descricao: it.insumo_proprio.descricao,
+      unidade: it.insumo_proprio.unidade,
+      preco: it.insumo_proprio.preco_unitario ?? 0,
+    }
+  }
+  if (it.insumo) {
+    return {
+      codigo: it.insumo.codigo,
+      descricao: it.insumo.descricao,
+      unidade: it.insumo.unidade,
+      preco: (it.insumo as unknown as SinapiInsumoLite).precos?.[uf] ?? 0,
+    }
+  }
+  return { codigo: '—', descricao: '(insumo removido)', unidade: '—', preco: 0 }
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -374,10 +407,9 @@ function ItensCascata({
     ;(async () => {
       setLoading(true)
       const { data } = await supabase
-        .from('composicao_itens')
-        .select('*, insumo_proprio:insumos_proprios(id,codigo,descricao,unidade,preco_unitario)')
+        .from('composicao_insumos')
+        .select(COMPOSICAO_INSUMOS_SELECT)
         .eq('composicao_id', composicaoId)
-        .order('ordem')
       if (active) {
         setItens((data || []) as unknown as ComposicaoItem[])
         setLoading(false)
@@ -428,19 +460,20 @@ function ItensCascata({
         </thead>
         <tbody>
           {itens.map(it => {
-            const codigo = it.tipo === 'INSUMO_PROPRIO' ? (it.insumo_proprio?.codigo || '—') : (it.sinapi_codigo || '—')
+            const tipo = tipoDoItem(it)
+            const info = infoDoItem(it, 'SP')
             return (
               <tr key={it.id} style={{ borderTop: '1px solid var(--border)' }}>
                 <td className="px-3 py-2">
-                  <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: TIPO_COLOR[it.tipo], color: TIPO_TEXT[it.tipo] }}>
-                    {TIPO_LABEL[it.tipo] || it.tipo}
+                  <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: TIPO_COLOR[tipo], color: TIPO_TEXT[tipo] }}>
+                    {TIPO_LABEL[tipo]}
                   </span>
                 </td>
-                <td className="px-3 py-2 font-mono" style={{ color: 'var(--text-secondary)' }}>{codigo}</td>
+                <td className="px-3 py-2 font-mono" style={{ color: 'var(--text-secondary)' }}>{info.codigo}</td>
                 <td className="px-3 py-2 max-w-[360px]" style={{ color: 'var(--text-primary)' }}>
-                  <span className="truncate block">{it.descricao}</span>
+                  <span className="truncate block">{info.descricao}</span>
                 </td>
-                <td className="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>{it.unidade}</td>
+                <td className="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>{info.unidade}</td>
                 <td className="px-3 py-2 tabular-nums" style={{ color: 'var(--text-primary)' }}>
                   {Number(it.coeficiente).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
                 </td>
@@ -484,12 +517,9 @@ function ModalItens({
   const [loadingBuscaProprio, setLoadingBuscaProprio] = useState(false)
   const [proprioSelecionado, setProprioSelecionado] = useState<InsumoProprio | null>(null)
 
-  // Form novo item
-  const [tipoNovo, setTipoNovo] = useState<'SINAPI_INSUMO' | 'SINAPI_COMPOSICAO' | 'INSUMO_PROPRIO' | 'MANUAL'>(tipoInicial || 'SINAPI_INSUMO')
+  // Form novo item — o schema real só representa 2 origens possíveis
+  const [tipoNovo, setTipoNovo] = useState<'SINAPI_INSUMO' | 'INSUMO_PROPRIO'>(tipoInicial || 'SINAPI_INSUMO')
   const [coefNovo, setCoefNovo] = useState('')
-  const [descManual, setDescManual] = useState('')
-  const [undManual, setUndManual] = useState('')
-  const [codManual, setCodManual] = useState('')
   const [savingItem, setSavingItem] = useState(false)
 
   useEffect(() => {
@@ -505,10 +535,9 @@ function ModalItens({
   async function loadItens() {
     setLoadingItens(true)
     const { data } = await supabase
-      .from('composicao_itens')
-      .select('*, insumo_proprio:insumos_proprios(id,codigo,descricao,unidade,preco_unitario)')
+      .from('composicao_insumos')
+      .select(COMPOSICAO_INSUMOS_SELECT)
       .eq('composicao_id', composicao.id)
-      .order('ordem')
     setItens((data || []) as unknown as ComposicaoItem[])
     setLoadingItens(false)
   }
@@ -524,7 +553,7 @@ function ModalItens({
     setLoadingBusca(true)
     const { data } = await supabase
       .from('sinapi_insumos')
-      .select('codigo, classificacao, descricao, unidade, precos')
+      .select('id, codigo, classificacao, descricao, unidade, precos')
       .or(`descricao.ilike.%${q}%,codigo.ilike.%${q}%`)
       .order('codigo')
       .limit(15)
@@ -579,69 +608,37 @@ function ModalItens({
 
   async function handleAddItem() {
     if (!coefNovo || parseFloat(coefNovo) <= 0) return
-
-    const isSinapi = tipoNovo === 'SINAPI_INSUMO' || tipoNovo === 'SINAPI_COMPOSICAO'
-    if (isSinapi && !insumoSelecionado) return
+    if (tipoNovo === 'SINAPI_INSUMO' && !insumoSelecionado) return
     if (tipoNovo === 'INSUMO_PROPRIO' && !proprioSelecionado) return
-    if (tipoNovo === 'MANUAL' && !descManual.trim()) return
 
     setSavingItem(true)
+    // Schema real (`composicao_insumos`): apenas FK normalizada — o item
+    // referencia OU um insumo SINAPI (insumo_id) OU um insumo próprio
+    // (insumo_proprio_id), nunca os dois.
     const payload: Record<string, unknown> = {
       composicao_id: composicao.id,
-      tipo: tipoNovo,
       coeficiente: parseFloat(coefNovo),
-      ordem: itens.length,
-    }
-    if (isSinapi) {
-      payload.sinapi_codigo = insumoSelecionado!.codigo
-      payload.descricao = insumoSelecionado!.descricao
-      payload.unidade = insumoSelecionado!.unidade
-    } else if (tipoNovo === 'INSUMO_PROPRIO') {
-      payload.sinapi_codigo = proprioSelecionado!.codigo
-      payload.insumo_proprio_id = proprioSelecionado!.id
-      payload.descricao = proprioSelecionado!.descricao
-      payload.unidade = proprioSelecionado!.unidade
-    } else {
-      payload.sinapi_codigo = codManual.trim() || null
-      payload.descricao = descManual.trim()
-      payload.unidade = undManual.trim() || 'UN'
+      insumo_id: tipoNovo === 'SINAPI_INSUMO' ? insumoSelecionado!.id : null,
+      insumo_proprio_id: tipoNovo === 'INSUMO_PROPRIO' ? proprioSelecionado!.id : null,
     }
 
-    await supabase.from('composicao_itens').insert(payload)
+    await supabase.from('composicao_insumos').insert(payload)
     setSavingItem(false)
     setInsumoSelecionado(null)
     setProprioSelecionado(null)
     setCoefNovo('')
-    setDescManual('')
-    setUndManual('')
-    setCodManual('')
     loadItens()
     onChange?.()
   }
 
   async function handleDeleteItem(id: string) {
-    await supabase.from('composicao_itens').delete().eq('id', id)
+    await supabase.from('composicao_insumos').delete().eq('id', id)
     setItens(prev => prev.filter(i => i.id !== id))
     onChange?.()
   }
 
   // Calcula custo total com base nos itens e UF selecionada
-  const custoTotal = itens.reduce((acc, item) => {
-    if (item.tipo === 'MANUAL') return acc // sem preço automático
-    if (item.tipo === 'INSUMO_PROPRIO') {
-      const preco = item.insumo_proprio?.preco_unitario ?? 0
-      return acc + item.coeficiente * preco
-    }
-    if (!item.insumo) return acc
-    const preco = (item.insumo as any).precos?.[ufPreview] ?? 0
-    return acc + item.coeficiente * preco
-  }, 0)
-
-  function precoDoItem(item: ComposicaoItem): number {
-    if (item.tipo === 'INSUMO_PROPRIO') return item.insumo_proprio?.preco_unitario ?? 0
-    if (item.tipo === 'MANUAL') return 0
-    return (item.insumo as any)?.precos?.[ufPreview] ?? 0
-  }
+  const custoTotal = itens.reduce((acc, item) => acc + item.coeficiente * infoDoItem(item, ufPreview).preco, 0)
 
   return (
     <Modal
@@ -692,24 +689,25 @@ function ModalItens({
                 </thead>
                 <tbody>
                   {itens.map((item, i) => {
-                    const precoUF = precoDoItem(item)
+                    const tipo = tipoDoItem(item)
+                    const info = infoDoItem(item, ufPreview)
+                    const precoUF = info.preco
                     const totalItem = item.coeficiente * precoUF
-                    const codigoExibido = item.tipo === 'INSUMO_PROPRIO' ? (item.insumo_proprio?.codigo || item.sinapi_codigo) : item.sinapi_codigo
                     return (
                       <tr key={item.id} style={{ borderBottom: i < itens.length - 1 ? '1px solid var(--border)' : 'none' }}>
                         <td className="px-3 py-2">
                           <span className="text-xs px-2 py-0.5 rounded-full"
-                            style={{ background: TIPO_COLOR[item.tipo], color: TIPO_TEXT[item.tipo] }}>
-                            {TIPO_LABEL[item.tipo]}
+                            style={{ background: TIPO_COLOR[tipo], color: TIPO_TEXT[tipo] }}>
+                            {TIPO_LABEL[tipo]}
                           </span>
                         </td>
                         <td className="px-3 py-2 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
-                          {codigoExibido || '—'}
+                          {info.codigo}
                         </td>
                         <td className="px-3 py-2 max-w-[200px]" style={{ color: 'var(--text-primary)' }}>
-                          <span className="truncate block text-xs">{item.descricao}</span>
+                          <span className="truncate block text-xs">{info.descricao}</span>
                         </td>
-                        <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>{item.unidade}</td>
+                        <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>{info.unidade}</td>
                         <td className="px-3 py-2 text-xs tabular-nums" style={{ color: 'var(--text-primary)' }}>
                           {item.coeficiente.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
                         </td>
@@ -738,9 +736,9 @@ function ModalItens({
         <div className="rounded-xl p-4 flex flex-col gap-3" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
           <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>+ Adicionar insumo / item</p>
 
-          {/* Tipo */}
+          {/* Tipo — o schema real só representa 2 origens de insumo */}
           <div className="flex gap-2 flex-wrap">
-            {(['SINAPI_INSUMO', 'SINAPI_COMPOSICAO', 'INSUMO_PROPRIO', 'MANUAL'] as const).map(t => (
+            {(['SINAPI_INSUMO', 'INSUMO_PROPRIO'] as const).map(t => (
               <button
                 key={t}
                 onClick={() => trocarTipo(t)}
@@ -755,7 +753,7 @@ function ModalItens({
           </div>
 
           {/* Busca SINAPI */}
-          {(tipoNovo === 'SINAPI_INSUMO' || tipoNovo === 'SINAPI_COMPOSICAO') && (
+          {tipoNovo === 'SINAPI_INSUMO' && (
             <div className="relative">
               {insumoSelecionado ? (
                 <div className="flex items-center gap-2 p-2.5 rounded-lg" style={{ background: 'var(--bg-card)', border: '1px solid var(--accent)' }}>
@@ -879,15 +877,6 @@ function ModalItens({
             </div>
           )}
 
-          {/* Campos manual */}
-          {tipoNovo === 'MANUAL' && (
-            <div className="grid grid-cols-3 gap-2">
-              <input value={codManual} onChange={e => setCodManual(e.target.value)} placeholder="Código (opc.)" className="input-base text-xs" />
-              <input value={descManual} onChange={e => setDescManual(e.target.value)} placeholder="Descrição *" className="input-base col-span-2 text-xs" />
-              <input value={undManual} onChange={e => setUndManual(e.target.value)} placeholder="Unidade (M2, UN...)" className="input-base col-span-3 text-xs" />
-            </div>
-          )}
-
           {/* Coeficiente + Adicionar */}
           <div className="flex gap-2 items-end">
             <div className="flex-1">
@@ -909,9 +898,8 @@ function ModalItens({
               loading={savingItem}
               disabled={
                 !coefNovo || parseFloat(coefNovo) <= 0 ||
-                ((tipoNovo === 'SINAPI_INSUMO' || tipoNovo === 'SINAPI_COMPOSICAO') && !insumoSelecionado) ||
-                (tipoNovo === 'INSUMO_PROPRIO' && !proprioSelecionado) ||
-                (tipoNovo === 'MANUAL' && !descManual.trim())
+                (tipoNovo === 'SINAPI_INSUMO' && !insumoSelecionado) ||
+                (tipoNovo === 'INSUMO_PROPRIO' && !proprioSelecionado)
               }
               icon={<Plus size={14} />}
             >

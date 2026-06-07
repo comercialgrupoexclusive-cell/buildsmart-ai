@@ -30,16 +30,40 @@ const ETAPAS_PADRAO_FALLBACK = [
   'Pisos', 'Pintura', 'Louças e metais', 'Serviços complementares',
 ]
 
-// novo schema: composicao_itens (referência via sinapi_codigo TEXT)
+// schema real (tabela composicao_insumos): FKs normalizadas para sinapi_insumos
+// ou insumos_proprios — descrição/unidade/preço vêm sempre do embed (sem snapshot)
 type ComposicaoItemJoin = {
   id: string
   composicao_id: string
-  tipo: 'SINAPI_INSUMO' | 'SINAPI_COMPOSICAO' | 'MANUAL'
-  sinapi_codigo: string | null
-  descricao: string
-  unidade: string
+  insumo_id: string | null
+  insumo_proprio_id: string | null
   coeficiente: number
-  ordem: number
+  insumo?: { codigo: string; classificacao: string; descricao: string; unidade: string; precos: Record<string, number> } | null
+  insumo_proprio?: { codigo: string; descricao: string; unidade: string; categoria: string; preco_unitario: number } | null
+}
+
+// Deriva os dados de exibição/custo de um item de composição, qualquer que seja
+// sua origem (insumo SINAPI ou insumo próprio da empresa)
+function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; descricao: string; unidade: string; classificacao: string; preco: number } {
+  if (ins.insumo_proprio) {
+    return {
+      codigo: ins.insumo_proprio.codigo,
+      descricao: ins.insumo_proprio.descricao,
+      unidade: ins.insumo_proprio.unidade,
+      classificacao: ins.insumo_proprio.categoria,
+      preco: ins.insumo_proprio.preco_unitario ?? 0,
+    }
+  }
+  if (ins.insumo) {
+    return {
+      codigo: ins.insumo.codigo,
+      descricao: ins.insumo.descricao,
+      unidade: ins.insumo.unidade,
+      classificacao: ins.insumo.classificacao,
+      preco: ins.insumo.precos?.[uf] ?? 0,
+    }
+  }
+  return { codigo: '—', descricao: '(insumo removido)', unidade: '—', classificacao: '', preco: 0 }
 }
 
 type ComposicaoComCusto = ComposicaoPropria & {
@@ -115,9 +139,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
   const [insumoOverrides, setInsumoOverrides] = useState<Record<string, number>>({})
 
-  // Lookup de insumos SINAPI (referência lógica via sinapi_codigo — sem FK real,
-  // então buscamos classificação + preços por UF numa query separada e montamos um mapa)
-  const [sinapiInsumoMap, setSinapiInsumoMap] = useState<Record<string, { classificacao: string; precos: Record<string, number> }>>({})
 
   // Modal adicionar item
   const [showAddItem, setShowAddItem] = useState(false)
@@ -199,10 +220,18 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     if (orc) { setOrcamento(orc); setBdi(orc.bdi_percentual); await loadItens(orc.id) }
   }
 
+  // embed padrão dos itens de composição própria — traz direto do banco a descrição,
+  // unidade, classificação e preços (por UF) do insumo SINAPI ou do insumo próprio
+  const COMPOSICAO_INSUMOS_EMBED = `composicao_insumos(
+    id, composicao_id, insumo_id, insumo_proprio_id, coeficiente,
+    insumo:sinapi_insumos(codigo,classificacao,descricao,unidade,precos),
+    insumo_proprio:insumos_proprios(codigo,descricao,unidade,categoria,preco_unitario)
+  )`
+
   async function loadItens(orcamentoId: string) {
     const { data } = await supabase
       .from('orcamento_itens')
-      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,composicao_insumos(*)), sinapi_composicoes(id,codigo,descricao,unidade,custos,custo_unitario)`)
+      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,${COMPOSICAO_INSUMOS_EMBED}), sinapi_composicoes(id,codigo,descricao,unidade,custos,custo_unitario)`)
       .eq('orcamento_id', orcamentoId)
       .order('created_at')
 
@@ -218,26 +247,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       }
     })
     setItens(enriched)
-
-    // composicao_itens.sinapi_codigo é referência LÓGICA (sem FK real) — o PostgREST
-    // não consegue fazer embed automático. Buscamos os insumos referenciados numa
-    // query separada e montamos um mapa código → { classificacao, precos } no cliente.
-    const codigos = Array.from(new Set(
-      enriched.flatMap(i => (i.composicao_itens || [])
-        .filter(ci => ci.tipo === 'SINAPI_INSUMO' && ci.sinapi_codigo)
-        .map(ci => ci.sinapi_codigo as string))
-    ))
-    if (codigos.length > 0) {
-      const { data: insumos } = await supabase
-        .from('sinapi_insumos')
-        .select('codigo, classificacao, precos')
-        .in('codigo', codigos)
-      const map: Record<string, { classificacao: string; precos: Record<string, number> }> = {}
-      for (const ins of insumos || []) map[(ins as any).codigo] = { classificacao: (ins as any).classificacao, precos: (ins as any).precos || {} }
-      setSinapiInsumoMap(map)
-    } else {
-      setSinapiInsumoMap({})
-    }
   }
 
   async function loadEtapas() {
@@ -248,12 +257,12 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   async function loadComposicoesProprias() {
     const { data } = await supabase
       .from('composicoes_proprias')
-      .select('*, composicao_insumos(*)')
+      .select(`*, ${COMPOSICAO_INSUMOS_EMBED}`)
       .eq('ativo', true).order('codigo')
     const withCusto = (data || []).map((comp: any) => ({
       ...comp,
       composicao_itens: comp.composicao_insumos || [],
-      // custo_calculado requer lookup de sinapi_insumos.precos[uf] — feito pós-Supabase
+      // custo_calculado é derivado em runtime (depende da UF da obra) — calculado ao usar
       custo_calculado: 0,
     }))
     setComposicoesProprias(withCusto)
@@ -265,21 +274,20 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }
 
   // ─── Totais com override ─────────────────────────────────────────────────
-  // sinapi_codigo é referência lógica (sem FK real) — os preços/classificação vêm
-  // do mapa sinapiInsumoMap, montado em loadItens via query separada + merge no cliente.
+  // preços/classificação vêm direto do embed (insumo:sinapi_insumos / insumo_proprio:insumos_proprios)
   const getItemTotal = useCallback((item: ItemEnriquecido): number => {
     const itensComp = item.composicao_itens || []
     if (itensComp.length === 0) return item.preco_unitario_snapshot * item.quantidade
-    const temPreco = itensComp.some(ins => ((ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0) > 0)
+    const temPreco = itensComp.some(ins => infoDoItem(ins, obraUf).preco > 0)
     if (!temPreco) return item.preco_unitario_snapshot * item.quantidade
     return itensComp.reduce((total, ins) => {
-      const key = overrideKey(item.id, ins.sinapi_codigo || ins.id)
+      const info = infoDoItem(ins, obraUf)
+      const key = overrideKey(item.id, info.codigo !== '—' ? info.codigo : ins.id)
       const qtdCalculada = item.quantidade * ins.coeficiente
       const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
-      const preco = (ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0
-      return total + qtdAdotada * preco
+      return total + qtdAdotada * info.preco
     }, 0)
-  }, [insumoOverrides, obraUf, sinapiInsumoMap])
+  }, [insumoOverrides, obraUf])
 
   const subtotal = itens.reduce((a, i) => a + getItemTotal(i), 0)
   const totalBdi = subtotal * (bdi / 100)
@@ -294,16 +302,15 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       const itensComp = item.composicao_itens || []
       const totalItem = getItemTotal(item)
       if (itensComp.length === 0) { acc.outros += totalItem; continue }
-      const temPreco = itensComp.some(ins => ((ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0) > 0)
+      const temPreco = itensComp.some(ins => infoDoItem(ins, obraUf).preco > 0)
       if (!temPreco) { acc.outros += totalItem; continue }
       for (const ins of itensComp) {
-        const info = ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo] : undefined
-        const preco = info?.precos?.[obraUf] ?? 0
-        const key = overrideKey(item.id, ins.sinapi_codigo || ins.id)
+        const info = infoDoItem(ins, obraUf)
+        const key = overrideKey(item.id, info.codigo !== '—' ? info.codigo : ins.id)
         const qtdCalculada = item.quantidade * ins.coeficiente
         const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
-        const valor = qtdAdotada * preco
-        switch (info?.classificacao) {
+        const valor = qtdAdotada * info.preco
+        switch (info.classificacao) {
           case 'MATERIAL': acc.material += valor; break
           case 'MAO_DE_OBRA': acc.maoDeObra += valor; break
           case 'EQUIPAMENTO': acc.equipamento += valor; break
@@ -462,19 +469,19 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         precoUnitario: item.preco_unitario_snapshot,
         totalItem: getItemTotal(item),
         insumos: itensComp.map(ins => {
-          const insumoKey = ins.sinapi_codigo || ins.id
+          const info = infoDoItem(ins, obraUf)
+          const insumoKey = info.codigo !== '—' ? info.codigo : ins.id
           const key = overrideKey(item.id, insumoKey)
           const qtdCalculada = item.quantidade * ins.coeficiente
           const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
-          const preco = (ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0
           return {
-            codigo: ins.sinapi_codigo || '',
-            descricao: ins.descricao,
-            unidade: ins.unidade,
+            codigo: info.codigo !== '—' ? info.codigo : '',
+            descricao: info.descricao,
+            unidade: info.unidade,
             qtdCalculada,
             qtdAdotada,
-            precoUnit: preco,
-            totalInsumo: qtdAdotada * preco,
+            precoUnit: info.preco,
+            totalInsumo: qtdAdotada * info.preco,
             isOverride: insumoOverrides[key] !== undefined,
           }
         }),
@@ -522,13 +529,17 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }
 
   // ─── Materiais ────────────────────────────────────────────────────────────
+  // Observação: a lista de "materiais a comprar" é ligada a sinapi_codigo (TEXT) —
+  // por isso só geramos/abatemos materiais para itens com origem SINAPI (insumo_id),
+  // que têm um código SINAPI real para casar com a tabela `materiais`.
   async function gerarMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null) {
     for (const item of itensComp) {
-      if (!item.sinapi_codigo) continue
+      if (!item.insumo?.codigo) continue
+      const codigo = item.insumo.codigo
       const qtdSugerida = qtdComposicao * item.coeficiente
       if (qtdSugerida <= 0) continue
       let query = supabase.from('materiais').select('id, quantidade_total')
-        .eq('obra_id', obraId).eq('sinapi_codigo', item.sinapi_codigo)
+        .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
       query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
       const { data: existente } = await query.maybeSingle()
       if (existente) {
@@ -536,9 +547,9 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       } else {
         await supabase.from('materiais').insert({
           obra_id: obraId, etapa_id: etapaId,
-          sinapi_codigo: item.sinapi_codigo,
-          descricao: item.descricao,
-          unidade: item.unidade,
+          sinapi_codigo: codigo,
+          descricao: item.insumo.descricao,
+          unidade: item.insumo.unidade,
           quantidade_total: qtdSugerida, quantidade_comprada: 0, status_compra: 'nao_comprado',
         })
       }
@@ -547,11 +558,12 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
   async function abaterMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null) {
     for (const item of itensComp) {
-      if (!item.sinapi_codigo) continue
+      if (!item.insumo?.codigo) continue
+      const codigo = item.insumo.codigo
       const qtdSugerida = qtdComposicao * item.coeficiente
       if (qtdSugerida <= 0) continue
       let query = supabase.from('materiais').select('id, quantidade_total')
-        .eq('obra_id', obraId).eq('sinapi_codigo', item.sinapi_codigo)
+        .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
       query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
       const { data: existente } = await query.maybeSingle()
       if (!existente) continue
@@ -729,7 +741,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                 insumoOverrides={insumoOverrides}
                 onOverrideInsumo={handleOverrideInsumo}
                 getItemTotal={getItemTotal}
-                sinapiInsumoMap={sinapiInsumoMap}
                 obraUf={obraUf}
                 subtotalDireto={subtotal}
               />
@@ -753,7 +764,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                   insumoOverrides={insumoOverrides}
                   onOverrideInsumo={handleOverrideInsumo}
                   getItemTotal={getItemTotal}
-                  sinapiInsumoMap={sinapiInsumoMap}
                   obraUf={obraUf}
                   icon={icon}
                   iconCor={cor}
@@ -860,13 +870,14 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                   <div className="mb-3 rounded-lg p-2 flex flex-col gap-1" style={{ background: 'var(--bg-secondary)' }}>
                     <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Insumos sugeridos para compra</p>
                     {selectedItem.composicao_itens.slice(0, 5).map((ins) => {
+                      const info = infoDoItem(ins, obraUf)
                       const qtdBase = parseFloat(quantidade) || 0
                       const qtdSugerida = qtdBase * ins.coeficiente
                       return (
                         <div key={ins.id} className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          <span className="font-mono" style={{ fontFamily: 'JetBrains Mono, monospace' }}>{ins.sinapi_codigo || '—'}</span>
-                          <span className="flex-1 truncate">{ins.descricao}</span>
-                          <span>{qtdBase > 0 ? `${qtdSugerida.toLocaleString('pt-BR')} ${ins.unidade}` : `coef. ${ins.coeficiente}`}</span>
+                          <span className="font-mono" style={{ fontFamily: 'JetBrains Mono, monospace' }}>{info.codigo}</span>
+                          <span className="flex-1 truncate">{info.descricao}</span>
+                          <span>{qtdBase > 0 ? `${qtdSugerida.toLocaleString('pt-BR')} ${info.unidade}` : `coef. ${ins.coeficiente}`}</span>
                         </div>
                       )
                     })}
@@ -975,7 +986,7 @@ function CustoCard({ icon: Icon, cor, label, value, hint, highlight, children }:
 function GrupoEtapa({
   nome, itens, isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
-  sinapiInsumoMap, obraUf, icon: Icon, iconCor, subtotalDireto,
+  obraUf, icon: Icon, iconCor, subtotalDireto,
   onDeleteEtapa, menuAberto, onToggleMenu, menuRef,
 }: {
   nome: string
@@ -991,7 +1002,6 @@ function GrupoEtapa({
   insumoOverrides: Record<string, number>
   onOverrideInsumo: (itemId: string, insumoId: string, value: number | null) => void
   getItemTotal: (item: ItemEnriquecido) => number
-  sinapiInsumoMap: Record<string, { classificacao: string; precos: Record<string, number> }>
   obraUf: string
   icon?: LucideIcon
   iconCor?: string
@@ -1092,9 +1102,10 @@ function GrupoEtapa({
                   const hasInsumos = (item.composicao_itens?.length || 0) > 0
                   const isExpanded = expandedItems[item.id] || false
                   const itemTotal = getItemTotal(item)
-                  const hasOverride = (item.composicao_itens || []).some(ins =>
-                    insumoOverrides[overrideKey(item.id, ins.sinapi_codigo || ins.id)] !== undefined
-                  )
+                  const hasOverride = (item.composicao_itens || []).some(ins => {
+                    const info = infoDoItem(ins, obraUf)
+                    return insumoOverrides[overrideKey(item.id, info.codigo !== '—' ? info.codigo : ins.id)] !== undefined
+                  })
 
                   return (
                     <Fragment key={item.id}>
@@ -1138,11 +1149,12 @@ function GrupoEtapa({
 
                       {/* ── Linhas de insumos (cascata expandida) ── */}
                       {isExpanded && hasInsumos && item.composicao_itens!.map(ins => {
-                        const insumoKey = ins.sinapi_codigo || ins.id
+                        const info = infoDoItem(ins, obraUf)
+                        const insumoKey = info.codigo !== '—' ? info.codigo : ins.id
                         const key = overrideKey(item.id, insumoKey)
                         const qtdCalculada = item.quantidade * ins.coeficiente
                         const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
-                        const preco = (ins.sinapi_codigo ? sinapiInsumoMap[ins.sinapi_codigo]?.precos?.[obraUf] : undefined) ?? 0
+                        const preco = info.preco
                         const totalIns = qtdAdotada * preco
                         const isOverridden = insumoOverrides[key] !== undefined
 
@@ -1155,13 +1167,13 @@ function GrupoEtapa({
                               <span style={{ color: 'var(--border)', fontSize: 10 }}>└</span>
                             </td>
                             <td className="px-3 py-2 text-xs font-mono" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                              {ins.sinapi_codigo || '—'}
+                              {info.codigo}
                             </td>
                             <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)', maxWidth: 260 }}>
-                              <span className="truncate block">{ins.descricao}</span>
+                              <span className="truncate block">{info.descricao}</span>
                             </td>
                             <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                              {ins.unidade}
+                              {info.unidade}
                             </td>
                             {/* Quantidade: calculada → adotada (editável) */}
                             <td className="px-3 py-2" colSpan={1}>
