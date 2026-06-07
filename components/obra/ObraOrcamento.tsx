@@ -202,7 +202,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   async function loadItens(orcamentoId: string) {
     const { data } = await supabase
       .from('orcamento_itens')
-      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,composicao_itens(*)), sinapi_composicoes(id,codigo,descricao,unidade,custos)`)
+      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,composicao_insumos(*)), sinapi_composicoes(id,codigo,descricao,unidade,custos)`)
       .eq('orcamento_id', orcamentoId)
       .order('created_at')
 
@@ -214,7 +214,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         codigo: cp?.codigo || sc?.codigo || item.codigo_snapshot || '—',
         descricao: item.descricao_snapshot || cp?.descricao || sc?.descricao || '—',
         unidade: cp?.unidade || sc?.unidade || item.unidade_snapshot || '—',
-        composicao_itens: cp?.composicao_itens || [],
+        composicao_itens: cp?.composicao_insumos || [],
       }
     })
     setItens(enriched)
@@ -248,10 +248,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   async function loadComposicoesProprias() {
     const { data } = await supabase
       .from('composicoes_proprias')
-      .select('*, composicao_itens(*)')
+      .select('*, composicao_insumos(*)')
       .eq('ativo', true).order('codigo')
     const withCusto = (data || []).map((comp: any) => ({
       ...comp,
+      composicao_itens: comp.composicao_insumos || [],
       // custo_calculado requer lookup de sinapi_insumos.precos[uf] — feito pós-Supabase
       custo_calculado: 0,
     }))
@@ -646,7 +647,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
       {/* ── Card 2 — composição de custos (fixo ao rolar) ── */}
       <div
-        className="sticky top-0 z-20 rounded-2xl overflow-hidden"
+        className="sticky top-16 z-20 rounded-2xl overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
       >
         <div className="px-4 py-3 flex flex-col gap-2.5">
