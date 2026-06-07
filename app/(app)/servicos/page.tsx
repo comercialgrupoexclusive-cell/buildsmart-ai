@@ -386,6 +386,7 @@ export default function ServicosPage() {
           )}
         </>
       )}
+
     </div>
   )
 }
@@ -972,6 +973,15 @@ function InsumosTab() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [creating, setCreating] = useState(false)
+  const [showNovoInsumo, setShowNovoInsumo] = useState(false)
+  const [novoInsumo, setNovoInsumo] = useState({
+    codigo: '',
+    descricao: '',
+    unidade: 'UN',
+    categoria: 'MATERIAL' as InsumoProprio['categoria'],
+    preco_unitario: '',
+    ativo: true,
+  })
 
   useEffect(() => { loadInsumos() }, [])
 
@@ -995,26 +1005,44 @@ function InsumosTab() {
     return `IP-${String(max + 1).padStart(3, '0')}`
   }
 
+  function abrirNovoInsumo() {
+    setNovoInsumo({
+      codigo: proximoCodigo(),
+      descricao: '',
+      unidade: 'UN',
+      categoria: 'MATERIAL',
+      preco_unitario: '',
+      ativo: true,
+    })
+    setShowNovoInsumo(true)
+  }
+
   async function handleNovo() {
+    if (!novoInsumo.codigo.trim() || !novoInsumo.descricao.trim() || !novoInsumo.unidade.trim()) return
     setCreating(true)
-    const codigo = proximoCodigo()
+    const preco = Number(novoInsumo.preco_unitario.replace(',', '.')) || 0
     const { data, error } = await supabase
       .from('insumos_proprios')
       .insert({
-        codigo,
-        descricao: 'Novo insumo (clique para editar)',
-        unidade: 'UN',
-        categoria: 'MATERIAL',
-        preco_unitario: 0,
-        ativo: true,
+        codigo: novoInsumo.codigo.trim().toUpperCase(),
+        descricao: novoInsumo.descricao.trim(),
+        unidade: novoInsumo.unidade.trim().toUpperCase(),
+        categoria: novoInsumo.categoria,
+        preco_unitario: preco,
+        ativo: novoInsumo.ativo,
       })
       .select()
       .single()
     setCreating(false)
     if (!error && data) {
       setInsumos(prev => [...prev, data as InsumoProprio].sort((a, b) => a.codigo.localeCompare(b.codigo)))
+      setShowNovoInsumo(false)
     } else if (error?.code === 'PGRST205') {
       alert('A tabela "insumos_proprios" ainda não existe no banco. Rode a migração supabase/migration_insumos_proprios.sql no SQL Editor do Supabase.')
+    } else if (error?.code === '42501') {
+      alert('O Supabase bloqueou a inserção por política RLS. Rode o arquivo supabase/fix_2026_06_07_insumos_orcamento.sql no SQL Editor do Supabase.')
+    } else if (error) {
+      alert(`Não foi possível inserir o insumo: ${error.message}`)
     }
   }
 
@@ -1047,8 +1075,8 @@ function InsumosTab() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
             <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar insumo..." className="input-base input-search" />
           </div>
-          <Button onClick={handleNovo} loading={creating} icon={<Sparkles size={16} />}>
-            Inserir novo
+          <Button onClick={abrirNovoInsumo} icon={<Sparkles size={16} />}>
+            Novo insumo
           </Button>
         </div>
       </div>
@@ -1059,8 +1087,8 @@ function InsumosTab() {
         </div>
       ) : filtrados.length === 0 ? (
         <EmptyState icon={Package} title="Nenhum insumo próprio cadastrado"
-          description='Clique em "Inserir novo" — um código (IP-001, IP-002...) é gerado automaticamente e você edita os dados direto na tabela.'
-          action={<Button onClick={handleNovo} loading={creating} icon={<Sparkles size={16} />}>Inserir novo</Button>}
+          description='Clique em "Novo insumo" para abrir o formulário de cadastro.'
+          action={<Button onClick={abrirNovoInsumo} icon={<Sparkles size={16} />}>Novo insumo</Button>}
         />
       ) : (
         <div className="card overflow-hidden">
@@ -1124,6 +1152,88 @@ function InsumosTab() {
           </table>
         </div>
       )}
+
+      <Modal
+        open={showNovoInsumo}
+        onClose={() => !creating && setShowNovoInsumo(false)}
+        title="Novo insumo"
+        size="md"
+      >
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={e => {
+            e.preventDefault()
+            handleNovo()
+          }}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Código"
+              value={novoInsumo.codigo}
+              onChange={e => setNovoInsumo(prev => ({ ...prev, codigo: e.target.value }))}
+              placeholder="IP-001"
+              autoFocus
+            />
+            <Input
+              label="Unidade"
+              value={novoInsumo.unidade}
+              onChange={e => setNovoInsumo(prev => ({ ...prev, unidade: e.target.value }))}
+              placeholder="UN, M2, M3, H..."
+            />
+          </div>
+
+          <Input
+            label="Descrição"
+            value={novoInsumo.descricao}
+            onChange={e => setNovoInsumo(prev => ({ ...prev, descricao: e.target.value }))}
+            placeholder="Ex: Cimento CP II 50 kg"
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-[var(--text-secondary)]">Categoria</label>
+              <select
+                value={novoInsumo.categoria}
+                onChange={e => setNovoInsumo(prev => ({ ...prev, categoria: e.target.value as InsumoProprio['categoria'] }))}
+                className="input-base"
+              >
+                {CATEGORIAS_INSUMO.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+              </select>
+            </div>
+            <Input
+              label="Preço unitário"
+              type="number"
+              step="0.01"
+              min="0"
+              value={novoInsumo.preco_unitario}
+              onChange={e => setNovoInsumo(prev => ({ ...prev, preco_unitario: e.target.value }))}
+              placeholder="0,00"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <input
+              type="checkbox"
+              checked={novoInsumo.ativo}
+              onChange={e => setNovoInsumo(prev => ({ ...prev, ativo: e.target.checked }))}
+            />
+            Insumo ativo
+          </label>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setShowNovoInsumo(false)} disabled={creating}>
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              loading={creating}
+              disabled={!novoInsumo.codigo.trim() || !novoInsumo.descricao.trim() || !novoInsumo.unidade.trim()}
+            >
+              Inserir insumo
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

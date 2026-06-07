@@ -233,7 +233,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       .from('orcamento_itens')
       .select(`*, composicoes_proprias(id,codigo,descricao,unidade,${COMPOSICAO_INSUMOS_EMBED}), sinapi_composicoes(id,codigo,descricao,unidade,custos,custo_unitario)`)
       .eq('orcamento_id', orcamentoId)
-      .order('created_at')
+      .order('updated_at')
 
     const enriched: ItemEnriquecido[] = (data || []).map((item: any) => {
       const cp = item.composicoes_proprias
@@ -375,32 +375,40 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   async function handleAddItem(fecharDepois = false) {
     if (!orcamento || !selectedItem || !quantidade) return
     setSaving(true)
-    const isSinapi = fonte === 'sinapi'
-    const qtd = parseFloat(quantidade)
-    const custoUnitario = getItemCost(selectedItem)
-    const etapaId = await ensureEtapaSelecionada()
-    const descricaoFinal = selectedItem.descricao + (subetapaLivre.trim() ? ` — ${subetapaLivre.trim()}` : '')
+    try {
+      const isSinapi = fonte === 'sinapi'
+      const qtd = parseFloat(quantidade)
+      const custoUnitario = getItemCost(selectedItem)
+      const etapaId = await ensureEtapaSelecionada()
+      const descricaoFinal = selectedItem.descricao + (subetapaLivre.trim() ? ` — ${subetapaLivre.trim()}` : '')
 
-    await supabase.from('orcamento_itens').insert({
-      orcamento_id: orcamento.id,
-      etapa_id: etapaId,
-      subetapa: subetapaLivre.trim() || null,
-      composicao_id: isSinapi ? null : selectedItem.id,
-      sinapi_composicao_id: isSinapi ? selectedItem.id : null,
-      quantidade: qtd,
-      preco_unitario_snapshot: custoUnitario,
-      descricao_snapshot: descricaoFinal,
-      codigo_snapshot: selectedItem.codigo,
-      unidade_snapshot: selectedItem.unidade,
-    })
+      const { error } = await supabase.from('orcamento_itens').insert({
+        orcamento_id: orcamento.id,
+        etapa_id: etapaId,
+        composicao_id: isSinapi ? null : selectedItem.id,
+        sinapi_composicao_id: isSinapi ? selectedItem.id : null,
+        quantidade: qtd,
+        preco_unitario_snapshot: custoUnitario,
+        descricao_snapshot: descricaoFinal,
+        codigo_snapshot: selectedItem.codigo,
+        unidade_snapshot: selectedItem.unidade,
+      })
 
-    if (!isSinapi && 'composicao_itens' in selectedItem) {
-      await gerarMateriaisDaComposicao(selectedItem.composicao_itens || [], qtd, etapaId)
+      if (error) throw error
+
+      if (!isSinapi && 'composicao_itens' in selectedItem) {
+        await gerarMateriaisDaComposicao(selectedItem.composicao_itens || [], qtd, etapaId)
+      }
+
+      setSelectedItem(null); setQuantidade(''); setBusca(''); setAddToEtapaId(etapaId)
+      if (fecharDepois) { setShowAddItem(false); setSubetapaLivre('') }
+      await loadItens(orcamento.id)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
+      alert(`Não foi possível inserir a composição no orçamento: ${message}`)
+    } finally {
+      setSaving(false)
     }
-
-    setSaving(false); setSelectedItem(null); setQuantidade(''); setBusca(''); setAddToEtapaId(etapaId)
-    if (fecharDepois) { setShowAddItem(false); setSubetapaLivre('') }
-    loadItens(orcamento.id)
   }
 
   async function handleRemoveItem(itemId: string) {
@@ -516,7 +524,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     if (novoOrc) {
       for (const item of itens) {
         await supabase.from('orcamento_itens').insert({
-          orcamento_id: novoOrc.id, etapa_id: item.etapa_id, subetapa: item.subetapa,
+          orcamento_id: novoOrc.id, etapa_id: item.etapa_id,
           composicao_id: item.composicao_id, sinapi_composicao_id: item.sinapi_composicao_id,
           quantidade: item.quantidade, preco_unitario_snapshot: item.preco_unitario_snapshot,
           descricao_snapshot: item.descricao_snapshot, codigo_snapshot: item.codigo_snapshot,
