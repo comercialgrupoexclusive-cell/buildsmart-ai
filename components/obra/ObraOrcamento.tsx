@@ -142,9 +142,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   // Grupos colapsados (nível etapa)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
-  // Busca na Estrutura da Obra (filtra por etapa ou descrição de composição)
-  const [buscaEstrutura, setBuscaEstrutura] = useState('')
-
   // Menu de etapa (excluir etapa)
   const [etapaMenuAberto, setEtapaMenuAberto] = useState<string | null>(null)
   const etapaMenuRef = useRef<HTMLDivElement>(null)
@@ -594,33 +591,20 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   return (
     <div className="flex flex-col gap-4">
 
-      {/* ── Painel de totais e composição de custos ── */}
-      <div
-        className="sticky top-0 z-20 rounded-2xl overflow-hidden"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
-      >
-        <div className="p-5 flex flex-col gap-5">
+      {/* ── Painéis fixos: KPIs gerais + composição de custos ── */}
+      <div className="sticky top-0 z-20 flex flex-col gap-3 pb-1">
 
-          {/* Linha 1 — status + ações */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span
-              className="text-xs px-2.5 py-1 rounded-full font-medium"
-              style={{
-                background: isReadonly ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
-                color: isReadonly ? 'var(--success)' : 'var(--warning)',
-              }}
-            >
-              v{orcamento.versao} · {isReadonly ? 'Finalizado' : 'Rascunho'}
-            </span>
-            <div className="flex items-center gap-2">
+        {/* Card 1 — KPIs gerais da obra */}
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
+        >
+          <div className="p-5 flex flex-col gap-4">
+            {/* Ações do orçamento */}
+            <div className="flex items-center justify-end gap-2">
               {itens.length > 0 && (
                 <Button size="sm" icon={<FileSpreadsheet size={14} />} variant="secondary" onClick={handleExportXLSX}>
                   Exportar Excel
-                </Button>
-              )}
-              {!isReadonly && (
-                <Button size="sm" icon={<FolderPlus size={14} />} variant="secondary" onClick={() => openItemModal()}>
-                  Novo item
                 </Button>
               )}
               <div className="relative" ref={menuRef}>
@@ -651,86 +635,93 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                 )}
               </div>
             </div>
-          </div>
 
-          {/* Linha 2 — tira de KPIs discretos */}
-          <div className="flex flex-wrap items-center gap-x-8 gap-y-3 pb-5 border-b" style={{ borderColor: 'var(--border)' }}>
-            <KpiMini label="Área construída" value={areaM2 && areaM2 > 0 ? `${areaM2.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} m²` : '—'} />
-            <KpiMini label="Custo direto / m²" value={areaM2 && areaM2 > 0 ? formatCurrency(subtotal / areaM2) : '—'} />
-            <KpiMini label="Custo final / m²" value={custoPorM2 !== null ? formatCurrency(custoPorM2) : '—'} />
-            <KpiMini label="Etapas" value={String(etapas.length)} />
-            <KpiMini label="Composições" value={String(itens.length)} />
+            {/* Tira de KPIs discretos */}
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+              <KpiMini label="Área construída" value={areaM2 && areaM2 > 0 ? `${areaM2.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} m²` : '—'} />
+              <KpiMini label="Custo direto / m²" value={areaM2 && areaM2 > 0 ? formatCurrency(subtotal / areaM2) : '—'} />
+              <KpiMini label="Custo final / m²" value={custoPorM2 !== null ? formatCurrency(custoPorM2) : '—'} />
+              <KpiMini label="Etapas" value={String(etapas.length)} />
+              <KpiMini label="Composições" value={String(itens.length)} />
+            </div>
           </div>
+        </div>
 
-          {/* Linha 3 — cards de custo (ícones discretos) */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <CustoCard
-              icon={Boxes} cor="var(--accent)" label="Custo Material"
-              value={formatCurrency(custoPorCategoria.material)}
-              hint={subtotal > 0 ? `${((custoPorCategoria.material / subtotal) * 100).toFixed(1)}% do custo direto` : undefined}
-            />
-            <CustoCard
-              icon={Users} cor="var(--success)" label="Custo Mão de Obra"
-              value={formatCurrency(custoPorCategoria.maoDeObra)}
-              hint={subtotal > 0 ? `${((custoPorCategoria.maoDeObra / subtotal) * 100).toFixed(1)}% do custo direto` : undefined}
-            />
-            <CustoCard
-              icon={FileText} cor="var(--text-secondary)" label="Valor Direto"
-              value={formatCurrency(subtotal)} hint="Sem BDI"
-            />
-            <CustoCard icon={Percent} cor="var(--warning)" label="BDI" hint={formatCurrency(totalBdi)}>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number" value={bdi}
-                  onChange={e => setBdi(Number(e.target.value))}
-                  onBlur={handleUpdateBdi}
-                  disabled={isReadonly}
-                  className="input-base w-16 text-center py-1 text-sm"
-                  min={0} max={100}
-                />
-                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
-              </div>
-            </CustoCard>
-            <CustoCard
-              icon={Wallet} cor="var(--accent)" label="Valor Total da Obra"
-              value={formatCurrency(totalGeral)} hint="Com BDI" highlight
-            />
-          </div>
-
-          {/* Linha 4 — distribuição do custo direto: materiais vs. mão de obra */}
-          {subtotal > 0 && (() => {
-            const materialValor = custoPorCategoria.material
-            const restanteValor = Math.max(subtotal - materialValor, 0)
-            const materialPct = subtotal > 0 ? (materialValor / subtotal) * 100 : 0
-            const restantePct = Math.max(100 - materialPct, 0)
-            return (
-              <div className="pt-1">
-                <p className="text-xs uppercase tracking-wide font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
-                  Distribuição do custo direto
-                </p>
-                <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: 'var(--bg-secondary)' }}>
-                  {materialPct > 0 && (
-                    <div style={{ width: `${materialPct}%`, background: 'var(--accent)' }}
-                      title={`Material: ${formatCurrency(materialValor)} (${materialPct.toFixed(1)}%)`} />
-                  )}
-                  {restantePct > 0 && (
-                    <div style={{ width: `${restantePct}%`, background: 'var(--success)' }}
-                      title={`Mão de obra: ${formatCurrency(restanteValor)} (${restantePct.toFixed(1)}%)`} />
-                  )}
+        {/* Card 2 — composição de custos (material, mão de obra, direto, BDI, total) */}
+        <div
+          className="rounded-2xl overflow-hidden"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
+        >
+          <div className="p-5 flex flex-col gap-5">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              <CustoCard
+                icon={Boxes} cor="var(--accent)" label="Custo Material"
+                value={formatCurrency(custoPorCategoria.material)}
+                hint={subtotal > 0 ? `${((custoPorCategoria.material / subtotal) * 100).toFixed(1)}% do custo direto` : undefined}
+              />
+              <CustoCard
+                icon={Users} cor="var(--success)" label="Custo Mão de Obra"
+                value={formatCurrency(custoPorCategoria.maoDeObra)}
+                hint={subtotal > 0 ? `${((custoPorCategoria.maoDeObra / subtotal) * 100).toFixed(1)}% do custo direto` : undefined}
+              />
+              <CustoCard
+                icon={FileText} cor="var(--text-secondary)" label="Valor Direto"
+                value={formatCurrency(subtotal)} hint="Sem BDI"
+              />
+              <CustoCard icon={Percent} cor="var(--warning)" label="BDI" hint={formatCurrency(totalBdi)}>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number" value={bdi}
+                    onChange={e => setBdi(Number(e.target.value))}
+                    onBlur={handleUpdateBdi}
+                    disabled={isReadonly}
+                    className="input-base w-16 text-center py-1 text-sm"
+                    min={0} max={100}
+                  />
+                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
                 </div>
-                <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3">
-                  <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    <span className="w-2 h-2 rounded-full" style={{ background: 'var(--accent)' }} />
-                    Material <strong style={{ color: 'var(--text-primary)' }}>{materialPct.toFixed(1)}%</strong>
-                  </span>
-                  <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    <span className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
-                    Mão de obra <strong style={{ color: 'var(--text-primary)' }}>{restantePct.toFixed(1)}%</strong>
-                  </span>
+              </CustoCard>
+              <CustoCard
+                icon={Wallet} cor="var(--accent)" label="Valor Total da Obra"
+                value={formatCurrency(totalGeral)} hint="Com BDI" highlight
+              />
+            </div>
+
+            {/* Distribuição do custo direto: materiais vs. mão de obra */}
+            {subtotal > 0 && (() => {
+              const materialValor = custoPorCategoria.material
+              const restanteValor = Math.max(subtotal - materialValor, 0)
+              const materialPct = subtotal > 0 ? (materialValor / subtotal) * 100 : 0
+              const restantePct = Math.max(100 - materialPct, 0)
+              return (
+                <div className="pt-1">
+                  <p className="text-xs uppercase tracking-wide font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
+                    Distribuição do custo direto
+                  </p>
+                  <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: 'var(--bg-secondary)' }}>
+                    {materialPct > 0 && (
+                      <div style={{ width: `${materialPct}%`, background: 'var(--accent)' }}
+                        title={`Material: ${formatCurrency(materialValor)} (${materialPct.toFixed(1)}%)`} />
+                    )}
+                    {restantePct > 0 && (
+                      <div style={{ width: `${restantePct}%`, background: 'var(--success)' }}
+                        title={`Mão de obra: ${formatCurrency(restanteValor)} (${restantePct.toFixed(1)}%)`} />
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3">
+                    <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      <span className="w-2 h-2 rounded-full" style={{ background: 'var(--accent)' }} />
+                      Material <strong style={{ color: 'var(--text-primary)' }}>{materialPct.toFixed(1)}%</strong>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      <span className="w-2 h-2 rounded-full" style={{ background: 'var(--success)' }} />
+                      Mão de obra <strong style={{ color: 'var(--text-primary)' }}>{restantePct.toFixed(1)}%</strong>
+                    </span>
+                  </div>
                 </div>
-              </div>
-            )
-          })()}
+              )
+            })()}
+          </div>
         </div>
       </div>
 
@@ -747,26 +738,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
           ) : undefined}
         />
       ) : (() => {
-        const termo = buscaEstrutura.trim().toLowerCase()
-        const filtraItens = (lista: ItemEnriquecido[]) =>
-          termo ? lista.filter(i => i.descricao.toLowerCase().includes(termo) || (i.subetapa || '').toLowerCase().includes(termo)) : lista
-        const semEtapaFiltrados = filtraItens(itensPorEtapa.sem_etapa)
-        const semEtapaVisivel = !termo || 'sem etapa'.includes(termo) || semEtapaFiltrados.length > 0
-
         return (
           <div className="flex flex-col gap-3">
-            {/* Cabeçalho — busca + seleção */}
-            <div className="flex flex-wrap items-center gap-3 px-1">
-              <div className="relative flex-1 min-w-[220px]">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
-                <input
-                  type="text"
-                  value={buscaEstrutura}
-                  onChange={e => setBuscaEstrutura(e.target.value)}
-                  placeholder="Buscar etapa ou composição..."
-                  className="input-base w-full pl-9 py-2 text-sm"
-                />
-              </div>
+            {/* Cabeçalho — contagem + ação */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-1">
               <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
                 {etapas.length} {etapas.length === 1 ? 'etapa' : 'etapas'} · {itens.length} {itens.length === 1 ? 'composição' : 'composições'}
               </span>
@@ -777,10 +752,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
               )}
             </div>
 
-            {semEtapaVisivel && itensPorEtapa.sem_etapa.length > 0 && (
+            {itensPorEtapa.sem_etapa.length > 0 && (
               <GrupoEtapa
                 nome="Sem etapa"
-                itens={termo ? semEtapaFiltrados : itensPorEtapa.sem_etapa}
+                itens={itensPorEtapa.sem_etapa}
                 isReadonly={isReadonly}
                 collapsed={collapsed['sem_etapa']}
                 onToggleGrupo={() => setCollapsed(c => ({ ...c, sem_etapa: !c['sem_etapa'] }))}
@@ -799,15 +774,12 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
             )}
             {etapas.map(etapa => {
               const itensDaEtapa = itensPorEtapa[etapa.id] || []
-              const itensFiltrados = filtraItens(itensDaEtapa)
-              const visivel = !termo || etapa.nome.toLowerCase().includes(termo) || itensFiltrados.length > 0
-              if (!visivel) return null
               const { icon, cor } = getEtapaIcone(etapa.nome)
               return (
                 <GrupoEtapa
                   key={etapa.id}
                   nome={etapa.nome}
-                  itens={termo ? itensFiltrados : itensDaEtapa}
+                  itens={itensDaEtapa}
                   isReadonly={isReadonly}
                   collapsed={collapsed[etapa.id]}
                   onToggleGrupo={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
