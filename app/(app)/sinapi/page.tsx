@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, Fragment } from 'react'
 import * as XLSX from 'xlsx'
 import {
   Upload, Database, FileSpreadsheet, CheckCircle2,
   AlertTriangle, Loader2, BarChart3, Hash, Layers, Search, X,
+  ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SINAPI_UFS, getPrecoInsumo, SinapiInsumo } from '@/lib/types'
@@ -568,6 +569,7 @@ export default function SinapiPage() {
 // ─── Aba Buscar SINAPI ────────────────────────────────────────────────────────
 function BuscarSinapi({ supabase }: { supabase: ReturnType<typeof createClient> }) {
   const [tipo, setTipo] = useState<'insumos' | 'composicoes'>('insumos')
+  const [expandida, setExpandida] = useState<string | null>(null) // id da composição expandida (revela itens)
   const [uf, setUf] = useState('SP')
   const [busca, setBusca] = useState('')
   const [resultados, setResultados] = useState<any[]>([])
@@ -721,32 +723,57 @@ function BuscarSinapi({ supabase }: { supabase: ReturnType<typeof createClient> 
             <table className="w-full text-xs">
               <thead>
                 <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
-                  {['Código','Grupo','Descrição','Unid.','Situação','Ref.'].map(h => (
+                  {['', 'Código','Grupo','Descrição','Unid.','Situação','Ref.'].map(h => (
                     <th key={h} className="text-left px-3 py-2.5 font-medium" style={{ color: 'var(--text-secondary)' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {resultados.map((comp, i) => (
-                  <tr key={comp.id} style={{ borderBottom: i < resultados.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                    <td className="px-3 py-2.5 font-mono" style={{ color: 'var(--accent)' }}>{comp.codigo}</td>
-                    <td className="px-3 py-2.5 max-w-[120px] truncate" style={{ color: 'var(--text-secondary)' }}>{comp.grupo}</td>
-                    <td className="px-3 py-2.5 max-w-[240px]" style={{ color: 'var(--text-primary)' }}>
-                      <span className="block truncate">{comp.descricao}</span>
-                    </td>
-                    <td className="px-3 py-2.5" style={{ color: 'var(--text-secondary)' }}>{comp.unidade}</td>
-                    <td className="px-3 py-2.5">
-                      <span className="px-2 py-0.5 rounded-full"
-                        style={{
-                          background: comp.situacao === 'COM CUSTO' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
-                          color: comp.situacao === 'COM CUSTO' ? '#10b981' : '#ef4444',
-                        }}>
-                        {comp.situacao}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5" style={{ color: 'var(--text-secondary)' }}>{comp.mes_referencia}</td>
-                  </tr>
-                ))}
+                {resultados.map((comp, i) => {
+                  const aberta = expandida === comp.id
+                  return (
+                    <Fragment key={comp.id}>
+                      <tr
+                        onClick={() => setExpandida(prev => prev === comp.id ? null : comp.id)}
+                        style={{ borderBottom: aberta ? 'none' : (i < resultados.length - 1 ? '1px solid var(--border)' : 'none'), cursor: 'pointer' }}
+                      >
+                        <td className="px-2 py-2.5 w-7">
+                          <span className="flex items-center justify-center" style={{ color: 'var(--text-secondary)' }}>
+                            {aberta ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono" style={{ color: 'var(--accent)' }}>{comp.codigo}</td>
+                        <td className="px-3 py-2.5 max-w-[120px] truncate" style={{ color: 'var(--text-secondary)' }}>{comp.grupo}</td>
+                        <td className="px-3 py-2.5 max-w-[240px]" style={{ color: 'var(--text-primary)' }}>
+                          <span className="block truncate">{comp.descricao}</span>
+                        </td>
+                        <td className="px-3 py-2.5" style={{ color: 'var(--text-secondary)' }}>{comp.unidade}</td>
+                        <td className="px-3 py-2.5">
+                          <span className="px-2 py-0.5 rounded-full"
+                            style={{
+                              background: comp.situacao === 'COM CUSTO' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
+                              color: comp.situacao === 'COM CUSTO' ? '#10b981' : '#ef4444',
+                            }}>
+                            {comp.situacao}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5" style={{ color: 'var(--text-secondary)' }}>{comp.mes_referencia}</td>
+                      </tr>
+                      {aberta && (
+                        <tr style={{ borderBottom: i < resultados.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                          <td colSpan={7} className="px-0 py-0" style={{ background: 'var(--bg-secondary)' }}>
+                            <ItensComposicaoSinapi
+                              supabase={supabase}
+                              composicaoCodigo={comp.codigo}
+                              mesReferencia={comp.mes_referencia}
+                              uf={uf}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
               </tbody>
             </table>
           )}
@@ -769,6 +796,115 @@ function BuscarSinapi({ supabase }: { supabase: ReturnType<typeof createClient> 
           <p>Digite ao menos 2 caracteres para buscar no banco SINAPI.</p>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Itens analíticos de uma composição SINAPI (revela ao clicar/expandir) ────
+function ItensComposicaoSinapi({
+  supabase, composicaoCodigo, mesReferencia, uf,
+}: {
+  supabase: ReturnType<typeof createClient>
+  composicaoCodigo: string
+  mesReferencia: string
+  uf: string
+}) {
+  const [itens, setItens] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [precosInsumo, setPrecosInsumo] = useState<Record<string, Record<string, number>>>({})
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      setLoading(true)
+      const { data } = await supabase
+        .from('sinapi_composicao_itens')
+        .select('*')
+        .eq('composicao_codigo', composicaoCodigo)
+        .eq('mes_referencia', mesReferencia)
+        .order('tipo').order('item_codigo')
+      const lista = data || []
+      if (!active) return
+      setItens(lista)
+
+      // Busca os preços por UF dos insumos referenciados (para exibir o valor de referência)
+      const codigosInsumo = lista.filter(i => i.tipo === 'INSUMO').map(i => i.item_codigo)
+      if (codigosInsumo.length > 0) {
+        const { data: precosData } = await supabase
+          .from('sinapi_insumos')
+          .select('codigo, precos')
+          .in('codigo', codigosInsumo)
+        if (active && precosData) {
+          const map: Record<string, Record<string, number>> = {}
+          for (const p of precosData) map[p.codigo] = p.precos || {}
+          setPrecosInsumo(map)
+        }
+      }
+      setLoading(false)
+    })()
+    return () => { active = false }
+  }, [composicaoCodigo, mesReferencia])
+
+  if (loading) {
+    return (
+      <div className="px-6 py-4 flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        <Loader2 size={14} className="animate-spin" /> Carregando insumos da composição {composicaoCodigo}...
+      </div>
+    )
+  }
+
+  if (itens.length === 0) {
+    return (
+      <div className="px-6 py-4 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        Nenhum item analítico encontrado para a composição {composicaoCodigo} (referência {mesReferencia}).
+        Importe a planilha Analítico em "Composições (Analítico)" para detalhar os insumos.
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-6 py-4">
+      <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+        Insumos / sub-composições de <span style={{ color: 'var(--accent)' }}>{composicaoCodigo}</span> — referência {mesReferencia}
+      </p>
+      <table className="w-full text-xs">
+        <thead>
+          <tr>
+            {['Tipo', 'Código', 'Descrição', 'Unid.', 'Coeficiente', `Preço ${uf}`].map(h => (
+              <th key={h} className="text-left px-3 py-1.5 font-medium" style={{ color: 'var(--text-secondary)' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {itens.map(it => {
+            const preco = it.tipo === 'INSUMO' ? (precosInsumo[it.item_codigo]?.[uf] ?? 0) : 0
+            return (
+              <tr key={it.id} style={{ borderTop: '1px solid var(--border)' }}>
+                <td className="px-3 py-2">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full"
+                    style={{
+                      background: it.tipo === 'INSUMO' ? 'rgba(59,123,248,0.15)' : 'rgba(139,92,246,0.15)',
+                      color: it.tipo === 'INSUMO' ? '#3B7BF8' : '#8B5CF6',
+                    }}>
+                    {it.tipo === 'INSUMO' ? 'Insumo' : 'Composição'}
+                  </span>
+                </td>
+                <td className="px-3 py-2 font-mono" style={{ color: 'var(--text-secondary)' }}>{it.item_codigo}</td>
+                <td className="px-3 py-2 max-w-[320px]" style={{ color: 'var(--text-primary)' }}>
+                  <span className="truncate block">{it.item_descricao}</span>
+                </td>
+                <td className="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>{it.item_unidade}</td>
+                <td className="px-3 py-2 tabular-nums" style={{ color: 'var(--text-primary)' }}>
+                  {Number(it.coeficiente).toLocaleString('pt-BR', { maximumFractionDigits: 6 })}
+                </td>
+                <td className="px-3 py-2 tabular-nums" style={{ color: preco > 0 ? 'var(--accent)' : 'var(--text-secondary)' }}>
+                  {preco > 0 ? formatCurrency(preco) : '—'}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }

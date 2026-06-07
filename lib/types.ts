@@ -123,8 +123,9 @@ export type ComposicaoPropria = {
 export type ComposicaoItem = {
   id: string
   composicao_id: string
-  tipo: 'SINAPI_INSUMO' | 'SINAPI_COMPOSICAO' | 'MANUAL'
+  tipo: 'SINAPI_INSUMO' | 'SINAPI_COMPOSICAO' | 'MANUAL' | 'INSUMO_PROPRIO'
   sinapi_codigo: string | null
+  insumo_proprio_id?: string | null
   descricao: string
   unidade: string
   coeficiente: number
@@ -132,6 +133,19 @@ export type ComposicaoItem = {
   // join runtime:
   insumo?: SinapiInsumo | null
   composicao?: SinapiComposicao | null
+  insumo_proprio?: InsumoProprio | null
+}
+
+// ─── Insumo Próprio (cadastrado pela empresa, fora da base SINAPI) ────────────
+export type InsumoProprio = {
+  id: string
+  codigo: string
+  descricao: string
+  unidade: string
+  categoria: 'MATERIAL' | 'MAO_DE_OBRA' | 'EQUIPAMENTO' | 'SERVICO'
+  preco_unitario: number
+  ativo: boolean
+  created_at: string
 }
 
 // ─── Etapa ────────────────────────────────────────────────────────────────────

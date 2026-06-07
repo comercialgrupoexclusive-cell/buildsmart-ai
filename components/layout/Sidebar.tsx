@@ -15,7 +15,7 @@ const NAV_ITEMS = [
   { href: '/cronograma',   label: 'Cronograma',      icon: CalendarDays },
   { href: '/materiais',    label: 'Materiais',       icon: Package },
   { href: '/medicoes',     label: 'Medições',        icon: ClipboardList },
-  { href: '/servicos',     label: 'Serviços',        icon: Wrench },
+  { href: '/servicos',     label: 'Composições',     icon: Wrench },
   { href: '/buildassist',  label: 'BuildAssist IA',  icon: BotMessageSquare },
   { href: '/sinapi',       label: 'Base SINAPI',      icon: Database },
 ]

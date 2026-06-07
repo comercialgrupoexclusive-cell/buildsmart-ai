@@ -12,6 +12,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/cronograma':   'Cronograma',
   '/materiais':    'Materiais',
   '/medicoes':     'Medições',
+  '/servicos':     'Composições',
   '/buildassist':  'BuildAssist IA',
   '/relatorios':   'Relatórios',
   '/configuracoes':'Configurações',

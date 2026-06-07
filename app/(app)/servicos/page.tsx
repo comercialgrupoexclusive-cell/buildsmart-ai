@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, Fragment } from 'react'
 import {
   Plus, Search, Pencil, Trash2, X, Check,
-  ChevronRight, Layers, Hash, AlertTriangle, Loader2,
+  ChevronRight, ChevronDown, Layers, Package, Hash, Sparkles, AlertTriangle, Loader2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { ComposicaoPropria, ComposicaoItem, SINAPI_UFS } from '@/lib/types'
+import { ComposicaoPropria, ComposicaoItem, InsumoProprio, SINAPI_UFS } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
@@ -17,6 +17,27 @@ const GRUPOS = [
   'GERAL', 'FUNDACAO', 'ESTRUTURA', 'ALVENARIA', 'COBERTURA',
   'REVESTIMENTO', 'PISO', 'INSTALACOES', 'ACABAMENTO', 'SERVICOS_GERAIS',
 ]
+
+const CATEGORIAS_INSUMO = ['MATERIAL', 'MAO_DE_OBRA', 'EQUIPAMENTO', 'SERVICO'] as const
+
+const TIPO_LABEL: Record<string, string> = {
+  SINAPI_INSUMO: 'Insumo SINAPI',
+  SINAPI_COMPOSICAO: 'Comp. SINAPI',
+  INSUMO_PROPRIO: 'Insumo Próprio',
+  MANUAL: 'Manual',
+}
+const TIPO_COLOR: Record<string, string> = {
+  SINAPI_INSUMO: 'rgba(59,123,248,0.15)',
+  SINAPI_COMPOSICAO: 'rgba(139,92,246,0.15)',
+  INSUMO_PROPRIO: 'rgba(16,185,129,0.15)',
+  MANUAL: 'rgba(245,158,11,0.15)',
+}
+const TIPO_TEXT: Record<string, string> = {
+  SINAPI_INSUMO: '#3B7BF8',
+  SINAPI_COMPOSICAO: '#8B5CF6',
+  INSUMO_PROPRIO: '#10B981',
+  MANUAL: '#F59E0B',
+}
 
 type SinapiInsumoLite = {
   codigo: string
@@ -29,10 +50,15 @@ type SinapiInsumoLite = {
 // ─── Componente principal ─────────────────────────────────────────────────────
 export default function ServicosPage() {
   const supabase = createClient()
+  const [aba, setAba] = useState<'composicoes' | 'insumos'>('composicoes')
+
   const [composicoes, setComposicoes] = useState<ComposicaoPropria[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtroGrupo, setFiltroGrupo] = useState('TODOS')
+
+  // Cascata — composição expandida (revela insumos)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Modal de cabeçalho (criar/editar composição)
   const [showModalHeader, setShowModalHeader] = useState(false)
@@ -40,7 +66,7 @@ export default function ServicosPage() {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ codigo: '', descricao: '', unidade: 'M2', grupo: 'GERAL' })
 
-  // Modal de itens
+  // Modal de itens (gestão completa — buscar/adicionar/remover insumos)
   const [composicaoItens, setComposicaoItens] = useState<ComposicaoPropria | null>(null)
   const [showModalItens, setShowModalItens] = useState(false)
 
@@ -91,15 +117,24 @@ export default function ServicosPage() {
     setShowModalHeader(true)
   }
 
-  function openItens(comp: ComposicaoPropria) {
+  function openItens(comp: ComposicaoPropria, tipoInicial?: 'SINAPI_INSUMO' | 'INSUMO_PROPRIO') {
     setComposicaoItens(comp)
     setShowModalItens(true)
+    setTipoInicialItens(tipoInicial || 'SINAPI_INSUMO')
   }
 
   function resetForm() {
     setForm({ codigo: '', descricao: '', unidade: 'M2', grupo: 'GERAL' })
     setEditando(null)
   }
+
+  function toggleExpand(id: string) {
+    setExpandedId(prev => prev === id ? null : id)
+  }
+
+  // Tipo de item com que o ModalItens deve abrir (permite o atalho
+  // "+ Insumo próprio" pré-selecionar a aba/tipo certo no formulário)
+  const [tipoInicialItens, setTipoInicialItens] = useState<'SINAPI_INSUMO' | 'INSUMO_PROPRIO'>('SINAPI_INSUMO')
 
   const grupos = ['TODOS', ...Array.from(new Set(composicoes.map(c => c.grupo)))]
 
@@ -111,150 +146,322 @@ export default function ServicosPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex gap-2 flex-wrap">
-          {grupos.map(g => (
-            <button key={g}
-              onClick={() => setFiltroGrupo(g)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={filtroGrupo === g
-                ? { background: 'var(--accent)', color: 'white' }
-                : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-            >
-              {g === 'TODOS' ? 'Todos' : g.replace(/_/g, ' ')}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-3 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-64">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
-            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar serviço..." className="input-base input-search" />
-          </div>
-          <Button onClick={() => { resetForm(); setShowModalHeader(true) }} icon={<Plus size={16} />}>
-            Nova Composição
-          </Button>
-        </div>
+      {/* Abas */}
+      <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+        <button
+          onClick={() => setAba('composicoes')}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+          style={aba === 'composicoes'
+            ? { background: 'var(--accent)', color: 'white' }
+            : { color: 'var(--text-secondary)' }}
+        >
+          <Layers size={15} /> Composições
+        </button>
+        <button
+          onClick={() => setAba('insumos')}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+          style={aba === 'insumos'
+            ? { background: 'var(--accent)', color: 'white' }
+            : { color: 'var(--text-secondary)' }}
+        >
+          <Package size={15} /> Insumos
+        </button>
       </div>
 
-      {/* Tabela */}
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
-        </div>
-      ) : filtradas.length === 0 ? (
-        <EmptyState icon={Layers} title="Nenhuma composição cadastrada"
-          description="Crie composições de serviço para usar nos seus orçamentos."
-          action={<Button onClick={() => { resetForm(); setShowModalHeader(true) }} icon={<Plus size={16} />}>Nova Composição</Button>}
-        />
+      {aba === 'insumos' ? (
+        <InsumosTab />
       ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full table-zebra">
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Código', 'Descrição', 'Unid.', 'Grupo', 'Itens', 'Ativo', ''].map(h => (
-                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtradas.map(comp => (
-                <tr
-                  key={comp.id}
-                  style={{ borderBottom: '1px solid var(--border)', opacity: comp.ativo ? 1 : 0.5, cursor: 'pointer' }}
-                  onClick={() => openItens(comp)}
+        <>
+          {/* Toolbar */}
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+            <div className="flex gap-2 flex-wrap">
+              {grupos.map(g => (
+                <button key={g}
+                  onClick={() => setFiltroGrupo(g)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                  style={filtroGrupo === g
+                    ? { background: 'var(--accent)', color: 'white' }
+                    : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
                 >
-                  <td className="px-4 py-3 text-xs font-mono" style={{ color: 'var(--accent)', fontFamily: 'JetBrains Mono, monospace' }}>
-                    {comp.codigo}
-                  </td>
-                  <td className="px-4 py-3 text-sm font-medium" style={{ color: 'var(--text-primary)', maxWidth: 320 }}>
-                    <span className="truncate block">{comp.descricao}</span>
-                  </td>
-                  <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{comp.unidade}</td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
-                      {comp.grupo.replace(/_/g, ' ')}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={e => { e.stopPropagation(); openItens(comp) }}
-                      className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
-                      style={{ color: 'var(--accent)', border: '1px solid var(--accent)', opacity: 0.8 }}
-                    >
-                      <Layers size={11} /> Editar itens
-                    </button>
-                  </td>
-                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                    <button onClick={() => handleToggleAtivo(comp)} className="p-1 rounded transition-colors hover:bg-[var(--bg-secondary)]">
-                      {comp.ativo
-                        ? <Check size={14} style={{ color: 'var(--success)' }} />
-                        : <X size={14} style={{ color: 'var(--danger)' }} />}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                    <div className="flex gap-1">
-                      <button onClick={() => openEdit(comp)} className="p-1 rounded hover:bg-[var(--bg-secondary)] transition-colors">
-                        <Pencil size={13} style={{ color: 'var(--text-secondary)' }} />
-                      </button>
-                      <button onClick={() => handleDelete(comp.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors">
-                        <Trash2 size={13} style={{ color: 'var(--danger)' }} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                  {g === 'TODOS' ? 'Todos' : g.replace(/_/g, ' ')}
+                </button>
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            </div>
+            <div className="flex gap-3 w-full sm:w-auto">
+              <div className="relative flex-1 sm:w-64">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
+                <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar composição..." className="input-base input-search" />
+              </div>
+              <Button onClick={() => { resetForm(); setShowModalHeader(true) }} icon={<Plus size={16} />}>
+                Nova Composição
+              </Button>
+            </div>
+          </div>
 
-      {/* Modal — criar/editar cabeçalho */}
-      <Modal open={showModalHeader} onClose={() => { setShowModalHeader(false); resetForm() }}
-        title={editando ? 'Editar composição' : 'Nova composição'} size="md">
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Código *" value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))}
-              placeholder="Ex: CP-009" autoFocus />
-            <Input label="Unidade *" value={form.unidade} onChange={e => setForm(f => ({ ...f, unidade: e.target.value }))}
-              placeholder="M2, M3, UN, H..." />
-          </div>
-          <Input label="Descrição *" value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
-            placeholder="Nome do serviço/composição" />
-          <div>
-            <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Grupo</label>
-            <select value={form.grupo} onChange={e => setForm(f => ({ ...f, grupo: e.target.value }))} className="input-base">
-              {GRUPOS.map(g => <option key={g} value={g}>{g.replace(/_/g, ' ')}</option>)}
-            </select>
-          </div>
-          <div className="flex gap-3 pt-2">
-            <Button variant="secondary" className="flex-1" onClick={() => { setShowModalHeader(false); resetForm() }}>Cancelar</Button>
-            <Button className="flex-1" loading={saving} disabled={!form.codigo.trim() || !form.descricao.trim()} onClick={handleSaveHeader}>
-              {editando ? 'Salvar alterações' : 'Criar composição'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          {/* Tabela em cascata */}
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+            </div>
+          ) : filtradas.length === 0 ? (
+            <EmptyState icon={Layers} title="Nenhuma composição cadastrada"
+              description="Crie composições próprias para usar nos seus orçamentos."
+              action={<Button onClick={() => { resetForm(); setShowModalHeader(true) }} icon={<Plus size={16} />}>Nova Composição</Button>}
+            />
+          ) : (
+            <div className="card overflow-hidden">
+              <table className="w-full table-zebra">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    {['', 'Código', 'Descrição', 'Unid.', 'Grupo', 'Itens', 'Ativo', ''].map(h => (
+                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtradas.map(comp => {
+                    const expanded = expandedId === comp.id
+                    return (
+                      <Fragment key={comp.id}>
+                        <tr
+                          style={{ borderBottom: expanded ? 'none' : '1px solid var(--border)', opacity: comp.ativo ? 1 : 0.5, cursor: 'pointer' }}
+                          onClick={() => toggleExpand(comp.id)}
+                        >
+                          <td className="px-2 py-3 w-8">
+                            <span className="flex items-center justify-center transition-transform" style={{ color: 'var(--text-secondary)' }}>
+                              {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs font-mono" style={{ color: 'var(--accent)', fontFamily: 'JetBrains Mono, monospace' }}>
+                            {comp.codigo}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-medium" style={{ color: 'var(--text-primary)', maxWidth: 320 }}>
+                            <span className="truncate block">{comp.descricao}</span>
+                          </td>
+                          <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{comp.unidade}</td>
+                          <td className="px-4 py-3">
+                            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                              {comp.grupo.replace(/_/g, ' ')}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={e => { e.stopPropagation(); openItens(comp) }}
+                              className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
+                              style={{ color: 'var(--accent)', border: '1px solid var(--accent)', opacity: 0.8 }}
+                            >
+                              <Layers size={11} /> Editar itens
+                            </button>
+                          </td>
+                          <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                            <button onClick={() => handleToggleAtivo(comp)} className="p-1 rounded transition-colors hover:bg-[var(--bg-secondary)]">
+                              {comp.ativo
+                                ? <Check size={14} style={{ color: 'var(--success)' }} />
+                                : <X size={14} style={{ color: 'var(--danger)' }} />}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                            <div className="flex gap-1">
+                              <button onClick={() => openEdit(comp)} className="p-1 rounded hover:bg-[var(--bg-secondary)] transition-colors">
+                                <Pencil size={13} style={{ color: 'var(--text-secondary)' }} />
+                              </button>
+                              <button onClick={() => handleDelete(comp.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors">
+                                <Trash2 size={13} style={{ color: 'var(--danger)' }} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {expanded && (
+                          <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td colSpan={8} className="px-0 py-0" style={{ background: 'var(--bg-secondary)' }}>
+                              <ItensCascata
+                                composicaoId={comp.id}
+                                onAddSinapi={() => openItens(comp, 'SINAPI_INSUMO')}
+                                onAddProprio={() => openItens(comp, 'INSUMO_PROPRIO')}
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
-      {/* Modal — itens da composição */}
-      {composicaoItens && (
-        <ModalItens
-          composicao={composicaoItens}
-          open={showModalItens}
-          onClose={() => { setShowModalItens(false); setComposicaoItens(null) }}
-        />
+          {/* Modal — criar/editar cabeçalho */}
+          <Modal open={showModalHeader} onClose={() => { setShowModalHeader(false); resetForm() }}
+            title={editando ? 'Editar composição' : 'Nova composição'} size="md">
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Código *" value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))}
+                  placeholder="Ex: CP-009" autoFocus />
+                <Input label="Unidade *" value={form.unidade} onChange={e => setForm(f => ({ ...f, unidade: e.target.value }))}
+                  placeholder="M2, M3, UN, H..." />
+              </div>
+              <Input label="Descrição *" value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
+                placeholder="Nome da composição" />
+              <div>
+                <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Grupo</label>
+                <select value={form.grupo} onChange={e => setForm(f => ({ ...f, grupo: e.target.value }))} className="input-base">
+                  {GRUPOS.map(g => <option key={g} value={g}>{g.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+
+              {/* Atalho de insumos — visível ao editar uma composição existente */}
+              {editando && (
+                <div className="flex flex-col gap-2 pt-1">
+                  <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Gerenciar insumos desta composição</p>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => { setShowModalHeader(false); openItens(editando, 'SINAPI_INSUMO') }}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
+                      style={{ color: TIPO_TEXT.SINAPI_INSUMO, border: `1px solid ${TIPO_TEXT.SINAPI_INSUMO}50`, background: TIPO_COLOR.SINAPI_INSUMO }}
+                    >
+                      <Search size={12} /> Buscar na base SINAPI
+                    </button>
+                    <button
+                      onClick={() => { setShowModalHeader(false); openItens(editando, 'INSUMO_PROPRIO') }}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
+                      style={{ color: TIPO_TEXT.INSUMO_PROPRIO, border: `1px solid ${TIPO_TEXT.INSUMO_PROPRIO}50`, background: TIPO_COLOR.INSUMO_PROPRIO }}
+                    >
+                      <Package size={12} /> Adicionar insumo próprio
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <Button variant="secondary" className="flex-1" onClick={() => { setShowModalHeader(false); resetForm() }}>Cancelar</Button>
+                <Button className="flex-1" loading={saving} disabled={!form.codigo.trim() || !form.descricao.trim()} onClick={handleSaveHeader}>
+                  {editando ? 'Salvar alterações' : 'Criar composição'}
+                </Button>
+              </div>
+            </div>
+          </Modal>
+
+          {/* Modal — itens da composição */}
+          {composicaoItens && (
+            <ModalItens
+              composicao={composicaoItens}
+              open={showModalItens}
+              tipoInicial={tipoInicialItens}
+              onClose={() => { setShowModalItens(false); setComposicaoItens(null) }}
+              onChange={() => setExpandedId(id => id)} // força re-render da cascata aberta
+            />
+          )}
+        </>
       )}
+    </div>
+  )
+}
+
+// ─── Cascata — revela os insumos de uma composição ao expandir ────────────────
+function ItensCascata({
+  composicaoId, onAddSinapi, onAddProprio,
+}: {
+  composicaoId: string
+  onAddSinapi: () => void
+  onAddProprio: () => void
+}) {
+  const supabase = createClient()
+  const [itens, setItens] = useState<ComposicaoItem[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      setLoading(true)
+      const { data } = await supabase
+        .from('composicao_itens')
+        .select('*, insumo_proprio:insumos_proprios(id,codigo,descricao,unidade,preco_unitario)')
+        .eq('composicao_id', composicaoId)
+        .order('ordem')
+      if (active) {
+        setItens((data || []) as unknown as ComposicaoItem[])
+        setLoading(false)
+      }
+    })()
+    return () => { active = false }
+  }, [composicaoId])
+
+  if (loading) {
+    return (
+      <div className="px-6 py-4 flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        <Loader2 size={14} className="animate-spin" /> Carregando insumos da composição...
+      </div>
+    )
+  }
+
+  if (itens.length === 0) {
+    return (
+      <div className="px-6 py-5 flex flex-col gap-3">
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          Esta composição ainda não tem insumos cadastrados.
+        </p>
+        <div className="flex gap-2">
+          <button onClick={onAddSinapi}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors"
+            style={{ color: TIPO_TEXT.SINAPI_INSUMO, border: `1px solid ${TIPO_TEXT.SINAPI_INSUMO}50`, background: TIPO_COLOR.SINAPI_INSUMO }}>
+            <Search size={12} /> Buscar insumo SINAPI
+          </button>
+          <button onClick={onAddProprio}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors"
+            style={{ color: TIPO_TEXT.INSUMO_PROPRIO, border: `1px solid ${TIPO_TEXT.INSUMO_PROPRIO}50`, background: TIPO_COLOR.INSUMO_PROPRIO }}>
+            <Package size={12} /> Adicionar insumo próprio
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-6 py-4">
+      <table className="w-full text-xs">
+        <thead>
+          <tr>
+            {['Tipo', 'Código', 'Insumo', 'Unid.', 'Coeficiente'].map(h => (
+              <th key={h} className="text-left px-3 py-1.5 font-medium" style={{ color: 'var(--text-secondary)' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {itens.map(it => {
+            const codigo = it.tipo === 'INSUMO_PROPRIO' ? (it.insumo_proprio?.codigo || '—') : (it.sinapi_codigo || '—')
+            return (
+              <tr key={it.id} style={{ borderTop: '1px solid var(--border)' }}>
+                <td className="px-3 py-2">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: TIPO_COLOR[it.tipo], color: TIPO_TEXT[it.tipo] }}>
+                    {TIPO_LABEL[it.tipo] || it.tipo}
+                  </span>
+                </td>
+                <td className="px-3 py-2 font-mono" style={{ color: 'var(--text-secondary)' }}>{codigo}</td>
+                <td className="px-3 py-2 max-w-[360px]" style={{ color: 'var(--text-primary)' }}>
+                  <span className="truncate block">{it.descricao}</span>
+                </td>
+                <td className="px-3 py-2" style={{ color: 'var(--text-secondary)' }}>{it.unidade}</td>
+                <td className="px-3 py-2 tabular-nums" style={{ color: 'var(--text-primary)' }}>
+                  {Number(it.coeficiente).toLocaleString('pt-BR', { maximumFractionDigits: 4 })}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
 
 // ─── Modal de edição de itens ─────────────────────────────────────────────────
 function ModalItens({
-  composicao, open, onClose,
+  composicao, open, onClose, tipoInicial, onChange,
 }: {
   composicao: ComposicaoPropria
   open: boolean
   onClose: () => void
+  tipoInicial?: 'SINAPI_INSUMO' | 'INSUMO_PROPRIO'
+  onChange?: () => void
 }) {
   const supabase = createClient()
 
@@ -271,8 +478,14 @@ function ModalItens({
   const [loadingBusca, setLoadingBusca] = useState(false)
   const [insumoSelecionado, setInsumoSelecionado] = useState<SinapiInsumoLite | null>(null)
 
+  // Busca de insumo próprio
+  const [buscaProprio, setBuscaProprio] = useState('')
+  const [resultsProprio, setResultsProprio] = useState<InsumoProprio[]>([])
+  const [loadingBuscaProprio, setLoadingBuscaProprio] = useState(false)
+  const [proprioSelecionado, setProprioSelecionado] = useState<InsumoProprio | null>(null)
+
   // Form novo item
-  const [tipoNovo, setTipoNovo] = useState<'SINAPI_INSUMO' | 'SINAPI_COMPOSICAO' | 'MANUAL'>('SINAPI_INSUMO')
+  const [tipoNovo, setTipoNovo] = useState<'SINAPI_INSUMO' | 'SINAPI_COMPOSICAO' | 'INSUMO_PROPRIO' | 'MANUAL'>(tipoInicial || 'SINAPI_INSUMO')
   const [coefNovo, setCoefNovo] = useState('')
   const [descManual, setDescManual] = useState('')
   const [undManual, setUndManual] = useState('')
@@ -280,17 +493,23 @@ function ModalItens({
   const [savingItem, setSavingItem] = useState(false)
 
   useEffect(() => {
-    if (open) loadItens()
+    if (open) {
+      loadItens()
+      if (tipoInicial) {
+        setTipoNovo(tipoInicial)
+        if (tipoInicial === 'INSUMO_PROPRIO') buscarProprios('')
+      }
+    }
   }, [open, composicao.id])
 
   async function loadItens() {
     setLoadingItens(true)
     const { data } = await supabase
       .from('composicao_itens')
-      .select('*')
+      .select('*, insumo_proprio:insumos_proprios(id,codigo,descricao,unidade,preco_unitario)')
       .eq('composicao_id', composicao.id)
       .order('ordem')
-    setItens((data || []) as ComposicaoItem[])
+    setItens((data || []) as unknown as ComposicaoItem[])
     setLoadingItens(false)
   }
 
@@ -319,60 +538,109 @@ function ModalItens({
     setResultsSinapi([])
   }
 
+  // Busca debounced de insumos próprios — ao trocar para esse tipo, já
+  // carrega os mais recentes (lista "pré-selecionada" para escolha rápida)
+  useEffect(() => {
+    if (tipoNovo !== 'INSUMO_PROPRIO') return
+    const t = setTimeout(() => buscarProprios(buscaProprio), 250)
+    return () => clearTimeout(t)
+  }, [buscaProprio, tipoNovo])
+
+  async function buscarProprios(q: string) {
+    setLoadingBuscaProprio(true)
+    let query = supabase
+      .from('insumos_proprios')
+      .select('id, codigo, descricao, unidade, categoria, preco_unitario, ativo')
+      .eq('ativo', true)
+      .order('codigo')
+      .limit(15)
+    if (q.trim().length > 0) {
+      query = query.or(`descricao.ilike.%${q}%,codigo.ilike.%${q}%`)
+    }
+    const { data } = await query
+    setResultsProprio((data || []) as InsumoProprio[])
+    setLoadingBuscaProprio(false)
+  }
+
+  function selecionarProprio(ip: InsumoProprio) {
+    setProprioSelecionado(ip)
+    setBuscaProprio('')
+    setResultsProprio([])
+  }
+
+  function trocarTipo(t: typeof tipoNovo) {
+    setTipoNovo(t)
+    setInsumoSelecionado(null)
+    setProprioSelecionado(null)
+    setBuscaSinapi('')
+    setBuscaProprio('')
+    if (t === 'INSUMO_PROPRIO') buscarProprios('')
+  }
+
   async function handleAddItem() {
     if (!coefNovo || parseFloat(coefNovo) <= 0) return
 
     const isSinapi = tipoNovo === 'SINAPI_INSUMO' || tipoNovo === 'SINAPI_COMPOSICAO'
     if (isSinapi && !insumoSelecionado) return
+    if (tipoNovo === 'INSUMO_PROPRIO' && !proprioSelecionado) return
     if (tipoNovo === 'MANUAL' && !descManual.trim()) return
 
     setSavingItem(true)
-    const payload = {
+    const payload: Record<string, unknown> = {
       composicao_id: composicao.id,
       tipo: tipoNovo,
-      sinapi_codigo: isSinapi ? insumoSelecionado!.codigo : (codManual.trim() || null),
-      descricao: isSinapi ? insumoSelecionado!.descricao : descManual.trim(),
-      unidade: isSinapi ? insumoSelecionado!.unidade : undManual.trim() || 'UN',
       coeficiente: parseFloat(coefNovo),
       ordem: itens.length,
     }
+    if (isSinapi) {
+      payload.sinapi_codigo = insumoSelecionado!.codigo
+      payload.descricao = insumoSelecionado!.descricao
+      payload.unidade = insumoSelecionado!.unidade
+    } else if (tipoNovo === 'INSUMO_PROPRIO') {
+      payload.sinapi_codigo = proprioSelecionado!.codigo
+      payload.insumo_proprio_id = proprioSelecionado!.id
+      payload.descricao = proprioSelecionado!.descricao
+      payload.unidade = proprioSelecionado!.unidade
+    } else {
+      payload.sinapi_codigo = codManual.trim() || null
+      payload.descricao = descManual.trim()
+      payload.unidade = undManual.trim() || 'UN'
+    }
+
     await supabase.from('composicao_itens').insert(payload)
     setSavingItem(false)
     setInsumoSelecionado(null)
+    setProprioSelecionado(null)
     setCoefNovo('')
     setDescManual('')
     setUndManual('')
     setCodManual('')
     loadItens()
+    onChange?.()
   }
 
   async function handleDeleteItem(id: string) {
     await supabase.from('composicao_itens').delete().eq('id', id)
     setItens(prev => prev.filter(i => i.id !== id))
+    onChange?.()
   }
 
   // Calcula custo total com base nos itens e UF selecionada
   const custoTotal = itens.reduce((acc, item) => {
     if (item.tipo === 'MANUAL') return acc // sem preço automático
+    if (item.tipo === 'INSUMO_PROPRIO') {
+      const preco = item.insumo_proprio?.preco_unitario ?? 0
+      return acc + item.coeficiente * preco
+    }
     if (!item.insumo) return acc
     const preco = (item.insumo as any).precos?.[ufPreview] ?? 0
     return acc + item.coeficiente * preco
   }, 0)
 
-  const TIPO_LABEL: Record<string, string> = {
-    SINAPI_INSUMO: 'Insumo SINAPI',
-    SINAPI_COMPOSICAO: 'Comp. SINAPI',
-    MANUAL: 'Manual',
-  }
-  const TIPO_COLOR: Record<string, string> = {
-    SINAPI_INSUMO: 'rgba(59,123,248,0.15)',
-    SINAPI_COMPOSICAO: 'rgba(139,92,246,0.15)',
-    MANUAL: 'rgba(245,158,11,0.15)',
-  }
-  const TIPO_TEXT: Record<string, string> = {
-    SINAPI_INSUMO: '#3B7BF8',
-    SINAPI_COMPOSICAO: '#8B5CF6',
-    MANUAL: '#F59E0B',
+  function precoDoItem(item: ComposicaoItem): number {
+    if (item.tipo === 'INSUMO_PROPRIO') return item.insumo_proprio?.preco_unitario ?? 0
+    if (item.tipo === 'MANUAL') return 0
+    return (item.insumo as any)?.precos?.[ufPreview] ?? 0
   }
 
   return (
@@ -424,8 +692,9 @@ function ModalItens({
                 </thead>
                 <tbody>
                   {itens.map((item, i) => {
-                    const precoUF = (item.insumo as any)?.precos?.[ufPreview] ?? 0
+                    const precoUF = precoDoItem(item)
                     const totalItem = item.coeficiente * precoUF
+                    const codigoExibido = item.tipo === 'INSUMO_PROPRIO' ? (item.insumo_proprio?.codigo || item.sinapi_codigo) : item.sinapi_codigo
                     return (
                       <tr key={item.id} style={{ borderBottom: i < itens.length - 1 ? '1px solid var(--border)' : 'none' }}>
                         <td className="px-3 py-2">
@@ -435,7 +704,7 @@ function ModalItens({
                           </span>
                         </td>
                         <td className="px-3 py-2 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
-                          {item.sinapi_codigo || '—'}
+                          {codigoExibido || '—'}
                         </td>
                         <td className="px-3 py-2 max-w-[200px]" style={{ color: 'var(--text-primary)' }}>
                           <span className="truncate block text-xs">{item.descricao}</span>
@@ -470,11 +739,11 @@ function ModalItens({
           <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>+ Adicionar insumo / item</p>
 
           {/* Tipo */}
-          <div className="flex gap-2">
-            {(['SINAPI_INSUMO', 'SINAPI_COMPOSICAO', 'MANUAL'] as const).map(t => (
+          <div className="flex gap-2 flex-wrap">
+            {(['SINAPI_INSUMO', 'SINAPI_COMPOSICAO', 'INSUMO_PROPRIO', 'MANUAL'] as const).map(t => (
               <button
                 key={t}
-                onClick={() => { setTipoNovo(t); setInsumoSelecionado(null); setBuscaSinapi('') }}
+                onClick={() => trocarTipo(t)}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                 style={tipoNovo === t
                   ? { background: TIPO_COLOR[t], color: TIPO_TEXT[t], border: `1px solid ${TIPO_TEXT[t]}50` }
@@ -549,6 +818,67 @@ function ModalItens({
             </div>
           )}
 
+          {/* Busca / seleção de insumo próprio */}
+          {tipoNovo === 'INSUMO_PROPRIO' && (
+            <div className="relative">
+              {proprioSelecionado ? (
+                <div className="flex items-center gap-2 p-2.5 rounded-lg" style={{ background: 'var(--bg-card)', border: `1px solid ${TIPO_TEXT.INSUMO_PROPRIO}` }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-mono" style={{ color: TIPO_TEXT.INSUMO_PROPRIO }}>{proprioSelecionado.codigo}</p>
+                    <p className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{proprioSelecionado.descricao}</p>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      {proprioSelecionado.unidade} · {formatCurrency(proprioSelecionado.preco_unitario)}
+                    </p>
+                  </div>
+                  <button onClick={() => setProprioSelecionado(null)} className="p-1 rounded" style={{ color: 'var(--text-secondary)' }}>
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
+                    <input
+                      value={buscaProprio}
+                      onChange={e => setBuscaProprio(e.target.value)}
+                      placeholder="Buscar insumo próprio por código ou descrição..."
+                      className="input-base input-search text-xs"
+                    />
+                    {loadingBuscaProprio && <Loader2 size={13} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin" style={{ color: 'var(--accent)' }} />}
+                  </div>
+                  {resultsProprio.length > 0 && (
+                    <div className="relative z-30 w-full mt-1 rounded-xl overflow-hidden shadow-xl max-h-64 overflow-y-auto"
+                      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                      {resultsProprio.map(ip => (
+                        <button
+                          key={ip.id}
+                          onClick={() => selecionarProprio(ip)}
+                          className="w-full flex items-start gap-3 px-3 py-2.5 text-left hover:bg-[var(--bg-secondary)] transition-colors"
+                        >
+                          <Package size={12} className="flex-shrink-0 mt-0.5" style={{ color: TIPO_TEXT.INSUMO_PROPRIO }} />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-mono" style={{ color: TIPO_TEXT.INSUMO_PROPRIO }}>{ip.codigo}</p>
+                            <p className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{ip.descricao}</p>
+                            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                              {ip.unidade} · {formatCurrency(ip.preco_unitario)}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!loadingBuscaProprio && resultsProprio.length === 0 && (
+                    <div className="relative z-10 w-full mt-1 rounded-xl px-3 py-3 text-xs text-center"
+                      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                      <AlertTriangle size={12} className="inline mr-1" />
+                      Nenhum insumo próprio cadastrado ainda — crie em Composições → aba Insumos.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* Campos manual */}
           {tipoNovo === 'MANUAL' && (
             <div className="grid grid-cols-3 gap-2">
@@ -580,6 +910,7 @@ function ModalItens({
               disabled={
                 !coefNovo || parseFloat(coefNovo) <= 0 ||
                 ((tipoNovo === 'SINAPI_INSUMO' || tipoNovo === 'SINAPI_COMPOSICAO') && !insumoSelecionado) ||
+                (tipoNovo === 'INSUMO_PROPRIO' && !proprioSelecionado) ||
                 (tipoNovo === 'MANUAL' && !descManual.trim())
               }
               icon={<Plus size={14} />}
@@ -590,5 +921,221 @@ function ModalItens({
         </div>
       </div>
     </Modal>
+  )
+}
+
+// ─── Célula editável (clique para editar diretamente na tabela) ──────────────
+function EditableCell({
+  value, onSave, type = 'text', placeholder, mono = false,
+}: {
+  value: string | number
+  onSave: (v: string | number) => void
+  type?: 'text' | 'number'
+  placeholder?: string
+  mono?: boolean
+}) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(String(value ?? ''))
+
+  useEffect(() => { if (!editing) setVal(String(value ?? '')) }, [value, editing])
+
+  function commit() {
+    setEditing(false)
+    const parsed: string | number = type === 'number' ? (parseFloat(val.replace(',', '.')) || 0) : val.trim()
+    if (parsed !== value) onSave(parsed)
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type={type === 'number' ? 'number' : 'text'}
+        step={type === 'number' ? '0.01' : undefined}
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') { setVal(String(value ?? '')); setEditing(false) }
+        }}
+        placeholder={placeholder}
+        className="input-base text-xs py-1 px-2"
+        style={{ minWidth: 80 }}
+        onClick={e => e.stopPropagation()}
+      />
+    )
+  }
+  return (
+    <span
+      onClick={e => { e.stopPropagation(); setEditing(true) }}
+      className="cursor-text inline-block px-1.5 py-0.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+      style={{ color: 'var(--text-primary)', fontFamily: mono ? 'JetBrains Mono, monospace' : undefined, minHeight: 20 }}
+      title="Clique para editar"
+    >
+      {value === '' || value == null ? <span style={{ color: 'var(--text-secondary)', opacity: 0.6 }}>{placeholder || '—'}</span> : value}
+    </span>
+  )
+}
+
+// ─── Aba Insumos — cadastro de insumos próprios da empresa ───────────────────
+function InsumosTab() {
+  const supabase = createClient()
+  const [insumos, setInsumos] = useState<InsumoProprio[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busca, setBusca] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  useEffect(() => { loadInsumos() }, [])
+
+  async function loadInsumos() {
+    setLoading(true)
+    const { data } = await supabase
+      .from('insumos_proprios')
+      .select('*')
+      .order('codigo')
+    setInsumos((data || []) as InsumoProprio[])
+    setLoading(false)
+  }
+
+  // Gera o próximo código sequencial no formato IP-001, IP-002...
+  function proximoCodigo(): string {
+    let max = 0
+    for (const ip of insumos) {
+      const m = ip.codigo.match(/(\d+)\s*$/)
+      if (m) max = Math.max(max, parseInt(m[1], 10))
+    }
+    return `IP-${String(max + 1).padStart(3, '0')}`
+  }
+
+  async function handleNovo() {
+    setCreating(true)
+    const codigo = proximoCodigo()
+    const { data, error } = await supabase
+      .from('insumos_proprios')
+      .insert({
+        codigo,
+        descricao: 'Novo insumo (clique para editar)',
+        unidade: 'UN',
+        categoria: 'MATERIAL',
+        preco_unitario: 0,
+        ativo: true,
+      })
+      .select()
+      .single()
+    setCreating(false)
+    if (!error && data) {
+      setInsumos(prev => [...prev, data as InsumoProprio].sort((a, b) => a.codigo.localeCompare(b.codigo)))
+    } else if (error?.code === 'PGRST205') {
+      alert('A tabela "insumos_proprios" ainda não existe no banco. Rode a migração supabase/migration_insumos_proprios.sql no SQL Editor do Supabase.')
+    }
+  }
+
+  async function handleUpdate(id: string, field: keyof InsumoProprio, value: string | number | boolean) {
+    setInsumos(prev => prev.map(i => i.id === id ? { ...i, [field]: value } as InsumoProprio : i))
+    await supabase.from('insumos_proprios').update({ [field]: value }).eq('id', id)
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Remover este insumo próprio? Itens de composição vinculados ficarão sem referência de preço.')) return
+    await supabase.from('insumos_proprios').delete().eq('id', id)
+    setInsumos(prev => prev.filter(i => i.id !== id))
+  }
+
+  const filtrados = insumos.filter(i =>
+    !busca || i.descricao.toLowerCase().includes(busca.toLowerCase()) || i.codigo.toLowerCase().includes(busca.toLowerCase())
+  )
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div>
+          <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Insumos próprios da empresa</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+            Materiais, mão de obra, equipamentos ou serviços fora da base SINAPI. Edite direto nas células.
+          </p>
+        </div>
+        <div className="flex gap-3 w-full sm:w-auto">
+          <div className="relative flex-1 sm:w-64">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar insumo..." className="input-base input-search" />
+          </div>
+          <Button onClick={handleNovo} loading={creating} icon={<Sparkles size={16} />}>
+            Inserir novo
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        </div>
+      ) : filtrados.length === 0 ? (
+        <EmptyState icon={Package} title="Nenhum insumo próprio cadastrado"
+          description='Clique em "Inserir novo" — um código (IP-001, IP-002...) é gerado automaticamente e você edita os dados direto na tabela.'
+          action={<Button onClick={handleNovo} loading={creating} icon={<Sparkles size={16} />}>Inserir novo</Button>}
+        />
+      ) : (
+        <div className="card overflow-hidden">
+          <table className="w-full table-zebra">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                {['Código', 'Descrição', 'Unid.', 'Categoria', 'Preço unitário', 'Ativo', ''].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map(ip => (
+                <tr key={ip.id} style={{ borderBottom: '1px solid var(--border)', opacity: ip.ativo ? 1 : 0.5 }}>
+                  <td className="px-4 py-2 text-xs" style={{ color: 'var(--accent)' }}>
+                    <span className="font-mono px-1.5 py-0.5 rounded" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                      <Hash size={10} className="inline mr-0.5 -mt-0.5" />{ip.codigo}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-sm" style={{ maxWidth: 360 }}>
+                    <EditableCell value={ip.descricao} onSave={v => handleUpdate(ip.id, 'descricao', v)} placeholder="Descrição" />
+                  </td>
+                  <td className="px-4 py-2 text-sm">
+                    <EditableCell value={ip.unidade} onSave={v => handleUpdate(ip.id, 'unidade', String(v).toUpperCase())} placeholder="UN" />
+                  </td>
+                  <td className="px-4 py-2 text-sm" onClick={e => e.stopPropagation()}>
+                    <select
+                      value={ip.categoria}
+                      onChange={e => handleUpdate(ip.id, 'categoria', e.target.value)}
+                      className="text-xs rounded-lg px-2 py-1"
+                      style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                    >
+                      {CATEGORIAS_INSUMO.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-4 py-2 text-sm">
+                    <div className="flex items-center gap-1">
+                      <span style={{ color: 'var(--text-secondary)' }} className="text-xs">R$</span>
+                      <EditableCell
+                        value={ip.preco_unitario}
+                        type="number"
+                        onSave={v => handleUpdate(ip.id, 'preco_unitario', Number(v))}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => handleUpdate(ip.id, 'ativo', !ip.ativo)} className="p-1 rounded transition-colors hover:bg-[var(--bg-secondary)]">
+                      {ip.ativo
+                        ? <Check size={14} style={{ color: 'var(--success)' }} />
+                        : <X size={14} style={{ color: 'var(--danger)' }} />}
+                    </button>
+                  </td>
+                  <td className="px-4 py-2" onClick={e => e.stopPropagation()}>
+                    <button onClick={() => handleDelete(ip.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors">
+                      <Trash2 size={13} style={{ color: 'var(--danger)' }} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }
