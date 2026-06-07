@@ -1,7 +1,114 @@
 # BuildSmart AI — Progresso do Desenvolvimento
 
-> Última atualização: 05/06/2026  
-> Status geral: **MVP funcional — aguardando configuração do Supabase**
+> Última atualização: 06/06/2026  
+> Status geral: **MVP funcional — schema do Supabase com DRIFT conhecido (ver seção "⚠️ Schema Drift" abaixo)**
+
+---
+
+## 🗓️ Sessão 06/06/2026 — Correção da tela de Orçamento + limpeza de dados de teste
+
+### Bug crítico corrigido: composições/insumos não apareciam no Orçamento
+A query de `loadItens` em `components/obra/ObraOrcamento.tsx` fazia embed de uma
+relação **inexistente** `composicao_itens(*)`. O nome real da tabela no banco é
+`composicao_insumos`. Isso fazia o PostgREST devolver erro `PGRST200` e a query
+inteira falhava silenciosamente — resultado: toda obra mostrava "0 composições" /
+"R$ 0,00", inclusive a obra de teste recém-criada.
+
+**Correção aplicada** (linhas ~205, ~217, ~248-258):
+- `composicoes_proprias(..., composicao_insumos(*))` no lugar de `composicao_itens(*)`
+- Mapeamento `composicao_itens: cp?.composicao_insumos || []` para preservar o nome
+  interno usado pelo restante do componente (`getItemTotal`, `custoPorCategoria` etc.)
+
+### Segundo bug corrigido: preço de composições SINAPI não aparecia
+A mesma query também fazia embed de `sinapi_composicoes(..., custos)`. A coluna
+`custos` (JSONB por UF) **não existe** na tabela real — a coluna real é
+`custo_unitario` (número simples, sem variação por UF). Corrigido o `select` para
+usar `custo_unitario`, e `getItemCost()` agora também lê esse campo como fallback:
+```ts
+const getItemCost = (item: { custo_calculado?: number; custos?: Record<string, number>; custo_unitario?: number }) =>
+  item.custos?.[obraUf] || item.custo_unitario || item.custo_calculado || 0
+```
+
+### ⚠️ Schema Drift — divergência entre `supabase/schema.sql` e o banco real
+Durante a investigação, ficou confirmado que o banco Supabase em produção foi
+criado a partir de uma versão **mais antiga** do `schema.sql` (lembrando que
+`CREATE TABLE IF NOT EXISTS` não aplica colunas novas em tabelas já existentes).
+Tabelas afetadas:
+
+| Tabela | Coluna esperada pelo código/`schema.sql` | Realidade no banco |
+|---|---|---|
+| `obras` | `area_m2 NUMERIC`, `uf CHAR(2)` | **não existem** (insert falha com `42703`) |
+| `sinapi_insumos` | `precos JSONB` (mapa por UF), `classificacao`, `origem_preco` | tem `preco_unitario NUMERIC`, `estado`, `categoria` (formato antigo, plano) |
+| `sinapi_composicoes` | `custos JSONB`, `situacao`, `mes_referencia` | tem `custo_unitario NUMERIC`, `grupo` (formato antigo, plano) |
+| `sinapi_composicao_itens` | tabela inteira | **não existe** |
+
+**Impacto prático:**
+- O modal "Nova Obra" tenta salvar `area_m2`/`uf` e o insert falha silenciosamente
+  para essas colunas (a obra é criada sem elas).
+- `ObraOrcamento` monta um mapa `sinapiInsumoMap` esperando `{classificacao, precos[uf]}`
+  de `sinapi_insumos` — como essas colunas não existem, a query auxiliar volta vazia
+  e os cards "Custo Material"/"Mão de Obra" ficam zerados (tudo cai em "outros"),
+  mesmo quando a composição tem insumos linkados com preço.
+- A página **Serviços** (`composicoes_proprias`) calcula `custoTotal` usando
+  `sinapi_insumos.precos[uf]` e `classificacao` — por isso aparecem composições
+  "sem valor": **não são resquícios de importação**, são composições que (a) não têm
+  nenhum `composicao_insumos` vinculado (a maioria dos códigos `1000`...`19001` etc.,
+  importados de uma planilha sem o detalhamento analítico) ou (b) têm insumos
+  vinculados mas o cálculo de preço depende de colunas que não existem no banco.
+
+**Migração proposta (requer Supabase SQL Editor — não pode ser rodada via REST com a
+chave `anon`, é necessário `service_role` ou o painel do Supabase):**
+```sql
+ALTER TABLE obras ADD COLUMN IF NOT EXISTS area_m2 NUMERIC(10,2);
+ALTER TABLE obras ADD COLUMN IF NOT EXISTS uf CHAR(2) NOT NULL DEFAULT 'SP';
+
+ALTER TABLE sinapi_insumos ADD COLUMN IF NOT EXISTS precos JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE sinapi_insumos ADD COLUMN IF NOT EXISTS classificacao TEXT NOT NULL DEFAULT 'MATERIAL';
+ALTER TABLE sinapi_insumos ADD COLUMN IF NOT EXISTS origem_preco TEXT;
+-- migrar dados antigos pro novo formato:
+UPDATE sinapi_insumos SET precos = jsonb_build_object(estado, preco_unitario) WHERE precos = '{}';
+UPDATE sinapi_insumos SET classificacao = categoria WHERE categoria IS NOT NULL;
+
+ALTER TABLE sinapi_composicoes ADD COLUMN IF NOT EXISTS custos JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE sinapi_composicoes ADD COLUMN IF NOT EXISTS situacao TEXT NOT NULL DEFAULT 'COM CUSTO';
+ALTER TABLE sinapi_composicoes ADD COLUMN IF NOT EXISTS mes_referencia TEXT;
+UPDATE sinapi_composicoes SET custos = jsonb_build_object('SP', custo_unitario) WHERE custos = '{}';
+
+CREATE TABLE IF NOT EXISTS sinapi_composicao_itens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  composicao_codigo TEXT NOT NULL,
+  mes_referencia TEXT,
+  tipo TEXT NOT NULL CHECK (tipo IN ('INSUMO', 'COMPOSICAO')),
+  item_codigo TEXT NOT NULL,
+  item_descricao TEXT NOT NULL,
+  item_unidade TEXT NOT NULL DEFAULT 'UN',
+  coeficiente NUMERIC(14,6) NOT NULL DEFAULT 1,
+  situacao TEXT NOT NULL DEFAULT 'COM PREÇO'
+);
+```
+> Até essa migração ser aplicada, o sistema funciona em "modo degradado": os preços
+> caem no fallback `custo_unitario`/`preco_unitario` (sem variação por UF) e a
+> categorização Material/Mão de obra/Equipamento não fica 100% precisa nos cards
+> de KPI (cai tudo em "outros" quando o `sinapiInsumoMap` vem vazio).
+
+### Dados de teste populados (schema REAL, sem precisar da migração)
+Para o usuário testar o fluxo "composição → insumos → custo no orçamento":
+
+**`composicoes_proprias` + `composicao_insumos`** (linkados a `sinapi_insumos` reais):
+- `CP-001` — Fundação em concreto armado FCK 25 MPa (M3): cimento 320kg, areia 0,5m³,
+  brita 0,8m³, aço CA-50 80kg, pedreiro 1,2h, servente 2,0h
+- `CP-003` — Reboco interno argamassa industrializada (M2): argamassa colante 0,3un,
+  pedreiro 0,5h, servente 0,5h
+
+**`sinapi_composicoes`** (2 linhas no formato real — `custo_unitario` plano, sem JSONB):
+- `92269` — Alvenaria de vedação blocos cerâmicos 9x19x39cm e=9cm (M2) — R$ 62,30
+- `88309` — Execução de passeio/piso em concreto usinado e=8cm (M2) — R$ 74,85
+
+### Limpeza de dados
+Removidas as obras de teste antigas "casa 42m²" e "residência 1" (e seus orçamentos/
+etapas/itens em cascata via `ON DELETE CASCADE`). Restou apenas:
+- `Obra Teste - Simulacao` (`814d5a73-6d7c-40cf-ac9d-c608e9027bf4`) — obra de
+  referência para validar o fluxo de orçamento.
 
 ---
 

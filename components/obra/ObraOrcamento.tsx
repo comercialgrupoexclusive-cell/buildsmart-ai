@@ -202,7 +202,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   async function loadItens(orcamentoId: string) {
     const { data } = await supabase
       .from('orcamento_itens')
-      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,composicao_insumos(*)), sinapi_composicoes(id,codigo,descricao,unidade,custos)`)
+      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,composicao_insumos(*)), sinapi_composicoes(id,codigo,descricao,unidade,custo_unitario)`)
       .eq('orcamento_id', orcamentoId)
       .order('created_at')
 
@@ -578,8 +578,8 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   const isReadonly = orcamento?.status === 'finalizado'
   // Custo de uma composição para exibir no modal de busca
   // Pós-Supabase: calcula via composicao_itens + sinapi_insumos.precos[obraUf]
-  const getItemCost = (item: { custo_calculado?: number; custos?: Record<string, number> }) =>
-    item.custos?.[obraUf] || item.custo_calculado || 0
+  const getItemCost = (item: { custo_calculado?: number; custos?: Record<string, number>; custo_unitario?: number }) =>
+    item.custos?.[obraUf] || item.custo_unitario || item.custo_calculado || 0
 
   if (loading) return (
     <div className="flex justify-center py-12">
