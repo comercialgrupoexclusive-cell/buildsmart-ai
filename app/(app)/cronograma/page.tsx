@@ -7,11 +7,13 @@ import { Etapa, Obra } from '@/lib/types'
 import { formatDate, diasAteData, STATUS_ETAPA_COLOR, STATUS_ETAPA_LABEL } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/EmptyState'
 import Link from 'next/link'
+import { CronogramaGantt } from '@/components/obra/CronogramaGantt'
 
 export default function CronogramaPage() {
   const supabase = createClient()
   const [obras, setObras] = useState<Obra[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
+  const [subetapas, setSubetapas] = useState<{ id: string; etapa_id: string | null; nome: string; codigo?: string | null; quantidade?: number; unidade?: string | null }[]>([])
   const [obraId, setObraId] = useState<string>('')
   const [loading, setLoading] = useState(false)
 
@@ -21,7 +23,7 @@ export default function CronogramaPage() {
 
   useEffect(() => {
     if (obraId) loadEtapas(obraId)
-    else setEtapas([])
+    else { setEtapas([]); setSubetapas([]) }
   }, [obraId])
 
   async function loadObras() {
@@ -33,8 +35,34 @@ export default function CronogramaPage() {
 
   async function loadEtapas(id: string) {
     setLoading(true)
-    const { data } = await supabase.from('etapas').select('*').eq('obra_id', id).order('ordem')
+    const [{ data }, { data: orcamentos }] = await Promise.all([
+      supabase.from('etapas').select('*').eq('obra_id', id).order('ordem'),
+      supabase.from('orcamentos').select('id').eq('obra_id', id),
+    ])
     setEtapas(data || [])
+
+    const orcamentoIds = ((orcamentos || []) as { id: string }[]).map(o => o.id)
+    if (orcamentoIds.length > 0) {
+      const { data: itens } = await supabase
+        .from('orcamento_itens')
+        .select('*')
+        .in('orcamento_id', orcamentoIds)
+        .order('updated_at')
+
+      setSubetapas(((itens || []) as any[])
+        .filter(item => item.etapa_id)
+        .map(item => ({
+          id: item.id,
+          etapa_id: item.etapa_id,
+          nome: item.subetapa || item.descricao_snapshot || 'Item do orçamento',
+          codigo: item.codigo_snapshot,
+          quantidade: item.quantidade,
+          unidade: item.unidade_snapshot,
+        })))
+    } else {
+      setSubetapas([])
+    }
+
     setLoading(false)
   }
 
@@ -94,6 +122,8 @@ export default function CronogramaPage() {
         />
       ) : (
         <div className="flex flex-col gap-3">
+          <CronogramaGantt etapas={etapas} subetapas={subetapas} titulo={`Gantt - ${obraAtual?.nome || 'obra'}`} />
+
           {/* Linha do tempo */}
           <div className="card p-6">
             <h2 className="font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>

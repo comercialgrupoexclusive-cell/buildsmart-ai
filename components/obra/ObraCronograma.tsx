@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import {
   Plus, AlertTriangle, Calendar, Pencil, Trash2,
-  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Etapa } from '@/lib/types'
@@ -12,17 +11,12 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
-
-const STATUS_BAR_COLOR: Record<string, string> = {
-  planejada: '#3B7BF8',
-  em_andamento: '#10B981',
-  concluida: '#6B7280',
-  atrasada: '#EF4444',
-}
+import { CronogramaGantt } from '@/components/obra/CronogramaGantt'
 
 export function ObraCronograma({ obraId }: { obraId: string }) {
   const supabase = createClient()
   const [etapas, setEtapas] = useState<Etapa[]>([])
+  const [subetapas, setSubetapas] = useState<{ id: string; etapa_id: string | null; nome: string; codigo?: string | null; quantidade?: number; unidade?: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editando, setEditando] = useState<Etapa | null>(null)
@@ -34,19 +28,48 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
     status: 'planejada' as Etapa['status'],
   })
 
-  // Controle de janela do Gantt (offset em meses)
-  const [ganttOffset, setGanttOffset] = useState(0)
+  const [ganttOffset] = useState(0)
 
   useEffect(() => { loadEtapas() }, [obraId])
 
   async function loadEtapas() {
     setLoading(true)
-    const { data } = await supabase
-      .from('etapas')
-      .select('*')
-      .eq('obra_id', obraId)
-      .order('ordem')
+    const [{ data }, { data: orcamentos }] = await Promise.all([
+      supabase
+        .from('etapas')
+        .select('*')
+        .eq('obra_id', obraId)
+        .order('ordem'),
+      supabase
+        .from('orcamentos')
+        .select('id')
+        .eq('obra_id', obraId),
+    ])
+
     setEtapas(data || [])
+
+    const orcamentoIds = ((orcamentos || []) as { id: string }[]).map(o => o.id)
+    if (orcamentoIds.length > 0) {
+      const { data: itens } = await supabase
+        .from('orcamento_itens')
+        .select('*')
+        .in('orcamento_id', orcamentoIds)
+        .order('updated_at')
+
+      setSubetapas(((itens || []) as any[])
+        .filter(item => item.etapa_id)
+        .map(item => ({
+          id: item.id,
+          etapa_id: item.etapa_id,
+          nome: item.subetapa || item.descricao_snapshot || 'Item do orçamento',
+          codigo: item.codigo_snapshot,
+          quantidade: item.quantidade,
+          unidade: item.unidade_snapshot,
+        })))
+    } else {
+      setSubetapas([])
+    }
+
     setLoading(false)
   }
 
@@ -167,120 +190,7 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
         <div className="flex flex-col gap-4">
           {/* ── Gantt visual ── */}
           {etapasGantt.length > 0 && (
-            <div className="card p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                  <Calendar size={16} style={{ color: 'var(--accent)' }} /> Linha do Tempo
-                </h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setGanttOffset(o => o - 1)}
-                    className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    <ChevronLeft size={15} />
-                  </button>
-                  <button
-                    onClick={() => setGanttOffset(0)}
-                    className="px-2 py-1 rounded-lg text-xs transition-colors hover:bg-[var(--bg-secondary)]"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    Hoje
-                  </button>
-                  <button
-                    onClick={() => setGanttOffset(o => o + 1)}
-                    className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    <ChevronRight size={15} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Cabeçalho de meses */}
-              <div className="relative mb-2 h-6 overflow-hidden">
-                {meses.map(m => (
-                  <div
-                    key={m.label}
-                    className="absolute text-xs font-medium"
-                    style={{
-                      left: `${m.pctStart}%`,
-                      width: `${m.pctWidth}%`,
-                      color: 'var(--text-secondary)',
-                      textAlign: 'center',
-                    }}
-                  >
-                    {m.label}
-                  </div>
-                ))}
-              </div>
-
-              {/* Linhas de grade + barras */}
-              <div className="relative" style={{ minHeight: 8 }}>
-                {/* Separadores de mês */}
-                {meses.slice(1).map(m => (
-                  <div
-                    key={m.label}
-                    className="absolute top-0 bottom-0"
-                    style={{ left: `${m.pctStart}%`, width: 1, background: 'var(--border)', opacity: 0.5 }}
-                  />
-                ))}
-                {/* Linha do dia de hoje */}
-                {hojePercent >= 0 && hojePercent <= 100 && (
-                  <div
-                    className="absolute top-0 bottom-0 z-10"
-                    style={{ left: `${hojePercent}%`, width: 2, background: 'var(--accent)', opacity: 0.8 }}
-                  >
-                    <div className="absolute -top-1 -left-1 w-3 h-3 rounded-full" style={{ background: 'var(--accent)' }} />
-                  </div>
-                )}
-
-                {/* Barras das etapas */}
-                {etapasGantt.map(({ etapa, pctLeft, pctWidth, visivel }, i) => (
-                  <div key={etapa.id} className="relative mb-2" style={{ height: 28 }}>
-                    <div
-                      className="absolute text-xs text-right truncate pr-2"
-                      style={{ right: '100%', width: 120, lineHeight: '28px', color: 'var(--text-secondary)', fontSize: 10 }}
-                    >
-                      {etapa.nome}
-                    </div>
-                    <div className="absolute inset-0 rounded" style={{ background: 'var(--bg-secondary)' }} />
-                    {visivel && pctWidth > 0 && (
-                      <div
-                        className="absolute top-1 bottom-1 rounded flex items-center px-2 overflow-hidden"
-                        style={{
-                          left: `${Math.max(0, pctLeft)}%`,
-                          width: `${Math.min(pctWidth, 100 - Math.max(0, pctLeft))}%`,
-                          background: STATUS_BAR_COLOR[etapa.status] + 'CC',
-                          minWidth: 4,
-                        }}
-                        title={`${etapa.nome} — ${etapa.data_inicio} → ${etapa.data_fim}`}
-                      >
-                        <span className="text-white truncate" style={{ fontSize: 10, lineHeight: 1 }}>
-                          {etapa.nome}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Legenda */}
-              <div className="flex gap-4 mt-3 flex-wrap">
-                {Object.entries(STATUS_BAR_COLOR).map(([status, color]) => (
-                  <div key={status} className="flex items-center gap-1.5">
-                    <div className="w-3 h-3 rounded-sm" style={{ background: color }} />
-                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                      {STATUS_ETAPA_LABEL[status] || status}
-                    </span>
-                  </div>
-                ))}
-                <div className="flex items-center gap-1.5">
-                  <div className="w-0.5 h-4 rounded" style={{ background: 'var(--accent)' }} />
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Hoje</span>
-                </div>
-              </div>
-            </div>
+            <CronogramaGantt etapas={etapas} subetapas={subetapas} />
           )}
 
           {/* ── Tabela de etapas ── */}

@@ -120,3 +120,46 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
 
 Como as telas continuam chamando `createClient()`, a logica principal do app nao precisa ser refeita.
+
+## Atualizacao - Gantt de etapas e subetapas
+
+1. Criado o componente `components/obra/CronogramaGantt.tsx`.
+   - Exibe etapas em uma linha do tempo mensal.
+   - Exibe subetapas abaixo das etapas.
+   - Nesta fase, as subetapas sao derivadas dos itens do orcamento.
+   - Como ainda nao existe data propria por subetapa, elas sao distribuidas visualmente dentro do periodo da etapa.
+
+2. Integrado o Gantt em:
+   - `app/(app)/cronograma/page.tsx`
+   - `components/obra/ObraCronograma.tsx`
+
+3. Validacao tecnica:
+   - `npm.cmd run build` passou.
+   - TypeScript passou.
+
+4. Validacao como usuario no navegador:
+   - `/dashboard`
+   - `/obras`
+   - `/orcamentos`
+   - `/materiais`
+   - `/cronograma`
+   - `/medicoes`
+   - `/servicos`
+   - `/sinapi`
+   - `/relatorios`
+   - `/obras/local-obra-exemplo?tab=orcamento`
+   - `/obras/local-obra-exemplo?tab=cronograma`
+   - `/obras/local-obra-exemplo?tab=materiais`
+   - `/obras/local-obra-exemplo?tab=medicoes`
+
+Resultado:
+
+- As rotas abriram sem erro de runtime.
+- O Gantt aparece na tela geral de cronograma.
+- O Gantt aparece dentro da obra de exemplo, na aba Cronograma.
+- As subetapas `Sapatas` e `Paredes internas` aparecem vinculadas aos itens do orcamento.
+- O modo local continua sem conexao com Supabase.
+
+Observacao:
+
+- Para uma versao mais fiel de planejamento, o proximo passo recomendado e criar entidade propria de subetapa com data de inicio, data fim, status e dependencia. Hoje a subetapa no Gantt e uma leitura visual dos itens do orcamento.
