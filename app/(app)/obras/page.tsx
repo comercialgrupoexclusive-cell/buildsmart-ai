@@ -41,7 +41,7 @@ export default function ObrasPage() {
   async function loadObras() {
     setLoading(true)
     const { data } = await supabase.from('obras').select('*').order('created_at', { ascending: false })
-    const lista = data || []
+    const lista = (data || []) as Obra[]
 
     // Avanço físico: última medição registrada de cada obra
     const comAvanco = await Promise.all(lista.map(async (obra): Promise<ObraComAvanco> => {

@@ -1,4 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr'
+import { createLocalClient, isLocalDataMode } from '@/lib/data/local-client'
 
 function getUrl() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -11,5 +12,6 @@ function getKey() {
 }
 
 export function createClient() {
+  if (isLocalDataMode()) return createLocalClient() as any
   return createBrowserClient(getUrl(), getKey())
 }

@@ -8,7 +8,7 @@ import {
   ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { SINAPI_UFS, getPrecoInsumo, SinapiInsumo } from '@/lib/types'
+import { SINAPI_UFS, getPrecoInsumo, SinapiComposicaoItem, SinapiInsumo } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 
 // ─── Tipos internos de parse ──────────────────────────────────────────────────
@@ -823,7 +823,7 @@ function ItensComposicaoSinapi({
         .eq('composicao_codigo', composicaoCodigo)
         .eq('mes_referencia', mesReferencia)
         .order('tipo').order('item_codigo')
-      const lista = data || []
+      const lista = (data || []) as SinapiComposicaoItem[]
       if (!active) return
       setItens(lista)
 

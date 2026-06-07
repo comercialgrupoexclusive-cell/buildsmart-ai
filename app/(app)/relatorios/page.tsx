@@ -8,6 +8,7 @@ import {
   MapPin, FileText, Package, Activity,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { Etapa, Material, Medicao, Obra } from '@/lib/types'
 import { formatCurrency, formatPercent, STATUS_OBRA_LABEL, STATUS_OBRA_COLOR } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/EmptyState'
 
@@ -44,7 +45,7 @@ export default function RelatoriosPage() {
     const { data: obrasData } = await supabase.from('obras').select('*').order('created_at', { ascending: false })
     if (!obrasData) { setLoading(false); return }
 
-    const resumos = await Promise.all(obrasData.map(async (obra) => {
+    const resumos = await Promise.all(((obrasData || []) as Obra[]).map(async (obra) => {
       const [orcRes, etapasRes, matsRes, medRes] = await Promise.all([
         supabase.from('orcamentos')
           .select('bdi_percentual, orcamento_itens(quantidade, preco_unitario_snapshot)')
@@ -62,15 +63,15 @@ export default function RelatoriosPage() {
       const subtotal = itens.reduce((a: number, i: any) => a + i.quantidade * i.preco_unitario_snapshot, 0)
       const total_orcado = subtotal * (1 + bdi / 100)
 
-      const etapas = etapasRes.data || []
+      const etapas = (etapasRes.data || []) as Etapa[]
       const etapas_concluidas = etapas.filter(e => e.status === 'concluida').length
 
-      const mats = matsRes.data || []
+      const mats = (matsRes.data || []) as Material[]
       const materiais_total = mats.length
       const materiais_comprados = mats.filter(m => m.status_compra === 'comprado').length
       const materiais_pendentes = materiais_total - materiais_comprados
 
-      const meds = medRes.data || []
+      const meds = (medRes.data || []) as Medicao[]
       const avancoFisico = meds.length > 0 ? (meds[0].percentual_executado ?? 0) : 0
 
       return {
