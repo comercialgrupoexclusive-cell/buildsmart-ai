@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
 
 type LuiziaLogPayload = {
   origem?: string
@@ -21,44 +21,75 @@ function sanitize(payload: LuiziaLogPayload) {
   }
 }
 
+function supabaseAdminLite() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+  if (!url.startsWith('http') || !key) return null
+  return createClient(url, key)
+}
+
 export async function GET() {
-  const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('luizia_logs')
-    .select('*')
-    .order('at', { ascending: false })
-    .limit(250)
+  try {
+    const supabase = supabaseAdminLite()
+    if (!supabase) {
+      return NextResponse.json({ logs: [], remote: false, error: 'Supabase nao configurado neste ambiente.' })
+    }
 
-  if (error) {
-    return NextResponse.json({ logs: [], remote: false, error: error.message })
+    const { data, error } = await supabase
+      .from('luizia_logs')
+      .select('*')
+      .order('at', { ascending: false })
+      .limit(250)
+
+    if (error) {
+      return NextResponse.json({ logs: [], remote: false, error: error.message })
+    }
+
+    return NextResponse.json({ logs: data || [], remote: true })
+  } catch (error: any) {
+    return NextResponse.json({ logs: [], remote: false, error: error?.message || 'Falha ao buscar historico online.' })
   }
-
-  return NextResponse.json({ logs: data || [], remote: true })
 }
 
 export async function POST(req: NextRequest) {
-  const payload = sanitize(await req.json())
-  if (!payload.pergunta || !payload.resposta) {
-    return NextResponse.json({ error: 'Pergunta ou resposta vazia' }, { status: 400 })
+  try {
+    const payload = sanitize(await req.json())
+    if (!payload.pergunta || !payload.resposta) {
+      return NextResponse.json({ error: 'Pergunta ou resposta vazia' }, { status: 400 })
+    }
+
+    const supabase = supabaseAdminLite()
+    if (!supabase) {
+      return NextResponse.json({ ok: false, remote: false, error: 'Supabase nao configurado neste ambiente.' })
+    }
+
+    const { error } = await supabase.from('luizia_logs').insert(payload)
+
+    if (error) {
+      return NextResponse.json({ ok: false, remote: false, error: error.message })
+    }
+
+    return NextResponse.json({ ok: true, remote: true })
+  } catch (error: any) {
+    return NextResponse.json({ ok: false, remote: false, error: error?.message || 'Falha ao salvar historico online.' })
   }
-
-  const supabase = await createClient()
-  const { error } = await supabase.from('luizia_logs').insert(payload)
-
-  if (error) {
-    return NextResponse.json({ ok: false, remote: false, error: error.message })
-  }
-
-  return NextResponse.json({ ok: true, remote: true })
 }
 
 export async function DELETE() {
-  const supabase = await createClient()
-  const { error } = await supabase.from('luizia_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+  try {
+    const supabase = supabaseAdminLite()
+    if (!supabase) {
+      return NextResponse.json({ ok: false, remote: false, error: 'Supabase nao configurado neste ambiente.' })
+    }
 
-  if (error) {
-    return NextResponse.json({ ok: false, remote: false, error: error.message })
+    const { error } = await supabase.from('luizia_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+
+    if (error) {
+      return NextResponse.json({ ok: false, remote: false, error: error.message })
+    }
+
+    return NextResponse.json({ ok: true, remote: true })
+  } catch (error: any) {
+    return NextResponse.json({ ok: false, remote: false, error: error?.message || 'Falha ao limpar historico online.' })
   }
-
-  return NextResponse.json({ ok: true, remote: true })
 }
