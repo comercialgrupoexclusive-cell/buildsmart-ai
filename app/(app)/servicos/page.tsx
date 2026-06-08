@@ -530,16 +530,6 @@ function ModalItens({
   const [coefNovo, setCoefNovo] = useState('')
   const [savingItem, setSavingItem] = useState(false)
 
-  useEffect(() => {
-    if (open) {
-      loadItens()
-      if (tipoInicial) {
-        setTipoNovo(tipoInicial)
-        if (tipoInicial === 'INSUMO_PROPRIO') buscarProprios('')
-      }
-    }
-  }, [open, composicao.id])
-
   async function loadItens() {
     setLoadingItens(true)
     const { data } = await supabase
@@ -549,13 +539,6 @@ function ModalItens({
     setItens((data || []) as unknown as ComposicaoItem[])
     setLoadingItens(false)
   }
-
-  // Busca debounced no SINAPI
-  useEffect(() => {
-    if (buscaSinapi.length < 2) { setResultsSinapi([]); return }
-    const t = setTimeout(() => buscaSinapiInsumos(buscaSinapi), 300)
-    return () => clearTimeout(t)
-  }, [buscaSinapi])
 
   async function buscaSinapiInsumos(q: string) {
     setLoadingBusca(true)
@@ -568,20 +551,6 @@ function ModalItens({
     setResultsSinapi((data || []) as SinapiInsumoLite[])
     setLoadingBusca(false)
   }
-
-  function selecionarInsumo(ins: SinapiInsumoLite) {
-    setInsumoSelecionado(ins)
-    setBuscaSinapi('')
-    setResultsSinapi([])
-  }
-
-  // Busca debounced de insumos próprios — ao trocar para esse tipo, já
-  // carrega os mais recentes (lista "pré-selecionada" para escolha rápida)
-  useEffect(() => {
-    if (tipoNovo !== 'INSUMO_PROPRIO') return
-    const t = setTimeout(() => buscarProprios(buscaProprio), 250)
-    return () => clearTimeout(t)
-  }, [buscaProprio, tipoNovo])
 
   async function buscarProprios(q: string) {
     setLoadingBuscaProprio(true)
@@ -598,6 +567,43 @@ function ModalItens({
     setResultsProprio((data || []) as InsumoProprio[])
     setLoadingBuscaProprio(false)
   }
+
+  useEffect(() => {
+    if (!open) return
+    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
+    Promise.resolve().then(() => {
+      loadItens()
+      if (tipoInicial) {
+        setTipoNovo(tipoInicial)
+        if (tipoInicial === 'INSUMO_PROPRIO') buscarProprios('')
+      }
+    })
+  }, [open, composicao.id, tipoInicial])
+
+  // Busca debounced no SINAPI
+  useEffect(() => {
+    if (buscaSinapi.length < 2) {
+      // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
+      Promise.resolve().then(() => setResultsSinapi([]))
+      return
+    }
+    const t = setTimeout(() => buscaSinapiInsumos(buscaSinapi), 300)
+    return () => clearTimeout(t)
+  }, [buscaSinapi])
+
+  function selecionarInsumo(ins: SinapiInsumoLite) {
+    setInsumoSelecionado(ins)
+    setBuscaSinapi('')
+    setResultsSinapi([])
+  }
+
+  // Busca debounced de insumos próprios — ao trocar para esse tipo, já
+  // carrega os mais recentes (lista "pré-selecionada" para escolha rápida)
+  useEffect(() => {
+    if (tipoNovo !== 'INSUMO_PROPRIO') return
+    const t = setTimeout(() => buscarProprios(buscaProprio), 250)
+    return () => clearTimeout(t)
+  }, [buscaProprio, tipoNovo])
 
   function selecionarProprio(ip: InsumoProprio) {
     setProprioSelecionado(ip)
@@ -933,7 +939,11 @@ function EditableCell({
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(String(value ?? ''))
 
-  useEffect(() => { if (!editing) setVal(String(value ?? '')) }, [value, editing])
+  useEffect(() => {
+    if (editing) return
+    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
+    Promise.resolve().then(() => setVal(String(value ?? '')))
+  }, [value, editing])
 
   function commit() {
     setEditing(false)
@@ -990,8 +1000,6 @@ function InsumosTab() {
     ativo: true,
   })
 
-  useEffect(() => { loadInsumos() }, [])
-
   async function loadInsumos() {
     setLoading(true)
     const { data } = await supabase
@@ -1001,6 +1009,11 @@ function InsumosTab() {
     setInsumos((data || []) as InsumoProprio[])
     setLoading(false)
   }
+
+  useEffect(() => {
+    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
+    Promise.resolve().then(() => loadInsumos())
+  }, [])
 
   // Gera o próximo código sequencial no formato IP-001, IP-002...
   function proximoCodigo(): string {

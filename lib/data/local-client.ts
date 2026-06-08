@@ -127,6 +127,10 @@ function enrichRow(db: LocalDatabase, table: TableName, row: Row): Row {
     }
   }
 
+  if (table === 'fornecedores') {
+    item.obras = item.obra_id ? db.obras.find(o => o.id === item.obra_id) || null : null
+  }
+
   if (table === 'medicoes') {
     item.obras = db.obras.find(o => o.id === item.obra_id) || null
     item.etapas = db.etapas.find(e => e.id === item.etapa_id) || null

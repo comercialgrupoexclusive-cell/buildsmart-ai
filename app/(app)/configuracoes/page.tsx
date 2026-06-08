@@ -6,6 +6,7 @@ import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { APP_VERSION } from '@/lib/version'
 
 const ACCENT_OPTIONS = [
   { color: '#3B7BF8', label: 'Azul' },
@@ -350,7 +351,7 @@ export default function ConfiguracoesPage() {
       {/* Versão */}
       <div className="card p-4 text-center">
         <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          BuildSmart AI v1.0 — Next.js 16 + Supabase + Claude API
+          BuildSmart AI v{APP_VERSION} — Next.js 16 + Supabase + Claude API
         </p>
       </div>
     </div>

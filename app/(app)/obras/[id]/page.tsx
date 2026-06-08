@@ -16,12 +16,14 @@ import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { ObraArquivos } from '@/components/obra/ObraArquivos'
+import { ObraFornecedores } from '@/components/obra/ObraFornecedores'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'fornecedores' | 'cronograma' | 'materiais' | 'medicoes'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
+  { id: 'fornecedores', label: 'Fornecedores' },
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'materiais', label: 'Materiais' },
   { id: 'medicoes', label: 'Diário / Medições' },
@@ -324,6 +326,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'visao-geral' && <ObraVisaoGeral obra={obra} />}
         {tab === 'arquivos' && <ObraArquivos obraId={id} />}
         {tab === 'orcamento' && <ObraOrcamento obraId={id} areaM2={obra.area_m2} obraName={obra.nome} obraUf={obra.uf || 'SP'} />}
+        {tab === 'fornecedores' && <ObraFornecedores obraId={id} />}
         {tab === 'cronograma' && <ObraCronograma obraId={id} />}
         {tab === 'materiais' && <ObraMateriais obraId={id} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} />}

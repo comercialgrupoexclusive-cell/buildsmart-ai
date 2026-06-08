@@ -7,6 +7,7 @@ import {
   Package, ClipboardList, BotMessageSquare, BarChart3, Settings,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { APP_VERSION } from '@/lib/version'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -53,7 +54,10 @@ export function Sidebar() {
           <p className="font-semibold text-sm leading-tight" style={{ color: 'var(--text-primary)', fontFamily: 'DM Serif Display, serif' }}>
             BuildSmart
           </p>
-          <p className="text-xs" style={{ color: 'var(--accent)', fontFamily: 'DM Serif Display, serif' }}>AI</p>
+          <p className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--accent)', fontFamily: 'DM Serif Display, serif' }}>
+            AI
+            <span style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-secondary)' }}>v{APP_VERSION}</span>
+          </p>
         </div>
       </div>
 

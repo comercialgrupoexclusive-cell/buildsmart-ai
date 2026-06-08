@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS materiais (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   obra_id UUID NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
   etapa_id UUID REFERENCES etapas(id),
+  subetapa TEXT,
   sinapi_codigo TEXT NOT NULL,    -- referência lógica ao insumo SINAPI
   descricao TEXT NOT NULL,        -- snapshot
   unidade TEXT NOT NULL DEFAULT 'UN',
@@ -188,6 +189,21 @@ CREATE TABLE IF NOT EXISTS medicoes (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- obra_id NULL = fornecedor geral da empresa (disponível em todas as obras);
+-- preenchido = fornecedor específico daquela obra
+CREATE TABLE IF NOT EXISTS fornecedores (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  obra_id UUID REFERENCES obras(id) ON DELETE CASCADE,
+  nome TEXT NOT NULL,
+  categoria TEXT NOT NULL DEFAULT 'MATERIAL',  -- MATERIAL | MAO_DE_OBRA | EQUIPAMENTO | SERVICO | MISTO
+  contato TEXT,
+  telefone TEXT,
+  email TEXT,
+  observacoes TEXT,
+  ativo BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- =============================================
 -- Índices para performance
 -- =============================================
@@ -205,6 +221,7 @@ CREATE INDEX IF NOT EXISTS idx_orcamento_item_insumos_item  ON orcamento_item_in
 CREATE INDEX IF NOT EXISTS idx_etapas_obra                  ON etapas(obra_id);
 CREATE INDEX IF NOT EXISTS idx_materiais_obra               ON materiais(obra_id);
 CREATE INDEX IF NOT EXISTS idx_materiais_status             ON materiais(status_compra);
+CREATE INDEX IF NOT EXISTS idx_fornecedores_obra            ON fornecedores(obra_id);
 CREATE INDEX IF NOT EXISTS idx_composicao_itens_comp        ON composicao_itens(composicao_id);
 
 -- =============================================

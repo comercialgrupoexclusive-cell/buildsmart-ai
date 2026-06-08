@@ -8,6 +8,7 @@ import { Plus, Pencil, X, CheckSquare, Square, Lock, Eye, EyeOff } from 'lucide-
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { Profile } from '@/lib/types'
+import { APP_VERSION } from '@/lib/version'
 
 const ACCENT_OPTIONS = [
   '#3B7BF8', '#10B981', '#F59E0B', '#EF4444',
@@ -139,6 +140,12 @@ function ProfileSelectionPage() {
           </div>
           <h1 className="text-4xl font-bold" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--text-primary)' }}>
             BuildSmart <span style={{ color: 'var(--accent)' }}>AI</span>
+            <span
+              className="ml-2 align-middle text-xs font-medium px-1.5 py-0.5 rounded-md"
+              style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
+            >
+              v{APP_VERSION}
+            </span>
           </h1>
         </div>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>

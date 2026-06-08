@@ -1,104 +1,130 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Plus, BarChart3, Trash2, TrendingUp } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList, NotebookPen, Sun, Cloud, CloudRain, Camera, X, Plus, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Etapa } from '@/lib/types'
-import { Button } from '@/components/ui/Button'
-import { Modal } from '@/components/ui/Modal'
-import { Input, Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 
-type MedicaoRow = {
-  id: string
-  obra_id: string
-  etapa_id: string | null
-  data_medicao: string | null
-  periodo_inicio: string
-  periodo_fim: string
-  percentual_executado: number
-  observacao: string | null
-  etapas?: { nome: string } | null
+function corPorPercentual(p: number) {
+  if (p >= 100) return 'var(--success)'
+  if (p >= 50) return 'var(--accent)'
+  if (p > 0) return 'var(--warning)'
+  return 'var(--text-secondary)'
+}
+
+function clamp(v: number) {
+  if (isNaN(v)) return 0
+  return Math.min(100, Math.max(0, v))
 }
 
 export function ObraMedicoes({ obraId }: { obraId: string }) {
   const supabase = createClient()
-  const [medicoes, setMedicoes] = useState<MedicaoRow[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
+  // Subetapas derivadas dos itens do orçamento — mesma lógica do Cronograma
+  const [subetapasPorEtapa, setSubetapasPorEtapa] = useState<Record<string, string[]>>({})
   const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
-    etapa_id: '',
-    data_medicao: new Date().toISOString().split('T')[0],
-    periodo_inicio: '',
-    periodo_fim: '',
-    percentual_executado: '',
-    observacao: '',
-  })
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  // Progresso ao vivo, editável diretamente — persistido em localStorage (mesmo padrão de insumoOverrides)
+  const [progresso, setProgresso] = useState<Record<string, number>>({})
+  // Sub-abas: Medição (cascata de %) e Diário / RDO (registro diário com clima, atividades e fotos)
+  const [subTab, setSubTab] = useState<'medicao' | 'diario'>('medicao')
 
-  useEffect(() => { loadData() }, [obraId])
-
-  async function loadData() {
+  async function loadDados() {
     setLoading(true)
-    const [medsRes, etapasRes] = await Promise.all([
-      supabase
-        .from('medicoes')
-        .select('*, etapas(nome)')
-        .eq('obra_id', obraId)
-        .order('data_medicao', { ascending: false }),
+    const [{ data: etapasData }, { data: orcamentos }] = await Promise.all([
       supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem'),
+      supabase.from('orcamentos').select('id').eq('obra_id', obraId),
     ])
-    setMedicoes((medsRes.data || []) as MedicaoRow[])
-    setEtapas(etapasRes.data || [])
+    setEtapas(etapasData || [])
+
+    const orcamentoIds = ((orcamentos || []) as { id: string }[]).map(o => o.id)
+    let mapa: Record<string, string[]> = {}
+    if (orcamentoIds.length > 0) {
+      const { data: itens } = await supabase
+        .from('orcamento_itens')
+        .select('etapa_id, subetapa')
+        .in('orcamento_id', orcamentoIds)
+        .order('updated_at')
+
+      mapa = ((itens || []) as { etapa_id: string | null; subetapa: string | null }[]).reduce(
+        (acc, item) => {
+          if (!item.etapa_id) return acc
+          const nome = item.subetapa?.trim()
+          if (!nome) return acc
+          if (!acc[item.etapa_id]) acc[item.etapa_id] = []
+          if (!acc[item.etapa_id].includes(nome)) acc[item.etapa_id].push(nome)
+          return acc
+        },
+        {} as Record<string, string[]>
+      )
+    }
+    setSubetapasPorEtapa(mapa)
     setLoading(false)
   }
 
-  async function handleSave() {
-    if (!form.periodo_inicio || !form.periodo_fim || !form.percentual_executado) return
-    setSaving(true)
-    await supabase.from('medicoes').insert({
-      obra_id: obraId,
-      etapa_id: form.etapa_id || null,
-      data_medicao: form.data_medicao || null,
-      periodo_inicio: form.periodo_inicio,
-      periodo_fim: form.periodo_fim,
-      percentual_executado: parseFloat(form.percentual_executado),
-      observacao: form.observacao || null,
+  useEffect(() => {
+    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
+    Promise.resolve().then(() => loadDados())
+  }, [obraId])
+
+  // Carrega progresso salvo localmente para esta obra
+  useEffect(() => {
+    if (!obraId) return
+    const stored = localStorage.getItem(`bs_progresso_${obraId}`)
+    if (!stored) return
+    Promise.resolve().then(() => {
+      try { setProgresso(JSON.parse(stored)) } catch { /* ignore */ }
     })
-    setSaving(false)
-    setShowModal(false)
-    resetForm()
-    loadData()
+  }, [obraId])
+
+  // Persiste progresso a cada alteração
+  useEffect(() => {
+    if (!obraId) return
+    localStorage.setItem(`bs_progresso_${obraId}`, JSON.stringify(progresso))
+  }, [obraId, progresso])
+
+  const chaveEtapa = (etapaId: string) => `etapa:${etapaId}`
+  const chaveSub = (etapaId: string, nome: string) => `sub:${etapaId}::${nome}`
+
+  function getEtapaPercentual(etapaId: string) {
+    return progresso[chaveEtapa(etapaId)] ?? 0
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Remover esta medição?')) return
-    await supabase.from('medicoes').delete().eq('id', id)
-    setMedicoes(prev => prev.filter(m => m.id !== id))
+  function getSubPercentual(etapaId: string, nome: string) {
+    return progresso[chaveSub(etapaId, nome)] ?? 0
   }
 
-  function resetForm() {
-    setForm({
-      etapa_id: '', data_medicao: new Date().toISOString().split('T')[0],
-      periodo_inicio: '', periodo_fim: '', percentual_executado: '', observacao: '',
+  // Etapa → Subetapas: define o % da etapa e propaga para todas as subetapas
+  function setEtapaPercentual(etapaId: string, valorBruto: number) {
+    const valor = clamp(valorBruto)
+    setProgresso(prev => {
+      const next = { ...prev, [chaveEtapa(etapaId)]: valor }
+      const subs = subetapasPorEtapa[etapaId] || []
+      subs.forEach(nome => { next[chaveSub(etapaId, nome)] = valor })
+      return next
     })
   }
 
-  // Avanço por etapa (última medição de cada etapa)
-  const progressoPorEtapa = etapas.map(etapa => {
-    const meds = medicoes.filter(m => m.etapa_id === etapa.id)
-    const ultima = meds[0]
-    return { etapa, percentual: ultima?.percentual_executado ?? 0 }
-  })
+  // Subetapa → Etapa: define o % da subetapa e recalcula a etapa pela média das subetapas
+  function setSubetapaPercentual(etapaId: string, nome: string, valorBruto: number) {
+    const valor = clamp(valorBruto)
+    setProgresso(prev => {
+      const next = { ...prev, [chaveSub(etapaId, nome)]: valor }
+      const subs = subetapasPorEtapa[etapaId] || []
+      if (subs.length > 0) {
+        const soma = subs.reduce((acc, n) => acc + (next[chaveSub(etapaId, n)] ?? 0), 0)
+        next[chaveEtapa(etapaId)] = soma / subs.length
+      }
+      return next
+    })
+  }
 
-  // Avanço global (última medição sem etapa ou media das etapas)
-  const medsSemEtapa = medicoes.filter(m => !m.etapa_id)
-  const avancoGlobal = medsSemEtapa.length > 0
-    ? medsSemEtapa[0].percentual_executado
-    : progressoPorEtapa.length > 0
-      ? progressoPorEtapa.reduce((a, p) => a + p.percentual, 0) / progressoPorEtapa.length
-      : 0
+  const avancoGlobal = useMemo(() => {
+    if (etapas.length === 0) return 0
+    return etapas.reduce((acc, e) => acc + getEtapaPercentual(e.id), 0) / etapas.length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etapas, progresso])
 
   if (loading) {
     return (
@@ -110,198 +136,430 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Header com avanço global */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="card p-4 flex items-center gap-4 flex-1 min-w-[200px]">
-          <TrendingUp size={20} style={{ color: 'var(--accent)' }} />
-          <div className="flex-1">
-            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Avanço físico global</p>
-            <div className="flex items-center gap-3 mt-1">
-              <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
-                <div
-                  className="h-full rounded-full transition-all duration-700"
-                  style={{
-                    width: `${Math.min(100, avancoGlobal)}%`,
-                    background: avancoGlobal >= 100 ? 'var(--success)' : 'var(--accent)',
-                  }}
-                />
-              </div>
-              <span className="text-lg font-bold" style={{ color: 'var(--accent)' }}>
-                {avancoGlobal.toFixed(1)}%
-              </span>
-            </div>
-          </div>
-        </div>
-        <Button icon={<Plus size={16} />} onClick={() => setShowModal(true)}>Nova Medição</Button>
+      {/* Sub-abas: Medição (cascata de %) x Diário / RDO (registro diário) */}
+      <div className="flex items-center gap-1.5 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
+        <button
+          onClick={() => setSubTab('medicao')}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors"
+          style={{
+            background: subTab === 'medicao' ? 'var(--bg-primary)' : 'transparent',
+            color: subTab === 'medicao' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            boxShadow: subTab === 'medicao' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
+          }}
+        >
+          <ClipboardList size={15} /> Medição
+        </button>
+        <button
+          onClick={() => setSubTab('diario')}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors"
+          style={{
+            background: subTab === 'diario' ? 'var(--bg-primary)' : 'transparent',
+            color: subTab === 'diario' ? 'var(--text-primary)' : 'var(--text-secondary)',
+            boxShadow: subTab === 'diario' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
+          }}
+        >
+          <NotebookPen size={15} /> Diário (RDO)
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Progresso por etapa */}
-        {etapas.length > 0 && (
-          <div className="card p-5">
-            <h2 className="font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-              <BarChart3 size={16} style={{ color: 'var(--accent)' }} />
-              Andamento por Etapa
-            </h2>
-            <div className="flex flex-col gap-4">
-              {progressoPorEtapa.map(({ etapa, percentual }) => (
-                <div key={etapa.id}>
-                  <div className="flex justify-between text-sm mb-1.5">
-                    <span style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
-                    <span className="font-semibold tabular-nums" style={{ color: percentual >= 100 ? 'var(--success)' : 'var(--accent)' }}>
-                      {percentual.toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: `${Math.min(100, percentual)}%`,
-                        background: percentual >= 100 ? 'var(--success)' : percentual >= 50 ? 'var(--accent)' : 'var(--warning)',
-                      }}
-                    />
-                  </div>
+      {subTab === 'diario' ? (
+        <DiarioObra obraId={obraId} etapas={etapas} />
+      ) : (
+        <>
+          {/* Avanço físico global */}
+          <div className="card p-4 flex items-center gap-4">
+            <TrendingUp size={20} style={{ color: 'var(--accent)' }} />
+            <div className="flex-1">
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Avanço físico global</p>
+              <div className="flex items-center gap-3 mt-1">
+                <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${Math.min(100, avancoGlobal)}%`,
+                      background: avancoGlobal >= 100 ? 'var(--success)' : 'var(--accent)',
+                    }}
+                  />
                 </div>
-              ))}
+                <span className="text-lg font-bold tabular-nums" style={{ color: 'var(--accent)' }}>
+                  {avancoGlobal.toFixed(1)}%
+                </span>
+              </div>
             </div>
           </div>
-        )}
 
-        {/* Histórico */}
-        <div className="card p-5">
-          <h2 className="font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
-            Histórico de Medições
-          </h2>
-          {medicoes.length === 0 ? (
+          {/* Cascata Etapa → Subetapa, com edição direta do percentual */}
+          {etapas.length === 0 ? (
             <EmptyState
-              icon={BarChart3}
-              title="Sem medições"
-              description="Registre medições para acompanhar o avanço físico da obra."
+              icon={ListChecks}
+              title="Nenhuma etapa cadastrada"
+              description="Cadastre etapas no orçamento ou cronograma para acompanhar o andamento da execução aqui."
             />
           ) : (
-            <div className="flex flex-col gap-2">
-              {medicoes.map(m => (
-                <div key={m.id} className="p-3 rounded-lg group relative" style={{ background: 'var(--bg-secondary)' }}>
-                  <div className="flex justify-between items-start">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                          {(m as any).etapas?.nome || 'Obra geral'}
-                        </p>
-                        {m.data_medicao && (
-                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>
-                            {new Date(m.data_medicao + 'T12:00').toLocaleDateString('pt-BR')}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                        {new Date(m.periodo_inicio + 'T12:00').toLocaleDateString('pt-BR')}
-                        {' — '}
-                        {new Date(m.periodo_fim + 'T12:00').toLocaleDateString('pt-BR')}
-                      </p>
-                      {m.observacao && (
-                        <p className="text-xs mt-1 italic" style={{ color: 'var(--text-secondary)' }}>
-                          {m.observacao}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-lg font-bold tabular-nums" style={{ color: 'var(--accent)' }}>
-                        {m.percentual_executado}%
-                      </span>
-                      <button
-                        onClick={() => handleDelete(m.id)}
-                        className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-500/20 transition-all"
-                      >
-                        <Trash2 size={12} style={{ color: 'var(--danger)' }} />
-                      </button>
-                    </div>
-                  </div>
-                  {/* Mini barra de progresso */}
-                  <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: 'var(--bg-card)' }}>
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${Math.min(100, m.percentual_executado)}%`,
-                        background: 'var(--accent)',
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+            <div className="flex flex-col gap-3 pb-16">
+              <div className="px-1">
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  Atualize o percentual de execução de cada etapa ou subetapa. Ao definir o valor da etapa, as subetapas acompanham automaticamente — e o inverso também: o percentual da etapa é recalculado pela média das subetapas. Você pode ajustar a qualquer momento.
+                </span>
+              </div>
+              {etapas.map(etapa => {
+                const subs = subetapasPorEtapa[etapa.id] || []
+                return (
+                  <GrupoEtapaProgresso
+                    key={etapa.id}
+                    nome={etapa.nome}
+                    percentual={getEtapaPercentual(etapa.id)}
+                    onChangePercentual={v => setEtapaPercentual(etapa.id, v)}
+                    subetapas={subs}
+                    collapsed={collapsed[etapa.id]}
+                    onToggleGrupo={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
+                    getSubPercentual={nome => getSubPercentual(etapa.id, nome)}
+                    onChangeSubPercentual={(nome, v) => setSubetapaPercentual(etapa.id, nome, v)}
+                  />
+                )
+              })}
             </div>
           )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── Linha de percentual editável (compartilhada entre etapa e subetapa) ─────
+function CampoPercentual({ valor, onChange, tamanho = 'md' }: {
+  valor: number
+  onChange: (v: number) => void
+  tamanho?: 'md' | 'sm'
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+      <div className={tamanho === 'md' ? 'w-28' : 'w-20'} style={{ height: tamanho === 'md' ? 6 : 5 }}>
+        <div className="h-full rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+          <div
+            className="h-full rounded-full transition-all duration-300"
+            style={{ width: `${Math.min(100, valor)}%`, background: corPorPercentual(valor) }}
+          />
+        </div>
+      </div>
+      <div className="relative flex items-center">
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={0.5}
+          value={valor || 0}
+          onChange={e => onChange(parseFloat(e.target.value))}
+          className="input-base py-1 text-sm text-right tabular-nums"
+          style={{ width: tamanho === 'md' ? 84 : 76, color: corPorPercentual(valor), fontWeight: 600, paddingRight: 26 }}
+        />
+        <span className="absolute right-2.5 text-sm pointer-events-none" style={{ color: 'var(--text-secondary)' }}>%</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── Grupo de etapa com cascata de subetapas (mesmo padrão visual do Orçamento/Compras) ──
+function GrupoEtapaProgresso({
+  nome, percentual, onChangePercentual,
+  subetapas, collapsed, onToggleGrupo,
+  getSubPercentual, onChangeSubPercentual,
+}: {
+  nome: string
+  percentual: number
+  onChangePercentual: (v: number) => void
+  subetapas: string[]
+  collapsed?: boolean
+  onToggleGrupo: () => void
+  getSubPercentual: (nome: string) => number
+  onChangeSubPercentual: (nome: string, v: number) => void
+}) {
+  const temSubetapas = subetapas.length > 0
+
+  return (
+    <div className="card overflow-hidden">
+      {/* Cabeçalho etapa */}
+      <div
+        className="flex items-center gap-3 px-4 py-3 select-none"
+        style={{
+          background: 'var(--bg-secondary)',
+          borderBottom: collapsed || !temSubetapas ? 'none' : '1px solid var(--border)',
+          cursor: temSubetapas ? 'pointer' : 'default',
+        }}
+        onClick={() => temSubetapas && onToggleGrupo()}
+      >
+        <span className="flex-shrink-0" style={{ color: 'var(--text-secondary)', visibility: temSubetapas ? 'visible' : 'hidden' }}>
+          {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{nome}</p>
+          {temSubetapas && (
+            <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+              {subetapas.length} {subetapas.length === 1 ? 'subetapa' : 'subetapas'}
+            </p>
+          )}
+        </div>
+        <CampoPercentual valor={percentual} onChange={onChangePercentual} />
+      </div>
+
+      {/* Subetapas */}
+      {!collapsed && temSubetapas && (
+        <div className="flex flex-col">
+          {subetapas.map(subNome => (
+            <div
+              key={subNome}
+              className="flex items-center gap-3 pl-9 pr-4 py-2.5"
+              style={{ borderBottom: '1px solid var(--border)' }}
+            >
+              <span style={{ color: 'var(--border)', fontSize: 10 }}>└</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{subNome}</p>
+              </div>
+              <CampoPercentual
+                valor={getSubPercentual(subNome)}
+                onChange={v => onChangeSubPercentual(subNome, v)}
+                tamanho="sm"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Diário de obra (RDO) — registro diário com clima, atividades, observações e fotos ──
+type Clima = 'sol' | 'nublado' | 'chuva'
+
+type DiarioEntrada = {
+  id: string
+  data: string
+  clima: Clima
+  etapaId: string | null
+  atividades: string
+  observacoes: string
+  fotos: string[]
+}
+
+const CLIMA_INFO: Record<Clima, { label: string; icon: typeof Sun }> = {
+  sol: { label: 'Sol', icon: Sun },
+  nublado: { label: 'Nublado', icon: Cloud },
+  chuva: { label: 'Chuva', icon: CloudRain },
+}
+
+function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
+  const [entradas, setEntradas] = useState<DiarioEntrada[]>([])
+  const [data, setData] = useState(() => new Date().toISOString().slice(0, 10))
+  const [clima, setClima] = useState<Clima>('sol')
+  const [etapaId, setEtapaId] = useState('')
+  const [atividades, setAtividades] = useState('')
+  const [observacoes, setObservacoes] = useState('')
+  const [fotos, setFotos] = useState<string[]>([])
+
+  // Carrega/persiste registros do diário desta obra (mesmo padrão de localStorage do progresso de medição)
+  useEffect(() => {
+    if (!obraId) return
+    const stored = localStorage.getItem(`bs_diario_${obraId}`)
+    if (!stored) return
+    Promise.resolve().then(() => {
+      try { setEntradas(JSON.parse(stored)) } catch { /* ignore */ }
+    })
+  }, [obraId])
+
+  useEffect(() => {
+    if (!obraId) return
+    localStorage.setItem(`bs_diario_${obraId}`, JSON.stringify(entradas))
+  }, [obraId, entradas])
+
+  function handleFotos(files: FileList | null) {
+    if (!files) return
+    Array.from(files).forEach(file => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === 'string') setFotos(prev => [...prev, reader.result as string])
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  function adicionarEntrada() {
+    if (!atividades.trim() && !observacoes.trim()) return
+    const nova: DiarioEntrada = {
+      id: `diario-${Date.now()}`,
+      data,
+      clima,
+      etapaId: etapaId || null,
+      atividades: atividades.trim(),
+      observacoes: observacoes.trim(),
+      fotos,
+    }
+    setEntradas(prev => [nova, ...prev])
+    setAtividades('')
+    setObservacoes('')
+    setFotos([])
+  }
+
+  function removerEntrada(id: string) {
+    setEntradas(prev => prev.filter(e => e.id !== id))
+  }
+
+  return (
+    <div className="flex flex-col gap-4 pb-16">
+      {/* Formulário de novo registro diário */}
+      <div className="card p-4 flex flex-col gap-3">
+        <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Novo registro diário</p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Data</label>
+            <input type="date" value={data} onChange={e => setData(e.target.value)} className="input-base w-full" />
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Clima</label>
+            <div className="flex gap-1.5">
+              {(Object.keys(CLIMA_INFO) as Clima[]).map(c => {
+                const Icone = CLIMA_INFO[c].icon
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setClima(c)}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-md text-xs font-medium transition-colors"
+                    style={{
+                      background: clima === c ? 'var(--accent)' : 'var(--bg-secondary)',
+                      color: clima === c ? '#fff' : 'var(--text-secondary)',
+                    }}
+                  >
+                    <Icone size={14} /> {CLIMA_INFO[c].label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Etapa (opcional)</label>
+            <select value={etapaId} onChange={e => setEtapaId(e.target.value)} className="input-base w-full">
+              <option value="">Geral / sem vínculo</option>
+              {etapas.map(et => <option key={et.id} value={et.id}>{et.nome}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>O que foi executado</label>
+          <textarea
+            value={atividades}
+            onChange={e => setAtividades(e.target.value)}
+            rows={2}
+            placeholder="Ex.: Concretagem das sapatas do bloco A, montagem de fôrmas da viga baldrame..."
+            className="input-base w-full resize-none"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Observações</label>
+          <textarea
+            value={observacoes}
+            onChange={e => setObservacoes(e.target.value)}
+            rows={2}
+            placeholder="Ocorrências, mão de obra presente, equipamentos, intercorrências..."
+            className="input-base w-full resize-none"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Fotos</label>
+          <div className="flex flex-wrap items-center gap-2">
+            {fotos.map((foto, i) => (
+              <div key={i} className="relative w-16 h-16 rounded-md overflow-hidden flex-shrink-0" style={{ border: '1px solid var(--border)' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={foto} alt={`Anexo ${i + 1}`} className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setFotos(prev => prev.filter((_, idx) => idx !== i))}
+                  className="absolute top-0.5 right-0.5 rounded-full p-0.5"
+                  style={{ background: 'rgba(0,0,0,0.55)', color: '#fff' }}
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+            <label
+              className="flex flex-col items-center justify-center gap-1 w-16 h-16 rounded-md cursor-pointer text-xs flex-shrink-0"
+              style={{ border: '1px dashed var(--border)', color: 'var(--text-secondary)' }}
+            >
+              <Camera size={16} />
+              Anexar
+              <input type="file" accept="image/*" multiple className="hidden" onChange={e => handleFotos(e.target.files)} />
+            </label>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <button onClick={adicionarEntrada} className="btn-primary flex items-center gap-2 text-sm px-4 py-2">
+            <Plus size={15} /> Registrar no diário
+          </button>
         </div>
       </div>
 
-      {/* Modal */}
-      <Modal open={showModal} onClose={() => { setShowModal(false); resetForm() }} title="Nova Medição" size="md">
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Select label="Etapa" value={form.etapa_id} onChange={e => setForm(f => ({ ...f, etapa_id: e.target.value }))}>
-              <option value="">Obra geral</option>
-              {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-            </Select>
-            <Input
-              label="Data da medição"
-              type="date"
-              value={form.data_medicao}
-              onChange={e => setForm(f => ({ ...f, data_medicao: e.target.value }))}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Período início *" type="date" value={form.periodo_inicio} onChange={e => setForm(f => ({ ...f, periodo_inicio: e.target.value }))} />
-            <Input label="Período fim *" type="date" value={form.periodo_fim} onChange={e => setForm(f => ({ ...f, periodo_fim: e.target.value }))} />
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
-              Percentual executado (%) *
-            </label>
-            <div className="relative">
-              <input
-                type="range"
-                min={0} max={100} step={0.5}
-                value={form.percentual_executado || '0'}
-                onChange={e => setForm(f => ({ ...f, percentual_executado: e.target.value }))}
-                className="w-full"
-                style={{ accentColor: 'var(--accent)' }}
-              />
-              <div className="flex justify-between text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                <span>0%</span>
-                <span className="font-bold text-base" style={{ color: 'var(--accent)' }}>
-                  {form.percentual_executado || '0'}%
-                </span>
-                <span>100%</span>
+      {/* Histórico de registros */}
+      {entradas.length === 0 ? (
+        <EmptyState
+          icon={NotebookPen}
+          title="Nenhum registro de diário ainda"
+          description="Use o formulário acima para registrar as atividades do dia, clima, observações e fotos da obra (RDO)."
+        />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {entradas.map(entrada => {
+            const Icone = CLIMA_INFO[entrada.clima].icon
+            const etapa = etapas.find(e => e.id === entrada.etapaId)
+            return (
+              <div key={entrada.id} className="card p-4 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {new Date(`${entrada.data}T00:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </span>
+                    <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                      <Icone size={12} /> {CLIMA_INFO[entrada.clima].label}
+                    </span>
+                    {etapa && (
+                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                        {etapa.nome}
+                      </span>
+                    )}
+                  </div>
+                  <button onClick={() => removerEntrada(entrada.id)} className="p-1.5 rounded-md hover:opacity-70" style={{ color: 'var(--danger)' }} title="Remover registro">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+                {entrada.atividades && (
+                  <div>
+                    <p className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-secondary)' }}>Executado</p>
+                    <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{entrada.atividades}</p>
+                  </div>
+                )}
+                {entrada.observacoes && (
+                  <div>
+                    <p className="text-xs font-medium mb-0.5" style={{ color: 'var(--text-secondary)' }}>Observações</p>
+                    <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{entrada.observacoes}</p>
+                  </div>
+                )}
+                {entrada.fotos.length > 0 && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {entrada.fotos.map((foto, i) => (
+                      <div key={i} className="w-20 h-20 rounded-md overflow-hidden flex-shrink-0" style={{ border: '1px solid var(--border)' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={foto} alt={`Foto ${i + 1} do registro de ${entrada.data}`} className="w-full h-full object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-            <input
-              type="number"
-              min={0} max={100} step={0.5}
-              value={form.percentual_executado}
-              onChange={e => setForm(f => ({ ...f, percentual_executado: e.target.value }))}
-              className="input-base mt-2 text-center"
-              placeholder="ou digite o valor"
-            />
-          </div>
-          <Input
-            label="Observação"
-            value={form.observacao}
-            onChange={e => setForm(f => ({ ...f, observacao: e.target.value }))}
-            placeholder="Notas sobre esta medição..."
-          />
-          <div className="flex gap-3 pt-2">
-            <Button variant="secondary" className="flex-1" onClick={() => { setShowModal(false); resetForm() }}>Cancelar</Button>
-            <Button
-              className="flex-1"
-              loading={saving}
-              disabled={!form.periodo_inicio || !form.periodo_fim || !form.percentual_executado}
-              onClick={handleSave}
-            >
-              Registrar
-            </Button>
-          </div>
+            )
+          })}
         </div>
-      </Modal>
+      )}
     </div>
   )
 }

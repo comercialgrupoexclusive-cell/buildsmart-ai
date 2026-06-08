@@ -163,6 +163,7 @@ export type Material = {
   id: string
   obra_id: string
   etapa_id: string | null
+  subetapa: string | null
   sinapi_codigo: string
   descricao: string
   unidade: string
@@ -182,6 +183,20 @@ export type Medicao = {
   periodo_fim: string
   percentual_executado: number
   observacao: string | null
+  created_at: string
+}
+
+// ─── Fornecedor ───────────────────────────────────────────────────────────────
+export type Fornecedor = {
+  id: string
+  obra_id: string | null   // null = fornecedor geral da empresa, disponível para todas as obras
+  nome: string
+  categoria: 'MATERIAL' | 'MAO_DE_OBRA' | 'EQUIPAMENTO' | 'SERVICO' | 'MISTO'
+  contato: string | null
+  telefone: string | null
+  email: string | null
+  observacoes: string | null
+  ativo: boolean
   created_at: string
 }
 

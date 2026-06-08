@@ -2,6 +2,7 @@ import {
   ComposicaoItem,
   ComposicaoPropria,
   Etapa,
+  Fornecedor,
   InsumoProprio,
   Material,
   Medicao,
@@ -28,13 +29,16 @@ export type LocalDatabase = {
   composicoes_proprias: ComposicaoPropria[]
   composicao_insumos: ComposicaoItem[]
   insumos_proprios: InsumoProprio[]
+  fornecedores: Fornecedor[]
 }
 
 const now = '2026-06-07T09:00:00.000Z'
 const obraId = 'local-obra-exemplo'
 const orcamentoId = 'local-orcamento-exemplo'
+const obraId2 = 'local-obra-exemplo-2'
+const orcamentoId2 = 'local-orcamento-exemplo-2'
 
-export const LOCAL_DB_VERSION = '2026-06-07-local-v3'
+export const LOCAL_DB_VERSION = '2026-06-07-local-v5'
 
 export function createLocalSeed(): LocalDatabase {
   const sinapiInsumos: SinapiInsumo[] = [
@@ -134,6 +138,24 @@ export function createLocalSeed(): LocalDatabase {
       ativo: true,
       created_at: now,
     },
+    {
+      id: 'comp-piso-porcelanato',
+      codigo: 'CP-009',
+      descricao: 'Revestimento de piso com porcelanato 60x60 cm',
+      unidade: 'M2',
+      grupo: 'PISO',
+      ativo: true,
+      created_at: now,
+    },
+    {
+      id: 'comp-ponto-tomada',
+      codigo: 'CP-010',
+      descricao: 'Ponto de tomada 2P+T embutido, com fiacao e acabamento',
+      unidade: 'PT',
+      grupo: 'INSTALACOES',
+      ativo: true,
+      created_at: now,
+    },
   ]
 
   const composicaoInsumos: ComposicaoItem[] = [
@@ -146,6 +168,12 @@ export function createLocalSeed(): LocalDatabase {
     { id: 'ci-reboco-areia', composicao_id: 'comp-reboco', insumo_id: 'sinapi-areia', insumo_proprio_id: null, coeficiente: 0.018 },
     { id: 'ci-pintura-tinta', composicao_id: 'comp-pintura', insumo_id: 'sinapi-tinta', insumo_proprio_id: null, coeficiente: 0.22 },
     { id: 'ci-pintura-pedreiro', composicao_id: 'comp-pintura', insumo_id: 'sinapi-pedreiro', insumo_proprio_id: null, coeficiente: 0.18 },
+    // Composições próprias da 2a obra de exemplo — combinam insumos próprios com SINAPI
+    { id: 'ci-piso-porcelanato', composicao_id: 'comp-piso-porcelanato', insumo_id: null, insumo_proprio_id: 'insumo-proprio-porcelanato', coeficiente: 1.05 },
+    { id: 'ci-piso-argamassa', composicao_id: 'comp-piso-porcelanato', insumo_id: null, insumo_proprio_id: 'insumo-proprio-argamassa-ac', coeficiente: 4.5 },
+    { id: 'ci-piso-pedreiro', composicao_id: 'comp-piso-porcelanato', insumo_id: 'sinapi-pedreiro', insumo_proprio_id: null, coeficiente: 0.6 },
+    { id: 'ci-tomada-eletricista', composicao_id: 'comp-ponto-tomada', insumo_id: null, insumo_proprio_id: 'insumo-proprio-eletricista', coeficiente: 1.5 },
+    { id: 'ci-tomada-kit', composicao_id: 'comp-ponto-tomada', insumo_id: null, insumo_proprio_id: 'insumo-proprio-kit-tomada', coeficiente: 1 },
   ]
 
   return {
@@ -171,12 +199,32 @@ export function createLocalSeed(): LocalDatabase {
       area_m2: 84,
       uf: 'SP',
       created_at: now,
+    }, {
+      id: obraId2,
+      nome: 'Reforma Comercial - Loja Centro',
+      endereco: 'Av. Comercial, 540, Centro, Sao Paulo',
+      foto_url: null,
+      status: 'ativa',
+      data_inicio: '2026-06-15',
+      data_previsao: '2026-08-20',
+      responsavel: 'Eng. Teste Local 2',
+      area_m2: 60,
+      uf: 'SP',
+      created_at: now,
     }],
     orcamentos: [{
       id: orcamentoId,
       obra_id: obraId,
       tipo: 'executivo',
       bdi_percentual: 22,
+      status: 'rascunho',
+      versao: 1,
+      created_at: now,
+    }, {
+      id: orcamentoId2,
+      obra_id: obraId2,
+      tipo: 'executivo',
+      bdi_percentual: 20,
       status: 'rascunho',
       versao: 1,
       created_at: now,
@@ -210,18 +258,53 @@ export function createLocalSeed(): LocalDatabase {
         unidade_snapshot: 'M2',
         updated_at: now,
       },
+      {
+        id: 'orc-item-piso',
+        orcamento_id: orcamentoId2,
+        etapa_id: 'etapa-acabamentos-2',
+        subetapa: 'Loja - area de vendas',
+        composicao_id: 'comp-piso-porcelanato',
+        sinapi_composicao_id: null,
+        quantidade: 45,
+        preco_unitario_snapshot: 93.48,
+        descricao_snapshot: 'Revestimento de piso com porcelanato 60x60 cm - Loja - area de vendas',
+        codigo_snapshot: 'CP-009',
+        unidade_snapshot: 'M2',
+        updated_at: now,
+      },
+      {
+        id: 'orc-item-tomada',
+        orcamento_id: orcamentoId2,
+        etapa_id: 'etapa-instalacoes-2',
+        subetapa: 'Quadro e circuitos',
+        composicao_id: 'comp-ponto-tomada',
+        sinapi_composicao_id: null,
+        quantidade: 12,
+        preco_unitario_snapshot: 66.5,
+        descricao_snapshot: 'Ponto de tomada 2P+T embutido, com fiacao e acabamento - Quadro e circuitos',
+        codigo_snapshot: 'CP-010',
+        unidade_snapshot: 'PT',
+        updated_at: now,
+      },
     ],
     etapas: [
       { id: 'etapa-servicos', obra_id: obraId, nome: 'Servicos preliminares', data_inicio: '2026-06-10', data_fim: '2026-06-14', status: 'planejada', ordem: 1 },
       { id: 'etapa-fundacoes', obra_id: obraId, nome: 'Fundacoes', data_inicio: '2026-06-15', data_fim: '2026-06-30', status: 'planejada', ordem: 2 },
       { id: 'etapa-acabamento', obra_id: obraId, nome: 'Acabamento', data_inicio: '2026-08-15', data_fim: '2026-09-20', status: 'planejada', ordem: 3 },
+      { id: 'etapa-demolicao-2', obra_id: obraId2, nome: 'Demolicao e remocao', data_inicio: '2026-06-15', data_fim: '2026-06-19', status: 'planejada', ordem: 1 },
+      { id: 'etapa-instalacoes-2', obra_id: obraId2, nome: 'Instalacoes eletricas e hidraulicas', data_inicio: '2026-06-22', data_fim: '2026-07-10', status: 'planejada', ordem: 2 },
+      { id: 'etapa-acabamentos-2', obra_id: obraId2, nome: 'Acabamentos e pisos', data_inicio: '2026-07-13', data_fim: '2026-08-15', status: 'planejada', ordem: 3 },
     ],
     materiais: [
-      { id: 'mat-cimento', obra_id: obraId, etapa_id: 'etapa-fundacoes', sinapi_codigo: '00001379', descricao: 'Cimento Portland composto CP II-32, saco 50 kg', unidade: 'SC', quantidade_total: 38.4, quantidade_comprada: 0, status_compra: 'nao_comprado', data_necessidade: '2026-06-12' },
-      { id: 'mat-tinta', obra_id: obraId, etapa_id: 'etapa-acabamento', sinapi_codigo: '00007356', descricao: 'Tinta latex acrilica premium', unidade: 'L', quantidade_total: 26.4, quantidade_comprada: 10, status_compra: 'parcial', data_necessidade: '2026-08-10' },
+      { id: 'mat-cimento', obra_id: obraId, etapa_id: 'etapa-fundacoes', subetapa: 'Sapatas', sinapi_codigo: '00001379', descricao: 'Cimento Portland composto CP II-32, saco 50 kg', unidade: 'SC', quantidade_total: 38.4, quantidade_comprada: 0, status_compra: 'nao_comprado', data_necessidade: '2026-06-12' },
+      { id: 'mat-tinta', obra_id: obraId, etapa_id: 'etapa-acabamento', subetapa: 'Paredes internas', sinapi_codigo: '00007356', descricao: 'Tinta latex acrilica premium', unidade: 'L', quantidade_total: 26.4, quantidade_comprada: 10, status_compra: 'parcial', data_necessidade: '2026-08-10' },
+      { id: 'mat-porcelanato', obra_id: obraId2, etapa_id: 'etapa-acabamentos-2', subetapa: 'Loja - area de vendas', sinapi_codigo: 'IP-002', descricao: 'Porcelanato acetinado 60x60 cm', unidade: 'M2', quantidade_total: 47.25, quantidade_comprada: 0, status_compra: 'nao_comprado', data_necessidade: '2026-07-15' },
+      { id: 'mat-argamassa', obra_id: obraId2, etapa_id: 'etapa-acabamentos-2', subetapa: 'Loja - area de vendas', sinapi_codigo: 'IP-003', descricao: 'Argamassa colante AC-III', unidade: 'KG', quantidade_total: 202.5, quantidade_comprada: 0, status_compra: 'nao_comprado', data_necessidade: '2026-07-15' },
+      { id: 'mat-kit-tomada', obra_id: obraId2, etapa_id: 'etapa-instalacoes-2', subetapa: 'Quadro e circuitos', sinapi_codigo: 'IP-005', descricao: 'Kit tomada 2P+T 10A com espelho', unidade: 'UN', quantidade_total: 12, quantidade_comprada: 4, status_compra: 'parcial', data_necessidade: '2026-06-25' },
     ],
     medicoes: [
       { id: 'medicao-1', obra_id: obraId, etapa_id: 'etapa-servicos', periodo_inicio: '2026-06-10', periodo_fim: '2026-06-14', percentual_executado: 20, observacao: 'Medição inicial de teste local', created_at: now },
+      { id: 'medicao-2', obra_id: obraId2, etapa_id: 'etapa-demolicao-2', periodo_inicio: '2026-06-15', periodo_fim: '2026-06-19', percentual_executado: 35, observacao: 'Demolição de divisórias antigas iniciada', created_at: now },
     ],
     sinapi_insumos: sinapiInsumos,
     sinapi_composicoes: [{
@@ -241,15 +324,119 @@ export function createLocalSeed(): LocalDatabase {
     ],
     composicoes_proprias: composicoes,
     composicao_insumos: composicaoInsumos,
-    insumos_proprios: [{
-      id: 'insumo-proprio-frete',
-      codigo: 'IP-001',
-      descricao: 'Frete local de materiais',
-      unidade: 'UN',
-      categoria: 'SERVICO',
-      preco_unitario: 180,
-      ativo: true,
-      created_at: now,
-    }],
+    insumos_proprios: [
+      {
+        id: 'insumo-proprio-frete',
+        codigo: 'IP-001',
+        descricao: 'Frete local de materiais',
+        unidade: 'UN',
+        categoria: 'SERVICO',
+        preco_unitario: 180,
+        ativo: true,
+        created_at: now,
+      },
+      {
+        id: 'insumo-proprio-porcelanato',
+        codigo: 'IP-002',
+        descricao: 'Porcelanato acetinado 60x60 cm',
+        unidade: 'M2',
+        categoria: 'MATERIAL',
+        preco_unitario: 64.9,
+        ativo: true,
+        created_at: now,
+      },
+      {
+        id: 'insumo-proprio-argamassa-ac',
+        codigo: 'IP-003',
+        descricao: 'Argamassa colante AC-III',
+        unidade: 'KG',
+        categoria: 'MATERIAL',
+        preco_unitario: 2.35,
+        ativo: true,
+        created_at: now,
+      },
+      {
+        id: 'insumo-proprio-eletricista',
+        codigo: 'IP-004',
+        descricao: 'Eletricista horista',
+        unidade: 'H',
+        categoria: 'MAO_DE_OBRA',
+        preco_unitario: 32,
+        ativo: true,
+        created_at: now,
+      },
+      {
+        id: 'insumo-proprio-kit-tomada',
+        codigo: 'IP-005',
+        descricao: 'Kit tomada 2P+T 10A com espelho',
+        unidade: 'UN',
+        categoria: 'MATERIAL',
+        preco_unitario: 18.5,
+        ativo: true,
+        created_at: now,
+      },
+    ],
+    fornecedores: [
+      {
+        id: 'fornecedor-cimentos-sp',
+        obra_id: null,
+        nome: 'Cimentos SP Materiais de Construção',
+        categoria: 'MATERIAL',
+        contato: 'Marcos Lima',
+        telefone: '(11) 4002-8900',
+        email: 'vendas@cimentossp.com.br',
+        observacoes: 'Entrega em até 48h na grande São Paulo. Bom preço para cimento e agregados.',
+        ativo: true,
+        created_at: now,
+      },
+      {
+        id: 'fornecedor-tintas-cor',
+        obra_id: null,
+        nome: 'Tintas & Cor Distribuidora',
+        categoria: 'MATERIAL',
+        contato: 'Patrícia Souza',
+        telefone: '(11) 3556-2210',
+        email: 'comercial@tintasecor.com.br',
+        observacoes: 'Linha premium de tintas acrílicas, parcelamento em até 3x.',
+        ativo: true,
+        created_at: now,
+      },
+      {
+        id: 'fornecedor-mao-obra-jp',
+        obra_id: null,
+        nome: 'JP Empreiteira de Mão de Obra',
+        categoria: 'MAO_DE_OBRA',
+        contato: 'João Pereira',
+        telefone: '(11) 98877-1234',
+        email: 'jp.empreiteira@gmail.com',
+        observacoes: 'Equipe de pedreiros e seventes, atende sob demanda diária ou empreitada.',
+        ativo: true,
+        created_at: now,
+      },
+      {
+        id: 'fornecedor-porcelanatos-centro',
+        obra_id: obraId2,
+        nome: 'Porcelanatos Centro Acabamentos',
+        categoria: 'MATERIAL',
+        contato: 'Renata Alves',
+        telefone: '(11) 3211-7788',
+        email: 'renata@porcelanatoscentro.com.br',
+        observacoes: 'Fornecedor específico para a reforma comercial - linha de porcelanatos e argamassas.',
+        ativo: true,
+        created_at: now,
+      },
+      {
+        id: 'fornecedor-eletrica-vm',
+        obra_id: obraId2,
+        nome: 'VM Materiais Elétricos',
+        categoria: 'MISTO',
+        contato: 'Vinícius Moraes',
+        telefone: '(11) 97766-5544',
+        email: 'vinicius@vmeletrica.com.br',
+        observacoes: 'Fornece material elétrico e também presta serviço de instalação (eletricistas próprios).',
+        ativo: true,
+        created_at: now,
+      },
+    ],
   }
 }

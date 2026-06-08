@@ -71,6 +71,15 @@ type ComposicaoComCusto = ComposicaoPropria & {
   custo_calculado: number
 }
 
+// linha bruta de orcamento_itens com os joins de composição embutidos
+type OrcamentoItemRow = Omit<ItemEnriquecido, 'codigo' | 'descricao' | 'unidade' | 'composicao_itens'> & {
+  composicoes_proprias?: (ComposicaoPropria & { composicao_insumos?: ComposicaoItemJoin[] }) | null
+  sinapi_composicoes?: SinapiComposicao | null
+}
+
+// linha bruta de composicoes_proprias com o join de composicao_insumos embutido
+type ComposicaoPropriaRow = ComposicaoPropria & { composicao_insumos?: ComposicaoItemJoin[] }
+
 type ItemEnriquecido = {
   id: string
   orcamento_id: string
@@ -142,7 +151,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
   // Modal adicionar item
   const [showAddItem, setShowAddItem] = useState(false)
-  const [addToEtapaId, setAddToEtapaId] = useState<string | null>(null)
   const [etapasPadrao, setEtapasPadrao] = useState<string[]>(ETAPAS_PADRAO_FALLBACK)
   const [selectedEtapaNome, setSelectedEtapaNome] = useState('')
   const [subetapaLivre, setSubetapaLivre] = useState('')
@@ -175,9 +183,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   useEffect(() => {
     if (!orcamento?.id) return
     const stored = localStorage.getItem(`bs_overrides_${orcamento.id}`)
-    if (stored) {
+    if (!stored) return
+    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
+    Promise.resolve().then(() => {
       try { setInsumoOverrides(JSON.parse(stored)) } catch { /* ignore */ }
-    }
+    })
   }, [orcamento?.id])
 
   useEffect(() => {
@@ -189,10 +199,13 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   useEffect(() => {
     const stored = localStorage.getItem(ETAPAS_PADRAO_KEY)
     if (!stored) { localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_FALLBACK)); return }
-    try {
-      const parsed = JSON.parse(stored)
-      if (Array.isArray(parsed) && parsed.length > 0) setEtapasPadrao(parsed.slice(0, 20))
-    } catch { localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_FALLBACK)) }
+    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
+    Promise.resolve().then(() => {
+      try {
+        const parsed = JSON.parse(stored)
+        if (Array.isArray(parsed) && parsed.length > 0) setEtapasPadrao(parsed.slice(0, 20))
+      } catch { localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_FALLBACK)) }
+    })
   }, [])
 
   // ─── Fechar menu ao clicar fora ──────────────────────────────────────────
@@ -204,8 +217,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
-
-  useEffect(() => { loadAll() }, [obraId])
 
   async function loadAll() {
     setLoading(true)
@@ -235,7 +246,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       .eq('orcamento_id', orcamentoId)
       .order('updated_at')
 
-    const enriched: ItemEnriquecido[] = (data || []).map((item: any) => {
+    const enriched: ItemEnriquecido[] = (data || []).map((item: OrcamentoItemRow) => {
       const cp = item.composicoes_proprias
       const sc = item.sinapi_composicoes
       return {
@@ -259,12 +270,15 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       .from('composicoes_proprias')
       .select(`*, ${COMPOSICAO_INSUMOS_EMBED}`)
       .eq('ativo', true).order('codigo')
-    const withCusto = (data || []).map((comp: any) => ({
-      ...comp,
-      composicao_itens: comp.composicao_insumos || [],
-      // custo_calculado é derivado em runtime (depende da UF da obra) — calculado ao usar
-      custo_calculado: 0,
-    }))
+    const withCusto = (data || []).map((comp: ComposicaoPropriaRow) => {
+      const composicao_itens = comp.composicao_insumos || []
+      // custo_calculado = soma (coeficiente × preço do insumo na UF da obra) — usado como
+      // valor unitário ao adicionar a composição ao orçamento (snapshot em preco_unitario_snapshot)
+      const custo_calculado = composicao_itens.reduce(
+        (total, ins) => total + ins.coeficiente * infoDoItem(ins, obraUf).preco, 0
+      )
+      return { ...comp, composicao_itens, custo_calculado }
+    })
     setComposicoesProprias(withCusto)
   }
 
@@ -272,6 +286,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     const { data } = await supabase.from('sinapi_composicoes').select('*').order('codigo').limit(200)
     setSinapiComps(data || [])
   }
+
+  useEffect(() => {
+    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
+    Promise.resolve().then(() => loadAll())
+  }, [obraId])
 
   // ─── Totais com override ─────────────────────────────────────────────────
   // preços/classificação vêm direto do embed (insumo:sinapi_insumos / insumo_proprio:insumos_proprios)
@@ -344,13 +363,12 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       .from('etapas')
       .insert({ obra_id: obraId, nome: novaEtapaNome.trim(), status: 'planejada', ordem: maxOrdem + 1 })
       .select().single()
-    if (data) { setEtapas(prev => [...prev, data]); setAddToEtapaId(data.id); setShowAddItem(true) }
+    if (data) { setEtapas(prev => [...prev, data]); setShowAddItem(true) }
     setCriandoEtapa(false); setShowNovaEtapa(false); setNovaEtapaNome('')
   }
 
   function openItemModal(etapaId: string | null = null) {
     const etapa = etapaId ? etapas.find(e => e.id === etapaId) : null
-    setAddToEtapaId(etapaId)
     setSelectedEtapaNome(etapa?.nome || etapasPadrao[0] || '')
     setSubetapaLivre('')
     setShowAddItem(true)
@@ -380,16 +398,17 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       const qtd = parseFloat(quantidade)
       const custoUnitario = getItemCost(selectedItem)
       const etapaId = await ensureEtapaSelecionada()
-      const descricaoFinal = selectedItem.descricao + (subetapaLivre.trim() ? ` — ${subetapaLivre.trim()}` : '')
+      const subetapaFinal = subetapaLivre.trim() || null
 
       const { error } = await supabase.from('orcamento_itens').insert({
         orcamento_id: orcamento.id,
         etapa_id: etapaId,
+        subetapa: subetapaFinal,
         composicao_id: isSinapi ? null : selectedItem.id,
         sinapi_composicao_id: isSinapi ? selectedItem.id : null,
         quantidade: qtd,
         preco_unitario_snapshot: custoUnitario,
-        descricao_snapshot: descricaoFinal,
+        descricao_snapshot: selectedItem.descricao,
         codigo_snapshot: selectedItem.codigo,
         unidade_snapshot: selectedItem.unidade,
       })
@@ -397,10 +416,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       if (error) throw error
 
       if (!isSinapi && 'composicao_itens' in selectedItem) {
-        await gerarMateriaisDaComposicao(selectedItem.composicao_itens || [], qtd, etapaId)
+        await gerarMateriaisDaComposicao(selectedItem.composicao_itens || [], qtd, etapaId, subetapaFinal)
       }
 
-      setSelectedItem(null); setQuantidade(''); setBusca(''); setAddToEtapaId(etapaId)
+      setSelectedItem(null); setQuantidade(''); setBusca('')
       if (fecharDepois) { setShowAddItem(false); setSubetapaLivre('') }
       await loadItens(orcamento.id)
     } catch (error) {
@@ -414,7 +433,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   async function handleRemoveItem(itemId: string) {
     const item = itens.find(i => i.id === itemId)
     if (item?.composicao_itens?.length) {
-      await abaterMateriaisDaComposicao(item.composicao_itens, item.quantidade, item.etapa_id)
+      await abaterMateriaisDaComposicao(item.composicao_itens, item.quantidade, item.etapa_id, item.subetapa)
     }
     // Limpar overrides deste item
     setInsumoOverrides(prev => {
@@ -438,7 +457,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
     for (const item of itensDaEtapa) {
       if (item.composicao_itens?.length) {
-        await abaterMateriaisDaComposicao(item.composicao_itens, item.quantidade, item.etapa_id)
+        await abaterMateriaisDaComposicao(item.composicao_itens, item.quantidade, item.etapa_id, item.subetapa)
       }
       setInsumoOverrides(prev => {
         const next = { ...prev }
@@ -540,7 +559,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   // Observação: a lista de "materiais a comprar" é ligada a sinapi_codigo (TEXT) —
   // por isso só geramos/abatemos materiais para itens com origem SINAPI (insumo_id),
   // que têm um código SINAPI real para casar com a tabela `materiais`.
-  async function gerarMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null) {
+  async function gerarMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null, subetapa: string | null = null) {
     for (const item of itensComp) {
       if (!item.insumo?.codigo) continue
       const codigo = item.insumo.codigo
@@ -549,12 +568,13 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       let query = supabase.from('materiais').select('id, quantidade_total')
         .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
       query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
+      query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
       const { data: existente } = await query.maybeSingle()
       if (existente) {
         await supabase.from('materiais').update({ quantidade_total: Number(existente.quantidade_total) + qtdSugerida }).eq('id', existente.id)
       } else {
         await supabase.from('materiais').insert({
-          obra_id: obraId, etapa_id: etapaId,
+          obra_id: obraId, etapa_id: etapaId, subetapa,
           sinapi_codigo: codigo,
           descricao: item.insumo.descricao,
           unidade: item.insumo.unidade,
@@ -564,7 +584,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     }
   }
 
-  async function abaterMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null) {
+  async function abaterMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null, subetapa: string | null = null) {
     for (const item of itensComp) {
       if (!item.insumo?.codigo) continue
       const codigo = item.insumo.codigo
@@ -573,6 +593,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       let query = supabase.from('materiais').select('id, quantidade_total')
         .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
       query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
+      query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
       const { data: existente } = await query.maybeSingle()
       if (!existente) continue
       const novaQtd = Number(existente.quantidade_total) - qtdSugerida
