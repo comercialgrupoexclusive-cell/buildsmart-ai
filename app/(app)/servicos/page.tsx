@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Fragment } from 'react'
 import {
-  Plus, Search, Pencil, Trash2, X, Check,
+  Plus, Search, Pencil, Trash2, X, Check, FileSpreadsheet,
   ChevronRight, ChevronDown, Layers, Package, Hash, Sparkles, AlertTriangle, Loader2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -11,6 +11,10 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ImportExportModal } from '@/components/ui/ImportExportModal'
+import {
+  ConfigImportacao, normalizarTexto, normalizarOpcao, normalizarNumero, normalizarBooleano,
+} from '@/lib/import-export-templates'
 import { formatCurrency } from '@/lib/utils'
 
 const GRUPOS = [
@@ -19,6 +23,50 @@ const GRUPOS = [
 ]
 
 const CATEGORIAS_INSUMO = ['MATERIAL', 'MAO_DE_OBRA', 'EQUIPAMENTO', 'SERVICO'] as const
+
+// ─── Configurações de importação/exportação em massa via Excel ───────────────
+const CONFIG_IMPORT_COMPOSICOES: ConfigImportacao = {
+  chave: 'composicoes',
+  titulo: 'Composições próprias',
+  nomeAba: 'Composições',
+  descricaoModelo: 'Planilha com Código, Descrição, Unidade e Grupo — uma linha por composição. Os insumos de cada composição são adicionados depois, pelo botão "Itens".',
+  descricaoImportacao: 'Composições com código já existente são atualizadas; as demais são criadas. A planilha deve seguir os mesmos cabeçalhos do modelo.',
+  observacoes: [
+    `Grupo deve ser um de: ${GRUPOS.join(', ')} (se vazio, usa GERAL).`,
+    'Unidade aceita qualquer texto curto: M2, M3, UN, KG, H...',
+  ],
+  colunas: [
+    { chave: 'codigo', rotulo: 'Código', obrigatoria: true, largura: 14, exemplo: 'COMP-001', normalizar: normalizarTexto(true, true) },
+    { chave: 'descricao', rotulo: 'Descrição', obrigatoria: true, largura: 48, exemplo: 'Alvenaria de vedação em blocos cerâmicos 9x19x29', normalizar: normalizarTexto(true) },
+    { chave: 'unidade', rotulo: 'Unidade', obrigatoria: true, largura: 10, exemplo: 'M2', normalizar: normalizarTexto(true, true) },
+    { chave: 'grupo', rotulo: 'Grupo', obrigatoria: false, largura: 16, exemplo: 'ALVENARIA', normalizar: normalizarOpcao(GRUPOS, 'GERAL') },
+  ],
+  tabela: 'composicoes_proprias',
+  chaveUnica: 'codigo',
+}
+
+const CONFIG_IMPORT_INSUMOS: ConfigImportacao = {
+  chave: 'insumos',
+  titulo: 'Insumos próprios',
+  nomeAba: 'Insumos',
+  descricaoModelo: 'Planilha com Código, Descrição, Unidade, Categoria, Preço unitário e Ativo — uma linha por insumo próprio (fora da base SINAPI).',
+  descricaoImportacao: 'Insumos com código já existente são atualizados (inclusive o preço); os demais são criados. A planilha deve seguir os mesmos cabeçalhos do modelo.',
+  observacoes: [
+    `Categoria deve ser uma de: ${CATEGORIAS_INSUMO.join(', ')} (se vazia, usa MATERIAL).`,
+    'Preço unitário aceita vírgula ou ponto decimal (ex.: 12,50 ou 12.50).',
+    'Ativo aceita Sim/Não (se vazio, considera Sim).',
+  ],
+  colunas: [
+    { chave: 'codigo', rotulo: 'Código', obrigatoria: true, largura: 14, exemplo: 'IP-001', normalizar: normalizarTexto(true, true) },
+    { chave: 'descricao', rotulo: 'Descrição', obrigatoria: true, largura: 48, exemplo: 'Cimento CP II 50kg', normalizar: normalizarTexto(true) },
+    { chave: 'unidade', rotulo: 'Unidade', obrigatoria: true, largura: 10, exemplo: 'UN', normalizar: normalizarTexto(true, true) },
+    { chave: 'categoria', rotulo: 'Categoria', obrigatoria: false, largura: 16, exemplo: 'MATERIAL', normalizar: normalizarOpcao(CATEGORIAS_INSUMO, 'MATERIAL') },
+    { chave: 'preco_unitario', rotulo: 'Preço unitário', obrigatoria: true, largura: 16, exemplo: 32.9, normalizar: normalizarNumero(true) },
+    { chave: 'ativo', rotulo: 'Ativo', obrigatoria: false, largura: 10, exemplo: 'Sim', normalizar: normalizarBooleano(true) },
+  ],
+  tabela: 'insumos_proprios',
+  chaveUnica: 'codigo',
+}
 
 // O schema real (`composicao_insumos`) só representa 2 origens de insumo:
 // um insumo da base SINAPI (FK insumo_id) ou um insumo próprio da empresa
@@ -95,6 +143,9 @@ export default function ServicosPage({
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
   const [filtroGrupo, setFiltroGrupo] = useState('TODOS')
+
+  // Importar/exportar composições em massa via planilha Excel
+  const [showImportExport, setShowImportExport] = useState(false)
 
   // Cascata — composição expandida (revela insumos)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -232,6 +283,9 @@ export default function ServicosPage({
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
                 <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar composição..." className="input-base input-search" />
               </div>
+              <Button variant="secondary" onClick={() => setShowImportExport(true)} icon={<FileSpreadsheet size={16} />}>
+                Importar/Exportar
+              </Button>
               <Button onClick={() => { resetForm(); setShowModalHeader(true) }} icon={<Plus size={16} />}>
                 Nova Composição
               </Button>
@@ -391,6 +445,15 @@ export default function ServicosPage({
               onChange={() => setExpandedId(id => id)} // força re-render da cascata aberta
             />
           )}
+
+          {/* Modal — importar/exportar composições em massa via Excel */}
+          <ImportExportModal
+            open={showImportExport}
+            onClose={() => setShowImportExport(false)}
+            config={CONFIG_IMPORT_COMPOSICOES}
+            existentes={composicoes as unknown as Record<string, unknown>[]}
+            onConcluido={loadComposicoes}
+          />
         </>
       )}
 
@@ -822,7 +885,7 @@ function ModalItens({
                     <div className="absolute z-30 w-full mt-1 rounded-xl px-3 py-3 text-xs text-center shadow-xl"
                       style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
                       <AlertTriangle size={12} className="inline mr-1" />
-                      Nenhum insumo encontrado — importe o SINAPI em Base SINAPI.
+                      Nenhum insumo encontrado — importe o SINAPI em Referência SINAPI.
                     </div>
                   )}
                 </>
@@ -991,6 +1054,7 @@ function InsumosTab() {
   const [busca, setBusca] = useState('')
   const [creating, setCreating] = useState(false)
   const [showNovoInsumo, setShowNovoInsumo] = useState(false)
+  const [showImportExport, setShowImportExport] = useState(false)
   const [novoInsumo, setNovoInsumo] = useState({
     codigo: '',
     descricao: '',
@@ -1095,6 +1159,9 @@ function InsumosTab() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
             <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar insumo..." className="input-base input-search" />
           </div>
+          <Button variant="secondary" onClick={() => setShowImportExport(true)} icon={<FileSpreadsheet size={16} />}>
+            Importar/Exportar
+          </Button>
           <Button onClick={abrirNovoInsumo} icon={<Sparkles size={16} />}>
             Novo insumo
           </Button>
@@ -1254,6 +1321,15 @@ function InsumosTab() {
           </div>
         </form>
       </Modal>
+
+      {/* Modal — importar/exportar insumos próprios em massa via Excel */}
+      <ImportExportModal
+        open={showImportExport}
+        onClose={() => setShowImportExport(false)}
+        config={CONFIG_IMPORT_INSUMOS}
+        existentes={insumos as unknown as Record<string, unknown>[]}
+        onConcluido={loadInsumos}
+      />
     </div>
   )
 }

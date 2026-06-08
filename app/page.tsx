@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Pencil, X, CheckSquare, Square, Lock, Eye, EyeOff } from 'lucide-react'
+import { Plus, CheckSquare, Square, Lock, Eye, EyeOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { Profile } from '@/lib/types'
@@ -26,6 +26,10 @@ function ProfileSelectionPage() {
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [formData, setFormData] = useState({
     name: '',
+    apelido: '',
+    descricao: '',
+    cidade: '',
+    estado: '',
     theme_color: '#3B7BF8',
     dark_mode: true,
     photo_url: '',
@@ -84,8 +88,15 @@ function ProfileSelectionPage() {
     if (!formData.name.trim()) return
     setSaving(true)
 
+    // Sem perfis ainda: o primeiro a se cadastrar vira o administrador do sistema.
+    const isFirstProfile = profiles.length === 0 && !editingProfile
+
     const payload: any = {
       name: formData.name,
+      apelido: formData.apelido.trim() || null,
+      descricao: formData.descricao.trim() || null,
+      cidade: formData.cidade.trim() || null,
+      estado: formData.estado.trim().toUpperCase() || null,
       theme_color: formData.theme_color,
       dark_mode: formData.dark_mode,
       photo_url: formData.photo_url || null,
@@ -95,7 +106,11 @@ function ProfileSelectionPage() {
     if (editingProfile) {
       await supabase.from('profiles').update(payload).eq('id', editingProfile.id)
     } else {
-      await supabase.from('profiles').insert({ ...payload, onboarding_done: false })
+      await supabase.from('profiles').insert({
+        ...payload,
+        tipo: isFirstProfile ? 'admin' : 'usuario',
+        onboarding_done: false,
+      })
     }
 
     setSaving(false)
@@ -105,28 +120,11 @@ function ProfileSelectionPage() {
     loadProfiles()
   }
 
-  async function handleDeleteProfile(id: string, e: React.MouseEvent) {
-    e.stopPropagation()
-    if (!confirm('Remover este perfil?')) return
-    await supabase.from('profiles').delete().eq('id', id)
-    loadProfiles()
-  }
-
-  function openEdit(profile: Profile, e: React.MouseEvent) {
-    e.stopPropagation()
-    setEditingProfile(profile)
-    setFormData({
-      name: profile.name,
-      theme_color: profile.theme_color,
-      dark_mode: profile.dark_mode,
-      photo_url: profile.photo_url || '',
-      password: profile.password_hash || '',
-    })
-    setShowForm(true)
-  }
-
   function resetForm() {
-    setFormData({ name: '', theme_color: '#3B7BF8', dark_mode: true, photo_url: '', password: '' })
+    setFormData({
+      name: '', apelido: '', descricao: '', cidade: '', estado: '',
+      theme_color: '#3B7BF8', dark_mode: true, photo_url: '', password: '',
+    })
     setEditingProfile(null)
   }
 
@@ -155,49 +153,16 @@ function ProfileSelectionPage() {
 
       {/* Seleção de perfis */}
       <div className="w-full max-w-2xl animate-enter" style={{ animationDelay: '100ms' }}>
-        <p className="text-center text-sm mb-6 font-medium" style={{ color: 'var(--text-secondary)' }}>
-          Quem vai usar agora?
-        </p>
-
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
           </div>
-        ) : (
-          <div className="flex flex-wrap gap-4 justify-center">
-            {profiles.map((profile) => (
-              // div em vez de button para evitar button-dentro-de-button (hydration error)
-              <div
-                key={profile.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => handleSelectProfile(profile)}
-                onKeyDown={e => e.key === 'Enter' && handleSelectProfile(profile)}
-                className="relative group flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all duration-200 hover:scale-105 w-36 cursor-pointer"
-                style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
-              >
-                {profile.photo_url ? (
-                  <img src={profile.photo_url} alt={profile.name} className="w-16 h-16 rounded-full object-cover" />
-                ) : (
-                  <div className="w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-bold" style={{ background: profile.theme_color }}>
-                    {profile.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span className="text-sm font-medium text-center leading-tight" style={{ color: 'var(--text-primary)' }}>
-                  {profile.name}
-                </span>
-
-                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={(e) => openEdit(profile, e)} className="p-1 rounded-md" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
-                    <Pencil size={12} />
-                  </button>
-                  <button onClick={(e) => handleDeleteProfile(profile.id, e)} className="p-1 rounded-md" style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
-                    <X size={12} />
-                  </button>
-                </div>
-              </div>
-            ))}
-
+        ) : profiles.length === 0 ? (
+          // Bootstrap: ninguém cadastrado ainda — quem criar o primeiro perfil vira o administrador
+          <div className="flex flex-col items-center gap-4 text-center">
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Ainda não há perfis cadastrados. Crie o primeiro — ele será o <strong style={{ color: 'var(--text-primary)' }}>administrador</strong> do sistema.
+            </p>
             <button
               onClick={() => { resetForm(); setShowForm(true) }}
               className="flex flex-col items-center gap-3 p-5 rounded-2xl border-2 border-dashed transition-all duration-200 hover:scale-105 w-36"
@@ -206,9 +171,51 @@ function ProfileSelectionPage() {
               <div className="w-16 h-16 rounded-full flex items-center justify-center border-2 border-current">
                 <Plus size={24} />
               </div>
-              <span className="text-sm font-medium">Novo perfil</span>
+              <span className="text-sm font-medium">Criar perfil ADM</span>
             </button>
           </div>
+        ) : (
+          <>
+            <p className="text-center text-sm mb-6 font-medium" style={{ color: 'var(--text-secondary)' }}>
+              Quem vai usar agora?
+            </p>
+            <div className="flex flex-wrap gap-4 justify-center">
+              {profiles.map((profile) => (
+                // div em vez de button para evitar button-dentro-de-button (hydration error)
+                <div
+                  key={profile.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleSelectProfile(profile)}
+                  onKeyDown={e => e.key === 'Enter' && handleSelectProfile(profile)}
+                  className="relative group flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all duration-200 hover:scale-105 w-36 cursor-pointer"
+                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+                >
+                  {profile.photo_url ? (
+                    <img src={profile.photo_url} alt={profile.name} className="w-16 h-16 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full flex items-center justify-center text-white text-2xl font-bold" style={{ background: profile.theme_color }}>
+                      {profile.name.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-sm font-medium text-center leading-tight" style={{ color: 'var(--text-primary)' }}>
+                    {profile.apelido || profile.name}
+                  </span>
+                  {profile.tipo === 'admin' && (
+                    <span
+                      className="absolute top-2 left-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full"
+                      style={{ background: 'rgba(59,123,248,0.15)', color: 'var(--accent)' }}
+                    >
+                      ADM
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-center text-xs mt-6" style={{ color: 'var(--text-secondary)' }}>
+              Para criar, editar ou remover perfis, peça ao administrador (em Configurações → Gestão de usuários).
+            </p>
+          </>
         )}
       </div>
 
@@ -295,6 +302,54 @@ function ProfileSelectionPage() {
                   autoFocus
                 />
               </div>
+
+              <div>
+                <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Apelido (opcional)</label>
+                <input
+                  value={formData.apelido}
+                  onChange={(e) => setFormData(f => ({ ...f, apelido: e.target.value }))}
+                  placeholder="Como prefere ser chamado pela IA"
+                  className="input-base"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Descrição breve (opcional)</label>
+                <input
+                  value={formData.descricao}
+                  onChange={(e) => setFormData(f => ({ ...f, descricao: e.target.value }))}
+                  placeholder="Ex.: engenheiro civil, gerencio 3 obras residenciais"
+                  className="input-base"
+                />
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Ajuda a IA a personalizar respostas e sugestões para você.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Cidade</label>
+                  <input
+                    value={formData.cidade}
+                    onChange={(e) => setFormData(f => ({ ...f, cidade: e.target.value }))}
+                    placeholder="Sua cidade"
+                    className="input-base"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Estado (UF)</label>
+                  <input
+                    value={formData.estado}
+                    onChange={(e) => setFormData(f => ({ ...f, estado: e.target.value.slice(0, 2).toUpperCase() }))}
+                    placeholder="SP"
+                    maxLength={2}
+                    className="input-base uppercase"
+                  />
+                </div>
+              </div>
+              <p className="text-xs -mt-2" style={{ color: 'var(--text-secondary)' }}>
+                Cidade e estado são usados para a previsão do tempo no painel.
+              </p>
 
               <div>
                 <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Cor de destaque</label>

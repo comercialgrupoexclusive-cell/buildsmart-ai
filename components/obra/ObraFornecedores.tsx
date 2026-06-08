@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Phone, Mail, User, Building2, Truck } from 'lucide-react'
+import { Plus, Pencil, Trash2, Phone, Mail, User, Building2, Truck, Filter } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Fornecedor } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
@@ -27,12 +27,20 @@ const CATEGORIA_COLOR: Record<Fornecedor['categoria'], string> = {
 
 const formInicial = {
   nome: '',
+  apelido: '',
   categoria: 'MATERIAL' as Fornecedor['categoria'],
   contato: '',
   telefone: '',
   email: '',
   observacoes: '',
   vinculadoObra: false,
+}
+
+function whatsappLink(telefone: string) {
+  const digitos = telefone.replace(/\D/g, '')
+  if (!digitos) return null
+  const comDDI = digitos.startsWith('55') ? digitos : `55${digitos}`
+  return `https://wa.me/${comDDI}`
 }
 
 export function ObraFornecedores({ obraId }: { obraId: string }) {
@@ -43,6 +51,7 @@ export function ObraFornecedores({ obraId }: { obraId: string }) {
   const [editando, setEditando] = useState<Fornecedor | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(formInicial)
+  const [categoriaFiltro, setCategoriaFiltro] = useState<Fornecedor['categoria'] | 'TODAS'>('TODAS')
 
   async function loadFornecedores() {
     setLoading(true)
@@ -75,6 +84,7 @@ export function ObraFornecedores({ obraId }: { obraId: string }) {
     setEditando(fornecedor)
     setForm({
       nome: fornecedor.nome,
+      apelido: fornecedor.apelido || '',
       categoria: fornecedor.categoria,
       contato: fornecedor.contato || '',
       telefone: fornecedor.telefone || '',
@@ -90,6 +100,7 @@ export function ObraFornecedores({ obraId }: { obraId: string }) {
     setSaving(true)
     const payload = {
       nome: form.nome.trim(),
+      apelido: form.apelido.trim() || null,
       categoria: form.categoria,
       contato: form.contato.trim() || null,
       telefone: form.telefone.trim() || null,
@@ -116,6 +127,10 @@ export function ObraFornecedores({ obraId }: { obraId: string }) {
     setFornecedores(prev => prev.filter(f => f.id !== id))
   }
 
+  const fornecedoresFiltrados = categoriaFiltro === 'TODAS'
+    ? fornecedores
+    : fornecedores.filter(f => f.categoria === categoriaFiltro)
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -136,16 +151,47 @@ export function ObraFornecedores({ obraId }: { obraId: string }) {
         <Button icon={<Plus size={16} />} onClick={openNew}>Novo fornecedor</Button>
       </div>
 
-      {fornecedores.length === 0 ? (
+      {fornecedores.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+            <Filter size={13} /> Filtrar:
+          </span>
+          <button
+            onClick={() => setCategoriaFiltro('TODAS')}
+            className="text-xs font-medium px-3 py-1 rounded-full transition-colors"
+            style={categoriaFiltro === 'TODAS'
+              ? { background: 'var(--accent)', color: 'white' }
+              : { background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
+          >
+            Todas
+          </button>
+          {(Object.keys(CATEGORIA_LABEL) as Fornecedor['categoria'][]).map(cat => (
+            <button
+              key={cat}
+              onClick={() => setCategoriaFiltro(cat)}
+              className="text-xs font-medium px-3 py-1 rounded-full transition-colors"
+              style={categoriaFiltro === cat
+                ? { background: CATEGORIA_COLOR[cat], color: 'white' }
+                : { background: `${CATEGORIA_COLOR[cat]}1A`, color: CATEGORIA_COLOR[cat] }}
+            >
+              {CATEGORIA_LABEL[cat]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {fornecedoresFiltrados.length === 0 ? (
         <EmptyState
           icon={Truck}
-          title="Nenhum fornecedor cadastrado"
-          description="Cadastre fornecedores para vincular às listas de compras de materiais e organizar contatos por categoria."
+          title={fornecedores.length === 0 ? 'Nenhum fornecedor cadastrado' : 'Nenhum fornecedor nessa categoria'}
+          description={fornecedores.length === 0
+            ? 'Cadastre fornecedores para vincular às listas de compras de materiais e organizar contatos por categoria.'
+            : 'Tente outro filtro de categoria ou cadastre um novo fornecedor.'}
           action={<Button icon={<Plus size={16} />} onClick={openNew}>Novo fornecedor</Button>}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {fornecedores.map(fornecedor => (
+          {fornecedoresFiltrados.map(fornecedor => (
             <div key={fornecedor.id} className="card p-4 flex flex-col gap-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -153,7 +199,12 @@ export function ObraFornecedores({ obraId }: { obraId: string }) {
                     <Building2 size={16} style={{ color: 'var(--text-secondary)' }} />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{fornecedor.nome}</p>
+                    <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                      {fornecedor.nome}
+                      {fornecedor.apelido && (
+                        <span className="font-normal" style={{ color: 'var(--text-secondary)' }}> · {fornecedor.apelido}</span>
+                      )}
+                    </p>
                     <span
                       className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-full mt-0.5"
                       style={{ background: `${CATEGORIA_COLOR[fornecedor.categoria]}20`, color: CATEGORIA_COLOR[fornecedor.categoria] }}
@@ -179,7 +230,22 @@ export function ObraFornecedores({ obraId }: { obraId: string }) {
 
               <div className="flex flex-col gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
                 {fornecedor.contato && <span className="flex items-center gap-1.5"><User size={12} /> {fornecedor.contato}</span>}
-                {fornecedor.telefone && <span className="flex items-center gap-1.5"><Phone size={12} /> {fornecedor.telefone}</span>}
+                {fornecedor.telefone && (
+                  whatsappLink(fornecedor.telefone) ? (
+                    <a
+                      href={whatsappLink(fornecedor.telefone)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 hover:underline"
+                      style={{ color: 'var(--success)' }}
+                      title="Abrir conversa no WhatsApp"
+                    >
+                      <Phone size={12} /> {fornecedor.telefone}
+                    </a>
+                  ) : (
+                    <span className="flex items-center gap-1.5"><Phone size={12} /> {fornecedor.telefone}</span>
+                  )
+                )}
                 {fornecedor.email && <span className="flex items-center gap-1.5"><Mail size={12} /> {fornecedor.email}</span>}
               </div>
 
@@ -201,13 +267,21 @@ export function ObraFornecedores({ obraId }: { obraId: string }) {
         size="md"
       >
         <div className="flex flex-col gap-4">
-          <Input
-            label="Nome / Razão social *"
-            value={form.nome}
-            onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
-            placeholder="Ex: Cimentos SP Materiais de Construção"
-            autoFocus
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Nome / Razão social *"
+              value={form.nome}
+              onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
+              placeholder="Ex: Cimentos SP Materiais de Construção"
+              autoFocus
+            />
+            <Input
+              label="Apelido"
+              value={form.apelido}
+              onChange={e => setForm(f => ({ ...f, apelido: e.target.value }))}
+              placeholder="Como é conhecido no dia a dia"
+            />
+          </div>
           <Select label="Categoria" value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value as Fornecedor['categoria'] }))}>
             <option value="MATERIAL">Material</option>
             <option value="MAO_DE_OBRA">Mão de obra</option>

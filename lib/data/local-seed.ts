@@ -7,6 +7,7 @@ import {
   Material,
   Medicao,
   Obra,
+  ObraFornecedor,
   Orcamento,
   OrcamentoItem,
   Profile,
@@ -30,6 +31,7 @@ export type LocalDatabase = {
   composicao_insumos: ComposicaoItem[]
   insumos_proprios: InsumoProprio[]
   fornecedores: Fornecedor[]
+  obra_fornecedores: ObraFornecedor[]
 }
 
 const now = '2026-06-07T09:00:00.000Z'
@@ -38,7 +40,7 @@ const orcamentoId = 'local-orcamento-exemplo'
 const obraId2 = 'local-obra-exemplo-2'
 const orcamentoId2 = 'local-orcamento-exemplo-2'
 
-export const LOCAL_DB_VERSION = '2026-06-07-local-v6'
+export const LOCAL_DB_VERSION = '2026-06-07-local-v7'
 
 export function createLocalSeed(): LocalDatabase {
   const sinapiInsumos: SinapiInsumo[] = [
@@ -186,6 +188,11 @@ export function createLocalSeed(): LocalDatabase {
         dark_mode: false,
         onboarding_done: true,
         password_hash: null,
+        tipo: 'admin',
+        apelido: null,
+        descricao: null,
+        cidade: 'São Paulo',
+        estado: 'SP',
         created_at: now,
       },
       {
@@ -196,6 +203,11 @@ export function createLocalSeed(): LocalDatabase {
         dark_mode: true,
         onboarding_done: true,
         password_hash: null,
+        tipo: 'usuario',
+        apelido: null,
+        descricao: null,
+        cidade: 'Belo Horizonte',
+        estado: 'MG',
         created_at: now,
       },
       {
@@ -206,6 +218,11 @@ export function createLocalSeed(): LocalDatabase {
         dark_mode: true,
         onboarding_done: true,
         password_hash: null,
+        tipo: 'usuario',
+        apelido: null,
+        descricao: null,
+        cidade: 'Curitiba',
+        estado: 'PR',
         created_at: now,
       },
       {
@@ -216,6 +233,11 @@ export function createLocalSeed(): LocalDatabase {
         dark_mode: true,
         onboarding_done: true,
         password_hash: null,
+        tipo: 'usuario',
+        apelido: null,
+        descricao: null,
+        cidade: 'Recife',
+        estado: 'PE',
         created_at: now,
       },
     ],
@@ -413,6 +435,7 @@ export function createLocalSeed(): LocalDatabase {
         id: 'fornecedor-cimentos-sp',
         obra_id: null,
         nome: 'Cimentos SP Materiais de Construção',
+        apelido: null,
         categoria: 'MATERIAL',
         contato: 'Marcos Lima',
         telefone: '(11) 4002-8900',
@@ -425,6 +448,7 @@ export function createLocalSeed(): LocalDatabase {
         id: 'fornecedor-tintas-cor',
         obra_id: null,
         nome: 'Tintas & Cor Distribuidora',
+        apelido: null,
         categoria: 'MATERIAL',
         contato: 'Patrícia Souza',
         telefone: '(11) 3556-2210',
@@ -437,6 +461,7 @@ export function createLocalSeed(): LocalDatabase {
         id: 'fornecedor-mao-obra-jp',
         obra_id: null,
         nome: 'JP Empreiteira de Mão de Obra',
+        apelido: null,
         categoria: 'MAO_DE_OBRA',
         contato: 'João Pereira',
         telefone: '(11) 98877-1234',
@@ -449,6 +474,7 @@ export function createLocalSeed(): LocalDatabase {
         id: 'fornecedor-porcelanatos-centro',
         obra_id: obraId2,
         nome: 'Porcelanatos Centro Acabamentos',
+        apelido: null,
         categoria: 'MATERIAL',
         contato: 'Renata Alves',
         telefone: '(11) 3211-7788',
@@ -461,6 +487,7 @@ export function createLocalSeed(): LocalDatabase {
         id: 'fornecedor-eletrica-vm',
         obra_id: obraId2,
         nome: 'VM Materiais Elétricos',
+        apelido: null,
         categoria: 'MISTO',
         contato: 'Vinícius Moraes',
         telefone: '(11) 97766-5544',
@@ -469,6 +496,13 @@ export function createLocalSeed(): LocalDatabase {
         ativo: true,
         created_at: now,
       },
+    ],
+    obra_fornecedores: [
+      { id: 'obra-fornecedor-1', obra_id: obraId, fornecedor_id: 'fornecedor-cimentos-sp', grupo: 'demais', created_at: now },
+      { id: 'obra-fornecedor-2', obra_id: obraId, fornecedor_id: 'fornecedor-tintas-cor', grupo: 'demais', created_at: now },
+      { id: 'obra-fornecedor-3', obra_id: obraId, fornecedor_id: 'fornecedor-mao-obra-jp', grupo: 'mao_de_obra', created_at: now },
+      { id: 'obra-fornecedor-4', obra_id: obraId2, fornecedor_id: 'fornecedor-porcelanatos-centro', grupo: 'demais', created_at: now },
+      { id: 'obra-fornecedor-5', obra_id: obraId2, fornecedor_id: 'fornecedor-eletrica-vm', grupo: 'mao_de_obra', created_at: now },
     ],
   }
 }

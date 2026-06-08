@@ -8,6 +8,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { Obra, Etapa, Material } from '@/lib/types'
 import { formatCurrency, diasAteData, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
+import { ClimaWidgets } from '@/components/dashboard/ClimaWidgets'
 import Link from 'next/link'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -137,23 +138,30 @@ export default function DashboardPage() {
     })
   }
 
-  // TendÃªncia real: obras cadastradas por mÃªs, agrupadas por status (ativa / em orÃ§amento)
-  const portfolioTrend = (() => {
-    const map = new Map<string, { ord: string; mes: string; ativa: number; orcamento: number }>()
-    ;[...data.obras]
-      .sort((a, b) => a.created_at.localeCompare(b.created_at))
-      .forEach(o => {
-        const d = new Date(o.created_at)
-        const ord = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-        const mes = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '')
-        if (!map.has(ord)) map.set(ord, { ord, mes, ativa: 0, orcamento: 0 })
-        const entry = map.get(ord)!
-        if (o.status === 'ativa') entry.ativa += 1
-        else if (o.status === 'orcamento') entry.orcamento += 1
-      })
-    return Array.from(map.values())
-      .sort((a, b) => a.ord.localeCompare(b.ord))
-      .slice(-8)
+  // TendÃªncia: consumo previsto (itens com necessidade prevista) vs. itens jÃ¡ garantidos em estoque/compra,
+  // acumulados ao longo dos prÃ³ximos 15 dias â€” ajuda a antecipar rupturas de suprimento.
+  const consumoVsEstoque = (() => {
+    const hoje = new Date()
+    hoje.setHours(0, 0, 0, 0)
+
+    let consumoAcumulado = 0
+    let estoqueAcumulado = 0
+
+    return Array.from({ length: 15 }, (_, i) => {
+      const dia = new Date(hoje)
+      dia.setDate(dia.getDate() + i)
+      const diaStr = dia.toISOString().split('T')[0]
+
+      const previstosNoDia = data.materiaisPendentes.filter(m => m.data_necessidade === diaStr)
+      consumoAcumulado += previstosNoDia.length
+      estoqueAcumulado += previstosNoDia.filter(m => m.status_compra !== 'nao_comprado').length
+
+      return {
+        dia: dia.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        consumo: consumoAcumulado,
+        estoque: estoqueAcumulado,
+      }
+    })
   })()
 
   if (loading) {
@@ -197,41 +205,44 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2 mb-6">
             <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
             <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Portfólio de obras por mês
+              Tendência de Consumo vs Estoque — Próximos 15 dias
             </h2>
           </div>
 
-          {data.obras.length === 0 ? (
+          {data.materiaisPendentes.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 gap-3">
-              <HardHat size={36} style={{ color: 'var(--border)' }} />
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Cadastre obras para ver o painel</p>
-              <Link href="/obras" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>+ Nova obra</Link>
+              <Package size={36} style={{ color: 'var(--border)' }} />
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Sem materiais previstos para os próximos dias</p>
+              <Link href="/materiais" className="text-sm font-medium" style={{ color: 'var(--accent)' }}>Ver materiais</Link>
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={portfolioTrend}>
+              <AreaChart data={consumoVsEstoque}>
                 <defs>
-                  <linearGradient id="colorAtivas" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorConsumo" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--warning)" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="var(--warning)" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorEstoque" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="var(--success)" stopOpacity={0.3} />
                     <stop offset="95%" stopColor="var(--success)" stopOpacity={0} />
                   </linearGradient>
-                  <linearGradient id="colorOrcamento" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
-                  </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="mes" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
                 <Tooltip
                   contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '12px' }}
                   labelStyle={{ color: 'var(--text-primary)' }}
                 />
-                <Area type="monotone" dataKey="ativa" stroke="var(--success)" fill="url(#colorAtivas)" strokeWidth={2} name="Ativas" stackId="1" />
-                <Area type="monotone" dataKey="orcamento" stroke="var(--accent)" fill="url(#colorOrcamento)" strokeWidth={2} name="Em orçamento" stackId="1" />
+                <Area type="monotone" dataKey="consumo" stroke="var(--warning)" fill="url(#colorConsumo)" strokeWidth={2} name="Consumo previsto (acumulado)" />
+                <Area type="monotone" dataKey="estoque" stroke="var(--success)" fill="url(#colorEstoque)" strokeWidth={2} name="Garantido em estoque/compra" />
               </AreaChart>
             </ResponsiveContainer>
           )}
+          <p className="text-xs mt-3" style={{ color: 'var(--text-secondary)' }}>
+            Quanto maior o vão entre as curvas, maior o risco de falta de material no período.
+          </p>
         </div>
 
         {/* Próximos 7 dias */}
@@ -345,6 +356,8 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      <ClimaWidgets etapasProximas={data.etapasProximas} alertasInternos={data.alertas} />
     </div>
   )
 }

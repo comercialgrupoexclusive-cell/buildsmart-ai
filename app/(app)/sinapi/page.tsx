@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, Fragment } from 'react'
 import * as XLSX from 'xlsx'
 import {
   Upload, Database, FileSpreadsheet, CheckCircle2,
-  AlertTriangle, Loader2, BarChart3, Hash, Layers, Search, X,
+  AlertTriangle, Loader2, Hash, Layers, Search, X,
   ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -335,7 +335,7 @@ export default function SinapiPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--text-primary)' }}>
-          Base SINAPI
+          Referência SINAPI
         </h1>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
           Importe insumos (ISE) e composições analíticas da Caixa Econômica Federal.
@@ -544,24 +544,6 @@ export default function SinapiPage() {
 
       {/* ── Aba Buscar ── */}
       {tab === 'buscar' && <BuscarSinapi supabase={supabase} />}
-
-      {/* Card informativo — composições próprias */}
-      <div className="card p-5" style={{ borderLeft: '3px solid var(--accent)' }}>
-        <div className="flex gap-3">
-          <BarChart3 size={18} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--accent)' }} />
-          <div>
-            <p className="font-medium text-sm mb-1" style={{ color: 'var(--text-primary)' }}>
-              Composições Próprias — Próxima Etapa
-            </p>
-            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              As composições próprias seguirão o mesmo formato SINAPI (Analítico): composição + coeficientes
-              de insumos. O preço de cada insumo é buscado automaticamente do banco SINAPI pela <strong>UF da obra</strong>,
-              garantindo que o orçamento sempre use o preço regional correto.
-              Composições próprias serão vinculadas ao SINAPI para referência de preços (implementação futura).
-            </p>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
@@ -586,9 +568,8 @@ function BuscarSinapi({ supabase }: { supabase: ReturnType<typeof createClient> 
     })
   }, [])
 
-  // Busca debounced
+  // Busca debounced — sem termo, mostra os primeiros itens da base como referência
   useEffect(() => {
-    if (busca.length < 2) { setResultados([]); return }
     const t = setTimeout(() => executarBusca(), 300)
     return () => clearTimeout(t)
   }, [busca, tipo, uf])
@@ -596,20 +577,22 @@ function BuscarSinapi({ supabase }: { supabase: ReturnType<typeof createClient> 
   async function executarBusca() {
     setLoading(true)
     if (tipo === 'insumos') {
-      const { data } = await supabase
+      let query = supabase
         .from('sinapi_insumos')
         .select('id, codigo, classificacao, descricao, unidade, precos, mes_referencia')
-        .or(`descricao.ilike.%${busca}%,codigo.ilike.%${busca}%`)
         .order('codigo')
         .limit(30)
+      if (busca.length >= 2) query = query.or(`descricao.ilike.%${busca}%,codigo.ilike.%${busca}%`)
+      const { data } = await query
       setResultados(data || [])
     } else {
-      const { data } = await supabase
+      let query = supabase
         .from('sinapi_composicoes')
         .select('id, codigo, grupo, descricao, unidade, situacao, mes_referencia')
-        .or(`descricao.ilike.%${busca}%,codigo.ilike.%${busca}%`)
         .order('codigo')
         .limit(30)
+      if (busca.length >= 2) query = query.or(`descricao.ilike.%${busca}%,codigo.ilike.%${busca}%`)
+      const { data } = await query
       setResultados(data || [])
     }
     setLoading(false)
@@ -689,6 +672,12 @@ function BuscarSinapi({ supabase }: { supabase: ReturnType<typeof createClient> 
 
       {/* Resultados */}
       {resultados.length > 0 && (
+        <>
+          {busca.length < 2 && (
+            <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
+              Mostrando os primeiros itens da base de referência SINAPI. Use a busca para filtrar por código ou descrição.
+            </p>
+          )}
         <div className="card overflow-hidden">
           {tipo === 'insumos' ? (
             <table className="w-full text-xs">
@@ -778,22 +767,20 @@ function BuscarSinapi({ supabase }: { supabase: ReturnType<typeof createClient> 
             </table>
           )}
         </div>
+        </>
       )}
 
-      {busca.length >= 2 && resultados.length === 0 && !loading && (
+      {resultados.length === 0 && !loading && (
         <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
           <AlertTriangle size={24} className="mx-auto mb-2 opacity-50" />
-          <p>Nenhum resultado para <strong>"{busca}"</strong>.</p>
+          {busca.length >= 2 ? (
+            <p>Nenhum resultado para <strong>"{busca}"</strong>.</p>
+          ) : (
+            <p>Nenhum item encontrado na base de referência SINAPI.</p>
+          )}
           {totalDB?.insumos === 0 && (
             <p className="mt-1 text-xs">Importe o arquivo SINAPI na aba Insumos (ISE) ou Composições (Analítico).</p>
           )}
-        </div>
-      )}
-
-      {busca.length < 2 && !loading && (
-        <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
-          <Search size={24} className="mx-auto mb-2 opacity-30" />
-          <p>Digite ao menos 2 caracteres para buscar no banco SINAPI.</p>
         </div>
       )}
     </div>

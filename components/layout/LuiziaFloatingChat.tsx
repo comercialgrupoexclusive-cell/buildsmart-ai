@@ -11,6 +11,7 @@ type Message = {
 }
 
 const CHAT_KEY = 'buildsmart-luizia-floating-chat-session'
+const ASSIST_ON_ENTRY_KEY = 'buildsmart-open-luizia-on-entry'
 
 function greeting(name?: string) {
   return `Oi${name ? `, ${name}` : ''}! Eu sou a Luizia.
@@ -40,8 +41,19 @@ export function LuiziaFloatingChat() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const stored = sessionStorage.getItem(CHAT_KEY)
-    setMessages(stored ? JSON.parse(stored) as Message[] : [])
+    const initial = stored ? JSON.parse(stored) as Message[] : []
+    setMessages(initial)
     setLoaded(true)
+
+    if (sessionStorage.getItem(ASSIST_ON_ENTRY_KEY) === '1') {
+      sessionStorage.removeItem(ASSIST_ON_ENTRY_KEY)
+      setOpen(true)
+      setMessages(current => current.length > 0
+        ? current
+        : [{ role: 'assistant', content: greeting(currentProfile?.apelido || currentProfile?.name) }]
+      )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -49,13 +61,13 @@ export function LuiziaFloatingChat() {
       setOpen(true)
       setMessages(current => current.length > 0
         ? current
-        : [{ role: 'assistant', content: greeting(currentProfile?.name) }]
+        : [{ role: 'assistant', content: greeting(currentProfile?.apelido || currentProfile?.name) }]
       )
     }
 
     window.addEventListener('buildsmart:open-luizia', openFromGuide)
     return () => window.removeEventListener('buildsmart:open-luizia', openFromGuide)
-  }, [currentProfile?.name])
+  }, [currentProfile?.apelido, currentProfile?.name])
 
   useEffect(() => {
     if (!loaded || typeof window === 'undefined') return

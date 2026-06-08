@@ -100,7 +100,7 @@ export function Header() {
                   </div>
                 )}
                 <span className="text-sm font-medium hidden md:block" style={{ color: 'var(--text-primary)' }}>
-                  {currentProfile.name}
+                  {currentProfile.apelido || currentProfile.name}
                 </span>
                 <ChevronDown
                   size={14}

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback, Fragment } from 'react'
 import {
   Plus, Lock, Unlock, Search, Trash2, MoreHorizontal,
   ChevronDown, ChevronRight, FolderPlus, RotateCcw, FileSpreadsheet,
-  Boxes, Users, FileText, Percent, Wallet,
+  Boxes, Users, FileText, Percent, Wallet, ArrowLeftRight,
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
   Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
   type LucideIcon,
@@ -17,6 +17,9 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { exportOrcamentoXLSX, ItemExportRow } from '@/lib/export-orcamento'
+import { LinhaOrcamentoTabular } from '@/lib/import-export-orcamento'
+import { LinhaImportada } from '@/lib/import-export-templates'
+import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
 
 type FonteBusca = 'proprias' | 'sinapi'
 
@@ -151,6 +154,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
   // Modal adicionar item
   const [showAddItem, setShowAddItem] = useState(false)
+  const [showImportExportTabular, setShowImportExportTabular] = useState(false)
   const [etapasPadrao, setEtapasPadrao] = useState<string[]>(ETAPAS_PADRAO_FALLBACK)
   const [selectedEtapaNome, setSelectedEtapaNome] = useState('')
   const [subetapaLivre, setSubetapaLivre] = useState('')
@@ -526,6 +530,92 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     })
   }
 
+  // ─── Importar orçamento via planilha tabular ─────────────────────────────
+  // Cada linha: Etapa, Subetapa, Código (da composição), Quantidade. A etapa é
+  // localizada/criada por nome e a composição é localizada pelo código —
+  // própria primeiro, SINAPI em seguida. Espelha handleAddItem para cada linha.
+  async function handleImportarOrcamento(linhas: LinhaImportada[]): Promise<ResultadoImportacaoOrcamento> {
+    if (!orcamento) return { inseridos: 0, ignorados: linhas.length, erros: ['Orçamento não carregado.'] }
+
+    const erros: string[] = []
+    let inseridos = 0
+    let ignorados = 0
+
+    const etapaCache = new Map(etapas.map(e => [e.nome.trim().toLowerCase(), e.id]))
+    let maxOrdem = etapas.reduce((m, e) => Math.max(m, e.ordem), 0)
+
+    const mapaProprias = new Map(composicoesProprias.map(c => [c.codigo.trim().toUpperCase(), c]))
+    const mapaSinapi = new Map(sinapiComps.map(c => [c.codigo.trim().toUpperCase(), c]))
+
+    for (const linha of linhas) {
+      const etapaNome = String(linha.valores.etapa ?? '').trim()
+      const subetapa = (linha.valores.subetapa as string | null) ?? null
+      const codigo = String(linha.valores.codigo ?? '').trim().toUpperCase()
+      const quantidade = Number(linha.valores.quantidade ?? 0)
+
+      if (!etapaNome || !codigo || !quantidade) {
+        ignorados++
+        erros.push(`Linha ${linha.numero}: dados incompletos — ignorada.`)
+        continue
+      }
+
+      let etapaId = etapaCache.get(etapaNome.toLowerCase()) ?? null
+      if (!etapaId) {
+        const { data, error } = await supabase
+          .from('etapas')
+          .insert({ obra_id: obraId, nome: etapaNome, status: 'planejada', ordem: ++maxOrdem })
+          .select().single()
+        if (error || !data) {
+          ignorados++
+          erros.push(`Linha ${linha.numero}: não foi possível criar a etapa "${etapaNome}".`)
+          continue
+        }
+        etapaId = data.id
+        etapaCache.set(etapaNome.toLowerCase(), data.id)
+        setEtapas(prev => [...prev, data])
+      }
+
+      const propria = mapaProprias.get(codigo)
+      const sinapi = !propria ? mapaSinapi.get(codigo) : undefined
+      const composicao = propria || sinapi
+      if (!composicao) {
+        ignorados++
+        erros.push(`Linha ${linha.numero}: código "${codigo}" não corresponde a nenhuma composição cadastrada.`)
+        continue
+      }
+      const isSinapi = !propria
+
+      const custoUnitario = getItemCost(composicao)
+      const { error: insertErro } = await supabase.from('orcamento_itens').insert({
+        orcamento_id: orcamento.id,
+        etapa_id: etapaId,
+        subetapa,
+        composicao_id: isSinapi ? null : composicao.id,
+        sinapi_composicao_id: isSinapi ? composicao.id : null,
+        quantidade,
+        preco_unitario_snapshot: custoUnitario,
+        descricao_snapshot: composicao.descricao,
+        codigo_snapshot: composicao.codigo,
+        unidade_snapshot: composicao.unidade,
+      })
+
+      if (insertErro) {
+        ignorados++
+        erros.push(`Linha ${linha.numero}: erro ao inserir item — ${insertErro.message}`)
+        continue
+      }
+
+      if (!isSinapi && 'composicao_itens' in composicao) {
+        await gerarMateriaisDaComposicao((composicao as ComposicaoComCusto).composicao_itens || [], quantidade, etapaId, subetapa)
+      }
+
+      inseridos++
+    }
+
+    if (orcamento) await loadItens(orcamento.id)
+    return { inseridos, ignorados, erros }
+  }
+
   async function handleFinalizar() {
     if (!orcamento || !confirm('Finalizar orçamento? Os preços serão congelados.')) return
     await supabase.from('orcamentos').update({ status: 'finalizado' }).eq('id', orcamento.id)
@@ -617,6 +707,19 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     : []
   const etapaOptions = Array.from(new Set([...etapasPadrao, ...etapas.map(e => e.nome)])).filter(Boolean)
   const isReadonly = orcamento?.status === 'finalizado'
+
+  // Itens atuais no layout tabular (Etapa, Subetapa, Código, Quantidade) —
+  // para exportação/round-trip com a planilha de importação
+  const etapaNomePorId: Record<string, string> = {}
+  for (const e of etapas) etapaNomePorId[e.id] = e.nome
+  const linhasOrcamentoTabular: LinhaOrcamentoTabular[] = itens.map(item => ({
+    etapa: (item.etapa_id && etapaNomePorId[item.etapa_id]) || 'Sem etapa',
+    subetapa: item.subetapa,
+    codigo: item.codigo,
+    descricao: item.descricao,
+    unidade: item.unidade,
+    quantidade: item.quantidade,
+  }))
   // Custo de uma composição para exibir no modal de busca
   // Pós-Supabase: calcula via composicao_itens + sinapi_insumos.precos[obraUf]
   const getItemCost = (item: { custo_calculado?: number; custos?: Record<string, number>; custo_unitario?: number }) =>
@@ -644,6 +747,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
             {itens.length > 0 && (
               <Button size="sm" icon={<FileSpreadsheet size={14} />} variant="secondary" onClick={handleExportXLSX}>
                 Exportar Excel
+              </Button>
+            )}
+            {!isReadonly && (
+              <Button size="sm" icon={<ArrowLeftRight size={14} />} variant="secondary" onClick={() => setShowImportExportTabular(true)}>
+                Importar/exportar tabular
               </Button>
             )}
             <div className="relative" ref={menuRef}>
@@ -963,6 +1071,15 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
           </div>
         </div>
       </Modal>
+
+      <ImportarExportarOrcamentoModal
+        open={showImportExportTabular}
+        onClose={() => setShowImportExportTabular(false)}
+        linhasAtuais={linhasOrcamentoTabular}
+        obraName={obraName || 'Obra'}
+        versao={orcamento.versao}
+        onImportar={handleImportarOrcamento}
+      />
     </div>
   )
 }

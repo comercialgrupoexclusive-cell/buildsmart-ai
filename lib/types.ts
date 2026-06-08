@@ -7,6 +7,11 @@ export type Profile = {
   dark_mode: boolean
   onboarding_done: boolean
   password_hash: string | null
+  tipo: 'admin' | 'usuario'
+  apelido: string | null         // como a IA chama o usuário, se preenchido
+  descricao: string | null       // bio breve para personalizar a IA
+  cidade: string | null
+  estado: string | null          // CHAR(2) UF — usado para previsão do tempo
   created_at: string
 }
 
@@ -142,6 +147,7 @@ export type InsumoProprio = {
   descricao: string
   unidade: string
   categoria: 'MATERIAL' | 'MAO_DE_OBRA' | 'EQUIPAMENTO' | 'SERVICO'
+  grupo?: string | null          // categoria fina de origem (ex.: "Madeira", "Elétrico") — opcional, livre
   preco_unitario: number
   ativo: boolean
   created_at: string
@@ -191,6 +197,7 @@ export type Fornecedor = {
   id: string
   obra_id: string | null   // null = fornecedor geral da empresa, disponível para todas as obras
   nome: string
+  apelido: string | null
   categoria: 'MATERIAL' | 'MAO_DE_OBRA' | 'EQUIPAMENTO' | 'SERVICO' | 'MISTO'
   contato: string | null
   telefone: string | null
@@ -198,6 +205,18 @@ export type Fornecedor = {
   observacoes: string | null
   ativo: boolean
   created_at: string
+}
+
+// ─── Vínculo Obra ↔ Fornecedor ────────────────────────────────────────────────
+// grupo: separa o vínculo em "mão de obra" (equipes/serviços de execução) e
+// "demais" (materiais, equipamentos e outros fornecedores da obra).
+export type ObraFornecedor = {
+  id: string
+  obra_id: string
+  fornecedor_id: string
+  grupo: 'mao_de_obra' | 'demais'
+  created_at: string
+  fornecedor?: Fornecedor | null
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
