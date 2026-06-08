@@ -31,7 +31,7 @@ const STEPS = [
   {
     icon: BotMessageSquare,
     title: 'Luizia',
-    description: 'A IA fica disponível no botão flutuante e na tela BuildAssistente IA para tirar dúvidas e sugerir próximos passos.',
+    description: 'Oi, eu sou a Luizia, sua parceira de obra. Vou ficar por aqui para tirar dúvidas, organizar ideias e ajudar você a prever os próximos passos sem complicar.',
   },
 ]
 
@@ -51,6 +51,9 @@ export function WelcomeGuide() {
       localStorage.setItem(STORAGE_KEY, 'true')
     }
     setOpen(false)
+    if (step === STEPS.length - 1 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('buildsmart:open-luizia'))
+    }
   }
 
   const item = STEPS[step]
@@ -90,7 +93,9 @@ export function WelcomeGuide() {
 
         <div className="rounded-lg p-4" style={{ background: 'var(--bg-secondary)' }}>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
-            Caminho simples: crie ou escolha uma obra, monte o orçamento, confira os materiais, acompanhe o cronograma e peça ajuda para a Luizia quando quiser prever o próximo passo.
+            {step === STEPS.length - 1
+              ? 'Quando fechar esta apresentação, a Luizia aparece para conversar com você. Pode perguntar de um jeito simples, como se estivesse falando com alguém da equipe.'
+              : 'Caminho simples: crie ou escolha uma obra, monte o orçamento, confira os materiais, acompanhe o cronograma e peça ajuda para a Luizia quando quiser prever o próximo passo.'}
           </p>
         </div>
 

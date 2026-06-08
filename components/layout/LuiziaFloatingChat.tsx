@@ -12,6 +12,10 @@ type Message = {
 
 const CHAT_KEY = 'buildsmart-luizia-floating-chat-session'
 
+function greeting(name?: string) {
+  return `Oi${name ? `, ${name}` : ''}! Eu sou a Luizia.\n\nPrometo não complicar sua vida: posso ajudar com orçamento, materiais, compras, cronograma e aquelas dúvidas de obra que aparecem do nada.\n\nComo você está hoje? Quer que eu te ajude a dar uma olhada na obra atual?`
+}
+
 function formatMessage(text: string) {
   return text
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -33,6 +37,19 @@ export function LuiziaFloatingChat() {
     setMessages(stored ? JSON.parse(stored) as Message[] : [])
     setLoaded(true)
   }, [])
+
+  useEffect(() => {
+    function openFromGuide() {
+      setOpen(true)
+      setMessages(current => current.length > 0
+        ? current
+        : [{ role: 'assistant', content: greeting(currentProfile?.name) }]
+      )
+    }
+
+    window.addEventListener('buildsmart:open-luizia', openFromGuide)
+    return () => window.removeEventListener('buildsmart:open-luizia', openFromGuide)
+  }, [currentProfile?.name])
 
   useEffect(() => {
     if (!loaded || typeof window === 'undefined') return
@@ -105,7 +122,7 @@ export function LuiziaFloatingChat() {
           <div className="h-72 overflow-y-auto p-3 flex flex-col gap-3">
             {messages.length === 0 && (
               <div className="text-sm leading-relaxed rounded-xl p-3" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
-                Oi{currentProfile ? `, ${currentProfile.name}` : ''}! Sou a Luizia. Posso tirar dúvidas rápidas aqui. Para analisar a obra inteira, use o chat completo.
+                {greeting(currentProfile?.name)}
               </div>
             )}
             {messages.map((msg, index) => (
