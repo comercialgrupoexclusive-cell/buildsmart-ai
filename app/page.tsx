@@ -103,20 +103,38 @@ function ProfileSelectionPage() {
       password_hash: formData.password.trim() || null,
     }
 
+    let savedProfile: Profile | null = null
+
     if (editingProfile) {
-      await supabase.from('profiles').update(payload).eq('id', editingProfile.id)
+      const { data, error } = await supabase.from('profiles').update(payload).eq('id', editingProfile.id).select().single()
+      if (error) {
+        alert(`Nao foi possivel atualizar o perfil.\n\nErro: ${error.message}`)
+        setSaving(false)
+        return
+      }
+      savedProfile = data as Profile
     } else {
-      await supabase.from('profiles').insert({
+      const { data, error } = await supabase.from('profiles').insert({
         ...payload,
         tipo: isFirstProfile ? 'admin' : 'usuario',
         onboarding_done: false,
-      })
+      }).select().single()
+      if (error) {
+        alert(`Nao foi possivel criar o perfil.\n\nErro: ${error.message}`)
+        setSaving(false)
+        return
+      }
+      savedProfile = data as Profile
     }
 
     setSaving(false)
     setShowForm(false)
     setEditingProfile(null)
     resetForm()
+    if (savedProfile) {
+      enterProfile(savedProfile)
+      return
+    }
     loadProfiles()
   }
 

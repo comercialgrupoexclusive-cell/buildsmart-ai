@@ -32,6 +32,7 @@ type MaterialRow = {
   obra_id: string
   etapa_id: string | null
   subetapa: string | null
+  insumo_id?: string | null
   sinapi_codigo: string | null
   descricao: string
   unidade: string
@@ -40,6 +41,23 @@ type MaterialRow = {
   status_compra: 'nao_comprado' | 'parcial' | 'comprado'
   data_necessidade: string | null
   etapas?: { nome: string } | null
+}
+
+type MateriaisSchema = 'snapshot' | 'insumo_id'
+
+type MaterialBancoInsumoId = {
+  id: string
+  obra_id: string
+  etapa_id: string | null
+  subetapa?: string | null
+  insumo_id: string | null
+  quantidade_total: number
+  quantidade_comprada: number
+  status_compra: MaterialRow['status_compra']
+  data_necessidade: string | null
+  etapas?: { nome: string } | null
+  insumo?: { codigo: string; descricao: string; unidade: string } | null
+  sinapi_insumos?: { codigo: string; descricao: string; unidade: string } | null
 }
 
 const SEM_SUBETAPA = 'Sem subetapa'
@@ -137,15 +155,51 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     status_compra: 'nao_comprado' as MaterialRow['status_compra'],
   })
 
+  async function detectarSchemaMateriais(): Promise<MateriaisSchema> {
+    const { error } = await supabase.from('materiais').select('sinapi_codigo,descricao,unidade').limit(1)
+    return error && /column .* does not exist/i.test(error.message) ? 'insumo_id' : 'snapshot'
+  }
+
+  function normalizarMaterialInsumoId(row: MaterialBancoInsumoId): MaterialRow {
+    const insumo = row.insumo || row.sinapi_insumos || null
+    return {
+      id: row.id,
+      obra_id: row.obra_id,
+      etapa_id: row.etapa_id,
+      subetapa: row.subetapa ?? null,
+      insumo_id: row.insumo_id,
+      sinapi_codigo: insumo?.codigo || row.insumo_id || null,
+      descricao: insumo?.descricao || 'Insumo sem descricao',
+      unidade: insumo?.unidade || 'UN',
+      quantidade_total: Number(row.quantidade_total) || 0,
+      quantidade_comprada: Number(row.quantidade_comprada) || 0,
+      status_compra: row.status_compra,
+      data_necessidade: row.data_necessidade,
+      etapas: row.etapas,
+    }
+  }
+
+  async function resolverInsumoIdPorCodigo(codigo: string) {
+    const { data } = await supabase.from('sinapi_insumos').select('id').eq('codigo', codigo).limit(1).maybeSingle()
+    return data?.id as string | undefined
+  }
+
   async function loadMateriais() {
     setLoading(true)
-    const [matsRes, etapasRes, fornecedoresRes] = await Promise.all([
-      supabase
+    const schemaMateriais = await detectarSchemaMateriais()
+    const matsQuery = schemaMateriais === 'snapshot'
+      ? supabase
         .from('materiais')
-        // Colunas diretas no schema v3 — sem join a sinapi_insumos
         .select('*, etapas(nome)')
         .eq('obra_id', obraId)
-        .order('data_necessidade', { ascending: true, nullsFirst: false }),
+        .order('data_necessidade', { ascending: true, nullsFirst: false })
+      : supabase
+        .from('materiais')
+        .select('id, obra_id, etapa_id, subetapa, insumo_id, quantidade_total, quantidade_comprada, status_compra, data_necessidade, etapas(nome), insumo:sinapi_insumos(codigo,descricao,unidade)')
+        .eq('obra_id', obraId)
+        .order('data_necessidade', { ascending: true, nullsFirst: false })
+    const [matsRes, etapasRes, fornecedoresRes] = await Promise.all([
+      matsQuery,
       supabase.from('etapas').select('id, nome').eq('obra_id', obraId).order('ordem'),
       supabase
         .from('fornecedores')
@@ -153,13 +207,14 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         .or(`obra_id.is.null,obra_id.eq.${obraId}`)
         .order('nome'),
     ])
-    setMateriais((matsRes.data || []) as MaterialRow[])
+    setMateriais(schemaMateriais === 'snapshot'
+      ? (matsRes.data || []) as MaterialRow[]
+      : ((matsRes.data || []) as unknown as MaterialBancoInsumoId[]).map(normalizarMaterialInsumoId))
     setEtapas(etapasRes.data || [])
     setFornecedores(fornecedoresRes.data || [])
     setLoading(false)
   }
-
-  // ─── Importar do orçamento ────────────────────────────────────────────────
+  // --- Importar do orçamento ────────────────────────────────────────────────
   // Pergunta do usuário: "como faço pra puxar os insumos do orçamento pra
   // materiais? / faça um botão de importar os dados do orçamento em materiais".
   // Varre todos os itens de todos os orçamentos da obra, deriva os insumos de
@@ -318,21 +373,27 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         return
       }
 
-      // 7) Grava — busca os materiais já existentes da obra de UMA vez (1 round-trip)
-      // e decide update/insert em memória; idempotente (substitui, não soma sobre o que já existe).
-      const { data: existentesRaw, error: erroExistentes } = await supabase
-        .from('materiais')
-        .select(temSubetapa ? 'id, etapa_id, subetapa, sinapi_codigo, quantidade_total' : 'id, etapa_id, sinapi_codigo, quantidade_total')
-        .eq('obra_id', obraId)
-      if (erroExistentes) { alert(`Não foi possível ler os materiais já cadastrados.\n\nErro: ${erroExistentes.message}`); return }
+      // 7) Grava - busca os materiais existentes e decide update/insert.
+      const schemaMateriais = await detectarSchemaMateriais()
+      const existentesQuery = schemaMateriais === 'snapshot'
+        ? supabase
+          .from('materiais')
+          .select(temSubetapa ? 'id, etapa_id, subetapa, sinapi_codigo, quantidade_total' : 'id, etapa_id, sinapi_codigo, quantidade_total')
+          .eq('obra_id', obraId)
+        : supabase
+          .from('materiais')
+          .select(temSubetapa ? 'id, etapa_id, subetapa, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)' : 'id, etapa_id, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)')
+          .eq('obra_id', obraId)
+      const { data: existentesRaw, error: erroExistentes } = await existentesQuery
+      if (erroExistentes) { alert(`Nao foi possivel ler os materiais ja cadastrados.\n\nErro: ${erroExistentes.message}`); return }
       const existentesMap = new Map<string, { id: string; quantidade_total: number }>()
-      for (const e of (existentesRaw || []) as { id: string; etapa_id: string | null; subetapa?: string | null; sinapi_codigo: string | null; quantidade_total: number }[]) {
-        if (!e.sinapi_codigo) continue
+      for (const e of (existentesRaw || []) as { id: string; etapa_id: string | null; subetapa?: string | null; sinapi_codigo?: string | null; insumo_id?: string | null; quantidade_total: number; insumo?: { codigo: string } | null }[]) {
+        const codigoExistente = schemaMateriais === 'snapshot' ? e.sinapi_codigo : e.insumo?.codigo
+        if (!codigoExistente) continue
         const subetapaChave = temSubetapa ? (e.subetapa ?? 'null') : 'null'
-        const key = `${e.etapa_id ?? 'null'}|${subetapaChave}|${e.sinapi_codigo}`
+        const key = `${e.etapa_id ?? 'null'}|${subetapaChave}|${codigoExistente}`
         existentesMap.set(key, { id: e.id, quantidade_total: e.quantidade_total })
       }
-
       let criados = 0
       let atualizados = 0
       const errosDb: string[] = []
@@ -348,10 +409,20 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
             if (error) errosDb.push(error.message); else atualizados++
           }
         } else {
-          const novoMaterial: Record<string, unknown> = {
-            obra_id: obraId, etapa_id: etapaId,
-            sinapi_codigo: codigo, descricao: acc.descricao, unidade: acc.unidade,
-            quantidade_total: qtdArred, quantidade_comprada: 0, status_compra: 'nao_comprado',
+          const novoMaterial: Record<string, unknown> = schemaMateriais === 'snapshot'
+            ? {
+              obra_id: obraId, etapa_id: etapaId,
+              sinapi_codigo: codigo, descricao: acc.descricao, unidade: acc.unidade,
+              quantidade_total: qtdArred, quantidade_comprada: 0, status_compra: 'nao_comprado',
+            }
+            : {
+              obra_id: obraId, etapa_id: etapaId,
+              insumo_id: await resolverInsumoIdPorCodigo(codigo),
+              quantidade_total: qtdArred, quantidade_comprada: 0, status_compra: 'nao_comprado',
+            }
+          if (schemaMateriais === 'insumo_id' && !novoMaterial.insumo_id) {
+            errosDb.push(`Insumo ${codigo} nao encontrado na base SINAPI; material nao criado.`)
+            continue
           }
           if (temSubetapa) novoMaterial.subetapa = subetapa
           const { error } = await supabase.from('materiais').insert(novoMaterial)
