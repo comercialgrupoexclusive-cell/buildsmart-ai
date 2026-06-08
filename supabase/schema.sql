@@ -6,7 +6,7 @@
 --   • sinapi_insumos: preços em JSONB por UF (em vez de linha por estado)
 --   • sinapi_composicao_itens: tabela analítica (INSUMO|COMPOSICAO + coeficiente)
 --   • sinapi_composicoes: adicionado situacao, mes_referencia
---   • composicao_itens: suporta SINAPI_INSUMO, SINAPI_COMPOSICAO e MANUAL
+--   • composicao_insumos: vínculo normalizado com insumo SINAPI ou insumo próprio
 --   • obras: adicionado campo uf CHAR(2)
 -- =============================================
 
@@ -79,19 +79,30 @@ CREATE TABLE IF NOT EXISTS composicoes_proprias (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ─── Insumos Próprios da Empresa ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS insumos_proprios (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  codigo TEXT NOT NULL UNIQUE,
+  descricao TEXT NOT NULL,
+  unidade TEXT NOT NULL DEFAULT 'UN',
+  categoria TEXT NOT NULL DEFAULT 'MATERIAL',
+  grupo TEXT,
+  preco_unitario NUMERIC(14,4) NOT NULL DEFAULT 0,
+  ativo BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ─── Itens de Composições Próprias ───────────────────────────────────────────
--- Suporta: insumo SINAPI, composição SINAPI ou insumo manual.
--- Preço calculado em runtime via sinapi_insumos.precos->>'UF' da obra.
-CREATE TABLE IF NOT EXISTS composicao_itens (
+-- Schema real usado pelo app: cada item referencia OU um insumo SINAPI
+-- (insumo_id) OU um insumo próprio da empresa (insumo_proprio_id).
+CREATE TABLE IF NOT EXISTS composicao_insumos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   composicao_id UUID NOT NULL REFERENCES composicoes_proprias(id) ON DELETE CASCADE,
-  tipo TEXT NOT NULL DEFAULT 'SINAPI_INSUMO'
-    CHECK (tipo IN ('SINAPI_INSUMO', 'SINAPI_COMPOSICAO', 'MANUAL')),
-  sinapi_codigo TEXT,      -- código no banco SINAPI (insumo ou composição)
-  descricao TEXT NOT NULL, -- snapshot da descrição
-  unidade TEXT NOT NULL DEFAULT 'UN',
+  insumo_id UUID REFERENCES sinapi_insumos(id) ON DELETE SET NULL,
+  insumo_proprio_id UUID REFERENCES insumos_proprios(id) ON DELETE SET NULL,
   coeficiente NUMERIC(14,6) NOT NULL DEFAULT 1,
-  ordem INTEGER NOT NULL DEFAULT 0
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CHECK (insumo_id IS NOT NULL OR insumo_proprio_id IS NOT NULL)
 );
 
 -- ─── Obras ───────────────────────────────────────────────────────────────────
@@ -222,7 +233,11 @@ CREATE INDEX IF NOT EXISTS idx_etapas_obra                  ON etapas(obra_id);
 CREATE INDEX IF NOT EXISTS idx_materiais_obra               ON materiais(obra_id);
 CREATE INDEX IF NOT EXISTS idx_materiais_status             ON materiais(status_compra);
 CREATE INDEX IF NOT EXISTS idx_fornecedores_obra            ON fornecedores(obra_id);
-CREATE INDEX IF NOT EXISTS idx_composicao_itens_comp        ON composicao_itens(composicao_id);
+CREATE INDEX IF NOT EXISTS idx_insumos_proprios_codigo      ON insumos_proprios(codigo);
+CREATE INDEX IF NOT EXISTS idx_insumos_proprios_grupo       ON insumos_proprios(grupo);
+CREATE INDEX IF NOT EXISTS idx_composicao_insumos_comp      ON composicao_insumos(composicao_id);
+CREATE INDEX IF NOT EXISTS idx_composicao_insumos_insumo    ON composicao_insumos(insumo_id);
+CREATE INDEX IF NOT EXISTS idx_composicao_insumos_proprio   ON composicao_insumos(insumo_proprio_id);
 
 -- =============================================
 -- Dados de seed — SINAPI de exemplo (04/2026)
