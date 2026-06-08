@@ -373,6 +373,9 @@ CREATE TABLE IF NOT EXISTS composicao_insumos (
 ALTER TABLE composicao_insumos
   ADD COLUMN IF NOT EXISTS insumo_proprio_id UUID REFERENCES insumos_proprios(id) ON DELETE SET NULL;
 
+ALTER TABLE composicao_insumos
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 ALTER TABLE insumos_proprios
   ADD COLUMN IF NOT EXISTS grupo TEXT;
 
@@ -574,6 +577,28 @@ ALTER TABLE insumos_proprios
   ADD COLUMN IF NOT EXISTS grupo TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_insumos_proprios_grupo ON insumos_proprios (grupo);
+
+
+
+-- ====================================================================
+-- Incluido de: supabase\fix_2026_06_08_supabase_v1_2_columns.sql
+-- ====================================================================
+
+-- ====================================================================
+-- Fix 2026-06-08: colunas faltantes em banco Supabase antigo
+--
+-- Confirmado apos rodar setup v1.2.0 em um projeto que ja tinha tabelas:
+-- CREATE TABLE IF NOT EXISTS nao altera tabelas existentes, entao algumas
+-- colunas usadas pelo app precisavam de ALTER TABLE explicito.
+-- ====================================================================
+
+ALTER TABLE materiais
+  ADD COLUMN IF NOT EXISTS subetapa TEXT;
+
+ALTER TABLE composicao_insumos
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+NOTIFY pgrst, 'reload schema';
 
 
 

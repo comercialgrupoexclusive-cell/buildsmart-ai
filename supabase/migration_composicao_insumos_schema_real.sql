@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS composicao_insumos (
 ALTER TABLE composicao_insumos
   ADD COLUMN IF NOT EXISTS insumo_proprio_id UUID REFERENCES insumos_proprios(id) ON DELETE SET NULL;
 
+ALTER TABLE composicao_insumos
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 ALTER TABLE insumos_proprios
   ADD COLUMN IF NOT EXISTS grupo TEXT;
 
