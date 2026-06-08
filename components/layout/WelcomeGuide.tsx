@@ -9,7 +9,6 @@ import { Modal } from '@/components/ui/Modal'
 import { useProfile } from '@/lib/profile-context'
 
 const STORAGE_KEY = 'buildsmart-welcome-hidden'
-const SESSION_KEY = 'buildsmart-welcome-seen-session'
 
 const LUIZIA_LINES = [
   'Eu fico ali no botão da Luizia. Pode perguntar simples, do seu jeito, que eu tento organizar a resposta sem enrolar.',
@@ -66,14 +65,10 @@ export function WelcomeGuide() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const hidden = localStorage.getItem(STORAGE_KEY) === 'true'
-    const seenThisSession = sessionStorage.getItem(SESSION_KEY) === 'true'
-    setOpen(!hidden && !seenThisSession)
+    setOpen(!hidden)
   }, [])
 
   function close() {
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem(SESSION_KEY, 'true')
-    }
     if (dontShow && typeof window !== 'undefined') {
       localStorage.setItem(STORAGE_KEY, 'true')
     }

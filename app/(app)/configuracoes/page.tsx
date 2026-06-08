@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { Sun, Moon, Database, Info, Pipette, ListChecks, Plus, Trash2 } from 'lucide-react'
+import { Sun, Moon, Database, Info, Pipette, ListChecks, Plus, Trash2, Monitor } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -20,6 +20,7 @@ const ACCENT_OPTIONS = [
 ]
 
 const ETAPAS_PADRAO_KEY = 'buildsmart-etapas-padrao'
+const WELCOME_HIDDEN_KEY = 'buildsmart-welcome-hidden'
 
 const ETAPAS_PADRAO_SINAPI = [
   'Serviços preliminares',
@@ -54,9 +55,12 @@ export default function ConfiguracoesPage() {
   const [darkMode, setDarkMode] = useState(currentProfile?.dark_mode ?? true)
   const [etapasPadrao, setEtapasPadrao] = useState<string[]>(ETAPAS_PADRAO_SINAPI)
   const [novaEtapaPadrao, setNovaEtapaPadrao] = useState('')
+  const [showWelcomeOnEntry, setShowWelcomeOnEntry] = useState(true)
   const colorPickerRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    setShowWelcomeOnEntry(localStorage.getItem(WELCOME_HIDDEN_KEY) !== 'true')
+
     const stored = localStorage.getItem(ETAPAS_PADRAO_KEY)
     if (!stored) {
       localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_SINAPI))
@@ -119,6 +123,16 @@ export default function ConfiguracoesPage() {
 
   function resetEtapasPadrao() {
     saveEtapasPadrao(ETAPAS_PADRAO_SINAPI)
+  }
+
+  function setWelcomePreference(enabled: boolean) {
+    setShowWelcomeOnEntry(enabled)
+
+    if (enabled) {
+      localStorage.removeItem(WELCOME_HIDDEN_KEY)
+    } else {
+      localStorage.setItem(WELCOME_HIDDEN_KEY, 'true')
+    }
   }
 
   return (
@@ -248,6 +262,42 @@ export default function ConfiguracoesPage() {
                 className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform"
                 style={{ transform: darkMode ? 'translateX(26px)' : 'translateX(2px)' }}
               />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,123,248,0.12)' }}>
+                <Monitor size={15} style={{ color: 'var(--accent)' }} />
+              </div>
+              <div>
+                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                  Tela de boas-vindas
+                </p>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  Mostrar a apresentação ao entrar no sistema
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWelcomePreference(!showWelcomeOnEntry)}
+              className="flex items-center gap-2 flex-shrink-0"
+              aria-pressed={showWelcomeOnEntry}
+              title={showWelcomeOnEntry ? 'Boas-vindas ativada' : 'Boas-vindas desativada'}
+            >
+              <span className="hidden sm:inline text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                {showWelcomeOnEntry ? 'Ativada' : 'Desativada'}
+              </span>
+              <span
+                className="w-12 h-6 rounded-full relative transition-colors"
+                style={{ background: showWelcomeOnEntry ? 'var(--accent)' : 'var(--border)' }}
+              >
+                <span
+                  className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform"
+                  style={{ transform: showWelcomeOnEntry ? 'translateX(26px)' : 'translateX(2px)' }}
+                />
+              </span>
             </button>
           </div>
 

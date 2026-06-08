@@ -51,10 +51,10 @@ export function Sidebar() {
           B
         </div>
         <div className="ml-3 overflow-hidden whitespace-nowrap" style={{ transition: 'opacity 0.15s ease' }}>
-          <p className="font-semibold text-sm leading-tight" style={{ color: 'var(--text-primary)', fontFamily: 'DM Serif Display, serif' }}>
+          <p className="font-semibold text-sm leading-tight" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-sans)' }}>
             BuildSmart
           </p>
-          <p className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--accent)', fontFamily: 'DM Serif Display, serif' }}>
+          <p className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--accent)', fontFamily: 'var(--font-sans)' }}>
             AI
             <span style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-secondary)' }}>v{APP_VERSION}</span>
           </p>

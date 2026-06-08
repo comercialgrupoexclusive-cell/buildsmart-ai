@@ -138,7 +138,7 @@ function ProfileSelectionPage() {
           <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-xl" style={{ background: 'var(--accent)' }}>
             B
           </div>
-          <h1 className="text-4xl font-bold" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--text-primary)' }}>
+          <h1 className="text-4xl font-bold" style={{ fontFamily: 'var(--font-sans)', color: 'var(--text-primary)' }}>
             BuildSmart <span style={{ color: 'var(--accent)' }}>AI</span>
             <span
               className="ml-2 align-middle text-xs font-medium px-1.5 py-0.5 rounded-md"
