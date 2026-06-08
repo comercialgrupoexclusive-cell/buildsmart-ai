@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck } from 'lucide-react'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -50,6 +50,44 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   const [editForm, setEditForm] = useState({
     nome: '', endereco: '', responsavel: '', data_inicio: '', data_previsao: '', foto_url: '', area_m2: '', uf: 'SP',
   })
+  const [uploadingFoto, setUploadingFoto] = useState(false)
+
+  // Upload de foto da obra — converte a imagem em data URL (base64) e salva
+  // direto no campo foto_url, sem depender de bucket externo configurado.
+  // Antes só existia um campo de texto pra colar link, e o usuário relatou
+  // que "inserir foto não está funcionando" (provavelmente porque esperava
+  // anexar um arquivo, não colar uma URL).
+  function handleFotoObra(files: FileList | null) {
+    const file = files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) { alert('Selecione um arquivo de imagem.'); return }
+    setUploadingFoto(true)
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result
+      if (typeof dataUrl !== 'string') { setUploadingFoto(false); return }
+      // Reduz a imagem (máx. 1280px no maior lado, JPEG ~80%) antes de salvar como
+      // data URL — evita gravar fotos de câmera (vários MB) direto na coluna TEXT.
+      const img = new Image()
+      img.onload = () => {
+        const max = 1280
+        const escala = Math.min(1, max / Math.max(img.width, img.height))
+        const w = Math.round(img.width * escala)
+        const h = Math.round(img.height * escala)
+        const canvas = document.createElement('canvas')
+        canvas.width = w; canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { setEditForm(f => ({ ...f, foto_url: dataUrl })); setUploadingFoto(false); return }
+        ctx.drawImage(img, 0, 0, w, h)
+        setEditForm(f => ({ ...f, foto_url: canvas.toDataURL('image/jpeg', 0.8) }))
+        setUploadingFoto(false)
+      }
+      img.onerror = () => { setEditForm(f => ({ ...f, foto_url: dataUrl })); setUploadingFoto(false) }
+      img.src = dataUrl
+    }
+    reader.onerror = () => setUploadingFoto(false)
+    reader.readAsDataURL(file)
+  }
 
   useEffect(() => {
     loadObra()
@@ -390,13 +428,47 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
               onChange={e => setEditForm(f => ({ ...f, data_previsao: e.target.value }))}
             />
           </div>
-          <Input
-            label="URL da foto (opcional)"
-            value={editForm.foto_url}
-            onChange={e => setEditForm(f => ({ ...f, foto_url: e.target.value }))}
-            placeholder="https://..."
-            hint="Link direto para imagem da obra"
-          />
+          <div>
+            <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+              Foto da obra <span className="font-normal opacity-70">(opcional)</span>
+            </label>
+            <div className="flex items-center gap-3">
+              {editForm.foto_url ? (
+                <div className="relative w-20 h-20 rounded-lg overflow-hidden flex-shrink-0" style={{ border: '1px solid var(--border)' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={editForm.foto_url} alt="Foto da obra" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setEditForm(f => ({ ...f, foto_url: '' }))}
+                    className="absolute top-0.5 right-0.5 rounded-full p-0.5"
+                    style={{ background: 'rgba(0,0,0,0.55)', color: '#fff' }}
+                    title="Remover foto"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <div className="w-20 h-20 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)', border: '1px dashed var(--border)' }}>
+                  <HardHat size={24} style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />
+                </div>
+              )}
+              <div className="flex flex-col gap-2 flex-1 min-w-0">
+                <label
+                  className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors w-fit"
+                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+                >
+                  {uploadingFoto ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+                  {uploadingFoto ? 'Carregando...' : 'Anexar imagem do dispositivo'}
+                  <input type="file" accept="image/*" className="hidden" onChange={e => handleFotoObra(e.target.files)} disabled={uploadingFoto} />
+                </label>
+                <Input
+                  value={editForm.foto_url.startsWith('data:') ? '' : editForm.foto_url}
+                  onChange={e => setEditForm(f => ({ ...f, foto_url: e.target.value }))}
+                  placeholder="ou cole o link direto de uma imagem (https://...)"
+                />
+              </div>
+            </div>
+          </div>
 
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" className="flex-1" onClick={() => setShowEditModal(false)}>Cancelar</Button>

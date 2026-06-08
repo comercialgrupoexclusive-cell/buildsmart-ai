@@ -1,23 +1,26 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Calendar, ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
 import { Etapa } from '@/lib/types'
 import { STATUS_ETAPA_LABEL } from '@/lib/utils'
 
-type SubetapaGantt = {
+export type SubetapaGantt = {
   id: string
   etapa_id: string | null
   nome: string
   codigo?: string | null
   quantidade?: number
   unidade?: string | null
+  data_inicio?: string | null
+  data_fim?: string | null
 }
 
 type CronogramaGanttProps = {
   etapas: Etapa[]
   subetapas?: SubetapaGantt[]
   titulo?: string
+  onEditSubetapa?: (sub: SubetapaGantt) => void
 }
 
 const STATUS_BAR_COLOR: Record<string, string> = {
@@ -42,7 +45,7 @@ function shortDate(value: string | null) {
   return parseDate(value).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
-export function CronogramaGantt({ etapas, subetapas = [], titulo = 'Gantt de etapas e subetapas' }: CronogramaGanttProps) {
+export function CronogramaGantt({ etapas, subetapas = [], titulo = 'Gantt de etapas e subetapas', onEditSubetapa }: CronogramaGanttProps) {
   const [offsetMeses, setOffsetMeses] = useState(0)
 
   const etapasComData = etapas.filter(e => e.data_inicio && e.data_fim)
@@ -95,7 +98,7 @@ export function CronogramaGantt({ etapas, subetapas = [], titulo = 'Gantt de eta
             {titulo}
           </h2>
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Subetapas vêm dos itens do orçamento e são distribuídas dentro do período da etapa.
+            Subetapas vêm dos itens do orçamento{onEditSubetapa ? ' — clique numa barra clara para editar o prazo dela' : ' e são distribuídas dentro do período da etapa'}.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -166,19 +169,47 @@ export function CronogramaGantt({ etapas, subetapas = [], titulo = 'Gantt de eta
                     {subs.length > 0 && visibleWidth > 0 && (
                       <div className="relative mt-1 h-7 rounded" style={{ background: 'var(--bg-secondary)' }}>
                         {subs.map((sub, index) => {
-                          const subWidth = visibleWidth / subs.length
-                          const subLeft = left + subWidth * index
+                          // Subetapa com prazo próprio: posiciona pela data dela (clampada
+                          // ao período visível da etapa). Sem prazo próprio: distribui
+                          // igualmente dentro da barra da etapa-mãe (comportamento antigo).
+                          const temPrazoProprio = !!(sub.data_inicio && sub.data_fim)
+                          let subLeft: number
+                          let subWidth: number
+                          if (temPrazoProprio) {
+                            const subInicio = parseDate(sub.data_inicio!)
+                            const subFim = parseDate(sub.data_fim!)
+                            const subStartDia = dayDiff(subInicio, ganttStart)
+                            const subEndDia = dayDiff(subFim, ganttStart)
+                            const rawLeft = Math.max(0, subStartDia) / totalDias * 100
+                            const rawWidth = (Math.min(totalDias, subEndDia) - Math.max(0, subStartDia) + 1) / totalDias * 100
+                            // clamp dentro da faixa visível da etapa-mãe
+                            subLeft = Math.max(left, Math.min(rawLeft, left + visibleWidth))
+                            subWidth = Math.max(2, Math.min(rawWidth, left + visibleWidth - subLeft))
+                          } else {
+                            subWidth = visibleWidth / subs.length
+                            subLeft = left + subWidth * index
+                          }
+                          const editavel = !!onEditSubetapa
                           return (
-                            <div
+                            <button
                               key={`${etapa.id}-${sub.id}-${index}`}
-                              className="absolute top-1 bottom-1 rounded px-1.5 flex items-center"
-                              style={{ left: `${subLeft}%`, width: `${Math.max(subWidth, 2)}%`, background: SUB_BAR_COLOR, border: '1px solid rgba(255,255,255,0.16)' }}
-                              title={`${sub.codigo ? `${sub.codigo} - ` : ''}${sub.nome}`}
+                              type="button"
+                              onClick={() => onEditSubetapa?.(sub)}
+                              disabled={!editavel}
+                              className="absolute top-1 bottom-1 rounded px-1.5 flex items-center gap-1 text-left transition-colors"
+                              style={{
+                                left: `${subLeft}%`, width: `${Math.max(subWidth, 2)}%`,
+                                background: temPrazoProprio ? 'rgba(59,123,248,0.28)' : SUB_BAR_COLOR,
+                                border: temPrazoProprio ? '1px solid rgba(59,123,248,0.55)' : '1px solid rgba(255,255,255,0.16)',
+                                cursor: editavel ? 'pointer' : 'default',
+                              }}
+                              title={`${sub.codigo ? `${sub.codigo} - ` : ''}${sub.nome}${temPrazoProprio ? ` · ${shortDate(sub.data_inicio!)} - ${shortDate(sub.data_fim!)}` : ''}${editavel ? ' (clique para editar o prazo)' : ''}`}
                             >
                               <span className="text-[10px] truncate" style={{ color: 'var(--text-primary)' }}>
                                 {sub.codigo ? `${sub.codigo} ` : ''}{sub.nome}
                               </span>
-                            </div>
+                              {editavel && <Pencil size={9} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />}
+                            </button>
                           )
                         })}
                       </div>

@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList, NotebookPen, Sun, Cloud, CloudRain, Camera, X, Plus, Trash2 } from 'lucide-react'
+import { TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList, NotebookPen, Sun, Cloud, CloudRain, Camera, X, Plus, Trash2, Pencil } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { Etapa } from '@/lib/types'
+import { Etapa, Medicao } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
 
 function corPorPercentual(p: number) {
@@ -27,6 +27,7 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   // Progresso ao vivo, editável diretamente — persistido em localStorage (mesmo padrão de insumoOverrides)
   const [progresso, setProgresso] = useState<Record<string, number>>({})
+  const [progressoLoaded, setProgressoLoaded] = useState(false)
   // Sub-abas: Medição (cascata de %) e Diário / RDO (registro diário com clima, atividades e fotos)
   const [subTab, setSubTab] = useState<'medicao' | 'diario'>('medicao')
 
@@ -71,18 +72,24 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
   // Carrega progresso salvo localmente para esta obra
   useEffect(() => {
     if (!obraId) return
+    setProgressoLoaded(false)
     const stored = localStorage.getItem(`bs_progresso_${obraId}`)
-    if (!stored) return
-    Promise.resolve().then(() => {
-      try { setProgresso(JSON.parse(stored)) } catch { /* ignore */ }
-    })
+    if (stored) {
+      try { setProgresso(JSON.parse(stored)) } catch { setProgresso({}) }
+    } else {
+      setProgresso({})
+    }
+    setProgressoLoaded(true)
   }, [obraId])
 
-  // Persiste progresso a cada alteração
+  // Persiste progresso a cada alteração — só depois que o carregamento inicial
+  // terminou, pra não sobrescrever o valor salvo com o estado inicial vazio
+  // (corrida entre o efeito de carga e o de persistência, agravada pelo
+  // StrictMode/montagem condicional da aba)
   useEffect(() => {
-    if (!obraId) return
+    if (!obraId || !progressoLoaded) return
     localStorage.setItem(`bs_progresso_${obraId}`, JSON.stringify(progresso))
-  }, [obraId, progresso])
+  }, [obraId, progresso, progressoLoaded])
 
   const chaveEtapa = (etapaId: string) => `etapa:${etapaId}`
   const chaveSub = (etapaId: string, nome: string) => `sub:${etapaId}::${nome}`
@@ -220,6 +227,9 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
               })}
             </div>
           )}
+
+          {/* Registros formais de medição — nome, período, % executado, observação e fotos */}
+          <RegistrosMedicao obraId={obraId} etapas={etapas} />
         </>
       )}
     </div>
@@ -349,6 +359,7 @@ const CLIMA_INFO: Record<Clima, { label: string; icon: typeof Sun }> = {
 
 function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
   const [entradas, setEntradas] = useState<DiarioEntrada[]>([])
+  const [entradasLoaded, setEntradasLoaded] = useState(false)
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10))
   const [clima, setClima] = useState<Clima>('sol')
   const [etapaId, setEtapaId] = useState('')
@@ -356,20 +367,26 @@ function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
   const [observacoes, setObservacoes] = useState('')
   const [fotos, setFotos] = useState<string[]>([])
 
-  // Carrega/persiste registros do diário desta obra (mesmo padrão de localStorage do progresso de medição)
+  // Carrega/persiste registros do diário desta obra (mesmo padrão de localStorage do progresso de medição).
+  // Importante: o carregamento precisa terminar (entradasLoaded=true) ANTES do efeito de
+  // persistência rodar — caso contrário ele grava `[]` (estado inicial) por cima do que já
+  // estava salvo, apagando os registros (bug "registrei um diário e ele sumiu").
   useEffect(() => {
     if (!obraId) return
+    setEntradasLoaded(false)
     const stored = localStorage.getItem(`bs_diario_${obraId}`)
-    if (!stored) return
-    Promise.resolve().then(() => {
-      try { setEntradas(JSON.parse(stored)) } catch { /* ignore */ }
-    })
+    if (stored) {
+      try { setEntradas(JSON.parse(stored)) } catch { setEntradas([]) }
+    } else {
+      setEntradas([])
+    }
+    setEntradasLoaded(true)
   }, [obraId])
 
   useEffect(() => {
-    if (!obraId) return
+    if (!obraId || !entradasLoaded) return
     localStorage.setItem(`bs_diario_${obraId}`, JSON.stringify(entradas))
-  }, [obraId, entradas])
+  }, [obraId, entradas, entradasLoaded])
 
   function handleFotos(files: FileList | null) {
     if (!files) return
@@ -382,32 +399,70 @@ function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
     })
   }
 
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+
   function adicionarEntrada() {
-    if (!atividades.trim() && !observacoes.trim()) return
-    const nova: DiarioEntrada = {
-      id: `diario-${Date.now()}`,
-      data,
-      clima,
-      etapaId: etapaId || null,
-      atividades: atividades.trim(),
-      observacoes: observacoes.trim(),
-      fotos,
+    // Permite registrar com apenas fotos (sem texto) — antes o registro era
+    // descartado silenciosamente se não houvesse atividades/observações.
+    if (!atividades.trim() && !observacoes.trim() && fotos.length === 0) return
+    if (editandoId) {
+      setEntradas(prev => prev.map(e => e.id === editandoId
+        ? { ...e, data, clima, etapaId: etapaId || null, atividades: atividades.trim(), observacoes: observacoes.trim(), fotos }
+        : e))
+      setEditandoId(null)
+    } else {
+      const nova: DiarioEntrada = {
+        id: `diario-${Date.now()}`,
+        data,
+        clima,
+        etapaId: etapaId || null,
+        atividades: atividades.trim(),
+        observacoes: observacoes.trim(),
+        fotos,
+      }
+      setEntradas(prev => [nova, ...prev])
     }
-    setEntradas(prev => [nova, ...prev])
     setAtividades('')
     setObservacoes('')
     setFotos([])
+    setData(new Date().toISOString().slice(0, 10))
+    setClima('sol')
+    setEtapaId('')
+  }
+
+  function editarEntrada(entrada: DiarioEntrada) {
+    setEditandoId(entrada.id)
+    setData(entrada.data)
+    setClima(entrada.clima)
+    setEtapaId(entrada.etapaId || '')
+    setAtividades(entrada.atividades)
+    setObservacoes(entrada.observacoes)
+    setFotos(entrada.fotos)
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null)
+    setAtividades('')
+    setObservacoes('')
+    setFotos([])
+    setData(new Date().toISOString().slice(0, 10))
+    setClima('sol')
+    setEtapaId('')
   }
 
   function removerEntrada(id: string) {
+    if (!confirm('Remover este registro do diário?')) return
     setEntradas(prev => prev.filter(e => e.id !== id))
+    if (editandoId === id) cancelarEdicao()
   }
 
   return (
     <div className="flex flex-col gap-4 pb-16">
       {/* Formulário de novo registro diário */}
       <div className="card p-4 flex flex-col gap-3">
-        <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Novo registro diário</p>
+        <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+          {editandoId ? 'Editando registro diário' : 'Novo registro diário'}
+        </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
@@ -494,9 +549,18 @@ function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
           </div>
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          {editandoId && (
+            <button
+              onClick={cancelarEdicao}
+              className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-medium transition-colors"
+              style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+            >
+              Cancelar edição
+            </button>
+          )}
           <button onClick={adicionarEntrada} className="btn-primary flex items-center gap-2 text-sm px-4 py-2">
-            <Plus size={15} /> Registrar no diário
+            <Plus size={15} /> {editandoId ? 'Salvar alterações' : 'Registrar no diário'}
           </button>
         </div>
       </div>
@@ -529,9 +593,14 @@ function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
                       </span>
                     )}
                   </div>
-                  <button onClick={() => removerEntrada(entrada.id)} className="p-1.5 rounded-md hover:opacity-70" style={{ color: 'var(--danger)' }} title="Remover registro">
-                    <Trash2 size={15} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => editarEntrada(entrada)} className="p-1.5 rounded-md hover:opacity-70" style={{ color: 'var(--text-secondary)' }} title="Editar registro">
+                      <NotebookPen size={15} />
+                    </button>
+                    <button onClick={() => removerEntrada(entrada.id)} className="p-1.5 rounded-md hover:opacity-70" style={{ color: 'var(--danger)' }} title="Remover registro">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
                 {entrada.atividades && (
                   <div>
@@ -551,6 +620,332 @@ function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
                       <div key={i} className="w-20 h-20 rounded-md overflow-hidden flex-shrink-0" style={{ border: '1px solid var(--border)' }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={foto} alt={`Foto ${i + 1} do registro de ${entrada.data}`} className="w-full h-full object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Registros formais de medição (CRUD completo — nome, período, % executado, observação, fotos) ──
+// Diferente da cascata ao vivo acima (que é só um indicador editável persistido em localStorage),
+// aqui o usuário registra "medições" formais — com nome, datas do período, percentual apurado,
+// observações e fotos — que ficam salvas na tabela `medicoes` do Supabase e podem ser editadas
+// ou removidas a qualquer momento.
+const MEDICAO_VAZIA = {
+  nome: '', etapaId: '', periodoInicio: '', periodoFim: '', percentual: '', observacao: '',
+}
+
+function RegistrosMedicao({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
+  const supabase = createClient()
+  const [medicoes, setMedicoes] = useState<Medicao[]>([])
+  const [loading, setLoading] = useState(true)
+  const [salvando, setSalvando] = useState(false)
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [form, setForm] = useState(MEDICAO_VAZIA)
+  const [fotos, setFotos] = useState<string[]>([])
+  const [mostrarForm, setMostrarForm] = useState(false)
+
+  useEffect(() => {
+    if (!obraId) return
+    carregar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obraId])
+
+  async function carregar() {
+    setLoading(true)
+    const { data } = await supabase.from('medicoes').select('*').eq('obra_id', obraId).order('periodo_inicio', { ascending: false })
+    setMedicoes((data || []) as Medicao[])
+    setLoading(false)
+  }
+
+  function handleFotos(files: FileList | null) {
+    if (!files) return
+    Array.from(files).forEach(file => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === 'string') setFotos(prev => [...prev, reader.result as string])
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  function novoRegistro() {
+    setEditandoId(null)
+    setForm(MEDICAO_VAZIA)
+    setFotos([])
+    setMostrarForm(true)
+  }
+
+  function editar(m: Medicao) {
+    setEditandoId(m.id)
+    setForm({
+      nome: m.nome || '',
+      etapaId: m.etapa_id || '',
+      periodoInicio: m.periodo_inicio || '',
+      periodoFim: m.periodo_fim || '',
+      percentual: String(m.percentual_executado ?? ''),
+      observacao: m.observacao || '',
+    })
+    setFotos(m.fotos || [])
+    setMostrarForm(true)
+  }
+
+  function cancelar() {
+    setEditandoId(null)
+    setForm(MEDICAO_VAZIA)
+    setFotos([])
+    setMostrarForm(false)
+  }
+
+  async function salvar() {
+    if (!form.periodoInicio || !form.periodoFim) {
+      alert('Preencha o período (início e fim) da medição.')
+      return
+    }
+    setSalvando(true)
+    const payloadCompleto = {
+      obra_id: obraId,
+      etapa_id: form.etapaId || null,
+      nome: form.nome.trim() || null,
+      periodo_inicio: form.periodoInicio,
+      periodo_fim: form.periodoFim,
+      percentual_executado: clamp(parseFloat(form.percentual) || 0),
+      observacao: form.observacao.trim() || null,
+      fotos,
+      updated_at: new Date().toISOString(),
+    }
+
+    async function tentarSalvar(payload: Record<string, unknown>) {
+      if (editandoId) return supabase.from('medicoes').update(payload).eq('id', editandoId)
+      return supabase.from('medicoes').insert(payload)
+    }
+
+    let { error } = await tentarSalvar(payloadCompleto)
+
+    // Coluna ainda não existe no banco (migração pendente) — tenta de novo só
+    // com os campos "antigos" (que já existiam antes da migração de nome/fotos/
+    // updated_at), pra pelo menos salvar o essencial em vez de falhar tudo.
+    if (error && /column .* does not exist/i.test(error.message)) {
+      const { nome: _nome, fotos: _fotos, updated_at: _updated, ...payloadBasico } = payloadCompleto
+      void _nome; void _fotos; void _updated
+      const tentativa2 = await tentarSalvar(payloadBasico)
+      error = tentativa2.error
+      if (!error) {
+        alert(
+          'Medição salva — mas SEM nome/fotos, porque o banco ainda não tem essas colunas.\n\n' +
+          'Para habilitar nome, fotos e edição completa da medição, é preciso rodar a migração pendente ' +
+          '"supabase/migration_medicoes_registro_completo.sql" no SQL Editor do Supabase (uma vez só).'
+        )
+      }
+    }
+
+    setSalvando(false)
+    if (error) {
+      console.error('Erro ao salvar medição:', error)
+      alert(`Não foi possível salvar a medição.\n\nErro do banco: ${error.message}`)
+      return
+    }
+    cancelar()
+    carregar()
+  }
+
+  async function remover(id: string) {
+    if (!confirm('Remover esta medição? Esta ação não pode ser desfeita.')) return
+    const { error } = await supabase.from('medicoes').delete().eq('id', id)
+    if (error) {
+      console.error('Erro ao remover medição:', error)
+      alert(`Não foi possível remover a medição.\n\nErro do banco: ${error.message}`)
+      return
+    }
+    setMedicoes(prev => prev.filter(m => m.id !== id))
+    if (editandoId === id) cancelar()
+  }
+
+  return (
+    <div className="flex flex-col gap-3 pb-16">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Registros de medição</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+            Registre formalmente cada medição do período — com nome, percentual apurado, observações e fotos comprobatórias.
+          </p>
+        </div>
+        {!mostrarForm && (
+          <button onClick={novoRegistro} className="btn-primary flex items-center gap-2 text-sm px-4 py-2 flex-shrink-0">
+            <Plus size={15} /> Nova medição
+          </button>
+        )}
+      </div>
+
+      {mostrarForm && (
+        <div className="card p-4 flex flex-col gap-3">
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            {editandoId ? 'Editar medição' : 'Registrar medição'}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Nome / identificação</label>
+              <input
+                value={form.nome}
+                onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
+                placeholder="Ex.: Medição 1 — Fundação"
+                className="input-base w-full"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Etapa (opcional)</label>
+              <select value={form.etapaId} onChange={e => setForm(f => ({ ...f, etapaId: e.target.value }))} className="input-base w-full">
+                <option value="">Geral / sem vínculo</option>
+                {etapas.map(et => <option key={et.id} value={et.id}>{et.nome}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Período — início *</label>
+              <input type="date" value={form.periodoInicio} onChange={e => setForm(f => ({ ...f, periodoInicio: e.target.value }))} className="input-base w-full" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Período — fim *</label>
+              <input type="date" value={form.periodoFim} onChange={e => setForm(f => ({ ...f, periodoFim: e.target.value }))} className="input-base w-full" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>% executado no período</label>
+              <div className="relative flex items-center">
+                <input
+                  type="number" min={0} max={100} step={0.5}
+                  value={form.percentual}
+                  onChange={e => setForm(f => ({ ...f, percentual: e.target.value }))}
+                  className="input-base w-full text-right tabular-nums"
+                  style={{ paddingRight: 26 }}
+                />
+                <span className="absolute right-2.5 text-sm pointer-events-none" style={{ color: 'var(--text-secondary)' }}>%</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Observações / descrição</label>
+            <textarea
+              value={form.observacao}
+              onChange={e => setForm(f => ({ ...f, observacao: e.target.value }))}
+              rows={3}
+              placeholder="Detalhes do que foi medido, critérios de aceitação, ressalvas..."
+              className="input-base w-full resize-none"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Fotos</label>
+            <div className="flex flex-wrap items-center gap-2">
+              {fotos.map((foto, i) => (
+                <div key={i} className="relative w-16 h-16 rounded-md overflow-hidden flex-shrink-0" style={{ border: '1px solid var(--border)' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={foto} alt={`Anexo ${i + 1}`} className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setFotos(prev => prev.filter((_, idx) => idx !== i))}
+                    className="absolute top-0.5 right-0.5 rounded-full p-0.5"
+                    style={{ background: 'rgba(0,0,0,0.55)', color: '#fff' }}
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ))}
+              <label
+                className="flex flex-col items-center justify-center gap-1 w-16 h-16 rounded-md cursor-pointer text-xs flex-shrink-0"
+                style={{ border: '1px dashed var(--border)', color: 'var(--text-secondary)' }}
+              >
+                <Camera size={16} />
+                Anexar
+                <input type="file" accept="image/*" multiple className="hidden" onChange={e => handleFotos(e.target.files)} />
+              </label>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={cancelar}
+              className="flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-medium transition-colors"
+              style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={salvar}
+              disabled={salvando || !form.periodoInicio || !form.periodoFim}
+              className="btn-primary flex items-center gap-2 text-sm px-4 py-2 disabled:opacity-50"
+            >
+              <Plus size={15} /> {salvando ? 'Salvando...' : editandoId ? 'Salvar alterações' : 'Registrar medição'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        </div>
+      ) : medicoes.length === 0 ? (
+        !mostrarForm && (
+          <EmptyState
+            icon={ClipboardList}
+            title="Nenhuma medição registrada ainda"
+            description="Registre as medições formais do período — nome, percentual apurado, observações e fotos — para manter o histórico de execução da obra."
+            action={
+              <button onClick={novoRegistro} className="btn-primary px-4 py-2 text-sm rounded-lg inline-flex items-center gap-2">
+                <Plus size={15} /> Nova medição
+              </button>
+            }
+          />
+        )
+      ) : (
+        <div className="flex flex-col gap-3">
+          {medicoes.map(m => {
+            const etapa = etapas.find(e => e.id === m.etapa_id)
+            return (
+              <div key={m.id} className="card p-4 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {m.nome || 'Medição sem nome'}
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                      {new Date(`${m.periodo_inicio}T00:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                      {' → '}
+                      {new Date(`${m.periodo_fim}T00:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </span>
+                    {etapa && (
+                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                        {etapa.nome}
+                      </span>
+                    )}
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ color: corPorPercentual(m.percentual_executado), background: 'var(--bg-secondary)' }}>
+                      {Number(m.percentual_executado).toFixed(1)}% executado
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={() => editar(m)} className="p-1.5 rounded-md hover:opacity-70" style={{ color: 'var(--text-secondary)' }} title="Editar medição">
+                      <Pencil size={15} />
+                    </button>
+                    <button onClick={() => remover(m.id)} className="p-1.5 rounded-md hover:opacity-70" style={{ color: 'var(--danger)' }} title="Remover medição">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+                {m.observacao && (
+                  <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{m.observacao}</p>
+                )}
+                {m.fotos && m.fotos.length > 0 && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {m.fotos.map((foto, i) => (
+                      <div key={i} className="w-20 h-20 rounded-md overflow-hidden flex-shrink-0" style={{ border: '1px solid var(--border)' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={foto} alt={`Foto ${i + 1} da medição ${m.nome || ''}`} className="w-full h-full object-cover" />
                       </div>
                     ))}
                   </div>

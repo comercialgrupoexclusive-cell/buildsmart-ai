@@ -49,6 +49,8 @@ export type OrcamentoItem = {
   subetapa: string | null
   composicao_id: string | null
   sinapi_composicao_id: string | null
+  data_inicio: string | null
+  data_fim: string | null
   quantidade: number
   preco_unitario_snapshot: number
   descricao_snapshot: string | null
@@ -185,11 +187,14 @@ export type Medicao = {
   id: string
   obra_id: string
   etapa_id: string | null
+  nome: string | null
   periodo_inicio: string
   periodo_fim: string
   percentual_executado: number
   observacao: string | null
+  fotos: string[]
   created_at: string
+  updated_at: string
 }
 
 // ─── Fornecedor ───────────────────────────────────────────────────────────────

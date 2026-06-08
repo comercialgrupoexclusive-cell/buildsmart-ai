@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback, Fragment } from 'react'
 import {
-  Plus, Lock, Unlock, Search, Trash2, MoreHorizontal,
+  Plus, Lock, Unlock, Search, Trash2, MoreHorizontal, RefreshCw, Snowflake,
   ChevronDown, ChevronRight, FolderPlus, RotateCcw, FileSpreadsheet,
   Boxes, Users, FileText, Percent, Wallet, ArrowLeftRight,
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
@@ -99,6 +99,9 @@ type ItemEnriquecido = {
   descricao: string
   unidade: string
   composicao_itens?: ComposicaoItemJoin[]
+  // mês de referência da composição SINAPI (quando o item vem da base SINAPI) —
+  // necessário para casar com `sinapi_composicao_itens` ao gerar/abater materiais
+  sinapi_mes_referencia?: string | null
 }
 
 // ─── override key helper ─────────────────────────────────────────────────────
@@ -166,6 +169,19 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   const [quantidade, setQuantidade] = useState('')
   const [saving, setSaving] = useState(false)
   const qtdInputRef = useRef<HTMLInputElement>(null)
+  // Cache (por sessão de componente) de se a coluna materiais.subetapa existe —
+  // em alguns bancos a migração "fix_2026_06_08_supabase_v1_2_columns.sql"
+  // ainda não rodou, e a coluna não existe. Sondamos uma vez e reaproveitamos,
+  // pra não bloquear silenciosamente toda a cascata de geração de materiais
+  // (era a causa raiz de "materiais não estão sendo importados do orçamento").
+  const temSubetapaMateriaisRef = useRef<boolean | null>(null)
+  async function materiaisTemSubetapa(): Promise<boolean> {
+    if (temSubetapaMateriaisRef.current !== null) return temSubetapaMateriaisRef.current
+    const { error } = await supabase.from('materiais').select('subetapa').eq('obra_id', obraId).limit(1)
+    const tem = !(error && /column .* does not exist/i.test(error.message))
+    temSubetapaMateriaisRef.current = tem
+    return tem
+  }
 
   // Modal nova etapa
   const [showNovaEtapa, setShowNovaEtapa] = useState(false)
@@ -182,6 +198,15 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   // Menu ...
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const [sincronizandoMateriais, setSincronizandoMateriais] = useState(false)
+
+  // ─── Reabrir orçamento finalizado (nova versão) ──────────────────────────
+  // O usuário perguntou se reabrir volta a puxar os preços da base — hoje não:
+  // a versão nova é criada preservando o snapshot congelado. Damos a opção
+  // explícita de manter os preços congelados OU atualizar pelos preços atuais
+  // da base (SINAPI / composições próprias) na UF da obra.
+  const [showReabrirModal, setShowReabrirModal] = useState(false)
+  const [reabrindo, setReabrindo] = useState(false)
 
   // ─── Carregar overrides do localStorage ─────────────────────────────────
   useEffect(() => {
@@ -246,7 +271,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   async function loadItens(orcamentoId: string) {
     const { data } = await supabase
       .from('orcamento_itens')
-      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,${COMPOSICAO_INSUMOS_EMBED}), sinapi_composicoes(id,codigo,descricao,unidade,custos,custo_unitario)`)
+      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,${COMPOSICAO_INSUMOS_EMBED}), sinapi_composicoes(id,codigo,descricao,unidade,custos,custo_unitario,mes_referencia)`)
       .eq('orcamento_id', orcamentoId)
       .order('updated_at')
 
@@ -259,6 +284,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         descricao: item.descricao_snapshot || cp?.descricao || sc?.descricao || '—',
         unidade: cp?.unidade || sc?.unidade || item.unidade_snapshot || '—',
         composicao_itens: cp?.composicao_insumos || [],
+        sinapi_mes_referencia: sc?.mes_referencia || null,
       }
     })
     setItens(enriched)
@@ -420,7 +446,9 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       if (error) throw error
 
       if (!isSinapi && 'composicao_itens' in selectedItem) {
-        await gerarMateriaisDaComposicao(selectedItem.composicao_itens || [], qtd, etapaId, subetapaFinal)
+        await gerarMateriaisDaComposicao(selectedItem.composicao_itens || [], qtd, etapaId, subetapaFinal, selectedItem.codigo, selectedItem.descricao, selectedItem.unidade)
+      } else if (isSinapi) {
+        await gerarMateriaisDaComposicaoSinapi(selectedItem.codigo, (selectedItem as SinapiComposicao).mes_referencia, qtd, etapaId, subetapaFinal, selectedItem.descricao, selectedItem.unidade)
       }
 
       setSelectedItem(null); setQuantidade(''); setBusca('')
@@ -436,8 +464,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
   async function handleRemoveItem(itemId: string) {
     const item = itens.find(i => i.id === itemId)
-    if (item?.composicao_itens?.length) {
-      await abaterMateriaisDaComposicao(item.composicao_itens, item.quantidade, item.etapa_id, item.subetapa)
+    if (item?.composicao_id) {
+      await abaterMateriaisDaComposicao(item.composicao_itens || [], item.quantidade, item.etapa_id, item.subetapa, item.codigo)
+    } else if (item?.sinapi_composicao_id && item.codigo && item.codigo !== '—') {
+      await abaterMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, item.quantidade, item.etapa_id, item.subetapa)
     }
     // Limpar overrides deste item
     setInsumoOverrides(prev => {
@@ -460,8 +490,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     if (!confirm(aviso)) return
 
     for (const item of itensDaEtapa) {
-      if (item.composicao_itens?.length) {
-        await abaterMateriaisDaComposicao(item.composicao_itens, item.quantidade, item.etapa_id, item.subetapa)
+      if (item.composicao_id) {
+        await abaterMateriaisDaComposicao(item.composicao_itens || [], item.quantidade, item.etapa_id, item.subetapa, item.codigo)
+      } else if (item.sinapi_composicao_id && item.codigo && item.codigo !== '—') {
+        await abaterMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, item.quantidade, item.etapa_id, item.subetapa)
       }
       setInsumoOverrides(prev => {
         const next = { ...prev }
@@ -629,7 +661,9 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       }
 
       if (!insumosAntigos.length && !isSinapi && 'composicao_itens' in composicao) {
-        await gerarMateriaisDaComposicao((composicao as ComposicaoComCusto).composicao_itens || [], quantidade, etapaId, subetapa)
+        await gerarMateriaisDaComposicao((composicao as ComposicaoComCusto).composicao_itens || [], quantidade, etapaId, subetapa, composicao.codigo, composicao.descricao, composicao.unidade)
+      } else if (!insumosAntigos.length && isSinapi) {
+        await gerarMateriaisDaComposicaoSinapi(composicao.codigo, (composicao as SinapiComposicao).mes_referencia, quantidade, etapaId, subetapa, composicao.descricao, composicao.unidade)
       }
 
       inseridos++
@@ -646,72 +680,297 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     setShowMenu(false)
   }
 
-  async function handleReabrir() {
-    if (!orcamento) return
-    const novaVersao = orcamento.versao + 1
-    const { data: novoOrc } = await supabase
-      .from('orcamentos')
-      .insert({ obra_id: obraId, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, status: 'rascunho', versao: novaVersao })
-      .select().single()
-    if (novoOrc) {
-      for (const item of itens) {
-        await supabase.from('orcamento_itens').insert({
-          orcamento_id: novoOrc.id, etapa_id: item.etapa_id,
-          composicao_id: item.composicao_id, sinapi_composicao_id: item.sinapi_composicao_id,
-          quantidade: item.quantidade, preco_unitario_snapshot: item.preco_unitario_snapshot,
-          descricao_snapshot: item.descricao_snapshot, codigo_snapshot: item.codigo_snapshot,
-          unidade_snapshot: item.unidade_snapshot,
-        })
-      }
-      setOrcamento(novoOrc); loadItens(novoOrc.id)
-    }
+  function handleReabrir() {
     setShowMenu(false)
+    setShowReabrirModal(true)
+  }
+
+  // Busca o preço atual de um item na base (SINAPI ou composição própria) para
+  // a UF da obra. Retorna null quando não há referência viva (ex.: item digitado
+  // manualmente / importado sem vínculo) — nesse caso o snapshot antigo é mantido.
+  async function precoAtualDoItem(item: ItemEnriquecido): Promise<number | null> {
+    if (item.sinapi_composicao_id) {
+      const { data } = await supabase.from('sinapi_composicoes').select('custos').eq('id', item.sinapi_composicao_id).maybeSingle()
+      const custos = (data as { custos?: Record<string, number> } | null)?.custos
+      return custos?.[obraUf] ?? null
+    }
+    if (item.composicao_id) {
+      const cp = composicoesProprias.find(c => c.id === item.composicao_id)
+      return cp?.custo_calculado ?? null
+    }
+    return null
+  }
+
+  async function confirmarReabrir(atualizarPrecos: boolean) {
+    if (!orcamento) return
+    setReabrindo(true)
+    try {
+      const novaVersao = orcamento.versao + 1
+      const { data: novoOrc } = await supabase
+        .from('orcamentos')
+        .insert({ obra_id: obraId, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, status: 'rascunho', versao: novaVersao })
+        .select().single()
+      if (novoOrc) {
+        let atualizados = 0
+        for (const item of itens) {
+          let preco = item.preco_unitario_snapshot
+          if (atualizarPrecos) {
+            const precoAtual = await precoAtualDoItem(item)
+            if (precoAtual !== null && precoAtual > 0) { preco = precoAtual; atualizados++ }
+          }
+          await supabase.from('orcamento_itens').insert({
+            orcamento_id: novoOrc.id, etapa_id: item.etapa_id, subetapa: item.subetapa,
+            composicao_id: item.composicao_id, sinapi_composicao_id: item.sinapi_composicao_id,
+            quantidade: item.quantidade, preco_unitario_snapshot: preco,
+            descricao_snapshot: item.descricao_snapshot, codigo_snapshot: item.codigo_snapshot,
+            unidade_snapshot: item.unidade_snapshot,
+          })
+        }
+        setOrcamento(novoOrc)
+        await loadItens(novoOrc.id)
+        if (atualizarPrecos) {
+          alert(atualizados > 0
+            ? `Nova versão criada. ${atualizados} de ${itens.length} ${itens.length === 1 ? 'item teve seu preço atualizado' : 'itens tiveram o preço atualizado'} pela base atual (UF ${obraUf}). Itens sem vínculo direto com a base mantiveram o preço anterior.`
+            : `Nova versão criada, mas nenhum item tinha vínculo vivo com a base SINAPI/composições para atualizar — os preços anteriores foram mantidos.`)
+        }
+      }
+    } finally {
+      setReabrindo(false)
+      setShowReabrirModal(false)
+    }
   }
 
   // ─── Materiais ────────────────────────────────────────────────────────────
-  // Observação: a lista de "materiais a comprar" é ligada a sinapi_codigo (TEXT) —
-  // por isso só geramos/abatemos materiais para itens com origem SINAPI (insumo_id),
-  // que têm um código SINAPI real para casar com a tabela `materiais`.
-  async function gerarMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null, subetapa: string | null = null) {
-    for (const item of itensComp) {
-      if (!item.insumo?.codigo) continue
-      const codigo = item.insumo.codigo
-      const qtdSugerida = qtdComposicao * item.coeficiente
-      if (qtdSugerida <= 0) continue
-      let query = supabase.from('materiais').select('id, quantidade_total')
-        .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
-      query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
-      query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
-      const { data: existente } = await query.maybeSingle()
-      if (existente) {
-        await supabase.from('materiais').update({ quantidade_total: Number(existente.quantidade_total) + qtdSugerida }).eq('id', existente.id)
-      } else {
-        await supabase.from('materiais').insert({
-          obra_id: obraId, etapa_id: etapaId, subetapa,
-          sinapi_codigo: codigo,
-          descricao: item.insumo.descricao,
-          unidade: item.insumo.unidade,
-          quantidade_total: qtdSugerida, quantidade_comprada: 0, status_compra: 'nao_comprado',
-        })
+  // Observação: a lista de "materiais a comprar" é ligada a sinapi_codigo (TEXT).
+  // gerarMateriaisDaComposicao (própria) e gerarMateriaisDaComposicaoSinapi (base
+  // SINAPI) ficam definidas mais abaixo, junto dos helpers de upsert/abate —
+  // ambas com fallback (lançam a própria composição como material) quando não
+  // há detalhamento analítico de insumos disponível, garantindo que o dado
+  // sempre "puxe" pra Materiais.
+
+  // Mesma ideia de gerarMateriaisDaComposicao, mas para itens vindos direto da
+  // base SINAPI (sinapi_composicao_id) — não têm `composicao_itens` embutido,
+  // então buscamos a tabela analítica `sinapi_composicao_itens` (INSUMO|COMPOSICAO)
+  // e geramos materiais a partir dos insumos diretos (tipo INSUMO).
+  // Sem isso, a cascata de Materiais ficava vazia para orçamentos montados com
+  // composições da base SINAPI (o caminho mais comum).
+  async function buscarInsumosAnaliticosSinapi(codigo: string, mesReferencia: string | null | undefined) {
+    let query = supabase.from('sinapi_composicao_itens')
+      .select('item_codigo, item_descricao, item_unidade, coeficiente, tipo')
+      .eq('composicao_codigo', codigo).eq('tipo', 'INSUMO')
+    if (mesReferencia) query = query.eq('mes_referencia', mesReferencia)
+    const { data } = await query
+    return (data || []) as { item_codigo: string; item_descricao: string; item_unidade: string; coeficiente: number; tipo: string }[]
+  }
+
+  // ─── Upsert/abate genérico de uma linha de material (soma/subtrai quantidade) ──
+  async function upsertMaterialSoma(codigo: string, descricao: string, unidade: string, qtdSomar: number, etapaId: string | null, subetapa: string | null) {
+    if (!codigo || codigo === '—' || qtdSomar <= 0) return
+    const temSubetapa = await materiaisTemSubetapa()
+    let query = supabase.from('materiais').select('id, quantidade_total')
+      .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
+    query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
+    if (temSubetapa) query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
+    const { data: existente, error: erroSel } = await query.maybeSingle()
+    if (erroSel) { console.error('Erro ao consultar material existente:', erroSel); return }
+    if (existente) {
+      const { error } = await supabase.from('materiais').update({ quantidade_total: Number(existente.quantidade_total) + qtdSomar }).eq('id', existente.id)
+      if (error) console.error('Erro ao somar quantidade do material:', error)
+    } else {
+      const novoMaterial: Record<string, unknown> = {
+        obra_id: obraId, etapa_id: etapaId,
+        sinapi_codigo: codigo, descricao: descricao || codigo, unidade: unidade || 'UN',
+        quantidade_total: qtdSomar, quantidade_comprada: 0, status_compra: 'nao_comprado',
       }
+      if (temSubetapa) novoMaterial.subetapa = subetapa
+      const { error } = await supabase.from('materiais').insert(novoMaterial)
+      if (error) console.error('Erro ao criar material a partir do orçamento:', error)
     }
   }
 
-  async function abaterMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null, subetapa: string | null = null) {
+  async function abaterMaterialQtd(codigo: string, qtdAbater: number, etapaId: string | null, subetapa: string | null) {
+    if (!codigo || codigo === '—' || qtdAbater <= 0) return
+    const temSubetapa = await materiaisTemSubetapa()
+    let query = supabase.from('materiais').select('id, quantidade_total')
+      .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
+    query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
+    if (temSubetapa) query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
+    const { data: existente, error: erroSel } = await query.maybeSingle()
+    if (erroSel) { console.error('Erro ao consultar material existente:', erroSel); return }
+    if (!existente) return
+    const novaQtd = Number(existente.quantidade_total) - qtdAbater
+    if (novaQtd <= 0) { await supabase.from('materiais').delete().eq('id', existente.id) }
+    else { await supabase.from('materiais').update({ quantidade_total: novaQtd }).eq('id', existente.id) }
+  }
+
+  // Gera materiais a partir de uma composição vinda da base SINAPI. Quando a
+  // composição TEM detalhamento analítico importado (tabela sinapi_composicao_itens
+  // — vem de uma importação manual e opcional na aba SINAPI), usamos os insumos
+  // reais dela. Quando NÃO tem (caso mais comum, pois poucos usuários importam
+  // esse detalhamento), caímos no FALLBACK: lançamos a própria composição como
+  // uma linha de material (na quantidade do orçamento) — assim o dado sempre
+  // "puxa" pra Materiais, mesmo sem o detalhamento analítico.
+  async function gerarMateriaisDaComposicaoSinapi(codigo: string, mesReferencia: string | null | undefined, qtdComposicao: number, etapaId: string | null, subetapa: string | null = null, descricaoFallback?: string, unidadeFallback?: string) {
+    const itensAnaliticos = await buscarInsumosAnaliticosSinapi(codigo, mesReferencia)
+    if (itensAnaliticos.length === 0) {
+      await upsertMaterialSoma(codigo, descricaoFallback || codigo, unidadeFallback || 'UN', qtdComposicao, etapaId, subetapa)
+      return
+    }
+    for (const item of itensAnaliticos) {
+      if (!item.item_codigo) continue
+      const qtdSugerida = qtdComposicao * item.coeficiente
+      await upsertMaterialSoma(item.item_codigo, item.item_descricao || item.item_codigo, item.item_unidade || 'UN', qtdSugerida, etapaId, subetapa)
+    }
+  }
+
+  async function abaterMateriaisDaComposicaoSinapi(codigo: string, mesReferencia: string | null | undefined, qtdComposicao: number, etapaId: string | null, subetapa: string | null = null) {
+    const itensAnaliticos = await buscarInsumosAnaliticosSinapi(codigo, mesReferencia)
+    if (itensAnaliticos.length === 0) {
+      await abaterMaterialQtd(codigo, qtdComposicao, etapaId, subetapa)
+      return
+    }
+    for (const item of itensAnaliticos) {
+      if (!item.item_codigo) continue
+      await abaterMaterialQtd(item.item_codigo, qtdComposicao * item.coeficiente, etapaId, subetapa)
+    }
+  }
+
+  async function gerarMateriaisDaComposicao(itensComp2: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null, subetapa: string | null = null, codigoFallback?: string, descricaoFallback?: string, unidadeFallback?: string) {
+    if (itensComp2.length === 0) {
+      // Composição própria sem insumos cadastrados — mesmo fallback do SINAPI:
+      // lança a própria composição como material, pra não ficar "sem puxar nada".
+      if (codigoFallback) await upsertMaterialSoma(codigoFallback, descricaoFallback || codigoFallback, unidadeFallback || 'UN', qtdComposicao, etapaId, subetapa)
+      return
+    }
+    for (const item of itensComp2) {
+      if (!item.insumo?.codigo) continue
+      await upsertMaterialSoma(item.insumo.codigo, item.insumo.descricao, item.insumo.unidade, qtdComposicao * item.coeficiente, etapaId, subetapa)
+    }
+  }
+
+  async function abaterMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null, subetapa: string | null = null, codigoFallback?: string) {
+    if (itensComp.length === 0) {
+      if (codigoFallback) await abaterMaterialQtd(codigoFallback, qtdComposicao, etapaId, subetapa)
+      return
+    }
     for (const item of itensComp) {
       if (!item.insumo?.codigo) continue
-      const codigo = item.insumo.codigo
-      const qtdSugerida = qtdComposicao * item.coeficiente
-      if (qtdSugerida <= 0) continue
-      let query = supabase.from('materiais').select('id, quantidade_total')
-        .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
-      query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
-      query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
-      const { data: existente } = await query.maybeSingle()
-      if (!existente) continue
-      const novaQtd = Number(existente.quantidade_total) - qtdSugerida
-      if (novaQtd <= 0) { await supabase.from('materiais').delete().eq('id', existente.id) }
-      else { await supabase.from('materiais').update({ quantidade_total: novaQtd }).eq('id', existente.id) }
+      await abaterMaterialQtd(item.insumo.codigo, qtdComposicao * item.coeficiente, etapaId, subetapa)
+    }
+  }
+
+  // ─── Sincronizar materiais com o orçamento (recalcula do zero) ───────────
+  // Pergunta do usuário: "como faço pra puxar os insumos do orçamento pra
+  // materiais? o sistema já deveria fazer isso sozinho?" — Sim, a partir de
+  // agora qualquer item ADICIONADO ao orçamento já gera/abate materiais
+  // automaticamente (handleAddItem/handleRemoveItem/handleRemoveEtapa/import).
+  // Mas itens que já estavam no orçamento ANTES dessa correção (principalmente
+  // os vindos direto da base SINAPI) nunca geraram materiais — esta ação
+  // varre TODOS os itens atuais do orçamento, soma a necessidade por
+  // (etapa, subetapa, código do insumo) e GRAVA o total na tabela `materiais`
+  // (sobrescreve, não soma) — por isso é seguro rodar quantas vezes quiser,
+  // sem duplicar quantidades.
+  async function sincronizarMateriaisDoOrcamento() {
+    if (sincronizandoMateriais) return
+    setSincronizandoMateriais(true)
+    try {
+      type Acc = { qtd: number; descricao: string; unidade: string }
+      const mapa = new Map<string, Acc>()
+      const acumular = (etapaId: string | null, subetapa: string | null, codigo: string, descricao: string, unidade: string, qtd: number) => {
+        if (!codigo || codigo === '—' || qtd <= 0) return
+        const key = `${etapaId ?? 'null'}|${subetapa ?? 'null'}|${codigo}`
+        const atual = mapa.get(key)
+        if (atual) atual.qtd += qtd
+        else mapa.set(key, { qtd, descricao, unidade })
+      }
+
+      for (const item of itens) {
+        if (item.sinapi_composicao_id) {
+          const insumos = await buscarInsumosAnaliticosSinapi(item.codigo, item.sinapi_mes_referencia)
+          if (insumos.length === 0) {
+            // Sem detalhamento analítico importado pra essa composição/mês —
+            // lança a própria composição como material (fallback), senão o
+            // item simplesmente não "puxaria" nada pra Materiais.
+            acumular(item.etapa_id, item.subetapa, item.codigo, item.descricao, item.unidade, item.quantidade)
+          } else {
+            for (const ins of insumos) {
+              if (!ins.item_codigo) continue
+              acumular(item.etapa_id, item.subetapa, ins.item_codigo, ins.item_descricao || ins.item_codigo, ins.item_unidade || 'UN', item.quantidade * ins.coeficiente)
+            }
+          }
+        } else if (item.composicao_id) {
+          const lista = item.composicao_itens || []
+          if (lista.length === 0) {
+            acumular(item.etapa_id, item.subetapa, item.codigo, item.descricao, item.unidade, item.quantidade)
+          } else {
+            for (const ins of lista) {
+              const info = infoDoItem(ins, obraUf)
+              if (!info.codigo || info.codigo === '—') continue
+              acumular(item.etapa_id, item.subetapa, info.codigo, info.descricao, info.unidade, item.quantidade * ins.coeficiente)
+            }
+          }
+        }
+        // itens digitados manualmente (sem composição vinculada) não geram materiais —
+        // não há "receita" de insumos pra puxar.
+      }
+
+      // Detecta se a coluna materiais.subetapa existe — em alguns bancos a
+      // migração "fix_2026_06_08_supabase_v1_2_columns.sql" ainda não rodou.
+      const temSubetapa = await materiaisTemSubetapa()
+
+      let criados = 0
+      let atualizados = 0
+      const errosDb: string[] = []
+      for (const [key, acc] of mapa) {
+        const [etapaIdRaw, subetapaRaw, codigo] = key.split('|')
+        const etapaId = etapaIdRaw === 'null' ? null : etapaIdRaw
+        const subetapa = subetapaRaw === 'null' ? null : subetapaRaw
+        let query = supabase.from('materiais').select('id, quantidade_total')
+          .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
+        query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
+        if (temSubetapa) query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
+        const { data: existente, error: erroSelect } = await query.maybeSingle()
+        if (erroSelect) { errosDb.push(erroSelect.message); continue }
+        const qtdArredondada = Math.round(acc.qtd * 10000) / 10000
+        if (existente) {
+          if (Number(existente.quantidade_total) !== qtdArredondada) {
+            const { error: erroUpdate } = await supabase.from('materiais').update({ quantidade_total: qtdArredondada }).eq('id', existente.id)
+            if (erroUpdate) errosDb.push(erroUpdate.message)
+            else atualizados++
+          }
+        } else {
+          const novoMaterial: Record<string, unknown> = {
+            obra_id: obraId, etapa_id: etapaId,
+            sinapi_codigo: codigo, descricao: acc.descricao, unidade: acc.unidade,
+            quantidade_total: qtdArredondada, quantidade_comprada: 0, status_compra: 'nao_comprado',
+          }
+          if (temSubetapa) novoMaterial.subetapa = subetapa
+          const { error: erroInsert } = await supabase.from('materiais').insert(novoMaterial)
+          if (erroInsert) errosDb.push(erroInsert.message)
+          else criados++
+        }
+      }
+      if (!temSubetapa) {
+        alert(
+          `Sincronização concluída (sem agrupamento por subetapa — coluna pendente no banco).\n\n` +
+          `${criados} novo(s) · ${atualizados} atualizado(s) · ${errosDb.length} erro(s)${errosDb.length > 0 ? `\nPrimeiro erro: ${errosDb[0]}` : ''}\n\n` +
+          `Para habilitar o agrupamento por subetapa, rode a migração pendente "supabase/fix_2026_06_08_supabase_v1_2_columns.sql" no SQL Editor do Supabase (uma vez só).`
+        )
+      } else if (errosDb.length > 0) {
+        console.error('Erros ao sincronizar materiais:', errosDb)
+        alert(`Sincronização concluída com ${errosDb.length} erro(s) do banco.\n\nCriados: ${criados} · Atualizados: ${atualizados}\n\nPrimeiro erro: ${errosDb[0]}`)
+      } else if (criados === 0 && atualizados === 0) {
+        alert('Materiais já estavam em dia com o orçamento — nada para sincronizar.\n\n(Se você esperava ver itens novos, confira se o orçamento tem itens com composição vinculada — itens digitados manualmente não geram materiais, pois não têm uma "receita" de insumos.)')
+      } else {
+        alert(`Materiais sincronizados com o orçamento.\n\n${criados} novo(s) item(ns) criado(s) em Materiais.\n${atualizados} item(ns) com quantidade atualizada.`)
+      }
+    } catch (e) {
+      console.error('Erro ao sincronizar materiais:', e)
+      const msg = e instanceof Error ? e.message : 'Erro desconhecido'
+      alert(`Não foi possível sincronizar os materiais com o orçamento.\n\nErro: ${msg}`)
+    } finally {
+      setSincronizandoMateriais(false)
+      setShowMenu(false)
     }
   }
 
@@ -799,6 +1058,14 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                       className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                       style={{ color: 'var(--text-primary)' }}>
                       <Unlock size={13} style={{ color: 'var(--text-secondary)' }} /> Reabrir (nova versão)
+                    </button>
+                  )}
+                  {itens.length > 0 && (
+                    <button onClick={sincronizarMateriaisDoOrcamento} disabled={sincronizandoMateriais}
+                      className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors disabled:opacity-50"
+                      style={{ color: 'var(--text-primary)' }}>
+                      <Boxes size={13} style={{ color: 'var(--text-secondary)' }} className={sincronizandoMateriais ? 'animate-pulse' : ''} />
+                      {sincronizandoMateriais ? 'Importando...' : 'Importar p/ Materiais'}
                     </button>
                   )}
                 </div>
@@ -1091,6 +1358,47 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
           <div className="flex justify-end">
             <Button variant="secondary" size="sm" onClick={() => { setShowAddItem(false); setSelectedItem(null); setQuantidade('') }}>Fechar</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Reabrir orçamento finalizado — escolher se mantém preços congelados ou atualiza pela base */}
+      <Modal open={showReabrirModal} onClose={() => !reabrindo && setShowReabrirModal(false)} title="Reabrir orçamento" size="md">
+        <div className="flex flex-col gap-4">
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Isso cria a <strong>versão {orcamento ? orcamento.versao + 1 : ''}</strong> como rascunho editável.
+            A versão atual (finalizada) é preservada como histórico. Como você quer tratar os preços dos itens?
+          </p>
+          <button
+            onClick={() => confirmarReabrir(false)}
+            disabled={reabrindo}
+            className="flex items-start gap-3 p-4 rounded-xl text-left transition-colors hover:bg-[var(--bg-secondary)]"
+            style={{ border: '1px solid var(--border)' }}
+          >
+            <Snowflake size={18} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Manter preços congelados</p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                Copia os itens com o mesmo preço unitário já praticado (snapshot atual). Use quando só precisa ajustar quantidades/itens sem mexer em valores.
+              </p>
+            </div>
+          </button>
+          <button
+            onClick={() => confirmarReabrir(true)}
+            disabled={reabrindo}
+            className="flex items-start gap-3 p-4 rounded-xl text-left transition-colors hover:bg-[var(--bg-secondary)]"
+            style={{ border: '1px solid var(--border)' }}
+          >
+            <RefreshCw size={18} style={{ color: 'var(--success)', flexShrink: 0, marginTop: 2 }} className={reabrindo ? 'animate-spin' : ''} />
+            <div>
+              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Atualizar pelos preços atuais da base</p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                Repuxa o valor mais recente da base SINAPI / composições próprias para a UF <strong>{obraUf}</strong> em cada item vinculado. Itens digitados manualmente (sem vínculo com a base) mantêm o preço anterior.
+              </p>
+            </div>
+          </button>
+          <div className="flex justify-end">
+            <Button variant="secondary" size="sm" disabled={reabrindo} onClick={() => setShowReabrirModal(false)}>Cancelar</Button>
           </div>
         </div>
       </Modal>

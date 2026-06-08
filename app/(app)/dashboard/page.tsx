@@ -12,12 +12,13 @@ import { ClimaWidgets } from '@/components/dashboard/ClimaWidgets'
 import Link from 'next/link'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, PieChart, Pie, Cell,
+  PieChart, Pie, Cell, LineChart, Line, Legend,
 } from 'recharts'
 
 type DashboardData = {
   obras: Obra[]
   etapasProximas: (Etapa & { obra_nome: string })[]
+  todasEtapas: Etapa[]
   materiaisPendentes: (Material & { obra_nome: string; insumo_descricao: string })[]
   alertas: number
 }
@@ -35,6 +36,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData>({
     obras: [],
     etapasProximas: [],
+    todasEtapas: [],
     materiaisPendentes: [],
     alertas: 0,
   })
@@ -45,13 +47,15 @@ export default function DashboardPage() {
   async function loadDashboard() {
     setLoading(true)
 
-    const [obrasRes, etapasRes, materiaisRes] = await Promise.all([
+    const [obrasRes, etapasRes, todasEtapasRes, materiaisRes] = await Promise.all([
       supabase.from('obras').select('*').order('created_at', { ascending: false }),
       supabase
         .from('etapas')
         .select('*, obras(nome)')
         .gte('data_inicio', new Date().toISOString().split('T')[0])
         .order('data_inicio'),
+      // Todas as etapas (sem filtro de data) — usadas para montar a Curva S (previsto x realizado)
+      supabase.from('etapas').select('id, obra_id, nome, status, data_inicio, data_fim, ordem'),
       supabase
         .from('materiais')
         // schema v3: descricao é coluna direta, não via join sinapi_insumos
@@ -73,23 +77,14 @@ export default function DashboardPage() {
       insumo_descricao: m.descricao || '',   // schema v3: coluna direta
     }))
 
-    setData({ obras, etapasProximas: etapas, materiaisPendentes: materiais, alertas: etapas.length })
+    setData({ obras, etapasProximas: etapas, todasEtapas: (todasEtapasRes.data || []) as Etapa[], materiaisPendentes: materiais, alertas: etapas.length })
     setLoading(false)
   }
 
   const obrasAtivas = data.obras.filter(o => o.status === 'ativa').length
-  const orcamentosAndamento = data.obras.filter(o => o.status === 'orcamento').length
-  const obrasConcluidas = data.obras.filter(o => o.status === 'concluida').length
   const materiaisParciais = data.materiaisPendentes.filter(m => m.status_compra === 'parcial').length
   const materiaisNaoComprados = data.materiaisPendentes.filter(m => m.status_compra === 'nao_comprado').length
   const materiaisComPrazo = data.materiaisPendentes.filter(m => m.data_necessidade).length
-
-  const obrasPorStatus = [
-    { nome: 'Orçamento', total: orcamentosAndamento, cor: 'var(--accent)' },
-    { nome: 'Ativas', total: obrasAtivas, cor: 'var(--success)' },
-    { nome: 'Paralisadas', total: data.obras.filter(o => o.status === 'paralisada').length, cor: 'var(--warning)' },
-    { nome: 'Concluídas', total: obrasConcluidas, cor: 'var(--text-secondary)' },
-  ]
 
   const materiaisPorStatus = [
     { nome: 'Não comprado', value: materiaisNaoComprados, cor: '#EF4444' },
@@ -182,6 +177,44 @@ export default function DashboardPage() {
     })
   })()
 
+  // Curva S do portfólio: % acumulado de etapas previstas para concluir até cada mês
+  // (linha "Previsto") vs % acumulado de etapas efetivamente concluídas até o mês
+  // corrente (linha "Realizado") — visão clássica de avanço físico planejado x executado.
+  const curvaS = (() => {
+    const comDatas = data.todasEtapas.filter(e => e.data_inicio && e.data_fim)
+    if (comDatas.length === 0) return [] as { mes: string; previsto: number; realizado: number }[]
+
+    const total = comDatas.length
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+
+    const inicio = new Date(Math.min(...comDatas.map(e => new Date(e.data_inicio as string).getTime())))
+    const fimPrevisto = new Date(Math.max(...comDatas.map(e => new Date(e.data_fim as string).getTime())))
+    // Janela de exibição: do início do portfólio até o maior entre (fim previsto, hoje)
+    const fim = fimPrevisto.getTime() > hoje.getTime() ? fimPrevisto : hoje
+
+    const meses: { rotulo: string; fimMes: Date }[] = []
+    const cursor = new Date(inicio.getFullYear(), inicio.getMonth(), 1)
+    const limite = new Date(fim.getFullYear(), fim.getMonth(), 1)
+    while (cursor.getTime() <= limite.getTime() && meses.length < 36) {
+      const fimMes = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0)
+      meses.push({ rotulo: cursor.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }), fimMes })
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
+
+    return meses.map(({ rotulo, fimMes }) => {
+      const previstoCount = comDatas.filter(e => new Date(e.data_fim as string).getTime() <= fimMes.getTime()).length
+      // "Realizado" só conta etapas concluídas até o mês — e não projeta além de hoje
+      const realizadoCount = fimMes.getTime() > hoje.getTime()
+        ? comDatas.filter(e => e.status === 'concluida' && new Date(e.data_fim as string).getTime() <= hoje.getTime()).length
+        : comDatas.filter(e => e.status === 'concluida' && new Date(e.data_fim as string).getTime() <= fimMes.getTime()).length
+      return {
+        mes: rotulo,
+        previsto: Math.round((previstoCount / total) * 1000) / 10,
+        realizado: Math.round((realizadoCount / total) * 1000) / 10,
+      }
+    })
+  })()
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -192,77 +225,66 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-1 xl:grid-cols-[1.25fr_0.75fr] gap-4">
-        <div className="card p-6 overflow-hidden relative">
-          <div className="absolute right-5 top-5 opacity-10">
-            <HardHat size={96} style={{ color: 'var(--accent)' }} />
-          </div>
-          <div className="relative">
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent)' }}>Painel preditivo</p>
-            <h1 className="text-2xl sm:text-3xl font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
-              Visão rápida das obras
-            </h1>
-            <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--text-secondary)' }}>
-              Próximas etapas, materiais a comprar, clima e pontos de decisão em um só lugar.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6 relative">
-            {[
-              { label: 'Obras', value: data.obras.length, color: 'var(--accent)' },
-              { label: 'Ativas', value: obrasAtivas, color: 'var(--success)' },
-              { label: 'Materiais', value: data.materiaisPendentes.length, color: 'var(--warning)' },
-              { label: 'Etapas próximas', value: data.alertas, color: data.alertas > 0 ? 'var(--danger)' : 'var(--success)' },
-            ].map(item => (
-              <div key={item.label} className="rounded-xl p-3" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-                <p className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{item.label}</p>
-              </div>
-            ))}
-          </div>
+      <div className="card p-6 overflow-hidden relative">
+        <div className="absolute right-5 top-5 opacity-10">
+          <HardHat size={96} style={{ color: 'var(--accent)' }} />
         </div>
-
-        <div className="card p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
-            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Obras por status</h2>
-          </div>
-          <ResponsiveContainer width="100%" height={190}>
-            <BarChart data={obrasPorStatus}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-              <XAxis dataKey="nome" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-              <Bar dataKey="total" radius={[6, 6, 0, 0]} animationDuration={900}>
-                {obrasPorStatus.map(item => <Cell key={item.nome} fill={item.cor} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="relative">
+          <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent)' }}>Painel preditivo</p>
+          <h1 className="text-2xl sm:text-3xl font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
+            Visão rápida das obras
+          </h1>
+          <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--text-secondary)' }}>
+            Próximas etapas, materiais a comprar, clima e pontos de decisão em um só lugar.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6 relative">
+          {[
+            { label: 'Obras', value: data.obras.length, color: 'var(--accent)' },
+            { label: 'Ativas', value: obrasAtivas, color: 'var(--success)' },
+            { label: 'Materiais', value: data.materiaisPendentes.length, color: 'var(--warning)' },
+            { label: 'Etapas próximas', value: data.alertas, color: data.alertas > 0 ? 'var(--danger)' : 'var(--success)' },
+          ].map(item => (
+            <div key={item.label} className="rounded-xl p-3" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+              <p className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{item.label}</p>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <KpiCard
-          icon={HardHat}
-          label="Obras Ativas"
-          value={String(obrasAtivas)}
-          color="var(--success)"
-          hint="em andamento"
-        />
-        <KpiCard
-          icon={FileText}
-          label="Orçamentos em andamento"
-          value={String(orcamentosAndamento)}
-          color="var(--accent)"
-          hint="em elaboração"
-        />
-        <KpiCard
-          icon={AlertTriangle}
-          label="Próximas Ações"
-          value={String(data.alertas)}
-          color={data.alertas > 0 ? 'var(--warning)' : 'var(--success)'}
-          hint={data.alertas > 0 ? 'etapas previstas' : 'sem previsões próximas'}
-        />
+      <ClimaWidgets etapasProximas={data.etapasProximas} alertasInternos={data.alertas} />
+
+      {/* Curva S do portfólio: avanço físico previsto x realizado */}
+      <div className="card p-6">
+        <div className="flex items-center gap-2 mb-1">
+          <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
+          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Curva S — Avanço físico do portfólio</h2>
+        </div>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
+          % acumulado de etapas previstas para concluir até cada mês (linha prevista) comparado ao % efetivamente concluído (linha realizada).
+        </p>
+        {curvaS.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-3">
+            <Calendar size={36} style={{ color: 'var(--border)' }} />
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Cadastre etapas com datas de início e fim para gerar a curva S</p>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={curvaS}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="mes" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+              <YAxis unit="%" domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+              <Tooltip
+                contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
+                formatter={(value) => [`${value}%`, '']}
+              />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="previsto" name="Previsto (acumulado)" stroke="var(--accent)" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="realizado" name="Realizado (acumulado)" stroke="var(--success)" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* Gráficos + próximos 7 dias */}
@@ -460,30 +482,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <ClimaWidgets etapasProximas={data.etapasProximas} alertasInternos={data.alertas} />
-    </div>
-  )
-}
-
-function KpiCard({ icon: Icon, label, value, color, hint }: {
-  icon: typeof HardHat
-  label: string
-  value: string
-  color: string
-  hint: string
-}) {
-  return (
-    <div className="card p-6 animate-enter">
-      <div className="flex items-start justify-between mb-4">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${color}20` }}>
-          <Icon size={20} style={{ color }} />
-        </div>
-      </div>
-      <p className="text-3xl font-bold mb-1" style={{ color: 'var(--text-primary)', fontFamily: 'DM Serif Display, serif' }}>
-        {value}
-      </p>
-      <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{label}</p>
-      <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{hint}</p>
     </div>
   )
 }
