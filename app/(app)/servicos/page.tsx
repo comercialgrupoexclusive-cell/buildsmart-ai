@@ -3,7 +3,7 @@
 import { useEffect, useState, Fragment } from 'react'
 import {
   Plus, Search, Pencil, Trash2, X, Check, FileSpreadsheet,
-  ChevronRight, ChevronDown, Layers, Package, Hash, Sparkles, AlertTriangle, Loader2,
+  ChevronRight, ChevronDown, Layers, Package, Hash, Sparkles, AlertTriangle, Loader2, Database,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { ComposicaoPropria, ComposicaoItem, InsumoProprio, SINAPI_UFS } from '@/lib/types'
@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/Input'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ImportExportModal } from '@/components/ui/ImportExportModal'
+import { ImportarBaseAntigaModal } from '@/components/servicos/ImportarBaseAntigaModal'
 import {
   ConfigImportacao, normalizarTexto, normalizarOpcao, normalizarNumero, normalizarBooleano,
 } from '@/lib/import-export-templates'
@@ -146,6 +147,7 @@ export default function ServicosPage({
 
   // Importar/exportar composições em massa via planilha Excel
   const [showImportExport, setShowImportExport] = useState(false)
+  const [showImportarBaseAntiga, setShowImportarBaseAntiga] = useState(false)
 
   // Cascata — composição expandida (revela insumos)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -277,6 +279,9 @@ export default function ServicosPage({
               </div>
               <Button variant="secondary" onClick={() => setShowImportExport(true)} icon={<FileSpreadsheet size={16} />}>
                 Importar/Exportar
+              </Button>
+              <Button variant="secondary" onClick={() => setShowImportarBaseAntiga(true)} icon={<Database size={16} />}>
+                Importar base antiga
               </Button>
               <Button onClick={() => { resetForm(); setShowModalHeader(true) }} icon={<Plus size={16} />}>
                 Nova Composição
@@ -444,6 +449,11 @@ export default function ServicosPage({
             onClose={() => setShowImportExport(false)}
             config={CONFIG_IMPORT_COMPOSICOES}
             existentes={composicoes as unknown as Record<string, unknown>[]}
+            onConcluido={loadComposicoes}
+          />
+          <ImportarBaseAntigaModal
+            open={showImportarBaseAntiga}
+            onClose={() => setShowImportarBaseAntiga(false)}
             onConcluido={loadComposicoes}
           />
         </>
@@ -1047,6 +1057,7 @@ function InsumosTab() {
   const [creating, setCreating] = useState(false)
   const [showNovoInsumo, setShowNovoInsumo] = useState(false)
   const [showImportExport, setShowImportExport] = useState(false)
+  const [showImportarBaseAntiga, setShowImportarBaseAntiga] = useState(false)
   const [novoInsumo, setNovoInsumo] = useState({
     codigo: '',
     descricao: '',
@@ -1153,6 +1164,9 @@ function InsumosTab() {
           </div>
           <Button variant="secondary" onClick={() => setShowImportExport(true)} icon={<FileSpreadsheet size={16} />}>
             Importar/Exportar
+          </Button>
+          <Button variant="secondary" onClick={() => setShowImportarBaseAntiga(true)} icon={<Database size={16} />}>
+            Importar base antiga
           </Button>
           <Button onClick={abrirNovoInsumo} icon={<Sparkles size={16} />}>
             Novo insumo
@@ -1320,6 +1334,11 @@ function InsumosTab() {
         onClose={() => setShowImportExport(false)}
         config={CONFIG_IMPORT_INSUMOS}
         existentes={insumos as unknown as Record<string, unknown>[]}
+        onConcluido={loadInsumos}
+      />
+      <ImportarBaseAntigaModal
+        open={showImportarBaseAntiga}
+        onClose={() => setShowImportarBaseAntiga(false)}
         onConcluido={loadInsumos}
       />
     </div>
