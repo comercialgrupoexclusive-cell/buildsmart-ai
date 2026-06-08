@@ -1,27 +1,48 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { BotMessageSquare, CalendarDays, CheckSquare, FileText, HardHat, Package, Square } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  AlertTriangle, BotMessageSquare, CalendarDays, CheckSquare,
+  FileText, HardHat, Monitor, Moon, Package, Square, Sun,
+} from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { useProfile } from '@/lib/profile-context'
 
 const STORAGE_KEY = 'buildsmart-welcome-hidden'
+const SESSION_KEY = 'buildsmart-welcome-seen-session'
+
+const LUIZIA_LINES = [
+  'Eu fico ali no botão da Luizia. Pode perguntar simples, do seu jeito, que eu tento organizar a resposta sem enrolar.',
+  'Quando bater aquela dúvida de obra, chama a Luizia. Eu ajudo a olhar orçamento, compras, cronograma e próximos passos.',
+  'Sou sua IA de apoio. Não salvo nada sozinha ainda, mas ajudo você a pensar, revisar e decidir com mais clareza.',
+]
 
 const STEPS = [
   {
+    icon: AlertTriangle,
+    title: 'Sistema beta',
+    description: 'Esta é uma versão local de testes. Use para validar fluxo, orçamento, materiais e IA antes de colocar dados reais importantes.',
+  },
+  {
+    icon: Monitor,
+    title: 'Melhor no desktop',
+    description: 'No celular dá para consultar e testar, mas orçamento, Gantt e tabelas ficam melhores em notebook ou computador.',
+  },
+  {
+    icon: Sun,
+    secondIcon: Moon,
+    title: 'Tema claro ou escuro',
+    description: 'Use o botão de sol/lua no topo para alternar o visual. Escolha o modo mais confortável para trabalhar.',
+  },
+  {
     icon: HardHat,
     title: 'Obras',
-    description: 'A obra é o centro do sistema. Entre nela para ver orçamento, cronograma, materiais, diário e arquivos.',
+    description: 'A obra é o centro do sistema. Dentro dela ficam orçamento, cronograma, materiais, diário, medições e arquivos.',
   },
   {
     icon: FileText,
-    title: 'Orçamento',
-    description: 'Monte itens por etapa e subetapa. As composições geram materiais sugeridos automaticamente.',
-  },
-  {
-    icon: Package,
-    title: 'Materiais',
-    description: 'A lista de compras nasce do orçamento e pode ser organizada por etapa, subetapa e fornecedor.',
+    title: 'Orçamento e materiais',
+    description: 'Monte itens por etapa e subetapa. As composições sugerem materiais para compras automaticamente.',
   },
   {
     icon: CalendarDays,
@@ -31,7 +52,7 @@ const STEPS = [
   {
     icon: BotMessageSquare,
     title: 'Luizia',
-    description: 'Oi, eu sou a Luizia, sua parceira de obra. Vou ficar por aqui para tirar dúvidas, organizar ideias e ajudar você a prever os próximos passos sem complicar.',
+    description: 'Oi, eu sou a Luizia, sua parceira de obra. Ajudo a tirar dúvidas, organizar ideias e prever próximos passos sem complicar.',
   },
 ]
 
@@ -40,13 +61,19 @@ export function WelcomeGuide() {
   const [open, setOpen] = useState(false)
   const [dontShow, setDontShow] = useState(false)
   const [step, setStep] = useState(0)
+  const luiziaLine = useMemo(() => LUIZIA_LINES[Math.floor(Math.random() * LUIZIA_LINES.length)], [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    setOpen(localStorage.getItem(STORAGE_KEY) !== 'true')
+    const hidden = localStorage.getItem(STORAGE_KEY) === 'true'
+    const seenThisSession = sessionStorage.getItem(SESSION_KEY) === 'true'
+    setOpen(!hidden && !seenThisSession)
   }, [])
 
   function close() {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(SESSION_KEY, 'true')
+    }
     if (dontShow && typeof window !== 'undefined') {
       localStorage.setItem(STORAGE_KEY, 'true')
     }
@@ -58,15 +85,17 @@ export function WelcomeGuide() {
 
   const item = STEPS[step]
   const Icon = item.icon
+  const SecondIcon = 'secondIcon' in item ? item.secondIcon : null
 
   return (
     <Modal open={open} onClose={close} title={`Bem-vindo, ${currentProfile?.name || 'usuário'}`} size="lg">
-      <div className="space-y-6">
+      <div className="space-y-5">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(59,123,248,0.14)', color: 'var(--accent)' }}>
-            <Icon size={24} />
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center gap-1 flex-shrink-0" style={{ background: 'rgba(59,123,248,0.14)', color: 'var(--accent)' }}>
+            <Icon size={SecondIcon ? 20 : 24} />
+            {SecondIcon && <SecondIcon size={18} />}
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-bold tracking-wider mb-1" style={{ color: 'var(--accent)' }}>
               PASSO {step + 1} DE {STEPS.length}
             </p>
@@ -79,7 +108,7 @@ export function WelcomeGuide() {
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${STEPS.length}, minmax(0, 1fr))` }}>
           {STEPS.map((s, index) => (
             <button
               key={s.title}
@@ -94,8 +123,8 @@ export function WelcomeGuide() {
         <div className="rounded-lg p-4" style={{ background: 'var(--bg-secondary)' }}>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
             {step === STEPS.length - 1
-              ? 'Quando fechar esta apresentação, a Luizia aparece para conversar com você. Pode perguntar de um jeito simples, como se estivesse falando com alguém da equipe.'
-              : 'Caminho simples: crie ou escolha uma obra, monte o orçamento, confira os materiais, acompanhe o cronograma e peça ajuda para a Luizia quando quiser prever o próximo passo.'}
+              ? luiziaLine
+              : 'Fluxo básico: escolha uma obra, revise orçamento, confira materiais, acompanhe cronograma e use a Luizia quando quiser ajuda para decidir o próximo passo.'}
           </p>
         </div>
 

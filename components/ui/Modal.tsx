@@ -38,7 +38,7 @@ export function Modal({ open, onClose, title, children, size = 'md', className }
         onClick={onClose}
       />
       <div className={cn(
-        'card relative w-full animate-enter overflow-hidden',
+        'card relative w-full animate-enter overflow-hidden max-h-[calc(100vh-2rem)] overflow-y-auto',
         sizes[size],
         className
       )}>

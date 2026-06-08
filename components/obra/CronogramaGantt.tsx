@@ -112,8 +112,8 @@ export function CronogramaGantt({ etapas, subetapas = [], titulo = 'Gantt de eta
       </div>
 
       <div className="overflow-x-auto">
-        <div className="min-w-[820px]">
-          <div className="grid gap-2" style={{ gridTemplateColumns: '190px 1fr' }}>
+        <div className="min-w-[760px]">
+          <div className="grid gap-2" style={{ gridTemplateColumns: '160px 1fr' }}>
             <div />
             <div className="relative h-7">
               {meses.map(mes => (
@@ -155,11 +155,11 @@ export function CronogramaGantt({ etapas, subetapas = [], titulo = 'Gantt de eta
                     <div className="relative h-8 rounded" style={{ background: 'var(--bg-secondary)' }}>
                       {visibleWidth > 0 && (
                         <div
-                          className="absolute top-1 bottom-1 rounded px-2 flex items-center"
-                          style={{ left: `${left}%`, width: `${visibleWidth}%`, background: STATUS_BAR_COLOR[etapa.status] || STATUS_BAR_COLOR.planejada, minWidth: 8 }}
+                          className="absolute top-1 bottom-1 rounded px-1.5 flex items-center overflow-hidden"
+                          style={{ left: `${left}%`, width: `${visibleWidth}%`, background: STATUS_BAR_COLOR[etapa.status] || STATUS_BAR_COLOR.planejada, minWidth: 12 }}
                           title={`${etapa.nome} - ${STATUS_ETAPA_LABEL[etapa.status]}`}
                         >
-                          <span className="text-white truncate text-xs">{STATUS_ETAPA_LABEL[etapa.status]}</span>
+                          <span className="text-white truncate text-[10px] sm:text-xs leading-none">{STATUS_ETAPA_LABEL[etapa.status]}</span>
                         </div>
                       )}
                     </div>

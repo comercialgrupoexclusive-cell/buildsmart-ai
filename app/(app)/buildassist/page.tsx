@@ -331,8 +331,8 @@ export default function BuildAssistPage() {
   }
 
   return (
-    <div className="flex gap-4 h-[calc(100vh-8rem)]">
-      <div className="flex-1 flex flex-col card overflow-hidden">
+    <div className="flex flex-col lg:flex-row gap-4 min-h-[calc(100vh-8rem)] lg:h-[calc(100vh-8rem)]">
+      <div className="flex-1 flex flex-col card overflow-hidden min-h-[560px]">
         {messages.length === 0 && openingMsg && (
           <div className="p-4 border-b" style={{ borderColor: 'var(--border)', background: 'rgba(59,123,248,0.05)' }}>
             <div className="flex items-start gap-3">
@@ -388,7 +388,7 @@ export default function BuildAssistPage() {
             onChange={event => handleFiles(event.target.files)}
           />
 
-          <div className="grid grid-cols-2 xl:grid-cols-5 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2">
             <button
               onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--bg-secondary)]"
@@ -459,7 +459,7 @@ export default function BuildAssistPage() {
         </div>
       </div>
 
-      <div className="w-64 flex flex-col gap-3">
+      <div className="w-full lg:w-64 flex flex-col gap-3">
         <h2 className="text-sm font-semibold px-1" style={{ color: 'var(--text-secondary)' }}>
           Previsões do sistema
         </h2>

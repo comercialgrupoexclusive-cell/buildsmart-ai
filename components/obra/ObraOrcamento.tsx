@@ -692,7 +692,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
       >
         <div className="px-4 py-3 flex flex-col gap-2.5">
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
             <CustoCard
               icon={Boxes} cor="var(--accent)" label="Custo Material"
               value={formatCurrency(custoPorCategoria.material)}
@@ -1118,7 +1118,8 @@ function GrupoEtapa({
               )}
             </div>
           ) : (
-            <table className="w-full table-zebra">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] table-zebra">
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
                   {['', 'Código', 'Descrição', 'Unid.', 'Qtd.', 'Unit. R$', 'Total R$', ''].map((h, i) => (
@@ -1254,6 +1255,7 @@ function GrupoEtapa({
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </>
       )}

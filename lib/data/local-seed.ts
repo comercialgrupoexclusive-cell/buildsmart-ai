@@ -38,7 +38,7 @@ const orcamentoId = 'local-orcamento-exemplo'
 const obraId2 = 'local-obra-exemplo-2'
 const orcamentoId2 = 'local-orcamento-exemplo-2'
 
-export const LOCAL_DB_VERSION = '2026-06-07-local-v5'
+export const LOCAL_DB_VERSION = '2026-06-07-local-v6'
 
 export function createLocalSeed(): LocalDatabase {
   const sinapiInsumos: SinapiInsumo[] = [
@@ -177,16 +177,48 @@ export function createLocalSeed(): LocalDatabase {
   ]
 
   return {
-    profiles: [{
-      id: 'local-profile',
-      name: 'Usuário Local',
-      photo_url: null,
-      theme_color: '#3B7BF8',
-      dark_mode: true,
-      onboarding_done: true,
-      password_hash: null,
-      created_at: now,
-    }],
+    profiles: [
+      {
+        id: 'local-profile-magda',
+        name: 'Magda',
+        photo_url: null,
+        theme_color: '#EC4899',
+        dark_mode: false,
+        onboarding_done: true,
+        password_hash: null,
+        created_at: now,
+      },
+      {
+        id: 'local-profile-luiz',
+        name: 'Luiz',
+        photo_url: null,
+        theme_color: '#10B981',
+        dark_mode: true,
+        onboarding_done: true,
+        password_hash: null,
+        created_at: now,
+      },
+      {
+        id: 'local-profile-gabriel',
+        name: 'Gabriel',
+        photo_url: null,
+        theme_color: '#3B7BF8',
+        dark_mode: true,
+        onboarding_done: true,
+        password_hash: null,
+        created_at: now,
+      },
+      {
+        id: 'local-profile-rodrigo',
+        name: 'Rodrigo',
+        photo_url: null,
+        theme_color: '#F59E0B',
+        dark_mode: true,
+        onboarding_done: true,
+        password_hash: null,
+        created_at: now,
+      },
+    ],
     obras: [{
       id: obraId,
       nome: 'Obra Exemplo Local',

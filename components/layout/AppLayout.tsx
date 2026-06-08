@@ -35,7 +35,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <Header />
       <WelcomeGuide />
       <main className="ml-14 pt-16 min-h-screen">
-        <div className="p-6">
+        <div className="p-3 sm:p-6 max-w-full overflow-x-hidden">
           {children}
         </div>
       </main>
