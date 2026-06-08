@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, HardHat, MapPin, Calendar, Search, AlertTriangle, User } from 'lucide-react'
+import { Plus, HardHat, MapPin, Calendar, Search, AlertTriangle, User, Camera, Loader2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
@@ -25,6 +25,7 @@ export default function ObrasPage() {
   const [busca, setBusca] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [uploadingFoto, setUploadingFoto] = useState(false)
   const [form, setForm] = useState({
     nome: '',
     endereco: '',
@@ -37,6 +38,43 @@ export default function ObrasPage() {
   })
 
   useEffect(() => { loadObras() }, [])
+
+  function handleFotoObra(files: FileList | null) {
+    const file = files?.[0]
+    if (!file) return
+    setUploadingFoto(true)
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = reader.result
+      if (typeof dataUrl !== 'string') { setUploadingFoto(false); return }
+
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const maxSize = 1200
+        const scale = Math.min(1, maxSize / Math.max(img.width, img.height))
+        canvas.width = Math.max(1, Math.round(img.width * scale))
+        canvas.height = Math.max(1, Math.round(img.height * scale))
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          setForm(f => ({ ...f, foto_url: dataUrl }))
+          setUploadingFoto(false)
+          return
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        setForm(f => ({ ...f, foto_url: canvas.toDataURL('image/jpeg', 0.8) }))
+        setUploadingFoto(false)
+      }
+      img.onerror = () => {
+        setForm(f => ({ ...f, foto_url: dataUrl }))
+        setUploadingFoto(false)
+      }
+      img.src = dataUrl
+    }
+    reader.onerror = () => setUploadingFoto(false)
+    reader.readAsDataURL(file)
+  }
 
   async function loadObras() {
     setLoading(true)
@@ -215,13 +253,41 @@ export default function ObrasPage() {
               onChange={e => setForm(f => ({ ...f, data_previsao: e.target.value }))}
             />
           </div>
-          <Input
-            label="URL da foto (opcional)"
-            value={form.foto_url}
-            onChange={e => setForm(f => ({ ...f, foto_url: e.target.value }))}
-            placeholder="https://..."
-            hint="Link direto para imagem da obra"
-          />
+          <div>
+            <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+              Foto da obra <span className="font-normal opacity-70">(opcional)</span>
+            </label>
+            {form.foto_url ? (
+              <div className="relative h-36 rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+                <img src={form.foto_url} alt="Foto da obra" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, foto_url: '' }))}
+                  className="absolute top-2 right-2 p-1.5 rounded-lg"
+                  style={{ background: 'rgba(0,0,0,0.55)', color: 'white' }}
+                  title="Remover foto"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <label
+                className="flex items-center justify-center gap-2 h-24 rounded-xl cursor-pointer transition-all hover:opacity-80"
+                style={{ border: '1px dashed var(--border)', color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}
+              >
+                {uploadingFoto ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+                {uploadingFoto ? 'Carregando...' : 'Anexar imagem do dispositivo'}
+                <input type="file" accept="image/*" className="hidden" onChange={e => handleFotoObra(e.target.files)} disabled={uploadingFoto} />
+              </label>
+            )}
+            <Input
+              label="Ou cole uma URL"
+              value={form.foto_url.startsWith('data:') ? '' : form.foto_url}
+              onChange={e => setForm(f => ({ ...f, foto_url: e.target.value }))}
+              placeholder="https://..."
+              hint="Link direto para imagem da obra"
+            />
+          </div>
 
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" className="flex-1" onClick={() => { setShowModal(false); resetForm() }}>

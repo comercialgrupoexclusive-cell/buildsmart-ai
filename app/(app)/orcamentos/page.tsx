@@ -47,7 +47,7 @@ export default function OrcamentosPage() {
       `)
       .order('created_at', { ascending: false })
 
-    const enriched = (data || []).map((o: any) => {
+    const enriched = (data || []).filter((o: any) => Boolean(o.obra)).map((o: any) => {
       const itens = o.orcamento_itens || []
       const subtotal = itens.reduce((acc: number, i: any) => acc + (i.quantidade * i.preco_unitario_snapshot), 0)
       const valor_total = subtotal * (1 + o.bdi_percentual / 100)
