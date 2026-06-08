@@ -48,7 +48,7 @@ type Insight = {
   prompt: string
 }
 
-const CHAT_STORAGE_KEY = 'buildsmart-buildassist-chat'
+const CHAT_STORAGE_KEY = 'buildsmart-luizia-chat-session'
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -92,20 +92,23 @@ export default function BuildAssistPage() {
   const [openingMsg, setOpeningMsg] = useState('')
   const [context, setContext] = useState<BuildContext | null>(null)
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
+  const [chatLoaded, setChatLoaded] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const stored = readJsonStorage<Message[]>(CHAT_STORAGE_KEY, [])
-    setMessages(stored)
+    if (typeof window === 'undefined') return
+    const stored = sessionStorage.getItem(CHAT_STORAGE_KEY)
+    setMessages(stored ? JSON.parse(stored) as Message[] : [])
+    setChatLoaded(true)
   }, [])
 
   useEffect(() => { loadContext(uploadedFiles) }, [uploadedFiles])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-60)))
-  }, [messages])
+    if (typeof window === 'undefined' || !chatLoaded) return
+    sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-60)))
+  }, [messages, chatLoaded])
 
   function getRequestedObraId() {
     if (typeof window === 'undefined') return ''
@@ -188,7 +191,7 @@ export default function BuildAssistPage() {
     if (ctx.arquivos.length > 0) {
       msg += `E ${ctx.arquivos.length} arquivo(s) anexado(s) à obra. `
     }
-    msg += 'Posso ajudar a interpretar projetos, organizar orçamento, prever materiais, compras, avanço e próximas decisões.'
+    msg += 'Eu sou a Luizia, sua IA da obra. Posso ajudar a interpretar projetos, organizar orçamento, prever materiais, compras, avanço e próximas decisões.'
     setOpeningMsg(msg)
   }
 
@@ -445,7 +448,7 @@ export default function BuildAssistPage() {
             <button
               onClick={() => {
                 setMessages([])
-                if (typeof window !== 'undefined') localStorage.removeItem(CHAT_STORAGE_KEY)
+                if (typeof window !== 'undefined') sessionStorage.removeItem(CHAT_STORAGE_KEY)
               }}
               className="flex items-center gap-1.5 text-xs transition-colors"
               style={{ color: 'var(--text-secondary)' }}

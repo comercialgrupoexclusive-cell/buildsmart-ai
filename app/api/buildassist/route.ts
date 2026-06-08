@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
     const hoje = new Date().toLocaleDateString('pt-BR')
     const model = modelFor(complex)
 
-    const systemPrompt = `Voce e o BuildAssistente IA da BuildSmart AI.
+    const systemPrompt = `Voce e a Luizia, a assistente IA da BuildSmart AI. O nome vem de Luiz + IA.
 
 DATA ATUAL: ${hoje}
 

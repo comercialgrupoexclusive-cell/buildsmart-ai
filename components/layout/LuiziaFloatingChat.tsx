@@ -1,0 +1,165 @@
+'use client'
+
+import Link from 'next/link'
+import { useEffect, useRef, useState } from 'react'
+import { BotMessageSquare, ExternalLink, Loader2, MessageCircle, Send, X } from 'lucide-react'
+import { useProfile } from '@/lib/profile-context'
+
+type Message = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+const CHAT_KEY = 'buildsmart-luizia-floating-chat-session'
+
+function formatMessage(text: string) {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>')
+}
+
+export function LuiziaFloatingChat() {
+  const { currentProfile } = useProfile()
+  const [open, setOpen] = useState(false)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const stored = sessionStorage.getItem(CHAT_KEY)
+    setMessages(stored ? JSON.parse(stored) as Message[] : [])
+    setLoaded(true)
+  }, [])
+
+  useEffect(() => {
+    if (!loaded || typeof window === 'undefined') return
+    sessionStorage.setItem(CHAT_KEY, JSON.stringify(messages.slice(-40)))
+  }, [messages, loaded])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, open])
+
+  async function sendMessage() {
+    if (!input.trim() || loading) return
+    const userMsg: Message = { role: 'user', content: input.trim() }
+    const next = [...messages, userMsg]
+    setMessages(next)
+    setInput('')
+    setLoading(true)
+
+    try {
+      const res = await fetch('/api/buildassist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: next,
+          complex: false,
+          context: {
+            modo: 'atalho-luizia',
+            usuario: currentProfile?.name || null,
+            observacao: 'Chat rapido flutuante. Para contexto completo da obra, orientar o usuario a abrir BuildAssistente IA.',
+          },
+        }),
+      })
+      const data = await res.json()
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.message || 'Não consegui responder agora. Abra o BuildAssistente IA para tentar de novo.',
+      }])
+    } catch {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Não consegui conectar agora. Confira se o servidor local está ligado.',
+      }])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <>
+      {open && (
+        <div
+          className="fixed bottom-24 right-5 z-50 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl shadow-2xl overflow-hidden"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white" style={{ background: 'var(--accent)' }}>
+                <BotMessageSquare size={16} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Luizia</p>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Assistente rápida da obra</p>
+              </div>
+            </div>
+            <button onClick={() => setOpen(false)} className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)]" style={{ color: 'var(--text-secondary)' }}>
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="h-72 overflow-y-auto p-3 flex flex-col gap-3">
+            {messages.length === 0 && (
+              <div className="text-sm leading-relaxed rounded-xl p-3" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                Oi{currentProfile ? `, ${currentProfile.name}` : ''}! Sou a Luizia. Posso tirar dúvidas rápidas aqui. Para analisar a obra inteira, use o chat completo.
+              </div>
+            )}
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`text-sm leading-relaxed rounded-xl p-3 max-w-[88%] ${msg.role === 'user' ? 'self-end' : 'self-start'}`}
+                style={msg.role === 'user'
+                  ? { background: 'var(--accent)', color: 'white' }
+                  : { background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+                dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }}
+              />
+            ))}
+            {loading && (
+              <div className="self-start rounded-xl p-3" style={{ background: 'var(--bg-secondary)' }}>
+                <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-secondary)' }} />
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div className="p-3 border-t space-y-2" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex gap-2">
+              <input
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                placeholder="Pergunte para a Luizia..."
+                className="input-base flex-1 h-10 text-sm"
+                disabled={loading}
+              />
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim() || loading}
+                className="w-10 h-10 rounded-xl flex items-center justify-center disabled:opacity-50"
+                style={{ background: 'var(--accent)' }}
+              >
+                <Send size={15} className="text-white" />
+              </button>
+            </div>
+            <Link href="/buildassist" className="inline-flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--accent)' }}>
+              Abrir chat completo <ExternalLink size={12} />
+            </Link>
+          </div>
+        </div>
+      )}
+
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105"
+        style={{ background: 'var(--accent)', color: 'white' }}
+        title="Falar com a Luizia"
+      >
+        {open ? <X size={22} /> : <MessageCircle size={23} />}
+      </button>
+    </>
+  )
+}

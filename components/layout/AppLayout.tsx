@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useProfile } from '@/lib/profile-context'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
+import { WelcomeGuide } from './WelcomeGuide'
+import { LuiziaFloatingChat } from './LuiziaFloatingChat'
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { currentProfile } = useProfile()
@@ -30,13 +32,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
       <Sidebar />
-      {/* Sidebar tem 56px fixo — o conteúdo fica em ml-14 sempre */}
       <Header />
+      <WelcomeGuide />
       <main className="ml-14 pt-16 min-h-screen">
         <div className="p-6">
           {children}
         </div>
       </main>
+      <LuiziaFloatingChat />
     </div>
   )
 }
