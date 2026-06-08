@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, HardHat, FileText, CalendarDays,
-  Package, ClipboardList, BotMessageSquare, BarChart3, Settings,
+  Package, ClipboardList, BotMessageSquare, BarChart3, Settings, SlidersHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
@@ -20,6 +20,7 @@ const NAV_ITEMS = [
 ]
 
 const NAV_BOTTOM = [
+  { href: '/luizia-monitor', label: 'Monitor Luizia', icon: SlidersHorizontal },
   { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
   { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ]

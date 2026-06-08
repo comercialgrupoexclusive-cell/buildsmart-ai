@@ -23,6 +23,7 @@ type BuildAssistContext = {
   listasCompras?: any[]
   arquivos?: any[]
   uploadedFiles?: any[]
+  luiziaAdminInstruction?: string
 }
 
 function hasOpenAiKey() {
@@ -161,6 +162,10 @@ REGRAS:
 - Voce ainda nao executa acoes no banco nem cria registros diretamente.
 - Nunca diga que criou, salvou, excluiu ou alterou uma obra, orcamento, compra, diario ou material.
 - Quando o usuario pedir para criar algo, responda preparando os dados sugeridos e diga que ele precisa confirmar/salvar pela tela correspondente.
+${context.luiziaAdminInstruction ? `
+INSTRUCAO DO ADMINISTRADOR DO SISTEMA:
+${String(context.luiziaAdminInstruction).slice(0, 1800)}
+` : ''}
 
 CONTEXTO LOCAL/SISTEMA:
 ${limitJson(context)}`
