@@ -17,7 +17,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { exportOrcamentoXLSX, ItemExportRow } from '@/lib/export-orcamento'
-import { LinhaOrcamentoTabular } from '@/lib/import-export-orcamento'
+import { InsumoOrcamentoAntigo, LinhaOrcamentoTabular } from '@/lib/import-export-orcamento'
 import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
 
@@ -552,6 +552,9 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       const subetapa = (linha.valores.subetapa as string | null) ?? null
       const codigo = String(linha.valores.codigo ?? '').trim().toUpperCase()
       const quantidade = Number(linha.valores.quantidade ?? 0)
+      const insumosAntigos = Array.isArray(linha.valores.insumos)
+        ? linha.valores.insumos as InsumoOrcamentoAntigo[]
+        : []
 
       if (!etapaNome || !codigo || !quantidade) {
         ignorados++
@@ -585,8 +588,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       }
       const isSinapi = !propria
 
-      const custoUnitario = getItemCost(composicao)
-      const { error: insertErro } = await supabase.from('orcamento_itens').insert({
+      const custoUnitarioImportado = Number(linha.valores.custoUnitario ?? 0)
+      const custoUnitario = custoUnitarioImportado > 0 ? custoUnitarioImportado : getItemCost(composicao)
+      const descricaoSnapshot = String(linha.valores.descricao ?? composicao.descricao)
+      const unidadeSnapshot = String(linha.valores.unidade ?? composicao.unidade)
+      const { data: itemInserido, error: insertErro } = await supabase.from('orcamento_itens').insert({
         orcamento_id: orcamento.id,
         etapa_id: etapaId,
         subetapa,
@@ -594,10 +600,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         sinapi_composicao_id: isSinapi ? composicao.id : null,
         quantidade,
         preco_unitario_snapshot: custoUnitario,
-        descricao_snapshot: composicao.descricao,
+        descricao_snapshot: descricaoSnapshot,
         codigo_snapshot: composicao.codigo,
-        unidade_snapshot: composicao.unidade,
-      })
+        unidade_snapshot: unidadeSnapshot,
+      }).select('id').single()
 
       if (insertErro) {
         ignorados++
@@ -605,7 +611,24 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         continue
       }
 
-      if (!isSinapi && 'composicao_itens' in composicao) {
+      if (insumosAntigos.length && itemInserido?.id && !isSinapi && 'composicao_itens' in composicao) {
+        const overridesImportados: Record<string, number> = {}
+        const itensComposicao = (composicao as ComposicaoComCusto).composicao_itens || []
+        for (const insumoImportado of insumosAntigos) {
+          const itemComp = itensComposicao.find(ins => infoDoItem(ins, obraUf).codigo.toUpperCase() === insumoImportado.codigo.toUpperCase())
+          if (!itemComp) {
+            erros.push(`Linha ${linha.numero}: insumo ${insumoImportado.codigo} nao encontrado na composicao ${codigo}; quantidade adotada nao aplicada.`)
+            continue
+          }
+          const info = infoDoItem(itemComp, obraUf)
+          overridesImportados[overrideKey(itemInserido.id, info.codigo !== '—' ? info.codigo : itemComp.id)] = insumoImportado.quantidadeAdotada
+        }
+        if (Object.keys(overridesImportados).length) {
+          setInsumoOverrides(prev => ({ ...prev, ...overridesImportados }))
+        }
+      }
+
+      if (!insumosAntigos.length && !isSinapi && 'composicao_itens' in composicao) {
         await gerarMateriaisDaComposicao((composicao as ComposicaoComCusto).composicao_itens || [], quantidade, etapaId, subetapa)
       }
 

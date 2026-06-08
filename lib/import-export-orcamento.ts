@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import { ConfigImportacao, normalizarTexto, normalizarNumero } from './import-export-templates'
+import { ConfigImportacao, LinhaImportada, ResultadoLeitura, normalizarTexto, normalizarNumero } from './import-export-templates'
 
 // ─── Importação/exportação tabular de orçamento ──────────────────────────────
 // Formato simples — uma linha por item do orçamento: Etapa, Subetapa, Código
@@ -39,6 +39,123 @@ export type LinhaOrcamentoTabular = {
   descricao: string
   unidade: string
   quantidade: number
+}
+
+export type InsumoOrcamentoAntigo = {
+  codigo: string
+  descricao: string
+  categoria: string
+  tipo: string
+  unidade: string
+  coeficiente: number
+  quantidadeAdotada: number
+  precoUnitario: number
+  custoTotal: number
+}
+
+function numeroFlex(valor: unknown) {
+  if (typeof valor === 'number') return valor
+  const texto = String(valor ?? '').trim()
+  if (!texto) return 0
+  const normalizado = texto.includes(',')
+    ? texto.replace(/\./g, '').replace(',', '.')
+    : texto
+  const numero = Number(normalizado)
+  return Number.isFinite(numero) ? numero : 0
+}
+
+function texto(valor: unknown) {
+  return String(valor ?? '').trim()
+}
+
+function normalizarCabecalho(chave: string) {
+  return chave.trim().toLowerCase()
+}
+
+export async function lerPlanilhaOrcamentoAntigo(file: File): Promise<ResultadoLeitura> {
+  const buffer = await file.arrayBuffer()
+  const wb = XLSX.read(buffer, { type: 'buffer' })
+  const ws = wb.Sheets['Dados Brutos'] || wb.Sheets[wb.SheetNames[0]]
+  if (!ws) return { linhas: [], erros: ['A planilha esta vazia ou em formato nao reconhecido.'] }
+
+  const registrosOriginais = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' })
+  const registros = registrosOriginais.map(registro => {
+    const normalizado: Record<string, unknown> = {}
+    for (const [chave, valor] of Object.entries(registro)) normalizado[normalizarCabecalho(chave)] = valor
+    return normalizado
+  })
+
+  const obrigatorias = [
+    'id_item_orcamento',
+    'nome_etapa',
+    'codigo_composicao',
+    'descricao_composicao',
+    'unidade_composicao',
+    'quantidade_composicao',
+    'codigo_insumo',
+    'descricao_insumo',
+    'coeficiente',
+    'qtd_total_insumo',
+    'preco_unit_insumo',
+  ]
+  const primeira = registros[0] || {}
+  const faltantes = obrigatorias.filter(c => !(c in primeira))
+  if (faltantes.length) {
+    return { linhas: [], erros: [`Formato do sistema antigo nao reconhecido. Colunas faltando: ${faltantes.join(', ')}`] }
+  }
+
+  const erros: string[] = []
+  const porItem = new Map<string, LinhaImportada & { valores: Record<string, unknown> & { insumos: InsumoOrcamentoAntigo[] } }>()
+
+  registros.forEach((r, idx) => {
+    const numero = idx + 2
+    const itemId = texto(r.id_item_orcamento)
+    const codigo = texto(r.codigo_composicao).toUpperCase()
+    const etapa = texto(r.nome_etapa)
+    const quantidade = numeroFlex(r.quantidade_composicao)
+    const codigoInsumo = texto(r.codigo_insumo).toUpperCase()
+    const qtdAdotada = numeroFlex(r.qtd_total_insumo)
+
+    if (!itemId || !codigo || !etapa || !quantidade || !codigoInsumo) {
+      erros.push(`Linha ${numero}: item, etapa, composicao, quantidade ou insumo vazio.`)
+      return
+    }
+
+    if (!porItem.has(itemId)) {
+      porItem.set(itemId, {
+        numero,
+        valores: {
+          origem: 'sistema_antigo',
+          itemIdAntigo: itemId,
+          etapaCodigo: texto(r.etapa_codigo),
+          etapa,
+          subetapa: texto(r.sub_etapa) || null,
+          codigo,
+          descricao: texto(r.descricao_composicao),
+          unidade: texto(r.unidade_composicao),
+          quantidade,
+          custoUnitario: numeroFlex(r.custo_unit_composicao),
+          custoTotal: numeroFlex(r.custo_total_composicao),
+          custoTotalEtapa: numeroFlex(r.custo_total_etapa),
+          insumos: [],
+        },
+      })
+    }
+
+    porItem.get(itemId)!.valores.insumos.push({
+      codigo: codigoInsumo,
+      descricao: texto(r.descricao_insumo),
+      categoria: texto(r.categoria_insumo),
+      tipo: texto(r.tipo_insumo),
+      unidade: texto(r.unidade_insumo),
+      coeficiente: numeroFlex(r.coeficiente),
+      quantidadeAdotada: qtdAdotada,
+      precoUnitario: numeroFlex(r.preco_unit_insumo),
+      custoTotal: numeroFlex(r.custo_total_insumo),
+    })
+  })
+
+  return { linhas: Array.from(porItem.values()), erros }
 }
 
 // Exporta os itens atuais do orçamento no mesmo layout tabular do modelo —

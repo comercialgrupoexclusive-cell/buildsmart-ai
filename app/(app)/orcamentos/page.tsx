@@ -106,21 +106,11 @@ export default function OrcamentosPage() {
       {aba === 'orcamentos' && (
       <>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex gap-2 flex-wrap">
+        <select value={filtro} onChange={e => setFiltro(e.target.value)} className="input-base w-full sm:w-52">
           {['todos', 'rascunho', 'ativo', 'finalizado'].map(s => (
-            <button
-              key={s}
-              onClick={() => setFiltro(s)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={filtro === s
-                ? { background: 'var(--accent)', color: 'white' }
-                : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }
-              }
-            >
-              {s === 'todos' ? 'Todos' : STATUS_ORC_LABEL[s]}
-            </button>
+            <option key={s} value={s}>{s === 'todos' ? 'Todos os status' : STATUS_ORC_LABEL[s]}</option>
           ))}
-        </div>
+        </select>
         <Button onClick={() => router.push('/obras')} icon={<Plus size={16} />}>
           Nova Obra / Orçamento
         </Button>

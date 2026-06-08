@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
+import { ObraFornecedores } from '@/components/obra/ObraFornecedores'
 
 const STATUS_LABEL: Record<string, string> = {
   nao_comprado: 'Não comprado',
@@ -115,7 +116,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   const [fornecedorLista, setFornecedorLista] = useState('')
 
   // ── Sub-aba: Materiais x Listas de compra ──
-  const [subView, setSubView] = useState<'materiais' | 'compras'>('materiais')
+  const [subView, setSubView] = useState<'materiais' | 'compras' | 'fornecedores'>('materiais')
   const [listas, setListas] = useState<ListaCompra[]>([])
   const [listasCarregadas, setListasCarregadas] = useState(false)
 
@@ -408,6 +409,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         {[
           { id: 'materiais' as const, label: 'Materiais', icon: Package },
           { id: 'compras' as const, label: 'Listas de compra', icon: ShoppingCart, badge: listas.length },
+          { id: 'fornecedores' as const, label: 'Fornecedores', icon: Building2 },
         ].map(({ id, label, icon: Icon, badge }) => (
           <button
             key={id}
@@ -431,7 +433,9 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         ))}
       </div>
 
-      {subView === 'compras' ? (
+      {subView === 'fornecedores' ? (
+        <ObraFornecedores obraId={obraId} />
+      ) : subView === 'compras' ? (
         <ListasDeComprasView
           listas={listas}
           fornecedores={fornecedores}
@@ -473,46 +477,13 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
       {/* Barra filtros + botão */}
       <div className="flex flex-wrap items-center gap-2 justify-between">
-        <div className="flex gap-2 flex-wrap">
-          {[
-            { id: 'abertas', label: 'Em aberto' },
-            { id: 'agora', label: 'Comprar agora' },
-            { id: 'parcial', label: 'Parciais' },
-            { id: 'comprado', label: 'Comprados' },
-            { id: 'todos', label: 'Todos' },
-          ].map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => setFiltroStatus(id)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={filtroStatus === id
-                ? { background: 'var(--accent)', color: 'white' }
-                : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="hidden">
-          {/* Filtro status */}
-          {[
-            { id: 'todos', label: 'Todos' },
-            { id: 'nao_comprado', label: 'Não comprado' },
-            { id: 'parcial', label: 'Parcial' },
-            { id: 'comprado', label: 'Comprado' },
-          ].map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => setFiltroStatus(id)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={filtroStatus === id
-                ? { background: 'var(--accent)', color: 'white' }
-                : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="input-base w-full sm:w-52">
+          <option value="abertas">Em aberto</option>
+          <option value="agora">Comprar agora</option>
+          <option value="parcial">Parciais</option>
+          <option value="comprado">Comprados</option>
+          <option value="todos">Todos</option>
+        </select>
         <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>
           Adicionar
         </Button>
@@ -520,29 +491,12 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
       {/* Filtro por etapa */}
       {etapas.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setFiltroEtapa('todas')}
-            className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
-            style={filtroEtapa === 'todas'
-              ? { background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
-              : { color: 'var(--text-secondary)' }}
-          >
-            Todas etapas
-          </button>
+        <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)} className="input-base w-full sm:w-64">
+          <option value="todas">Todas etapas</option>
           {etapas.map(e => (
-            <button
-              key={e.id}
-              onClick={() => setFiltroEtapa(e.id)}
-              className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
-              style={filtroEtapa === e.id
-                ? { background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }
-                : { color: 'var(--text-secondary)' }}
-            >
-              {e.nome}
-            </button>
+            <option key={e.id} value={e.id}>{e.nome}</option>
           ))}
-        </div>
+        </select>
       )}
 
       {/* ── Compras em cascata por etapa ── */}

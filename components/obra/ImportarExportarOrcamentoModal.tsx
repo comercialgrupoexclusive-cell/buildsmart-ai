@@ -8,7 +8,12 @@ import {
   ConfigImportacao, LinhaImportada, ResultadoLeitura,
   baixarModeloXLSX, lerPlanilhaImportacao,
 } from '@/lib/import-export-templates'
-import { CONFIG_IMPORT_ORCAMENTO, LinhaOrcamentoTabular, exportarOrcamentoTabularXLSX } from '@/lib/import-export-orcamento'
+import {
+  CONFIG_IMPORT_ORCAMENTO,
+  LinhaOrcamentoTabular,
+  exportarOrcamentoTabularXLSX,
+  lerPlanilhaOrcamentoAntigo,
+} from '@/lib/import-export-orcamento'
 
 export type ResultadoImportacaoOrcamento = { inseridos: number; ignorados: number; erros: string[] }
 
@@ -22,6 +27,7 @@ type Props = {
 }
 
 type Etapa = 'opcoes' | 'upload' | 'previa' | 'resultado'
+type ModoImportacao = 'tabular' | 'sistema_antigo'
 
 const config: ConfigImportacao = CONFIG_IMPORT_ORCAMENTO
 
@@ -30,6 +36,7 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [lendo, setLendo] = useState(false)
   const [leitura, setLeitura] = useState<ResultadoLeitura | null>(null)
+  const [modoImportacao, setModoImportacao] = useState<ModoImportacao>('tabular')
   const [importando, setImportando] = useState(false)
   const [resultado, setResultado] = useState<ResultadoImportacaoOrcamento | null>(null)
 
@@ -51,7 +58,9 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
     setLendo(true)
     setLeitura(null)
     try {
-      const res = await lerPlanilhaImportacao(f, config)
+      const res = modoImportacao === 'sistema_antigo'
+        ? await lerPlanilhaOrcamentoAntigo(f)
+        : await lerPlanilhaImportacao(f, config)
       setLeitura(res)
       setEtapa('previa')
     } catch {
@@ -79,6 +88,17 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
     setImportando(false)
     setEtapa('resultado')
   }
+
+  const colunasPrevia = modoImportacao === 'sistema_antigo'
+    ? [
+      { chave: 'etapa', rotulo: 'Etapa' },
+      { chave: 'subetapa', rotulo: 'Subetapa' },
+      { chave: 'codigo', rotulo: 'Codigo' },
+      { chave: 'descricao', rotulo: 'Composicao' },
+      { chave: 'quantidade', rotulo: 'Qtd. comp.' },
+      { chave: 'insumos', rotulo: 'Insumos' },
+    ]
+    : config.colunas
 
   return (
     <Modal open={open} onClose={fechar} title="Importar/exportar orçamento" size="lg">
@@ -113,8 +133,23 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
                   <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{config.descricaoImportacao}</p>
                 </div>
               </div>
-              <Button size="sm" icon={<ArrowRight size={14} />} onClick={() => setEtapa('upload')} className="self-start">
+              <Button size="sm" icon={<ArrowRight size={14} />} onClick={() => { setModoImportacao('tabular'); setEtapa('upload') }} className="self-start">
                 Importar planilha preenchida
+              </Button>
+            </div>
+
+            <div className="card p-5 flex flex-col gap-3" style={{ background: 'var(--bg-secondary)' }}>
+              <div className="flex items-start gap-3">
+                <Database size={20} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--accent)' }} />
+                <div>
+                  <h3 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>3. Importar do sistema antigo</h3>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                    Use a planilha exportada com a aba Dados Brutos. O sistema importa as composicoes e preserva a quantidade adotada dos insumos ja ajustada no orcamento.
+                  </p>
+                </div>
+              </div>
+              <Button variant="secondary" size="sm" icon={<ArrowRight size={14} />} onClick={() => { setModoImportacao('sistema_antigo'); setEtapa('upload') }} className="self-start">
+                Importar planilha antiga
               </Button>
             </div>
           </>
@@ -141,7 +176,9 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
                       Arraste o arquivo XLSX preenchido ou clique para selecionar
                     </p>
                     <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                      Use o modelo baixado na etapa anterior — não altere os cabeçalhos
+                      {modoImportacao === 'sistema_antigo'
+                        ? 'Use o arquivo exportado do sistema antigo, com a aba Dados Brutos.'
+                        : 'Use o modelo baixado na etapa anterior - nao altere os cabecalhos.'}
                     </p>
                   </div>
                 </>
@@ -173,7 +210,7 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
                 <table className="w-full text-xs">
                   <thead>
                     <tr style={{ background: 'var(--bg-secondary)' }}>
-                      {config.colunas.map(c => (
+                      {colunasPrevia.map(c => (
                         <th key={c.chave} className="text-left px-3 py-2 font-medium" style={{ color: 'var(--text-secondary)' }}>{c.rotulo}</th>
                       ))}
                     </tr>
@@ -181,16 +218,18 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
                   <tbody>
                     {leitura.linhas.slice(0, 10).map(l => (
                       <tr key={l.numero} style={{ borderTop: '1px solid var(--border)' }}>
-                        {config.colunas.map(c => (
+                        {colunasPrevia.map(c => (
                           <td key={c.chave} className="px-3 py-2 max-w-[220px] truncate" style={{ color: 'var(--text-primary)' }}>
-                            {String(l.valores[c.chave] ?? '—')}
+                            {c.chave === 'insumos'
+                              ? `${Array.isArray(l.valores.insumos) ? l.valores.insumos.length : 0} insumos`
+                              : String(l.valores[c.chave] ?? '-')}
                           </td>
                         ))}
                       </tr>
                     ))}
                     {leitura.linhas.length > 10 && (
                       <tr style={{ borderTop: '1px solid var(--border)' }}>
-                        <td colSpan={config.colunas.length} className="px-3 py-2 text-center" style={{ color: 'var(--text-secondary)' }}>
+                        <td colSpan={colunasPrevia.length} className="px-3 py-2 text-center" style={{ color: 'var(--text-secondary)' }}>
                           + {(leitura.linhas.length - 10).toLocaleString('pt-BR')} itens adicionais
                         </td>
                       </tr>

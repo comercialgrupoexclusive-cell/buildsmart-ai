@@ -24,7 +24,7 @@ const STATUS_BAR_COLOR: Record<string, string> = {
   planejada: '#3B7BF8',
   em_andamento: '#10B981',
   concluida: '#6B7280',
-  atrasada: '#EF4444',
+  atrasada: '#F59E0B',
 }
 
 const SUB_BAR_COLOR = 'rgba(255,255,255,0.22)'

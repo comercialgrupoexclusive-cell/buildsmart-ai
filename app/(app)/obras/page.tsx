@@ -109,21 +109,11 @@ export default function ObrasPage() {
     <div className="flex flex-col gap-6">
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex gap-2 flex-wrap">
+        <select value={filtro} onChange={e => setFiltro(e.target.value)} className="input-base w-full sm:w-52">
           {STATUS_FILTROS.map(s => (
-            <button
-              key={s}
-              onClick={() => setFiltro(s)}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-              style={filtro === s
-                ? { background: 'var(--accent)', color: 'white' }
-                : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }
-              }
-            >
-              {s === 'todas' ? 'Todas' : STATUS_OBRA_LABEL[s]}
-            </button>
+            <option key={s} value={s}>{s === 'todas' ? 'Todas as obras' : STATUS_OBRA_LABEL[s]}</option>
           ))}
-        </div>
+        </select>
 
         <div className="flex gap-3 w-full sm:w-auto">
           <div className="relative flex-1 sm:w-64">

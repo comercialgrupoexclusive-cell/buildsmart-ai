@@ -168,10 +168,10 @@ export default function CronogramaPage() {
                       className="text-xs rounded-lg px-2 py-1 flex-shrink-0"
                       style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
                     >
-                      <option value="planejada">Planejada</option>
-                      <option value="em_andamento">Em andamento</option>
-                      <option value="concluida">Concluída</option>
-                      <option value="atrasada">Atrasada</option>
+                      <option value="planejada">A executar</option>
+                      <option value="em_andamento">Em execucao</option>
+                      <option value="concluida">Concluida</option>
+                      <option value="atrasada">Ponto de atencao</option>
                     </select>
                   </div>
                 )

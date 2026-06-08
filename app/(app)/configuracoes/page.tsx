@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/Input'
 import { BackupRestauracaoModal } from '@/components/ui/BackupRestauracaoModal'
 import { APP_VERSION } from '@/lib/version'
 import { CLIMA_ATIVO_KEY, CLIMA_THRESHOLD_KEY, CLIMA_THRESHOLD_DEFAULT, readClimaSettings } from '@/components/dashboard/ClimaWidgets'
-import type { Profile } from '@/lib/types'
+import { SINAPI_UFS, type Profile } from '@/lib/types'
 
 const EMPTY_USER_FORM = {
   name: '',
@@ -70,6 +70,8 @@ export default function ConfiguracoesPage() {
   const [descricao, setDescricao] = useState(currentProfile?.descricao || '')
   const [cidade, setCidade] = useState(currentProfile?.cidade || '')
   const [estado, setEstado] = useState(currentProfile?.estado || '')
+  const [cidadesPerfil, setCidadesPerfil] = useState<string[]>([])
+  const [cidadesLoading, setCidadesLoading] = useState(false)
   const [accentColor, setAccentColor] = useState(currentProfile?.theme_color || '#3B7BF8')
   const [darkMode, setDarkMode] = useState(currentProfile?.dark_mode ?? true)
   const [etapasPadrao, setEtapasPadrao] = useState<string[]>(ETAPAS_PADRAO_SINAPI)
@@ -85,12 +87,37 @@ export default function ConfiguracoesPage() {
   const [userModalOpen, setUserModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<Profile | null>(null)
   const [userForm, setUserForm] = useState(EMPTY_USER_FORM)
+  const [cidadesUsuario, setCidadesUsuario] = useState<string[]>([])
+  const [cidadesUsuarioLoading, setCidadesUsuarioLoading] = useState(false)
   const [userSaving, setUserSaving] = useState(false)
   const [userError, setUserError] = useState('')
 
   useEffect(() => {
     if (isAdmin) loadUsers()
   }, [isAdmin])
+
+  async function carregarCidades(uf: string, setter: (cidades: string[]) => void, setLoadingFn: (loading: boolean) => void) {
+    const cleanUf = uf.trim().toUpperCase()
+    if (!cleanUf) { setter([]); return }
+    setLoadingFn(true)
+    try {
+      const res = await fetch(`/api/localidades/municipios?uf=${encodeURIComponent(cleanUf)}`)
+      const json = await res.json()
+      setter(Array.isArray(json.cidades) ? json.cidades : [])
+    } catch {
+      setter([])
+    } finally {
+      setLoadingFn(false)
+    }
+  }
+
+  useEffect(() => {
+    if (estado) carregarCidades(estado, setCidadesPerfil, setCidadesLoading)
+  }, [estado])
+
+  useEffect(() => {
+    if (userForm.estado) carregarCidades(userForm.estado, setCidadesUsuario, setCidadesUsuarioLoading)
+  }, [userForm.estado])
 
   async function loadUsers() {
     setUsersLoading(true)
@@ -339,21 +366,31 @@ export default function ConfiguracoesPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              label="Cidade"
-              value={cidade}
-              onChange={e => setCidade(e.target.value)}
-              placeholder="Sua cidade"
-            />
-            <Input
-              label="Estado (UF)"
-              value={estado}
-              onChange={e => setEstado(e.target.value.slice(0, 2).toUpperCase())}
-              placeholder="SP"
-              maxLength={2}
-              className="uppercase"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Estado (UF)</label>
+              <select
+                value={estado}
+                onChange={e => { setEstado(e.target.value); setCidade('') }}
+                className="input-base w-full"
+              >
+                <option value="">Selecione</option>
+                {SINAPI_UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Cidade</label>
+              <select
+                value={cidade}
+                onChange={e => setCidade(e.target.value)}
+                className="input-base w-full"
+                disabled={!estado || cidadesLoading}
+              >
+                <option value="">{cidadesLoading ? 'Carregando cidades...' : 'Selecione'}</option>
+                {cidade && !cidadesPerfil.includes(cidade) && <option value={cidade}>{cidade}</option>}
+                {cidadesPerfil.map(nome => <option key={nome} value={nome}>{nome}</option>)}
+              </select>
+            </div>
           </div>
           <p className="text-xs -mt-2" style={{ color: 'var(--text-secondary)' }}>
             Cidade e estado alimentam a previsão do tempo exibida no painel.
@@ -738,21 +775,31 @@ export default function ConfiguracoesPage() {
                 onChange={e => setUserForm(f => ({ ...f, descricao: e.target.value }))}
                 placeholder="Ex.: engenheiro civil, gerencio 3 obras residenciais"
               />
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  label="Cidade"
-                  value={userForm.cidade}
-                  onChange={e => setUserForm(f => ({ ...f, cidade: e.target.value }))}
-                  placeholder="Cidade"
-                />
-                <Input
-                  label="Estado (UF)"
-                  value={userForm.estado}
-                  onChange={e => setUserForm(f => ({ ...f, estado: e.target.value.slice(0, 2).toUpperCase() }))}
-                  placeholder="SP"
-                  maxLength={2}
-                  className="uppercase"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Estado (UF)</label>
+                  <select
+                    value={userForm.estado}
+                    onChange={e => setUserForm(f => ({ ...f, estado: e.target.value, cidade: '' }))}
+                    className="input-base w-full"
+                  >
+                    <option value="">Selecione</option>
+                    {SINAPI_UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Cidade</label>
+                  <select
+                    value={userForm.cidade}
+                    onChange={e => setUserForm(f => ({ ...f, cidade: e.target.value }))}
+                    className="input-base w-full"
+                    disabled={!userForm.estado || cidadesUsuarioLoading}
+                  >
+                    <option value="">{cidadesUsuarioLoading ? 'Carregando cidades...' : 'Selecione'}</option>
+                    {userForm.cidade && !cidadesUsuario.includes(userForm.cidade) && <option value={userForm.cidade}>{userForm.cidade}</option>}
+                    {cidadesUsuario.map(nome => <option key={nome} value={nome}>{nome}</option>)}
+                  </select>
+                </div>
               </div>
               <Input
                 label={editingUser ? 'Nova senha (opcional)' : 'Senha'}

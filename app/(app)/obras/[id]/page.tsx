@@ -16,14 +16,12 @@ import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { ObraArquivos } from '@/components/obra/ObraArquivos'
-import { ObraFornecedores } from '@/components/obra/ObraFornecedores'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'fornecedores' | 'cronograma' | 'materiais' | 'medicoes'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
-  { id: 'fornecedores', label: 'Fornecedores' },
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'materiais', label: 'Materiais' },
   { id: 'medicoes', label: 'Diário / Medições' },
@@ -42,7 +40,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   })
   const [loading, setLoading] = useState(true)
 
-  // Menu de aÃ§Ãµes + ediÃ§Ã£o/exclusÃ£o/duplicaÃ§Ã£o
+  // Menu de ações + edição/exclusão/duplicação
   const [menuOpen, setMenuOpen] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -123,7 +121,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     const { data: nova } = await supabase
       .from('obras')
       .insert({
-        nome: `${obra.nome} (cÃ³pia)`,
+        nome: `${obra.nome} (cópia)`,
         endereco: obra.endereco,
         responsavel: obra.responsavel,
         data_inicio: null,
@@ -137,7 +135,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       .single()
 
     if (nova) {
-      // Copia o orÃ§amento (cabeÃ§alho) mais recente, se existir
+      // Copia o orçamento (cabeçalho) mais recente, se existir
       const { data: orcs } = await supabase
         .from('orcamentos')
         .select('tipo, bdi_percentual, status, versao')
@@ -161,7 +159,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
 
   async function handleDelete() {
     if (!obra) return
-    if (!confirm(`Excluir definitivamente "${obra.nome}"? Todos os dados vinculados (orÃ§amento, cronograma, materiais, mediÃ§Ãµes) serÃ£o removidos. Esta aÃ§Ã£o nÃ£o pode ser desfeita.`)) return
+    if (!confirm(`Excluir definitivamente "${obra.nome}"? Todos os dados vinculados (orçamento, cronograma, materiais, medições) serão removidos. Esta ação não pode ser desfeita.`)) return
     setDeleting(true)
     setMenuOpen(false)
     await supabase.from('obras').delete().eq('id', id)
@@ -180,7 +178,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   if (!obra) {
     return (
       <div className="text-center py-16">
-        <p style={{ color: 'var(--text-secondary)' }}>Obra nÃ£o encontrada.</p>
+        <p style={{ color: 'var(--text-secondary)' }}>Obra não encontrada.</p>
         <Link href="/obras" className="text-sm mt-2 inline-block" style={{ color: 'var(--accent)' }}>â† Voltar para Obras</Link>
       </div>
     )
@@ -242,13 +240,13 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
                     <option value="concluida" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Concluída</option>
                   </select>
 
-                  {/* Menu de aÃ§Ãµes: editar / duplicar / excluir */}
+                  {/* Menu de ações: editar / duplicar / excluir */}
                   <div className="relative" ref={menuRef}>
                     <button
                       onClick={() => setMenuOpen(v => !v)}
                       className="p-2 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
                       style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-                      title="Mais aÃ§Ãµes"
+                      title="Mais ações"
                     >
                       <MoreVertical size={16} />
                     </button>
@@ -326,7 +324,6 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'visao-geral' && <ObraVisaoGeral obra={obra} onEdit={openEdit} />}
         {tab === 'arquivos' && <ObraArquivos obraId={id} />}
         {tab === 'orcamento' && <ObraOrcamento obraId={id} areaM2={obra.area_m2} obraName={obra.nome} obraUf={obra.uf || 'SP'} />}
-        {tab === 'fornecedores' && <ObraFornecedores obraId={id} />}
         {tab === 'cronograma' && <ObraCronograma obraId={id} />}
         {tab === 'materiais' && <ObraMateriais obraId={id} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} />}
@@ -349,10 +346,10 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
           />
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Responsável tÃ©cnico"
+              label="Responsável técnico"
               value={editForm.responsavel}
               onChange={e => setEditForm(f => ({ ...f, responsavel: e.target.value }))}
-              placeholder="Engenheiro responsÃ¡vel"
+              placeholder="Engenheiro responsável"
             />
             <Input
               label="Área construída (m²)"

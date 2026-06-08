@@ -43,17 +43,17 @@ export const STATUS_OBRA_COLOR: Record<string, string> = {
 }
 
 export const STATUS_ETAPA_LABEL: Record<string, string> = {
-  planejada: 'Planejada',
-  em_andamento: 'Em Andamento',
+  planejada: 'A executar',
+  em_andamento: 'Em execucao',
   concluida: 'Concluída',
-  atrasada: 'Atrasada',
+  atrasada: 'Ponto de atencao',
 }
 
 export const STATUS_ETAPA_COLOR: Record<string, string> = {
   planejada: 'bg-blue-500/20 text-blue-400',
-  em_andamento: 'bg-yellow-500/20 text-yellow-400',
+  em_andamento: 'bg-emerald-500/20 text-emerald-400',
   concluida: 'bg-green-500/20 text-green-400',
-  atrasada: 'bg-red-500/20 text-red-400',
+  atrasada: 'bg-amber-500/20 text-amber-400',
 }
 
 export const STATUS_MATERIAL_COLOR: Record<string, string> = {

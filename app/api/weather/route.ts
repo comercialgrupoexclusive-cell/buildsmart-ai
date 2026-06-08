@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { nomeEstadoPorUf, normalizarLocalidade } from '@/lib/brasil-localidades'
 
 type WeatherDay = {
   data: string
@@ -41,7 +42,8 @@ function offlineFallback(local: string | null): WeatherResponse {
 }
 
 async function geocode(cidade: string, estado?: string | null) {
-  const query = estado ? `${cidade}, ${estado}` : cidade
+  const estadoNome = nomeEstadoPorUf(estado) || estado || null
+  const query = cidade
   const url = `${GEOCODING_URL}?name=${encodeURIComponent(query)}&count=5&language=pt&format=json&country=BR`
   const res = await fetch(url, { next: { revalidate: 3600 * 24 } })
   if (!res.ok) throw new Error('Falha no geocoding')
@@ -50,8 +52,9 @@ async function geocode(cidade: string, estado?: string | null) {
   const results: any[] = json?.results || []
   if (results.length === 0) throw new Error('Localidade não encontrada')
 
-  const match = (estado
-    ? results.find(r => (r.admin1_id ? true : true) && String(r.admin1 || '').toLowerCase().includes(String(estado).toLowerCase()))
+  const estadoNormalizado = estadoNome ? normalizarLocalidade(estadoNome) : null
+  const match = (estadoNormalizado
+    ? results.find(r => normalizarLocalidade(String(r.admin1 || '')).includes(estadoNormalizado))
     : null) || results[0]
 
   return {

@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import {
-  Plus, AlertTriangle, Calendar, Pencil, Trash2,
+  Plus, AlertTriangle, Calendar, Pencil, Trash2, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Etapa } from '@/lib/types'
@@ -21,6 +21,7 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
   const [showModal, setShowModal] = useState(false)
   const [editando, setEditando] = useState<Etapa | null>(null)
   const [saving, setSaving] = useState(false)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [form, setForm] = useState({
     nome: '',
     data_inicio: '',
@@ -189,8 +190,18 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
       ) : (
         <div className="flex flex-col gap-4">
           {/* ── Gantt visual ── */}
-          {etapasGantt.length > 0 && (
+          {etapasGantt.length > 0 ? (
             <CronogramaGantt etapas={etapas} subetapas={subetapas} />
+          ) : (
+            <div className="card p-5 flex items-start gap-3">
+              <Calendar size={18} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Gantt pronto para montar</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Defina inicio e termino das etapas para exibir o grafico de Gantt.
+                </p>
+              </div>
+            </div>
           )}
 
           {/* ── Tabela de etapas ── */}
@@ -207,13 +218,30 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
                 {etapas.map(etapa => {
                   const dias = etapa.data_inicio ? diasAteData(etapa.data_inicio) : null
                   const atrasada = dias !== null && dias < 0 && etapa.status !== 'concluida'
+                  const subs = subetapas.filter(s => s.etapa_id === etapa.id)
+                  const isCollapsed = collapsed[etapa.id] ?? false
                   return (
-                    <tr key={etapa.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <Fragment key={etapa.id}>
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
                       <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{etapa.ordem}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setCollapsed(prev => ({ ...prev, [etapa.id]: !isCollapsed }))}
+                            disabled={subs.length === 0}
+                            className="p-1 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                            style={{ color: 'var(--text-secondary)', opacity: subs.length ? 1 : 0.35 }}
+                            title={subs.length ? 'Abrir subetapas' : 'Sem subetapas'}
+                          >
+                            {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                          </button>
                           {atrasada && <AlertTriangle size={13} style={{ color: 'var(--danger)', flexShrink: 0 }} />}
                           <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
+                          {subs.length > 0 && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                              {subs.length} {subs.length === 1 ? 'subetapa' : 'subetapas'}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
@@ -234,10 +262,10 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
                           className="text-xs rounded-lg px-2 py-1"
                           style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
                         >
-                          <option value="planejada">Planejada</option>
-                          <option value="em_andamento">Em andamento</option>
-                          <option value="concluida">Concluída</option>
-                          <option value="atrasada">Atrasada</option>
+                          <option value="planejada">A executar</option>
+                          <option value="em_andamento">Em execucao</option>
+                          <option value="concluida">Concluida</option>
+                          <option value="atrasada">Ponto de atencao</option>
                         </select>
                       </td>
                       <td className="px-4 py-3">
@@ -251,6 +279,23 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
                         </div>
                       </td>
                     </tr>
+                    {!isCollapsed && subs.map(sub => (
+                      <tr key={sub.id} style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+                        <td />
+                        <td className="px-4 py-2 pl-12 text-xs" style={{ color: 'var(--text-primary)' }}>
+                          {sub.codigo && <span style={{ color: 'var(--text-secondary)' }}>{sub.codigo} - </span>}
+                          {sub.nome}
+                        </td>
+                        <td className="px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>Dentro da etapa</td>
+                        <td className="px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          {sub.quantidade ? `${sub.quantidade} ${sub.unidade || ''}` : '-'}
+                        </td>
+                        <td colSpan={3} className="px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          Subetapa gerada pelo item do orçamento
+                        </td>
+                      </tr>
+                    ))}
+                    </Fragment>
                   )
                 })}
               </tbody>
@@ -279,10 +324,10 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
             <Input label="Término *" type="date" value={form.data_fim} onChange={e => setForm(f => ({ ...f, data_fim: e.target.value }))} />
           </div>
           <Select label="Status" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as Etapa['status'] }))}>
-            <option value="planejada">Planejada</option>
-            <option value="em_andamento">Em andamento</option>
-            <option value="concluida">Concluída</option>
-            <option value="atrasada">Atrasada</option>
+            <option value="planejada">A executar</option>
+            <option value="em_andamento">Em execucao</option>
+            <option value="concluida">Concluida</option>
+            <option value="atrasada">Ponto de atencao</option>
           </Select>
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" className="flex-1" onClick={() => { setShowModal(false); setEditando(null); resetForm() }}>Cancelar</Button>

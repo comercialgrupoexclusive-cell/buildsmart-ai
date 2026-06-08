@@ -265,19 +265,11 @@ export default function ServicosPage({
         <>
           {/* Toolbar */}
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-            <div className="flex gap-2 flex-wrap">
+            <select value={filtroGrupo} onChange={e => setFiltroGrupo(e.target.value)} className="input-base w-full sm:w-56">
               {grupos.map(g => (
-                <button key={g}
-                  onClick={() => setFiltroGrupo(g)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                  style={filtroGrupo === g
-                    ? { background: 'var(--accent)', color: 'white' }
-                    : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-                >
-                  {g === 'TODOS' ? 'Todos' : g.replace(/_/g, ' ')}
-                </button>
+                <option key={g} value={g}>{g === 'TODOS' ? 'Todos os grupos' : g.replace(/_/g, ' ')}</option>
               ))}
-            </div>
+            </select>
             <div className="flex gap-3 w-full sm:w-auto">
               <div className="relative flex-1 sm:w-64">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />

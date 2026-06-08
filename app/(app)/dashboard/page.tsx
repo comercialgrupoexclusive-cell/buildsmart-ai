@@ -12,6 +12,7 @@ import { ClimaWidgets } from '@/components/dashboard/ClimaWidgets'
 import Link from 'next/link'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, PieChart, Pie, Cell,
 } from 'recharts'
 
 type DashboardData = {
@@ -53,7 +54,7 @@ export default function DashboardPage() {
         .order('data_inicio'),
       supabase
         .from('materiais')
-        // schema v3: descricao Ã© coluna direta, nÃ£o via join sinapi_insumos
+        // schema v3: descricao é coluna direta, não via join sinapi_insumos
         .select('*, obras(nome)')
         .neq('status_compra', 'comprado')
         .order('data_necessidade'),
@@ -78,8 +79,25 @@ export default function DashboardPage() {
 
   const obrasAtivas = data.obras.filter(o => o.status === 'ativa').length
   const orcamentosAndamento = data.obras.filter(o => o.status === 'orcamento').length
+  const obrasConcluidas = data.obras.filter(o => o.status === 'concluida').length
+  const materiaisParciais = data.materiaisPendentes.filter(m => m.status_compra === 'parcial').length
+  const materiaisNaoComprados = data.materiaisPendentes.filter(m => m.status_compra === 'nao_comprado').length
+  const materiaisComPrazo = data.materiaisPendentes.filter(m => m.data_necessidade).length
 
-  // â”€â”€â”€ Painel preditivo: aÃ§Ãµes calculadas dos dados jÃ¡ carregados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const obrasPorStatus = [
+    { nome: 'Orçamento', total: orcamentosAndamento, cor: 'var(--accent)' },
+    { nome: 'Ativas', total: obrasAtivas, cor: 'var(--success)' },
+    { nome: 'Paralisadas', total: data.obras.filter(o => o.status === 'paralisada').length, cor: 'var(--warning)' },
+    { nome: 'Concluídas', total: obrasConcluidas, cor: 'var(--text-secondary)' },
+  ]
+
+  const materiaisPorStatus = [
+    { nome: 'Não comprado', value: materiaisNaoComprados, cor: '#EF4444' },
+    { nome: 'Parcial', value: materiaisParciais, cor: '#F59E0B' },
+    { nome: 'Com prazo', value: materiaisComPrazo, cor: '#3B7BF8' },
+  ].filter(item => item.value > 0)
+
+  // ─── Painel preditivo: ações calculadas dos dados já carregados ───────────
   const acoesPrioritarias: AcaoPrioritaria[] = []
 
   // 1. Materiais com prazo â‰¤ 3 dias
@@ -112,7 +130,7 @@ export default function DashboardPage() {
       })
     })
 
-  // 3. Obras em orÃ§amento (sem cronograma ativo)
+  // 3. Obras em orçamento (sem cronograma ativo)
   data.obras
     .filter(o => o.status === 'orcamento')
     .slice(0, 1)
@@ -138,8 +156,8 @@ export default function DashboardPage() {
     })
   }
 
-  // TendÃªncia: consumo previsto (itens com necessidade prevista) vs. itens jÃ¡ garantidos em estoque/compra,
-  // acumulados ao longo dos prÃ³ximos 15 dias â€” ajuda a antecipar rupturas de suprimento.
+  // Tendência: consumo previsto (itens com necessidade prevista) vs. itens já garantidos em estoque/compra,
+  // acumulados ao longo dos próximos 15 dias — ajuda a antecipar rupturas de suprimento.
   const consumoVsEstoque = (() => {
     const hoje = new Date()
     hoje.setHours(0, 0, 0, 0)
@@ -173,8 +191,56 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* â”€â”€ KPIs â”€â”€ */}
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-1 xl:grid-cols-[1.25fr_0.75fr] gap-4">
+        <div className="card p-6 overflow-hidden relative">
+          <div className="absolute right-5 top-5 opacity-10">
+            <HardHat size={96} style={{ color: 'var(--accent)' }} />
+          </div>
+          <div className="relative">
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent)' }}>Painel preditivo</p>
+            <h1 className="text-2xl sm:text-3xl font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
+              Visão rápida das obras
+            </h1>
+            <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--text-secondary)' }}>
+              Próximas etapas, materiais a comprar, clima e pontos de decisão em um só lugar.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6 relative">
+            {[
+              { label: 'Obras', value: data.obras.length, color: 'var(--accent)' },
+              { label: 'Ativas', value: obrasAtivas, color: 'var(--success)' },
+              { label: 'Materiais', value: data.materiaisPendentes.length, color: 'var(--warning)' },
+              { label: 'Etapas próximas', value: data.alertas, color: data.alertas > 0 ? 'var(--danger)' : 'var(--success)' },
+            ].map(item => (
+              <div key={item.label} className="rounded-xl p-3" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+                <p className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{item.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Obras por status</h2>
+          </div>
+          <ResponsiveContainer width="100%" height={190}>
+            <BarChart data={obrasPorStatus}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis dataKey="nome" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="total" radius={[6, 6, 0, 0]} animationDuration={900}>
+                {obrasPorStatus.map(item => <Cell key={item.nome} fill={item.cor} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KpiCard
           icon={HardHat}
@@ -199,7 +265,7 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* â”€â”€ GrÃ¡fico + Próximos 7 dias â”€â”€ */}
+      {/* Gráficos + próximos 7 dias */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="card p-6 lg:col-span-2">
           <div className="flex items-center gap-2 mb-6">
@@ -245,6 +311,43 @@ export default function DashboardPage() {
           </p>
         </div>
 
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Package size={18} style={{ color: 'var(--warning)' }} />
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Materiais em aberto</h2>
+          </div>
+          {materiaisPorStatus.length === 0 ? (
+            <div className="py-10 text-center flex flex-col items-center gap-2">
+              <CheckCircle2 size={28} style={{ color: 'var(--success)' }} />
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum material pendente</p>
+            </div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={170}>
+                <PieChart>
+                  <Pie data={materiaisPorStatus} dataKey="value" nameKey="nome" innerRadius={48} outerRadius={72} paddingAngle={4} animationDuration={900}>
+                    {materiaisPorStatus.map(item => <Cell key={item.nome} fill={item.cor} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-2">
+                {materiaisPorStatus.map(item => (
+                  <div key={item.nome} className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: item.cor }} />
+                      {item.nome}
+                    </span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{item.value}</strong>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_1fr] gap-4">
         {/* Próximos 7 dias */}
         <div className="card p-6">
           <div className="flex items-center gap-2 mb-4">
@@ -268,7 +371,7 @@ export default function DashboardPage() {
                         color: dias !== null && dias <= 2 ? 'var(--danger)' : 'var(--warning)',
                       }}
                     >
-                      {dias !== null ? `${dias}d` : 'â€”'}
+                      {dias !== null ? `${dias}d` : '—'}
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</p>
@@ -282,7 +385,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* â”€â”€ Materiais pendentes + Ações Prioritárias â”€â”€ */}
+      {/* Materiais pendentes + Ações Prioritárias */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Materiais pendentes */}
         {data.materiaisPendentes.length > 0 && (
@@ -318,7 +421,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Ações Prioritárias â€” substitui "Obras Recentes" */}
+        {/* Ações Prioritárias — substitui "Obras Recentes" */}
         <div className="card p-6">
           <div className="flex items-center gap-2 mb-4">
             <Zap size={18} style={{ color: 'var(--accent)' }} />
@@ -341,7 +444,7 @@ export default function DashboardPage() {
                 >
                   <div
                     className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                    style={{ background: `${acao.color.replace('var(--', '').replace(')', '')}15` || '#ffffff10' }}
+                    style={{ background: 'var(--bg-secondary)' }}
                   >
                     <acao.icon size={15} style={{ color: acao.color }} />
                   </div>
