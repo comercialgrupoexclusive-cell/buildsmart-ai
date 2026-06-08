@@ -15,18 +15,27 @@ type BuildAssistContext = {
   etapas?: any[]
   materiais?: any[]
   medicoes?: any[]
+  diario?: any[]
+  progresso?: Record<string, number>
   composicoes?: any[]
   insumos?: any[]
+  fornecedores?: any[]
+  listasCompras?: any[]
   arquivos?: any[]
   uploadedFiles?: any[]
 }
 
 function hasOpenAiKey() {
   const key = process.env.OPENAI_API_KEY || ''
-  return key.startsWith('sk-') && !key.includes('placeholder')
+  return key.startsWith('sk-') && !key.includes('placeholder') && !key.includes('your_')
 }
 
-function limitJson(value: unknown, maxLength = 18000) {
+function modelFor(complex: boolean) {
+  if (complex) return process.env.OPENAI_COMPLEX_MODEL || 'gpt-5-mini'
+  return process.env.OPENAI_SIMPLE_MODEL || 'gpt-4o-mini'
+}
+
+function limitJson(value: unknown, maxLength = 22000) {
   const text = JSON.stringify(value, null, 2)
   if (text.length <= maxLength) return text
   return `${text.slice(0, maxLength)}\n... contexto reduzido para caber na chamada ...`
@@ -36,33 +45,56 @@ function firstUserQuestion(messages: BuildAssistMessage[]) {
   return [...messages].reverse().find(m => m.role === 'user')?.content || ''
 }
 
+function summarizeList<T>(items: T[] | undefined, limit = 5) {
+  return Array.isArray(items) ? items.slice(0, limit) : []
+}
+
 function localFallback(messages: BuildAssistMessage[], context: BuildAssistContext) {
   const question = firstUserQuestion(messages).toLowerCase()
   const obra = context.obraAtual || context.obras?.[0]
   const etapas = context.etapas || []
   const materiais = context.materiais || []
   const orcamentos = context.orcamentos || []
+  const fornecedores = context.fornecedores || []
+  const listasCompras = context.listasCompras || []
+  const diario = context.diario || []
   const arquivos = [...(context.arquivos || []), ...(context.uploadedFiles || [])]
 
   const proximasEtapas = etapas
     .filter(e => e.status !== 'concluida')
-    .slice(0, 3)
+    .slice(0, 4)
     .map(e => `- ${e.nome}${e.data_inicio ? `: inicio previsto em ${e.data_inicio}` : ''}`)
     .join('\n')
 
   const materiaisAComprar = materiais
     .filter(m => m.status_compra !== 'comprado')
-    .slice(0, 4)
-    .map(m => `- ${m.descricao}: ${Number(m.quantidade_total || 0).toLocaleString('pt-BR')} ${m.unidade || ''}`)
+    .slice(0, 5)
+    .map(m => `- ${m.descricao}: ${Number(m.quantidade_total || 0).toLocaleString('pt-BR')} ${m.unidade || ''}${m.subetapa ? ` (${m.subetapa})` : ''}`)
     .join('\n')
 
   if (question.includes('arquivo') || question.includes('projeto') || question.includes('planta')) {
     return [
       `Estou em modo local sem chave da OpenAI configurada, mas ja consigo organizar os arquivos da obra ${obra?.nome || 'selecionada'}.`,
       arquivos.length > 0
-        ? `Arquivos recebidos/anexados:\n${arquivos.slice(0, 5).map(a => `- ${a.nome || a.name}: ${a.categoria || a.type || 'arquivo'}`).join('\n')}`
+        ? `Arquivos recebidos/anexados:\n${arquivos.slice(0, 6).map(a => `- ${a.nome || a.name}: ${a.categoria || a.tipo || a.type || 'arquivo'}`).join('\n')}`
         : 'Ainda nao encontrei arquivo anexado ou enviado nesta conversa.',
-      'Proximo passo pratico: ao configurar OPENAI_API_KEY, eu passo a interpretar o conteudo enviado e cruzar com orcamento, cronograma e materiais.',
+      'Quando voce colar a OPENAI_API_KEY no .env.local, eu passo a interpretar o conteudo enviado e cruzar com orcamento, cronograma, compras, diario e materiais.',
+    ].join('\n\n')
+  }
+
+  if (question.includes('compra') || question.includes('comprar') || question.includes('fornecedor')) {
+    return [
+      `Para a obra ${obra?.nome || 'atual'}, encontrei ${materiais.filter(m => m.status_compra !== 'comprado').length} material(is) em aberto, ${listasCompras.length} lista(s) de compra e ${fornecedores.length} fornecedor(es) disponiveis.`,
+      materiaisAComprar ? `Materiais para acompanhar:\n${materiaisAComprar}` : 'Nao encontrei materiais em aberto.',
+      fornecedores.length > 0 ? `Fornecedores de referencia:\n${summarizeList(fornecedores, 4).map((f: any) => `- ${f.nome} (${f.categoria})`).join('\n')}` : 'Ainda nao ha fornecedores cadastrados para cruzar com compras.',
+    ].join('\n\n')
+  }
+
+  if (question.includes('diario') || question.includes('diário') || question.includes('medicao') || question.includes('medição') || question.includes('avanco') || question.includes('avanço')) {
+    return [
+      `Para a obra ${obra?.nome || 'atual'}, encontrei ${diario.length} registro(s) de diario e ${context.medicoes?.length || 0} medicao(oes).`,
+      proximasEtapas ? `Etapas para comparar com o avanco:\n${proximasEtapas}` : 'Ainda faltam etapas planejadas para comparar o avanco.',
+      'Com a chave da OpenAI configurada, eu consigo resumir diario, progresso e proximas decisoes com mais precisao.',
     ].join('\n\n')
   }
 
@@ -75,10 +107,10 @@ function localFallback(messages: BuildAssistMessage[], context: BuildAssistConte
   }
 
   return [
-    `Resumo local da obra ${obra?.nome || 'atual'}: ${etapas.length} etapa(s), ${materiais.length} material(is), ${orcamentos.length} orcamento(s).`,
+    `Resumo local da obra ${obra?.nome || 'atual'}: ${etapas.length} etapa(s), ${materiais.length} material(is), ${orcamentos.length} orcamento(s), ${fornecedores.length} fornecedor(es) e ${diario.length} registro(s) de diario.`,
     proximasEtapas ? `Proximas etapas previstas:\n${proximasEtapas}` : 'Nao encontrei proximas etapas planejadas.',
     materiaisAComprar ? `Materiais para acompanhar:\n${materiaisAComprar}` : 'Nao encontrei materiais em aberto para compra.',
-    'Esta resposta foi gerada em modo local de teste. Para ativar IA real, configure OPENAI_API_KEY no .env.local.',
+    'Esta resposta foi gerada em modo local de teste. Para ativar IA real, configure OPENAI_API_KEY no .env.local e reinicie o servidor.',
   ].join('\n\n')
 }
 
@@ -103,7 +135,7 @@ export async function POST(req: NextRequest) {
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     const hoje = new Date().toLocaleDateString('pt-BR')
-    const model = complex ? 'gpt-5-mini' : 'gpt-4o-mini'
+    const model = modelFor(complex)
 
     const systemPrompt = `Voce e o BuildAssistente IA da BuildSmart AI.
 
@@ -112,7 +144,7 @@ DATA ATUAL: ${hoje}
 PAPEL:
 - Ajudar usuarios leigos a controlar obras residenciais de 40m2 a 200m2.
 - Ser pratico, simples e preditivo.
-- Prever proximas etapas, materiais, medicoes e pontos de decisao.
+- Prever proximas etapas, proximos materiais, compras, medicoes e pontos de decisao.
 - Nao usar tom alarmista. Prefira "previsto", "ponto de atencao", "proximo passo".
 
 REGRAS:
@@ -120,8 +152,12 @@ REGRAS:
 - Use apenas os dados do contexto quando falar da obra.
 - Quando faltar dado, diga claramente o que falta.
 - Seja curto: ate 4 blocos pequenos.
-- Separe materiais de mao de obra quando esse assunto aparecer.
+- Separe materiais, mao de obra e equipamentos quando esse assunto aparecer.
+- Diferencie material em aberto, material parcial e material comprado.
+- Ao falar de compras, considere fornecedores e listas de compra.
+- Ao falar de avanco, considere diario, medicoes e progresso.
 - Nao prometa leitura real de arquivos se o conteudo do arquivo nao foi enviado.
+- Quando sugerir criacao/alteracao no sistema, deixe claro que o usuario deve revisar antes de salvar.
 
 CONTEXTO LOCAL/SISTEMA:
 ${limitJson(context)}`

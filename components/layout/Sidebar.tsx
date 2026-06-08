@@ -106,7 +106,7 @@ export function Sidebar() {
           )
         })}
         <p className="text-xs px-3.5 pt-1 overflow-hidden whitespace-nowrap" style={{ color: 'var(--text-secondary)', opacity: 0.6 }}>
-          v1.0
+          v{APP_VERSION}
         </p>
       </div>
     </aside>

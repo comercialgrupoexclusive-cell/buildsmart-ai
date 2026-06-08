@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Bot, CalendarDays, CheckCircle2, Cloud, FileSearch, FileText, Loader2,
-  Package, RefreshCw, Send, Upload, Users2,
+  Package, RefreshCw, Send, ShoppingCart, Upload, Users2,
 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
@@ -29,8 +29,12 @@ type BuildContext = {
   etapas: any[]
   materiais: any[]
   medicoes: any[]
+  diario: any[]
+  progresso: Record<string, number>
   composicoes: any[]
   insumos: any[]
+  fornecedores: any[]
+  listasCompras: any[]
   arquivos: any[]
   uploadedFiles: UploadedFile[]
 }
@@ -54,6 +58,28 @@ function storageKey(obraId: string) {
   return `buildsmart_obra_arquivos_${obraId}`
 }
 
+function listasStorageKey(obraId: string) {
+  return `bs_listas_compra_${obraId}`
+}
+
+function diarioStorageKey(obraId: string) {
+  return `bs_diario_${obraId}`
+}
+
+function progressoStorageKey(obraId: string) {
+  return `bs_progresso_${obraId}`
+}
+
+function readJsonStorage<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined' || !key) return fallback
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) as T : fallback
+  } catch {
+    return fallback
+  }
+}
+
 export default function BuildAssistPage() {
   const { currentProfile } = useProfile()
   const supabase = createClient()
@@ -75,15 +101,6 @@ export default function BuildAssistPage() {
     return new URLSearchParams(window.location.search).get('obra') || ''
   }
 
-  function readArquivosDaObra(obraId: string) {
-    if (typeof window === 'undefined' || !obraId) return []
-    try {
-      return JSON.parse(localStorage.getItem(storageKey(obraId)) || '[]')
-    } catch {
-      return []
-    }
-  }
-
   async function loadContext(files: UploadedFile[]) {
     const [
       obrasRes,
@@ -94,6 +111,7 @@ export default function BuildAssistPage() {
       medicoesRes,
       composicoesRes,
       insumosRes,
+      fornecedoresRes,
     ] = await Promise.all([
       supabase.from('obras').select('*').order('created_at', { ascending: false }),
       supabase.from('orcamentos').select('*').order('created_at', { ascending: false }),
@@ -101,27 +119,34 @@ export default function BuildAssistPage() {
       supabase.from('etapas').select('*, obras(nome)').order('data_inicio'),
       supabase.from('materiais').select('*, obras(nome)').order('data_necessidade'),
       supabase.from('medicoes').select('*, obras(nome)').order('created_at', { ascending: false }),
-      supabase.from('composicoes_proprias').select('*').limit(20),
-      supabase.from('sinapi_insumos').select('*').limit(30),
+      supabase.from('composicoes_proprias').select('*').limit(30),
+      supabase.from('sinapi_insumos').select('*').limit(40),
+      supabase.from('fornecedores').select('*').order('nome'),
     ])
 
     const obras = obrasRes.data || []
     const requestedObraId = getRequestedObraId()
     const obraAtual = obras.find((obra: any) => obra.id === requestedObraId) || obras[0] || null
-    const obraId = obraAtual?.id
+    const obraId = obraAtual?.id || ''
+    const orcamentosDaObra = (orcamentosRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId)
+    const orcamentoIds = new Set(orcamentosDaObra.map((orc: any) => orc.id))
 
     const ctx: BuildContext = {
       modo: 'local',
       obraAtual,
       obras,
-      orcamentos: (orcamentosRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId),
-      itensOrcamento: itensRes.data || [],
+      orcamentos: orcamentosDaObra,
+      itensOrcamento: (itensRes.data || []).filter((item: any) => orcamentoIds.has(item.orcamento_id)),
       etapas: (etapasRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId),
       materiais: (materiaisRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId),
       medicoes: (medicoesRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId),
+      diario: readJsonStorage<any[]>(diarioStorageKey(obraId), []),
+      progresso: readJsonStorage<Record<string, number>>(progressoStorageKey(obraId), {}),
       composicoes: composicoesRes.data || [],
       insumos: insumosRes.data || [],
-      arquivos: readArquivosDaObra(obraId),
+      fornecedores: (fornecedoresRes.data || []).filter((item: any) => !item.obra_id || item.obra_id === obraId),
+      listasCompras: readJsonStorage<any[]>(listasStorageKey(obraId), []),
+      arquivos: readJsonStorage<any[]>(storageKey(obraId), []),
       uploadedFiles: files,
     }
 
@@ -143,10 +168,16 @@ export default function BuildAssistPage() {
     if (materiais.length > 0) {
       msg += `Há ${materiais.length} ${materiais.length === 1 ? 'material em acompanhamento' : 'materiais em acompanhamento'}. `
     }
-    if (ctx.arquivos.length > 0) {
-      msg += `Também encontrei ${ctx.arquivos.length} arquivo(s) anexado(s) à obra. `
+    if (ctx.listasCompras.length > 0) {
+      msg += `Também encontrei ${ctx.listasCompras.length} lista(s) de compra. `
     }
-    msg += 'Posso ajudar a interpretar projetos, organizar orçamento, prever materiais e apoiar decisões da obra.'
+    if (ctx.diario.length > 0) {
+      msg += `Há ${ctx.diario.length} registro(s) de diário da obra. `
+    }
+    if (ctx.arquivos.length > 0) {
+      msg += `E ${ctx.arquivos.length} arquivo(s) anexado(s) à obra. `
+    }
+    msg += 'Posso ajudar a interpretar projetos, organizar orçamento, prever materiais, compras, avanço e próximas decisões.'
     setOpeningMsg(msg)
   }
 
@@ -154,15 +185,24 @@ export default function BuildAssistPage() {
     const materiais = ctx.materiais.filter(m => m.status_compra !== 'comprado')
     const etapas = ctx.etapas.filter(e => e.status !== 'concluida')
     const arquivos = [...ctx.arquivos, ...ctx.uploadedFiles]
+    const abertas = ctx.listasCompras.filter((lista: any) => lista.status !== 'concluida')
 
-    const next: Insight[] = [
+    setInsights([
       {
         icon: <Package size={16} />,
         label: 'MATERIAIS',
         title: `${materiais.length} itens para acompanhar`,
         description: materiais[0]?.descricao || 'Lista de compra ainda pode ser refinada',
         color: 'var(--warning)',
-        prompt: 'Liste os materiais previstos e sugira uma ordem simples de compra por etapa.',
+        prompt: 'Liste os materiais previstos e sugira uma ordem simples de compra por etapa e subetapa.',
+      },
+      {
+        icon: <ShoppingCart size={16} />,
+        label: 'COMPRAS',
+        title: `${abertas.length} lista(s) em aberto`,
+        description: ctx.fornecedores[0]?.nome || 'Fornecedores podem apoiar as compras',
+        color: '#22C55E',
+        prompt: 'Analise listas de compra, materiais em aberto e fornecedores. Sugira próximos passos práticos.',
       },
       {
         icon: <Users2 size={16} />,
@@ -170,7 +210,7 @@ export default function BuildAssistPage() {
         title: etapas[0]?.nome || 'Sem próxima etapa',
         description: etapas[0]?.data_inicio ? `Prevista para ${etapas[0].data_inicio}` : 'Monte etapas para melhorar previsões',
         color: 'var(--accent)',
-        prompt: 'Analise o cronograma e diga quais são os próximos passos objetivos.',
+        prompt: 'Analise o cronograma, diário e progresso. Diga quais são os próximos passos objetivos.',
       },
       {
         icon: <FileSearch size={16} />,
@@ -178,7 +218,7 @@ export default function BuildAssistPage() {
         title: `${arquivos.length} arquivo(s) disponíveis`,
         description: arquivos[0]?.nome || 'Anexe plantas, memoriais ou imagens da obra',
         color: 'var(--success)',
-        prompt: 'Leia os arquivos disponíveis e resuma o que ajuda no orçamento, cronograma e materiais.',
+        prompt: 'Leia os arquivos disponíveis e resuma o que ajuda no orçamento, cronograma, compras e materiais.',
       },
       {
         icon: <Cloud size={16} />,
@@ -186,10 +226,9 @@ export default function BuildAssistPage() {
         title: 'Próximas decisões',
         description: 'Síntese objetiva com base no orçamento e avanço',
         color: '#8B5CF6',
-        prompt: 'Gere previsões objetivas de próximas etapas, materiais e decisões da obra.',
+        prompt: 'Gere previsões objetivas de próximas etapas, materiais, compras e decisões da obra.',
       },
-    ]
-    setInsights(next)
+    ])
   }
 
   function aplicarPrompt(texto: string) {
@@ -217,7 +256,7 @@ export default function BuildAssistPage() {
     }
 
     setUploadedFiles(prev => [...prev, ...parsed])
-    setInput('Analise os arquivos enviados e diga o que ajuda no orçamento, cronograma, materiais e próximas decisões da obra.')
+    setInput('Analise os arquivos enviados e diga o que ajuda no orçamento, cronograma, materiais, compras e próximas decisões da obra.')
   }
 
   function shouldUseComplexModel(text: string) {
@@ -229,6 +268,11 @@ export default function BuildAssistPage() {
       || value.includes('orçamento')
       || value.includes('orcamento')
       || value.includes('cronograma')
+      || value.includes('compra')
+      || value.includes('diário')
+      || value.includes('diario')
+      || value.includes('medição')
+      || value.includes('medicao')
   }
 
   async function sendMessage() {
@@ -258,7 +302,7 @@ export default function BuildAssistPage() {
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Erro de conexão com a IA. Nesta fase local, confira se o servidor está ligado e se a chave da OpenAI foi configurada.',
+        content: 'Erro de conexão com a IA. Confira se o servidor está ligado e se a chave da OpenAI foi configurada.',
       }])
     } finally {
       setLoading(false)
@@ -330,7 +374,7 @@ export default function BuildAssistPage() {
             onChange={event => handleFiles(event.target.files)}
           />
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 xl:grid-cols-5 gap-2">
             <button
               onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--bg-secondary)]"
@@ -340,9 +384,10 @@ export default function BuildAssistPage() {
               Enviar projeto
             </button>
             {[
-              { icon: FileSearch, label: 'Ler arquivos da obra', prompt: 'Leia os arquivos anexados desta obra e resuma informações úteis para orçamento, cronograma e materiais.' },
-              { icon: FileText, label: 'Ajudar no orçamento', prompt: 'Com base na obra atual, sugira um caminho simples para montar o orçamento executivo.' },
-              { icon: CalendarDays, label: 'Gerar previsões', prompt: 'Gere previsões objetivas de próximas etapas, materiais e pontos de decisão da obra.' },
+              { icon: FileSearch, label: 'Ler arquivos', prompt: 'Leia os arquivos anexados desta obra e resuma informações úteis para orçamento, cronograma, compras e materiais.' },
+              { icon: FileText, label: 'Ajudar orçamento', prompt: 'Com base na obra atual, sugira um caminho simples para montar ou revisar o orçamento executivo.' },
+              { icon: ShoppingCart, label: 'Planejar compras', prompt: 'Analise materiais, listas de compras e fornecedores. Sugira o que comprar primeiro e com quem consultar.' },
+              { icon: CalendarDays, label: 'Gerar previsões', prompt: 'Gere previsões objetivas de próximas etapas, materiais, compras e pontos de decisão da obra.' },
             ].map(action => (
               <button
                 key={action.label}
@@ -361,7 +406,7 @@ export default function BuildAssistPage() {
               {uploadedFiles.map(file => (
                 <span key={`${file.nome}-${file.tamanho}`} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
                   <CheckCircle2 size={12} style={{ color: 'var(--success)' }} />
-                  {file.nome} · {formatBytes(file.tamanho)}
+                  {file.nome} - {formatBytes(file.tamanho)}
                 </span>
               ))}
             </div>
@@ -372,7 +417,7 @@ export default function BuildAssistPage() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-              placeholder="Pergunte sobre projeto, orçamento, cronograma, materiais ou previsões..."
+              placeholder="Pergunte sobre projeto, orçamento, cronograma, materiais, compras ou previsões..."
               className="input-base flex-1"
               disabled={loading}
             />
