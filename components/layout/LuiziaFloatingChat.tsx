@@ -13,7 +13,13 @@ type Message = {
 const CHAT_KEY = 'buildsmart-luizia-floating-chat-session'
 
 function greeting(name?: string) {
-  return `Oi${name ? `, ${name}` : ''}! Eu sou a Luizia.\n\nPrometo não complicar sua vida: posso ajudar com orçamento, materiais, compras, cronograma e aquelas dúvidas de obra que aparecem do nada.\n\nComo você está hoje? Quer que eu te ajude a dar uma olhada na obra atual?`
+  return `Oi${name ? `, ${name}` : ''}! Eu sou a Luizia.
+
+Prometo nao complicar sua vida: posso ajudar com orcamento, materiais, compras, cronograma e aquelas duvidas de obra que aparecem do nada.
+
+Ah, e se quiser deixar o sistema mais confortavel, tem tema claro e escuro no botao de sol/lua la no topo.
+
+Como voce esta hoje? Quer que eu te ajude a dar uma olhada na obra atual?`
 }
 
 function formatMessage(text: string) {
@@ -29,6 +35,7 @@ export function LuiziaFloatingChat() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [showNudge, setShowNudge] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -41,6 +48,7 @@ export function LuiziaFloatingChat() {
   useEffect(() => {
     function openFromGuide() {
       setOpen(true)
+      setShowNudge(false)
       setMessages(current => current.length > 0
         ? current
         : [{ role: 'assistant', content: greeting(currentProfile?.name) }]
@@ -59,6 +67,19 @@ export function LuiziaFloatingChat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, open])
+
+  useEffect(() => {
+    if (open) {
+      setShowNudge(false)
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowNudge(true)
+    }, 3000)
+
+    return () => window.clearTimeout(timer)
+  }, [open])
 
   async function sendMessage() {
     if (!input.trim() || loading) return
@@ -85,20 +106,41 @@ export function LuiziaFloatingChat() {
       const data = await res.json()
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: data.message || 'Não consegui responder agora. Abra o BuildAssistente IA para tentar de novo.',
+        content: data.message || 'Nao consegui responder agora. Abra o BuildAssistente IA para tentar de novo.',
       }])
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Não consegui conectar agora. Confira se o servidor local está ligado.',
+        content: 'Nao consegui conectar agora. Confira se o servidor local esta ligado.',
       }])
     } finally {
       setLoading(false)
     }
   }
 
+  function openChat() {
+    setOpen(true)
+    setShowNudge(false)
+  }
+
   return (
     <>
+      {showNudge && !open && (
+        <button
+          onClick={openChat}
+          className="fixed bottom-24 right-5 z-50 w-[280px] max-w-[calc(100vw-2rem)] rounded-2xl p-4 text-left shadow-xl transition-transform hover:scale-[1.02]"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+        >
+          <p className="text-xs font-semibold mb-1" style={{ color: 'var(--accent)' }}>Luizia</p>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+            Oi, estou por aqui. Quer que eu te mostre por onde comecar ou te ajude com a obra atual?
+          </p>
+          <p className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
+            Dica: tambem tem tema claro e escuro no topo.
+          </p>
+        </button>
+      )}
+
       {open && (
         <div
           className="fixed bottom-24 right-5 z-50 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl shadow-2xl overflow-hidden"
@@ -111,7 +153,7 @@ export function LuiziaFloatingChat() {
               </div>
               <div>
                 <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Luizia</p>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Assistente rápida da obra</p>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Assistente rapida da obra</p>
               </div>
             </div>
             <button onClick={() => setOpen(false)} className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)]" style={{ color: 'var(--text-secondary)' }}>
@@ -121,7 +163,7 @@ export function LuiziaFloatingChat() {
 
           <div className="h-72 overflow-y-auto p-3 flex flex-col gap-3">
             {messages.length === 0 && (
-              <div className="text-sm leading-relaxed rounded-xl p-3" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+              <div className="text-sm leading-relaxed rounded-xl p-3 whitespace-pre-line" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
                 {greeting(currentProfile?.name)}
               </div>
             )}
@@ -170,7 +212,10 @@ export function LuiziaFloatingChat() {
       )}
 
       <button
-        onClick={() => setOpen(v => !v)}
+        onClick={() => {
+          setOpen(v => !v)
+          setShowNudge(false)
+        }}
         className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105"
         style={{ background: 'var(--accent)', color: 'white' }}
         title="Falar com a Luizia"
