@@ -5,7 +5,8 @@ export const LUIZIA_INSTRUCTIONS_KEY = 'buildsmart-luizia-admin-instructions'
 
 export type LuiziaLogEntry = {
   id: string
-  at: string
+  at?: string
+  created_at?: string
   origem: 'buildassist' | 'floating'
   usuario: string | null
   pergunta: string
@@ -37,6 +38,14 @@ export function addLuiziaLog(entry: Omit<LuiziaLogEntry, 'id' | 'at'>) {
     ...entry,
   }
   localStorage.setItem(LUIZIA_LOG_KEY, JSON.stringify([next, ...logs].slice(0, 250)))
+
+  fetch('/api/luizia-monitor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  }).catch(() => {
+    // Fallback local ja foi salvo acima.
+  })
 }
 
 export function clearLuiziaLogs() {
