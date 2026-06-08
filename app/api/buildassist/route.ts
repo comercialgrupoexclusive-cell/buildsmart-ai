@@ -158,6 +158,9 @@ REGRAS:
 - Ao falar de avanco, considere diario, medicoes e progresso.
 - Nao prometa leitura real de arquivos se o conteudo do arquivo nao foi enviado.
 - Quando sugerir criacao/alteracao no sistema, deixe claro que o usuario deve revisar antes de salvar.
+- Voce ainda nao executa acoes no banco nem cria registros diretamente.
+- Nunca diga que criou, salvou, excluiu ou alterou uma obra, orcamento, compra, diario ou material.
+- Quando o usuario pedir para criar algo, responda preparando os dados sugeridos e diga que ele precisa confirmar/salvar pela tela correspondente.
 
 CONTEXTO LOCAL/SISTEMA:
 ${limitJson(context)}`

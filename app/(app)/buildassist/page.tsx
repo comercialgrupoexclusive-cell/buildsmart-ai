@@ -48,6 +48,8 @@ type Insight = {
   prompt: string
 }
 
+const CHAT_STORAGE_KEY = 'buildsmart-buildassist-chat'
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -93,8 +95,17 @@ export default function BuildAssistPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  useEffect(() => {
+    const stored = readJsonStorage<Message[]>(CHAT_STORAGE_KEY, [])
+    setMessages(stored)
+  }, [])
+
   useEffect(() => { loadContext(uploadedFiles) }, [uploadedFiles])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages.slice(-60)))
+  }, [messages])
 
   function getRequestedObraId() {
     if (typeof window === 'undefined') return ''
@@ -432,7 +443,10 @@ export default function BuildAssistPage() {
           </div>
           {messages.length > 0 && (
             <button
-              onClick={() => setMessages([])}
+              onClick={() => {
+                setMessages([])
+                if (typeof window !== 'undefined') localStorage.removeItem(CHAT_STORAGE_KEY)
+              }}
               className="flex items-center gap-1.5 text-xs transition-colors"
               style={{ color: 'var(--text-secondary)' }}
             >
