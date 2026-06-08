@@ -35,7 +35,6 @@ export function LuiziaFloatingChat() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
-  const [showNudge, setShowNudge] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -48,7 +47,6 @@ export function LuiziaFloatingChat() {
   useEffect(() => {
     function openFromGuide() {
       setOpen(true)
-      setShowNudge(false)
       setMessages(current => current.length > 0
         ? current
         : [{ role: 'assistant', content: greeting(currentProfile?.name) }]
@@ -67,19 +65,6 @@ export function LuiziaFloatingChat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, open])
-
-  useEffect(() => {
-    if (open) {
-      setShowNudge(false)
-      return
-    }
-
-    const timer = window.setTimeout(() => {
-      setShowNudge(true)
-    }, 3000)
-
-    return () => window.clearTimeout(timer)
-  }, [open])
 
   async function sendMessage() {
     if (!input.trim() || loading) return
@@ -120,27 +105,10 @@ export function LuiziaFloatingChat() {
 
   function openChat() {
     setOpen(true)
-    setShowNudge(false)
   }
 
   return (
     <>
-      {showNudge && !open && (
-        <button
-          onClick={openChat}
-          className="fixed bottom-24 right-5 z-50 w-[280px] max-w-[calc(100vw-2rem)] rounded-2xl p-4 text-left shadow-xl transition-transform hover:scale-[1.02]"
-          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
-        >
-          <p className="text-xs font-semibold mb-1" style={{ color: 'var(--accent)' }}>Luizia</p>
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
-            Oi, estou por aqui. Quer que eu te mostre por onde comecar ou te ajude com a obra atual?
-          </p>
-          <p className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>
-            Dica: tambem tem tema claro e escuro no topo.
-          </p>
-        </button>
-      )}
-
       {open && (
         <div
           className="fixed bottom-24 right-5 z-50 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl shadow-2xl overflow-hidden"
@@ -214,7 +182,6 @@ export function LuiziaFloatingChat() {
       <button
         onClick={() => {
           setOpen(v => !v)
-          setShowNudge(false)
         }}
         className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105"
         style={{ background: 'var(--accent)', color: 'white' }}
