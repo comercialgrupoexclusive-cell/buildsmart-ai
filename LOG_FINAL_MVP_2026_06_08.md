@@ -159,6 +159,9 @@ O que foi corrigido:
 - Centralizada a configuracao publica do Supabase em:
   - `lib/supabase/config.ts`
 - Ajustada a tela de configuracoes para nao mostrar sucesso quando o banco nao retorna o perfil atualizado.
+- Adicionada validacao do perfil salvo no navegador ao entrar no app:
+  - se o perfil existir no Supabase, o navegador atualiza os dados;
+  - se o perfil nao existir mais, o sistema volta para selecao de perfil.
 
 Validacao:
 

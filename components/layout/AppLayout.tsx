@@ -3,21 +3,51 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useProfile } from '@/lib/profile-context'
+import { createClient } from '@/lib/supabase/client'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { WelcomeGuide } from './WelcomeGuide'
 import { LuiziaFloatingChat } from './LuiziaFloatingChat'
 
 export function AppLayout({ children }: { children: ReactNode }) {
-  const { currentProfile } = useProfile()
+  const { currentProfile, setCurrentProfile } = useProfile()
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
+  const [checkedProfileId, setCheckedProfileId] = useState<string | null>(null)
 
   useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
     if (mounted && !currentProfile) router.replace('/')
   }, [mounted, currentProfile, router])
+
+  useEffect(() => {
+    if (!mounted || !currentProfile || checkedProfileId === currentProfile.id) return
+
+    let cancelled = false
+    const profile = currentProfile
+    async function syncProfile() {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', profile.id)
+        .maybeSingle()
+
+      if (cancelled) return
+      setCheckedProfileId(profile.id)
+      if (error) return
+      if (data) {
+        setCurrentProfile(data as any)
+        return
+      }
+      setCurrentProfile(null)
+      router.replace('/')
+    }
+
+    void syncProfile()
+    return () => { cancelled = true }
+  }, [mounted, currentProfile, checkedProfileId, setCurrentProfile, router])
 
   if (!mounted) {
     return (
