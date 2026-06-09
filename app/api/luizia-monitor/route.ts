@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
 
 type LogPayload = {
-  origem?: 'buildassist' | 'floating'
+  origem?: 'buildassist' | 'floating' | 'whatsapp'
   usuario?: string | null
   pergunta?: string
   resposta?: string
@@ -19,8 +19,12 @@ function getSupabase() {
 }
 
 function clean(payload: LogPayload) {
+  const origem = ['buildassist', 'floating', 'whatsapp'].includes(payload.origem || '')
+    ? payload.origem
+    : 'buildassist'
+
   return {
-    origem: payload.origem === 'floating' ? 'floating' : 'buildassist',
+    origem,
     usuario: payload.usuario || null,
     pergunta: String(payload.pergunta || '').slice(0, 12000),
     resposta: String(payload.resposta || '').slice(0, 24000),
@@ -42,8 +46,8 @@ export async function GET() {
 
     if (error) return NextResponse.json({ remote: false, logs: [], error: error.message })
     return NextResponse.json({ remote: true, logs: data || [] })
-  } catch (error: any) {
-    return NextResponse.json({ remote: false, logs: [], error: error?.message || 'Falha ao buscar historico.' })
+  } catch (error: unknown) {
+    return NextResponse.json({ remote: false, logs: [], error: error instanceof Error ? error.message : 'Falha ao buscar historico.' })
   }
 }
 
@@ -60,8 +64,8 @@ export async function POST(req: NextRequest) {
     const { error } = await supabase.from('luizia_logs').insert(payload)
     if (error) return NextResponse.json({ ok: false, remote: false, error: error.message })
     return NextResponse.json({ ok: true, remote: true })
-  } catch (error: any) {
-    return NextResponse.json({ ok: false, remote: false, error: error?.message || 'Falha ao salvar historico.' })
+  } catch (error: unknown) {
+    return NextResponse.json({ ok: false, remote: false, error: error instanceof Error ? error.message : 'Falha ao salvar historico.' })
   }
 }
 

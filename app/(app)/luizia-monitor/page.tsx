@@ -108,7 +108,7 @@ export default function LuiziaMonitorPage() {
               <div className="flex flex-wrap gap-2 items-center justify-between">
                 <div className="flex flex-wrap gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
                   <span style={{ color: 'var(--accent)' }}>{when(log.at)}</span>
-                  <span>{log.origem === 'buildassist' ? 'Chat completo' : 'Balao flutuante'}</span>
+                  <span>{log.origem === 'buildassist' ? 'Chat completo' : log.origem === 'whatsapp' ? 'WhatsApp' : 'Balao flutuante'}</span>
                   <span>{log.usuario || 'Sem usuario'}</span>
                   <span>{log.mode || 'modo n/d'}{log.model ? ` - ${log.model}` : ''}</span>
                 </div>

@@ -3,7 +3,7 @@
 export type LuiziaLogEntry = {
   id?: string
   at?: string
-  origem: 'buildassist' | 'floating'
+  origem: 'buildassist' | 'floating' | 'whatsapp'
   usuario: string | null
   pergunta: string
   resposta: string

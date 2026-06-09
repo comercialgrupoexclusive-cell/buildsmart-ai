@@ -5,13 +5,20 @@ CREATE TABLE IF NOT EXISTS luizia_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   origem TEXT NOT NULL DEFAULT 'buildassist'
-    CHECK (origem IN ('buildassist', 'floating')),
+    CHECK (origem IN ('buildassist', 'floating', 'whatsapp')),
   usuario TEXT,
   pergunta TEXT NOT NULL,
   resposta TEXT NOT NULL,
   mode TEXT,
   model TEXT
 );
+
+ALTER TABLE luizia_logs
+  DROP CONSTRAINT IF EXISTS luizia_logs_origem_check;
+
+ALTER TABLE luizia_logs
+  ADD CONSTRAINT luizia_logs_origem_check
+  CHECK (origem IN ('buildassist', 'floating', 'whatsapp'));
 
 CREATE INDEX IF NOT EXISTS idx_luizia_logs_at
   ON luizia_logs (at DESC);
