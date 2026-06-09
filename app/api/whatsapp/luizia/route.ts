@@ -72,19 +72,13 @@ async function buildWhatsappContext(from: string) {
     orcamentosRes,
     etapasRes,
     materiaisRes,
-    medicoesRes,
     fornecedoresRes,
-    composicoesRes,
-    insumosRes,
   ] = await Promise.all([
-    supabase.from('obras').select('id,nome,status,data_inicio,data_previsao,responsavel,area_m2,uf').order('created_at', { ascending: false }).limit(10),
-    supabase.from('orcamentos').select('id,obra_id,tipo,status,versao,bdi_percentual,created_at').order('created_at', { ascending: false }).limit(20),
-    supabase.from('etapas').select('id,obra_id,nome,data_inicio,data_fim,status,ordem').order('data_inicio').limit(80),
-    supabase.from('materiais').select('id,obra_id,etapa_id,subetapa,descricao,unidade,quantidade_total,quantidade_comprada,status_compra,data_necessidade').order('data_necessidade').limit(120),
-    supabase.from('medicoes').select('id,obra_id,etapa_id,periodo_inicio,periodo_fim,percentual_executado,observacao,created_at').order('created_at', { ascending: false }).limit(30),
-    supabase.from('fornecedores').select('id,obra_id,nome,categoria,contato,telefone,email,ativo').order('nome').limit(80),
-    supabase.from('composicoes_proprias').select('id,codigo,descricao,unidade,grupo,ativo').order('codigo').limit(50),
-    supabase.from('insumos_proprios').select('id,codigo,descricao,unidade,categoria,grupo,preco_unitario,ativo').order('codigo').limit(80),
+    supabase.from('obras').select('id,nome,status,data_inicio,data_previsao,responsavel,area_m2,uf').order('created_at', { ascending: false }).limit(3),
+    supabase.from('orcamentos').select('id,obra_id,tipo,status,versao,bdi_percentual,created_at').order('created_at', { ascending: false }).limit(8),
+    supabase.from('etapas').select('id,obra_id,nome,data_inicio,data_fim,status,ordem').order('data_inicio').limit(25),
+    supabase.from('materiais').select('id,obra_id,etapa_id,subetapa,descricao,unidade,quantidade_total,quantidade_comprada,status_compra,data_necessidade').order('data_necessidade').limit(35),
+    supabase.from('fornecedores').select('id,obra_id,nome,categoria,telefone,ativo').order('nome').limit(20),
   ])
 
   const obras = safeRows(obrasRes)
@@ -93,8 +87,9 @@ async function buildWhatsappContext(from: string) {
   const orcamentos = safeRows(orcamentosRes).filter(item => !obraId || item.obra_id === obraId)
   const etapas = safeRows(etapasRes).filter(item => !obraId || item.obra_id === obraId)
   const materiais = safeRows(materiaisRes).filter(item => !obraId || item.obra_id === obraId)
-  const medicoes = safeRows(medicoesRes).filter(item => !obraId || item.obra_id === obraId)
   const fornecedores = safeRows(fornecedoresRes).filter(item => !item.obra_id || item.obra_id === obraId)
+  const materiaisAbertos = materiais.filter(item => item.status_compra !== 'comprado').slice(0, 15)
+  const proximasEtapas = etapas.filter(item => item.status !== 'concluida').slice(0, 10)
 
   return {
     modo: 'whatsapp',
@@ -104,21 +99,17 @@ async function buildWhatsappContext(from: string) {
     obraAtual,
     obras: obras.map(obra => compact(obra, ['id', 'nome', 'status', 'data_inicio', 'data_previsao', 'responsavel', 'area_m2', 'uf'])),
     orcamentos,
-    etapas,
-    materiais,
-    medicoes,
-    fornecedores,
-    composicoes: safeRows(composicoesRes),
-    insumosProprios: safeRows(insumosRes),
+    etapas: proximasEtapas,
+    materiais: materiaisAbertos,
+    fornecedores: fornecedores.slice(0, 12),
     resumoSistema: {
       obras: obras.length,
       orcamentos: safeRows(orcamentosRes).length,
       etapas: safeRows(etapasRes).length,
       materiais: safeRows(materiaisRes).length,
-      medicoes: safeRows(medicoesRes).length,
       fornecedores: safeRows(fornecedoresRes).length,
-      composicoesProprias: safeRows(composicoesRes).length,
-      insumosProprios: safeRows(insumosRes).length,
+      materiaisEmAberto: materiaisAbertos.length,
+      proximasEtapas: proximasEtapas.length,
     },
     observacao: 'Atendimento pelo WhatsApp. Contexto carregado no servidor em modo somente leitura. A Luizia nao pode criar, editar nem excluir dados.',
   }
@@ -210,7 +201,7 @@ export async function POST(req: NextRequest) {
 
     let context
     try {
-      context = await withTimeout(buildWhatsappContext(from), 5000)
+      context = await withTimeout(buildWhatsappContext(from), 2500)
     } catch (error) {
       console.error('WhatsApp Luizia context timeout/error:', error)
       context = {
@@ -224,9 +215,9 @@ export async function POST(req: NextRequest) {
     try {
       result = await withTimeout(askLuizia({
         messages: [{ role: 'user', content: body }],
-        complex: body.length > 180 || /arquivo|projeto|planta|orcamento|orçamento|cronograma|compra|diario|diário|medicao|medição/i.test(body),
+        complex: false,
         context,
-      }), 12000)
+      }), 8500)
     } catch (error) {
       console.error('WhatsApp Luizia timeout/error:', error)
       return twiml('A Luizia demorou mais do que o WhatsApp permite para responder. Tente enviar uma pergunta mais curta ou tente novamente em instantes.')

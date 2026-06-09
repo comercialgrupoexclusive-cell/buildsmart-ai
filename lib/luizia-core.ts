@@ -51,6 +51,10 @@ function limitJson(value: unknown, maxLength = 60000) {
   return `${text.slice(0, maxLength)}\n... contexto reduzido para caber na chamada ...`
 }
 
+function isWhatsappContext(context: LuiziaContext) {
+  return context.modo === 'whatsapp' || context.origem === 'whatsapp'
+}
+
 function firstUserQuestion(messages: LuiziaMessage[]) {
   return [...messages].reverse().find(m => m.role === 'user')?.content || ''
 }
@@ -146,7 +150,10 @@ export async function askLuizia({
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const hoje = new Date().toLocaleDateString('pt-BR')
-  const model = modelFor(complex)
+  const isWhatsapp = isWhatsappContext(context)
+  const model = modelFor(isWhatsapp ? false : complex)
+  const contextLimit = isWhatsapp ? 12000 : 60000
+  const maxTokens = isWhatsapp ? 420 : complex ? 1800 : 900
 
   const systemPrompt = `Voce e a Luizia, a assistente IA da BuildSmart AI. O nome vem de Luiz + IA.
 
@@ -174,9 +181,10 @@ REGRAS:
 - O contexto e somente leitura. Nao invente que alterou dados.
 - Nunca diga que criou, salvou, excluiu ou alterou uma obra, orcamento, compra, diario ou material.
 - Quando o usuario pedir para criar algo, responda preparando os dados sugeridos e diga que ele precisa confirmar/salvar pela tela correspondente.
+${isWhatsapp ? '- Pelo WhatsApp, responda ainda mais curto: no maximo 2 blocos pequenos. Priorize resposta direta e proximo passo.' : ''}
 
 CONTEXTO LOCAL/SISTEMA:
-${limitJson(context)}`
+${limitJson(context, contextLimit)}`
 
   const response = await openai.chat.completions.create({
     model,
@@ -187,7 +195,7 @@ ${limitJson(context)}`
         content: message.content,
       })),
     ],
-    max_tokens: complex ? 1800 : 900,
+    max_tokens: maxTokens,
   })
 
   const content = response.choices[0]?.message?.content
