@@ -7,7 +7,6 @@ import {
 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
-import { addLuiziaLog, getLuiziaInstructions } from '@/lib/luizia-monitor'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -306,19 +305,10 @@ export default function BuildAssistPage() {
           messages: newMessages,
           complex: shouldUseComplexModel(userMsg.content),
           profileId: currentProfile?.id,
-          context: { ...context, luiziaAdminInstruction: getLuiziaInstructions() },
+          context,
         }),
       })
       const data = await res.json()
-      const resposta = data.message || 'Nao consegui processar agora. Verifique a configuracao da IA.'
-      addLuiziaLog({
-        origem: 'buildassist',
-        usuario: currentProfile?.name || null,
-        pergunta: userMsg.content,
-        resposta,
-        mode: data.mode,
-        model: data.model,
-      })
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.message || 'Não consegui processar agora. Verifique a configuração da IA.',
