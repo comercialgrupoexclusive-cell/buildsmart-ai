@@ -31,8 +31,10 @@ function hasOpenAiKey() {
 }
 
 function modelFor(complex: boolean) {
-  if (complex) return process.env.OPENAI_COMPLEX_MODEL || 'gpt-4o'
-  return process.env.OPENAI_SIMPLE_MODEL || 'gpt-4o-mini'
+  const requested = complex ? process.env.OPENAI_COMPLEX_MODEL : process.env.OPENAI_SIMPLE_MODEL
+  const allowed = new Set(['gpt-4o-mini', 'gpt-4o'])
+  if (requested && allowed.has(requested)) return requested
+  return complex ? 'gpt-4o' : 'gpt-4o-mini'
 }
 
 function limitJson(value: unknown, maxLength = 22000) {
@@ -181,8 +183,12 @@ ${limitJson(context)}`
     if (!content) throw new Error('Resposta vazia da IA')
 
     return NextResponse.json({ message: content, model, mode: 'openai' })
-  } catch (error) {
+  } catch (error: any) {
     console.error('BuildAssist error:', error)
-    return NextResponse.json({ error: 'Erro ao processar mensagem' }, { status: 500 })
+    const message = error?.message || 'Erro ao processar mensagem'
+    return NextResponse.json({
+      error: 'Erro ao processar mensagem',
+      detail: message.slice(0, 300),
+    }, { status: 500 })
   }
 }
