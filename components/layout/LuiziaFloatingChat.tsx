@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BotMessageSquare, ExternalLink, Loader2, MessageCircle, Send, X } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { logLuizia } from '@/lib/luizia-monitor'
+import { createClient } from '@/lib/supabase/client'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -30,8 +31,13 @@ function formatMessage(text: string) {
     .replace(/\n/g, '<br>')
 }
 
+function safeRows(result: any) {
+  return Array.isArray(result?.data) ? result.data : []
+}
+
 export function LuiziaFloatingChat() {
   const { currentProfile } = useProfile()
+  const supabase = createClient()
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -88,6 +94,29 @@ export function LuiziaFloatingChat() {
     setLoading(true)
 
     try {
+      const [
+        obrasRes,
+        orcamentosRes,
+        etapasRes,
+        materiaisRes,
+        medicoesRes,
+        fornecedoresRes,
+        composicoesRes,
+        insumosRes,
+      ] = await Promise.all([
+        supabase.from('obras').select('id,nome,status,data_inicio,data_previsao,responsavel,area_m2,uf').order('created_at', { ascending: false }),
+        supabase.from('orcamentos').select('id,obra_id,tipo,status,versao,bdi_percentual,created_at').order('created_at', { ascending: false }),
+        supabase.from('etapas').select('id,obra_id,nome,data_inicio,data_fim,status,ordem').order('data_inicio'),
+        supabase.from('materiais').select('id,obra_id,etapa_id,subetapa,descricao,unidade,quantidade_total,quantidade_comprada,status_compra,data_necessidade').order('data_necessidade'),
+        supabase.from('medicoes').select('id,obra_id,etapa_id,periodo_inicio,periodo_fim,percentual_executado,observacao,created_at').order('created_at', { ascending: false }).limit(20),
+        supabase.from('fornecedores').select('id,obra_id,nome,categoria,contato,telefone,email,ativo').order('nome'),
+        supabase.from('composicoes_proprias').select('id,codigo,descricao,unidade,grupo,ativo').order('codigo').limit(50),
+        supabase.from('insumos_proprios').select('id,codigo,descricao,unidade,categoria,grupo,preco_unitario,ativo').order('codigo').limit(80),
+      ])
+      const obras = safeRows(obrasRes)
+      const obraAtual = obras[0] || null
+      const obraId = obraAtual?.id || ''
+
       const res = await fetch('/api/buildassist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -96,8 +125,35 @@ export function LuiziaFloatingChat() {
           complex: false,
           context: {
             modo: 'atalho-luizia',
-            usuario: currentProfile?.name || null,
-            observacao: 'Chat rapido flutuante. Para contexto completo da obra, orientar o usuario a abrir BuildAssistente IA.',
+            geradoEm: new Date().toISOString(),
+            usuario: currentProfile ? {
+              id: currentProfile.id,
+              name: currentProfile.name,
+              apelido: currentProfile.apelido,
+              cidade: currentProfile.cidade,
+              estado: currentProfile.estado,
+              tipo: currentProfile.tipo,
+            } : null,
+            obraAtual,
+            obras,
+            orcamentos: safeRows(orcamentosRes).filter((item: any) => !obraId || item.obra_id === obraId),
+            etapas: safeRows(etapasRes).filter((item: any) => !obraId || item.obra_id === obraId),
+            materiais: safeRows(materiaisRes).filter((item: any) => !obraId || item.obra_id === obraId),
+            medicoes: safeRows(medicoesRes).filter((item: any) => !obraId || item.obra_id === obraId),
+            fornecedores: safeRows(fornecedoresRes).filter((item: any) => !item.obra_id || item.obra_id === obraId),
+            composicoes: safeRows(composicoesRes),
+            insumosProprios: safeRows(insumosRes),
+            resumoSistema: {
+              obras: obras.length,
+              orcamentos: safeRows(orcamentosRes).length,
+              etapas: safeRows(etapasRes).length,
+              materiais: safeRows(materiaisRes).length,
+              medicoes: safeRows(medicoesRes).length,
+              fornecedores: safeRows(fornecedoresRes).length,
+              composicoesProprias: safeRows(composicoesRes).length,
+              insumosProprios: safeRows(insumosRes).length,
+            },
+            observacao: 'Chat rapido flutuante. Contexto resumido do sistema carregado somente para leitura.',
           },
         }),
       })

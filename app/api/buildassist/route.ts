@@ -37,7 +37,7 @@ function modelFor(complex: boolean) {
   return complex ? 'gpt-4o' : 'gpt-4o-mini'
 }
 
-function limitJson(value: unknown, maxLength = 22000) {
+function limitJson(value: unknown, maxLength = 60000) {
   const text = JSON.stringify(value, null, 2)
   if (text.length <= maxLength) return text
   return `${text.slice(0, maxLength)}\n... contexto reduzido para caber na chamada ...`
@@ -152,6 +152,7 @@ PAPEL:
 REGRAS:
 - Responda sempre em portugues brasileiro.
 - Use apenas os dados do contexto quando falar da obra.
+- Voce pode cruzar todos os dados recebidos no contexto: obras, orcamentos, itens, insumos, composicoes, materiais, compras, fornecedores, cronograma, diario, medicoes, arquivos e usuarios.
 - Quando faltar dado, diga claramente o que falta.
 - Seja curto: ate 4 blocos pequenos.
 - Separe materiais, mao de obra e equipamentos quando esse assunto aparecer.
@@ -161,6 +162,7 @@ REGRAS:
 - Nao prometa leitura real de arquivos se o conteudo do arquivo nao foi enviado.
 - Quando sugerir criacao/alteracao no sistema, deixe claro que o usuario deve revisar antes de salvar.
 - Voce ainda nao executa acoes no banco nem cria registros diretamente.
+- O contexto e somente leitura. Nao invente que alterou dados.
 - Nunca diga que criou, salvou, excluiu ou alterou uma obra, orcamento, compra, diario ou material.
 - Quando o usuario pedir para criar algo, responda preparando os dados sugeridos e diga que ele precisa confirmar/salvar pela tela correspondente.
 

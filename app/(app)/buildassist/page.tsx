@@ -22,19 +22,28 @@ type UploadedFile = {
 }
 
 type BuildContext = {
-  modo: 'local'
+  modo: 'sistema'
+  geradoEm: string
+  usuario: any
+  resumoSistema: Record<string, number>
   obraAtual: any
   obras: any[]
   orcamentos: any[]
   itensOrcamento: any[]
+  insumosOrcamento: any[]
   etapas: any[]
   materiais: any[]
   medicoes: any[]
   diario: any[]
   progresso: Record<string, number>
   composicoes: any[]
+  composicaoInsumos: any[]
   insumos: any[]
+  insumosProprios: any[]
+  sinapiComposicoes: any[]
+  sinapiComposicaoItens: any[]
   fornecedores: any[]
+  obraFornecedores: any[]
   listasCompras: any[]
   arquivos: any[]
   uploadedFiles: UploadedFile[]
@@ -83,6 +92,32 @@ function readJsonStorage<T>(key: string, fallback: T): T {
   }
 }
 
+function pick(row: any, fields: string[]) {
+  if (!row) return row
+  return fields.reduce((acc, field) => {
+    if (row[field] !== undefined && row[field] !== null) acc[field] = row[field]
+    return acc
+  }, {} as Record<string, any>)
+}
+
+function compactInsumo(row: any, uf = 'SP') {
+  const base = pick(row, ['id', 'codigo', 'descricao', 'unidade', 'classificacao', 'grupo', 'categoria', 'preco_unitario', 'ativo'])
+  const precoUf = row?.precos?.[uf] ?? row?.precos?.SP
+  if (precoUf !== undefined) base.preco_uf = precoUf
+  return base
+}
+
+function compactSinapiComposicao(row: any, uf = 'SP') {
+  const base = pick(row, ['id', 'codigo', 'descricao', 'unidade', 'grupo', 'situacao', 'mes_referencia'])
+  const custoUf = row?.custos?.[uf] ?? row?.custos?.SP
+  if (custoUf !== undefined) base.custo_uf = custoUf
+  return base
+}
+
+function compactProfile(profile: any) {
+  return pick(profile, ['id', 'name', 'apelido', 'descricao', 'cidade', 'estado', 'tipo'])
+}
+
 export default function BuildAssistPage() {
   const { currentProfile } = useProfile()
   const supabase = createClient()
@@ -124,9 +159,16 @@ export default function BuildAssistPage() {
       etapasRes,
       materiaisRes,
       medicoesRes,
+      orcamentoInsumosRes,
       composicoesRes,
+      composicaoInsumosRes,
       insumosRes,
+      insumosPropriosRes,
+      sinapiComposicoesRes,
+      sinapiComposicaoItensRes,
       fornecedoresRes,
+      obraFornecedoresRes,
+      profilesRes,
     ] = await Promise.all([
       supabase.from('obras').select('*').order('created_at', { ascending: false }),
       supabase.from('orcamentos').select('*').order('created_at', { ascending: false }),
@@ -134,32 +176,67 @@ export default function BuildAssistPage() {
       supabase.from('etapas').select('*, obras(nome)').order('data_inicio'),
       supabase.from('materiais').select('*, obras(nome)').order('data_necessidade'),
       supabase.from('medicoes').select('*, obras(nome)').order('created_at', { ascending: false }),
-      supabase.from('composicoes_proprias').select('*').limit(30),
-      supabase.from('sinapi_insumos').select('*').limit(40),
+      supabase.from('orcamento_item_insumos').select('*'),
+      supabase.from('composicoes_proprias').select('*').order('codigo'),
+      supabase.from('composicao_insumos').select('*'),
+      supabase.from('sinapi_insumos').select('*').order('codigo'),
+      supabase.from('insumos_proprios').select('*').order('codigo'),
+      supabase.from('sinapi_composicoes').select('*').order('codigo'),
+      supabase.from('sinapi_composicao_itens').select('*'),
       supabase.from('fornecedores').select('*').order('nome'),
+      supabase.from('obra_fornecedores').select('*'),
+      supabase.from('profiles').select('id,name,apelido,descricao,cidade,estado,tipo'),
     ])
 
     const obras = obrasRes.data || []
     const requestedObraId = getRequestedObraId()
     const obraAtual = obras.find((obra: any) => obra.id === requestedObraId) || obras[0] || null
     const obraId = obraAtual?.id || ''
+    const uf = obraAtual?.uf || currentProfile?.estado || 'SP'
     const orcamentosDaObra = (orcamentosRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId)
     const orcamentoIds = new Set(orcamentosDaObra.map((orc: any) => orc.id))
+    const itemIds = new Set((itensRes.data || [])
+      .filter((item: any) => orcamentoIds.has(item.orcamento_id))
+      .map((item: any) => item.id))
 
     const ctx: BuildContext = {
-      modo: 'local',
-      obraAtual,
-      obras,
+      modo: 'sistema',
+      geradoEm: new Date().toISOString(),
+      usuario: currentProfile ? compactProfile(currentProfile) : null,
+      resumoSistema: {
+        usuarios: profilesRes.data?.length || 0,
+        obras: obras.length,
+        orcamentos: orcamentosRes.data?.length || 0,
+        itensOrcamento: itensRes.data?.length || 0,
+        insumosOrcamento: orcamentoInsumosRes.data?.length || 0,
+        etapas: etapasRes.data?.length || 0,
+        materiais: materiaisRes.data?.length || 0,
+        medicoes: medicoesRes.data?.length || 0,
+        fornecedores: fornecedoresRes.data?.length || 0,
+        composicoesProprias: composicoesRes.data?.length || 0,
+        composicaoInsumos: composicaoInsumosRes.data?.length || 0,
+        sinapiInsumos: insumosRes.data?.length || 0,
+        sinapiComposicoes: sinapiComposicoesRes.data?.length || 0,
+        sinapiComposicaoItens: sinapiComposicaoItensRes.data?.length || 0,
+      },
+      obraAtual: obraAtual ? pick(obraAtual, ['id', 'nome', 'endereco', 'status', 'data_inicio', 'data_previsao', 'responsavel', 'area_m2', 'uf']) : null,
+      obras: obras.map((obra: any) => pick(obra, ['id', 'nome', 'endereco', 'status', 'data_inicio', 'data_previsao', 'responsavel', 'area_m2', 'uf'])),
       orcamentos: orcamentosDaObra,
       itensOrcamento: (itensRes.data || []).filter((item: any) => orcamentoIds.has(item.orcamento_id)),
+      insumosOrcamento: (orcamentoInsumosRes.data || []).filter((item: any) => itemIds.has(item.orcamento_item_id)),
       etapas: (etapasRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId),
       materiais: (materiaisRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId),
       medicoes: (medicoesRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId),
       diario: readJsonStorage<any[]>(diarioStorageKey(obraId), []),
       progresso: readJsonStorage<Record<string, number>>(progressoStorageKey(obraId), {}),
-      composicoes: composicoesRes.data || [],
-      insumos: insumosRes.data || [],
+      composicoes: (composicoesRes.data || []).map((item: any) => pick(item, ['id', 'codigo', 'descricao', 'unidade', 'grupo', 'custo_calculado', 'ativo'])),
+      composicaoInsumos: (composicaoInsumosRes.data || []).map((item: any) => pick(item, ['id', 'composicao_id', 'insumo_id', 'insumo_proprio_id', 'coeficiente', 'tipo'])),
+      insumos: (insumosRes.data || []).map((item: any) => compactInsumo(item, uf)),
+      insumosProprios: (insumosPropriosRes.data || []).map((item: any) => compactInsumo(item, uf)),
+      sinapiComposicoes: (sinapiComposicoesRes.data || []).map((item: any) => compactSinapiComposicao(item, uf)),
+      sinapiComposicaoItens: (sinapiComposicaoItensRes.data || []).map((item: any) => pick(item, ['id', 'composicao_codigo', 'mes_referencia', 'tipo', 'item_codigo', 'item_descricao', 'item_unidade', 'coeficiente', 'situacao'])),
       fornecedores: (fornecedoresRes.data || []).filter((item: any) => !item.obra_id || item.obra_id === obraId),
+      obraFornecedores: (obraFornecedoresRes.data || []).filter((item: any) => !obraId || item.obra_id === obraId),
       listasCompras: readJsonStorage<any[]>(listasStorageKey(obraId), []),
       arquivos: readJsonStorage<any[]>(storageKey(obraId), []),
       uploadedFiles: files,

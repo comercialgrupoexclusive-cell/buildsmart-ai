@@ -170,3 +170,40 @@ O que foi corrigido:
 Validacao:
 
 - `npm.cmd run build` executado com sucesso.
+
+## Ampliacao de contexto da Luizia - Codex
+
+Objetivo: permitir que a Luizia leia mais dados do sistema para responder melhor ao usuario, mantendo o acesso como somente leitura.
+
+O que foi alterado:
+
+- BuildAssistente principal agora envia contexto consolidado com:
+  - usuario atual sem senha;
+  - obras;
+  - orcamentos;
+  - itens do orcamento;
+  - insumos do orcamento;
+  - etapas;
+  - materiais;
+  - medicoes;
+  - diario local;
+  - progresso local;
+  - composicoes proprias;
+  - vinculos composicao/insumo;
+  - insumos proprios;
+  - insumos SINAPI compactados por UF;
+  - composicoes SINAPI compactadas por UF;
+  - itens analiticos SINAPI;
+  - fornecedores;
+  - vinculos obra/fornecedor;
+  - listas de compra locais;
+  - arquivos anexados/enviados.
+- Balao rapido da Luizia agora envia resumo real do sistema, nao apenas uma observacao generica.
+- Prompt da API reforcado:
+  - contexto e somente leitura;
+  - Luizia nao cria, salva, edita ou exclui dados;
+  - Luizia pode cruzar obras, orcamentos, materiais, compras, fornecedores, cronograma, diario, medicoes e arquivos.
+
+Validacao:
+
+- `npm.cmd run build` executado com sucesso.
