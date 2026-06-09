@@ -93,6 +93,16 @@ export default function ConfiguracoesPage() {
   const [userError, setUserError] = useState('')
 
   useEffect(() => {
+    setNome(currentProfile?.name || '')
+    setApelido(currentProfile?.apelido || '')
+    setDescricao(currentProfile?.descricao || '')
+    setCidade(currentProfile?.cidade || '')
+    setEstado(currentProfile?.estado || '')
+    setAccentColor(currentProfile?.theme_color || '#3B7BF8')
+    setDarkMode(currentProfile?.dark_mode ?? true)
+  }, [currentProfile])
+
+  useEffect(() => {
     if (isAdmin) loadUsers()
   }, [isAdmin])
 
@@ -121,7 +131,12 @@ export default function ConfiguracoesPage() {
 
   async function loadUsers() {
     setUsersLoading(true)
-    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: true })
+    const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: true })
+    if (error) {
+      setUserError(`Nao foi possivel carregar usuarios: ${error.message}`)
+      setUsersLoading(false)
+      return
+    }
     setUsers((data as Profile[]) || [])
     setUsersLoading(false)
   }
@@ -181,16 +196,51 @@ export default function ConfiguracoesPage() {
     }
     if (userForm.password.trim()) payload.password_hash = userForm.password.trim()
 
+    let savedUser: Profile | null = null
+
     if (editingUser) {
-      await supabase.from('profiles').update(payload).eq('id', editingUser.id)
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(payload)
+        .eq('id', editingUser.id)
+        .select()
+        .single()
+
+      if (error) {
+        setUserSaving(false)
+        setUserError(`Nao foi possivel salvar o usuario: ${error.message}`)
+        return
+      }
+
+      savedUser = data as Profile
       if (currentProfile && editingUser.id === currentProfile.id) {
-        setCurrentProfile({ ...currentProfile, ...payload })
+        setCurrentProfile({ ...currentProfile, ...savedUser })
       }
     } else {
-      await supabase.from('profiles').insert({ ...payload, photo_url: null, dark_mode: true, onboarding_done: false })
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert({ ...payload, photo_url: null, dark_mode: true, onboarding_done: false })
+        .select()
+        .single()
+
+      if (error) {
+        setUserSaving(false)
+        setUserError(`Nao foi possivel criar o usuario: ${error.message}`)
+        return
+      }
+
+      savedUser = data as Profile
     }
 
-    await loadUsers()
+    if (savedUser) {
+      setUsers(prev => {
+        const exists = prev.some(user => user.id === savedUser?.id)
+        if (exists) return prev.map(user => user.id === savedUser?.id ? savedUser : user)
+        return [...prev, savedUser]
+      })
+    } else {
+      await loadUsers()
+    }
     setUserSaving(false)
     closeUserModal()
   }
@@ -203,7 +253,11 @@ export default function ConfiguracoesPage() {
       return
     }
     if (!confirm(`Remover o perfil "${profile.apelido || profile.name}"? Essa ação não pode ser desfeita.`)) return
-    await supabase.from('profiles').delete().eq('id', profile.id)
+    const { error } = await supabase.from('profiles').delete().eq('id', profile.id)
+    if (error) {
+      setUserError(`Nao foi possivel remover o usuario: ${error.message}`)
+      return
+    }
     await loadUsers()
   }
 
@@ -249,12 +303,20 @@ export default function ConfiguracoesPage() {
       theme_color: accentColor,
       dark_mode: darkMode,
     }
-    await supabase
+    const { data, error } = await supabase
       .from('profiles')
       .update(payload)
       .eq('id', currentProfile.id)
+      .select()
+      .single()
 
-    const updated = { ...currentProfile, ...payload }
+    if (error) {
+      setSaving(false)
+      alert(`Nao foi possivel salvar seu perfil.\n\nErro: ${error.message}`)
+      return
+    }
+
+    const updated = { ...currentProfile, ...(data as Profile) }
     setCurrentProfile(updated)
     document.documentElement.style.setProperty('--accent', accentColor)
     setSaving(false)
