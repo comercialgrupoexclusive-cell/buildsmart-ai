@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { BotMessageSquare, ExternalLink, Loader2, MessageCircle, Send, X } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
+import { logLuizia } from '@/lib/luizia-monitor'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -101,6 +102,14 @@ export function LuiziaFloatingChat() {
         }),
       })
       const data = await res.json()
+      void logLuizia({
+        origem: 'floating',
+        usuario: currentProfile?.name || null,
+        pergunta: userMsg.content,
+        resposta: data.message || 'Nao consegui responder agora.',
+        mode: data.mode,
+        model: data.model,
+      })
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.message || 'Nao consegui responder agora. Abra o BuildAssistente IA para tentar de novo.',

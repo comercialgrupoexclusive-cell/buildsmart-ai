@@ -113,3 +113,36 @@ O monitor da Luizia deve permanecer fora do menu principal. Acesso direto:
 ```text
 /luizia-monitor
 ```
+
+## Atualizacao segura do monitor - Codex
+
+Objetivo: recriar o monitor da Luizia sem alterar a IA que ja estava funcionando online.
+
+O que foi feito:
+
+- Mantida intacta a rota principal da IA:
+  - `app/api/buildassist/route.ts`
+- Criada uma API separada somente para historico:
+  - `app/api/luizia-monitor/route.ts`
+- Criada uma camada cliente separada:
+  - `lib/luizia-monitor.ts`
+- O registro acontece depois que a resposta da IA ja foi recebida.
+- Se o monitor falhar, a conversa da IA continua funcionando.
+- O monitor salva uma copia local no navegador e tenta enviar para o Supabase.
+- A tela do monitor continua fora do menu principal:
+  - `/luizia-monitor`
+- Removido o conceito de controle de comportamento da Luizia nesta etapa.
+
+Validacao:
+
+- `npm.cmd run build` executado com sucesso.
+- Rotas confirmadas no build:
+  - `/api/buildassist`
+  - `/api/luizia-monitor`
+  - `/buildassist`
+  - `/luizia-monitor`
+
+Pendencia para monitoramento central:
+
+- Rodar o SQL `supabase/create_luizia_logs.sql` no Supabase.
+- Enquanto a tabela nao existir, o monitor mostra apenas o historico local do navegador.

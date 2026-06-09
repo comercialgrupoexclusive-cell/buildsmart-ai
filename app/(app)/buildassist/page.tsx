@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
+import { logLuizia } from '@/lib/luizia-monitor'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -309,6 +310,14 @@ export default function BuildAssistPage() {
         }),
       })
       const data = await res.json()
+      void logLuizia({
+        origem: 'buildassist',
+        usuario: currentProfile?.name || null,
+        pergunta: userMsg.content,
+        resposta: data.message || 'Nao consegui processar agora.',
+        mode: data.mode,
+        model: data.model,
+      })
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.message || 'Não consegui processar agora. Verifique a configuração da IA.',
