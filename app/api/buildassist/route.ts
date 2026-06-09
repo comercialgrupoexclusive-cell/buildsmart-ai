@@ -32,7 +32,7 @@ function hasOpenAiKey() {
 }
 
 function modelFor(complex: boolean) {
-  if (complex) return process.env.OPENAI_COMPLEX_MODEL || 'gpt-5-mini'
+  if (complex) return process.env.OPENAI_COMPLEX_MODEL || 'gpt-4o'
   return process.env.OPENAI_SIMPLE_MODEL || 'gpt-4o-mini'
 }
 
@@ -170,17 +170,19 @@ ${String(context.luiziaAdminInstruction).slice(0, 1800)}
 CONTEXTO LOCAL/SISTEMA:
 ${limitJson(context)}`
 
-    const response = await openai.responses.create({
+    const response = await openai.chat.completions.create({
       model,
-      instructions: systemPrompt,
-      input: messages.map(message => ({
-        role: message.role,
-        content: message.content,
-      })),
-      max_output_tokens: complex ? 1800 : 900,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages.map(message => ({
+          role: message.role as 'user' | 'assistant',
+          content: message.content,
+        })),
+      ],
+      max_tokens: complex ? 1800 : 900,
     })
 
-    const content = response.output_text
+    const content = response.choices[0]?.message?.content
     if (!content) throw new Error('Resposta vazia da IA')
 
     return NextResponse.json({ message: content, model, mode: 'openai' })
