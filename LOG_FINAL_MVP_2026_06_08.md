@@ -146,3 +146,20 @@ Pendencia para monitoramento central:
 
 - Rodar o SQL `supabase/create_luizia_logs.sql` no Supabase.
 - Enquanto a tabela nao existir, o monitor mostra apenas o historico local do navegador.
+
+## Correcao de persistencia de usuarios - Codex
+
+Problema relatado: alteracoes de usuarios e perfis apareciam como salvas, mas ao atualizar a tela voltavam aos dados antigos.
+
+O que foi corrigido:
+
+- O modo Supabase virou o padrao do app.
+- O modo local agora so entra quando `NEXT_PUBLIC_DATA_MODE=local` estiver configurado explicitamente.
+- Removido o risco de o Vercel cair em modo local silencioso por falta de `NEXT_PUBLIC_DATA_MODE`.
+- Centralizada a configuracao publica do Supabase em:
+  - `lib/supabase/config.ts`
+- Ajustada a tela de configuracoes para nao mostrar sucesso quando o banco nao retorna o perfil atualizado.
+
+Validacao:
+
+- `npm.cmd run build` executado com sucesso.

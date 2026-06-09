@@ -374,5 +374,5 @@ export function createLocalClient() {
 }
 
 export function isLocalDataMode() {
-  return process.env.NEXT_PUBLIC_DATA_MODE !== 'supabase'
+  return process.env.NEXT_PUBLIC_DATA_MODE === 'local'
 }

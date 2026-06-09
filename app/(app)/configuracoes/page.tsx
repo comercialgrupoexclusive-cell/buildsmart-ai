@@ -206,9 +206,9 @@ export default function ConfiguracoesPage() {
         .select()
         .single()
 
-      if (error) {
+      if (error || !data) {
         setUserSaving(false)
-        setUserError(`Nao foi possivel salvar o usuario: ${error.message}`)
+        setUserError(`Nao foi possivel salvar o usuario: ${error?.message || 'perfil nao encontrado no banco.'}`)
         return
       }
 
@@ -223,9 +223,9 @@ export default function ConfiguracoesPage() {
         .select()
         .single()
 
-      if (error) {
+      if (error || !data) {
         setUserSaving(false)
-        setUserError(`Nao foi possivel criar o usuario: ${error.message}`)
+        setUserError(`Nao foi possivel criar o usuario: ${error?.message || 'o banco nao retornou o usuario criado.'}`)
         return
       }
 
@@ -310,9 +310,9 @@ export default function ConfiguracoesPage() {
       .select()
       .single()
 
-    if (error) {
+    if (error || !data) {
       setSaving(false)
-      alert(`Nao foi possivel salvar seu perfil.\n\nErro: ${error.message}`)
+      alert(`Nao foi possivel salvar seu perfil.\n\nErro: ${error?.message || 'perfil nao encontrado no banco.'}`)
       return
     }
 

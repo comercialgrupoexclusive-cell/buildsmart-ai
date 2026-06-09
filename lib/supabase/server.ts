@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { createLocalClient, isLocalDataMode } from '@/lib/data/local-client'
+import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
 
 export async function createClient() {
   if (isLocalDataMode()) return createLocalClient() as any
@@ -8,8 +9,8 @@ export async function createClient() {
   const cookieStore = await cookies()
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl(),
+    supabaseAnonKey(),
     {
       cookies: {
         getAll() {
