@@ -294,6 +294,27 @@ export default function ConfiguracoesPage() {
   async function handleSave() {
     if (!currentProfile) return
     setSaving(true)
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    let profileToSave = currentProfile
+
+    if (!uuidPattern.test(profileToSave.id)) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('name', profileToSave.name)
+        .maybeSingle()
+
+      if (error || !data) {
+        setSaving(false)
+        alert('Seu navegador ainda estava usando um perfil antigo local. Clique em Trocar perfil e selecione o usuario novamente.')
+        setCurrentProfile(null)
+        return
+      }
+
+      profileToSave = data as Profile
+      setCurrentProfile(profileToSave)
+    }
+
     const payload = {
       name: nome,
       apelido: apelido.trim() || null,
@@ -306,7 +327,7 @@ export default function ConfiguracoesPage() {
     const { data, error } = await supabase
       .from('profiles')
       .update(payload)
-      .eq('id', currentProfile.id)
+      .eq('id', profileToSave.id)
       .select()
       .single()
 
@@ -316,7 +337,7 @@ export default function ConfiguracoesPage() {
       return
     }
 
-    const updated = { ...currentProfile, ...(data as Profile) }
+    const updated = { ...profileToSave, ...(data as Profile) }
     setCurrentProfile(updated)
     document.documentElement.style.setProperty('--accent', accentColor)
     setSaving(false)

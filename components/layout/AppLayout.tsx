@@ -26,8 +26,27 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
     let cancelled = false
     const profile = currentProfile
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
     async function syncProfile() {
       const supabase = createClient()
+      if (!uuidPattern.test(profile.id)) {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('name', profile.name)
+          .maybeSingle()
+
+        if (cancelled) return
+        if (data) {
+          setCurrentProfile(data as any)
+          return
+        }
+        setCurrentProfile(null)
+        router.replace('/')
+        return
+      }
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*')

@@ -162,6 +162,10 @@ O que foi corrigido:
 - Adicionada validacao do perfil salvo no navegador ao entrar no app:
   - se o perfil existir no Supabase, o navegador atualiza os dados;
   - se o perfil nao existir mais, o sistema volta para selecao de perfil.
+- Corrigido caso de navegador preso em perfil antigo local (`local-profile-*`):
+  - o app tenta localizar o perfil real no Supabase pelo nome;
+  - se encontrar, troca automaticamente para o UUID real;
+  - se nao encontrar, solicita trocar de perfil.
 
 Validacao:
 
