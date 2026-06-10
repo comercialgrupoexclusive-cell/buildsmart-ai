@@ -17,16 +17,25 @@ async function sendZApi(phone: string, message: string) {
   const id = process.env.ZAPI_INSTANCE_ID
   const token = process.env.ZAPI_TOKEN
   const clientToken = process.env.ZAPI_CLIENT_TOKEN
-  if (!id || !token) return
+  if (!id || !token) {
+    console.log('ZAPI SEND SKIP: missing id or token', { id: !!id, token: !!token })
+    return
+  }
 
-  await fetch(`https://api.z-api.io/instances/${id}/token/${token}/send-text`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(clientToken ? { 'Client-Token': clientToken } : {}),
-    },
-    body: JSON.stringify({ phone, message }),
-  }).catch(() => null)
+  try {
+    const res = await fetch(`https://api.z-api.io/instances/${id}/token/${token}/send-text`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(clientToken ? { 'Client-Token': clientToken } : {}),
+      },
+      body: JSON.stringify({ phone, message }),
+    })
+    const data = await res.json()
+    console.log('ZAPI SEND RESULT', res.status, JSON.stringify(data))
+  } catch (err: any) {
+    console.log('ZAPI SEND ERROR', err?.message)
+  }
 }
 
 async function logRaw(db: ReturnType<typeof supabase>, payload: unknown, note: string) {
