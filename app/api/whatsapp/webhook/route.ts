@@ -31,14 +31,16 @@ async function sendZApi(phone: string, message: string) {
 
 async function logRaw(db: ReturnType<typeof supabase>, payload: unknown, note: string) {
   if (!db) return
-  await db.from('luizia_logs').insert({
-    origem: 'whatsapp-webhook',
-    usuario: note,
-    pergunta: JSON.stringify(payload).slice(0, 2000),
-    resposta: '',
-    mode: 'whatsapp',
-    model: 'log',
-  }).catch(() => null)
+  try {
+    await db.from('luizia_logs').insert({
+      origem: 'whatsapp-webhook',
+      usuario: note,
+      pergunta: JSON.stringify(payload).slice(0, 2000),
+      resposta: '',
+      mode: 'whatsapp',
+      model: 'log',
+    })
+  } catch { /* ignore log errors */ }
 }
 
 // GET — Z-API faz ping para verificar se o endpoint está ativo
