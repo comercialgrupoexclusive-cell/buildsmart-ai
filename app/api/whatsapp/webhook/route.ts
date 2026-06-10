@@ -33,7 +33,7 @@ async function logRaw(db: ReturnType<typeof supabase>, payload: unknown, note: s
   if (!db) return
   try {
     await db.from('luizia_logs').insert({
-      origem: 'whatsapp-webhook',
+      origem: 'whatsapp',
       usuario: note,
       pergunta: JSON.stringify(payload).slice(0, 2000),
       resposta: '',
