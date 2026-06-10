@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, HardHat, FileText, CalendarDays,
-  Package, ClipboardList, BotMessageSquare, BarChart3, Settings,
+  Package, ClipboardList, BotMessageSquare, BarChart3, Settings, MessageCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
@@ -21,6 +21,7 @@ const NAV_ITEMS = [
 
 const NAV_BOTTOM = [
   { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
+  { href: '/admin-luizia', label: 'Luizia WhatsApp', icon: MessageCircle },
   { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ]
 
