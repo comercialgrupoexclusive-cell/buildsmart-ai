@@ -79,9 +79,12 @@ export async function POST(req: NextRequest) {
     const senderName = body.senderName || body.chatName || body.pushname || phone
 
     const openaiKey = process.env.OPENAI_API_KEY || ''
+    console.log('STEP openai-key', openaiKey ? 'ok sk-***' : 'MISSING')
     if (!openaiKey.startsWith('sk-')) {
       return NextResponse.json({ ok: false, error: 'OpenAI nao configurado' })
     }
+
+    console.log('STEP phone', phone, 'text', messageText)
 
     // Busca config global, regra do numero e historico em paralelo
     const [config, phoneRule, historyRows] = await Promise.all([
@@ -117,6 +120,7 @@ export async function POST(req: NextRequest) {
 
     const openai = new OpenAI({ apiKey: openaiKey })
 
+    console.log('STEP calling-openai', messageText.slice(0, 50))
     const aiResponse = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
@@ -128,7 +132,10 @@ export async function POST(req: NextRequest) {
     })
 
     const reply = aiResponse.choices[0]?.message?.content?.trim()
+    console.log('STEP reply', reply ? reply.slice(0, 80) : 'EMPTY')
     if (!reply) return NextResponse.json({ ok: false, error: 'Resposta vazia da IA' })
+
+    console.log('STEP sending-to', phone)
 
     // Salva historico e envia resposta em paralelo
     await Promise.all([
