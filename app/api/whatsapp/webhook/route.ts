@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
     ].filter(Boolean).join('\n\n')
 
     const openai = new OpenAI({ apiKey: openaiKey })
-    const model = process.env.OPENAI_SIMPLE_MODEL || 'gpt-4o-mini'
+    const model = 'gpt-4o-mini'
 
     const aiResponse = await openai.chat.completions.create({
       model,
