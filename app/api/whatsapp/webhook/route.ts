@@ -54,6 +54,9 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
 
+    // Log bruto no inicio — diagnóstico Z-API
+    console.log('ZAPI WEBHOOK RECEBIDO', JSON.stringify(body))
+
     // Log tudo que chega (debug)
     await logRaw(db, body, `type=${body?.type} fromMe=${body?.fromMe} phone=${body?.phone}`)
 
