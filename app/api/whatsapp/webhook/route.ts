@@ -2,15 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 
-type ZApiPayload = {
-  type: string
-  phone: string
-  fromMe: boolean
-  senderName?: string
-  chatName?: string
-  text?: { message: string }
-}
-
 function supabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -19,7 +10,7 @@ function supabase() {
 }
 
 function cleanPhone(raw: string) {
-  return raw.replace(/@c\.us$/, '').replace(/@s\.whatsapp\.net$/, '').trim()
+  return (raw || '').replace(/@c\.us$/, '').replace(/@s\.whatsapp\.net$/, '').trim()
 }
 
 async function sendZApi(phone: string, message: string) {
@@ -38,31 +29,54 @@ async function sendZApi(phone: string, message: string) {
   }).catch(() => null)
 }
 
+async function logRaw(db: ReturnType<typeof supabase>, payload: unknown, note: string) {
+  if (!db) return
+  await db.from('luizia_logs').insert({
+    origem: 'whatsapp-webhook',
+    usuario: note,
+    pergunta: JSON.stringify(payload).slice(0, 2000),
+    resposta: '',
+    mode: 'whatsapp',
+    model: 'log',
+  }).catch(() => null)
+}
+
 // GET — Z-API faz ping para verificar se o endpoint está ativo
 export async function GET() {
   return NextResponse.json({ ok: true, service: 'Luizia WhatsApp' })
 }
 
 export async function POST(req: NextRequest) {
+  const db = supabase()
+
   try {
-    const body = await req.json() as ZApiPayload
+    const body = await req.json()
 
-    // Só processa mensagens recebidas
-    if (body.type !== 'ReceivedCallback') return NextResponse.json({ ok: true })
-    if (body.fromMe) return NextResponse.json({ ok: true })
+    // Log tudo que chega (debug)
+    await logRaw(db, body, `type=${body?.type} fromMe=${body?.fromMe} phone=${body?.phone}`)
 
-    const messageText = body.text?.message?.trim()
-    if (!messageText) return NextResponse.json({ ok: true })
+    // Ignora mensagens enviadas por mim (evita loop)
+    if (body.fromMe === true) return NextResponse.json({ ok: true, skip: 'fromMe' })
 
-    const phone = cleanPhone(body.phone)
-    const senderName = body.senderName || body.chatName || phone
+    // Extrai texto — Z-API pode enviar em body.text.message ou body.body
+    const messageText: string = (
+      body?.text?.message ||
+      body?.body ||
+      body?.caption ||
+      ''
+    ).trim()
+
+    if (!messageText) return NextResponse.json({ ok: true, skip: 'no-text' })
+
+    const phone = cleanPhone(body.phone || body.chatId || '')
+    if (!phone) return NextResponse.json({ ok: true, skip: 'no-phone' })
+
+    const senderName = body.senderName || body.chatName || body.pushname || phone
 
     const openaiKey = process.env.OPENAI_API_KEY || ''
     if (!openaiKey.startsWith('sk-')) {
       return NextResponse.json({ ok: false, error: 'OpenAI nao configurado' })
     }
-
-    const db = supabase()
 
     // Busca config global, regra do numero e historico em paralelo
     const [config, phoneRule, historyRows] = await Promise.all([
@@ -97,10 +111,9 @@ export async function POST(req: NextRequest) {
     ].filter(Boolean).join('\n\n')
 
     const openai = new OpenAI({ apiKey: openaiKey })
-    const model = 'gpt-4o-mini'
 
     const aiResponse = await openai.chat.completions.create({
-      model,
+      model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         ...(historyRows as Array<{ role: 'user' | 'assistant'; content: string }>),
@@ -126,6 +139,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   } catch (err: any) {
     console.error('[whatsapp/webhook]', err)
+    await logRaw(db, { error: err?.message }, 'ERRO')
     return NextResponse.json({ error: err?.message || 'Erro interno' }, { status: 500 })
   }
 }
