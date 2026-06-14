@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ExternalLink, Package } from 'lucide-react'
+import { ExternalLink, ShoppingCart } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Obra } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -52,7 +52,7 @@ export default function MateriaisPage() {
           <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
         </div>
       ) : !obraId ? (
-        <EmptyState icon={Package} title="Selecione uma obra" description="Escolha uma obra acima para ver os materiais e montar a lista de compras." />
+        <EmptyState icon={ShoppingCart} title="Selecione uma obra" description="Escolha uma obra acima para ver os materiais, requisições e listas de compras." />
       ) : (
         <ObraMateriais key={obraId} obraId={obraId} />
       )}

@@ -26,7 +26,7 @@ const STEPS = [
     icon: BotMessageSquare,
     secondIcon: null as null | typeof Monitor,
     title: 'Planejamento e execução com IA integrada',
-    description: 'A Luizia, sua IA, ajuda a planejar etapas, montar orçamentos e acompanhar a execução da obra com sugestões e alertas em tempo real.',
+    description: 'A Luiza, sua IA, ajuda a planejar etapas, montar orçamentos e acompanhar a execução da obra com sugestões e alertas em tempo real.',
   },
 ]
 

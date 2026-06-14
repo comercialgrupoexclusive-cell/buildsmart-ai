@@ -11,8 +11,8 @@ import { useProfile } from '@/lib/profile-context'
 const STORAGE_KEY = 'buildsmart-welcome-hidden'
 
 const LUIZIA_LINES = [
-  'Eu fico ali no botão da Luizia. Pode perguntar simples, do seu jeito, que eu tento organizar a resposta sem enrolar.',
-  'Quando bater aquela dúvida de obra, chama a Luizia. Eu ajudo a olhar orçamento, compras, cronograma e próximos passos.',
+  'Eu fico ali no botão da Luiza. Pode perguntar simples, do seu jeito, que eu tento organizar a resposta sem enrolar.',
+  'Quando bater aquela dúvida de obra, chama a Luiza. Eu ajudo a olhar orçamento, compras, cronograma e próximos passos.',
   'Sou sua IA de apoio. Não salvo nada sozinha ainda, mas ajudo você a pensar, revisar e decidir com mais clareza.',
 ]
 
@@ -50,8 +50,8 @@ const STEPS = [
   },
   {
     icon: BotMessageSquare,
-    title: 'Luizia',
-    description: 'Oi, eu sou a Luizia, sua parceira de obra. Ajudo a tirar dúvidas, organizar ideias e prever próximos passos sem complicar.',
+    title: 'Luiza',
+    description: 'Oi, eu sou a Luiza, sua parceira de obra. Ajudo a tirar dúvidas, organizar ideias e prever próximos passos sem complicar.',
   },
 ]
 
@@ -119,7 +119,7 @@ export function WelcomeGuide() {
           <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
             {step === STEPS.length - 1
               ? luiziaLine
-              : 'Fluxo básico: escolha uma obra, revise orçamento, confira materiais, acompanhe cronograma e use a Luizia quando quiser ajuda para decidir o próximo passo.'}
+              : 'Fluxo básico: escolha uma obra, revise orçamento, confira materiais, acompanhe cronograma e use a Luiza quando quiser ajuda para decidir o próximo passo.'}
           </p>
         </div>
 

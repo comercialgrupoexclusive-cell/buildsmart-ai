@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { Sun, Moon, Database, Info, Pipette, ListChecks, Plus, Trash2, Monitor, Users, Pencil, X, ShieldCheck } from 'lucide-react'
+import { Sun, Moon, Database, Info, Pipette, ListChecks, Plus, Trash2, Monitor, Users, Pencil, X, ShieldCheck, KeyRound } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -18,8 +18,16 @@ const EMPTY_USER_FORM = {
   cidade: '',
   estado: '',
   password: '',
-  tipo: 'usuario' as 'admin' | 'usuario',
+  tipo: 'usuario' as 'admin' | 'usuario' | 'cliente' | 'prestador',
+  pode_excluir: true,
   theme_color: '#3B7BF8',
+}
+
+const TIPO_LABELS: Record<string, string> = {
+  admin:     'Administrador',
+  usuario:   'Usuário interno',
+  cliente:   'Cliente',
+  prestador: 'Prestador',
 }
 
 const ACCENT_OPTIONS = [
@@ -31,32 +39,33 @@ const ACCENT_OPTIONS = [
   { color: '#EC4899', label: 'Rosa' },
   { color: '#14B8A6', label: 'Teal' },
   { color: '#F97316', label: 'Laranja' },
+  { color: '#7C1631', label: 'Vinho' },
 ]
 
 const ETAPAS_PADRAO_KEY = 'buildsmart-etapas-padrao'
 const WELCOME_HIDDEN_KEY = 'buildsmart-welcome-hidden'
 
 const ETAPAS_PADRAO_SINAPI = [
-  'Serviços preliminares',
-  'Administração local',
-  'Mobilização e desmobilização',
-  'Canteiro de obras',
-  'Movimento de terra',
-  'Fundações',
-  'Estrutura',
-  'Alvenaria e vedação',
-  'Cobertura',
-  'Impermeabilização',
-  'Instalações hidrossanitárias',
-  'Instalações elétricas',
-  'Instalações especiais',
+  'Serviços Preliminares e Gerais',
+  'Infraestrutura',
+  'Supraestrutura',
+  'Paredes e Painéis',
   'Esquadrias',
-  'Revestimentos internos',
-  'Revestimentos externos',
+  'Vidros e Plásticos',
+  'Coberturas',
+  'Impermeabilizações',
+  'Revestimentos Internos',
+  'Forros',
+  'Revestimentos Externos',
+  'Pinturas',
   'Pisos',
-  'Pintura',
-  'Louças e metais',
-  'Serviços complementares',
+  'Acabamentos',
+  'Instalações Elétricas e Telefônicas',
+  'Instalações Hidráulicas',
+  'Instalações: Esgoto e Águas Pluviais',
+  'Louças e Metais',
+  'Complementos',
+  'Outros',
 ]
 
 export default function ConfiguracoesPage() {
@@ -74,6 +83,10 @@ export default function ConfiguracoesPage() {
   const [cidadesLoading, setCidadesLoading] = useState(false)
   const [accentColor, setAccentColor] = useState(currentProfile?.theme_color || '#3B7BF8')
   const [darkMode, setDarkMode] = useState(currentProfile?.dark_mode ?? true)
+  const [pwCurrent, setPwCurrent] = useState('')
+  const [pwNew, setPwNew] = useState('')
+  const [pwConfirm, setPwConfirm] = useState('')
+  const [pwError, setPwError] = useState('')
   const [etapasPadrao, setEtapasPadrao] = useState<string[]>(ETAPAS_PADRAO_SINAPI)
   const [novaEtapaPadrao, setNovaEtapaPadrao] = useState('')
   const [showWelcomeOnEntry, setShowWelcomeOnEntry] = useState(true)
@@ -158,6 +171,7 @@ export default function ConfiguracoesPage() {
       estado: profile.estado || '',
       password: '',
       tipo: profile.tipo || 'usuario',
+      pode_excluir: profile.pode_excluir ?? true,
       theme_color: profile.theme_color || '#3B7BF8',
     })
     setUserError('')
@@ -192,6 +206,7 @@ export default function ConfiguracoesPage() {
       cidade: userForm.cidade.trim() || null,
       estado: userForm.estado.trim().toUpperCase() || null,
       tipo: userForm.tipo,
+      pode_excluir: userForm.pode_excluir,
       theme_color: userForm.theme_color,
     }
     if (userForm.password.trim()) payload.password_hash = userForm.password.trim()
@@ -245,6 +260,13 @@ export default function ConfiguracoesPage() {
     closeUserModal()
   }
 
+  async function handleResetSenha(profile: Profile) {
+    if (!confirm(`Resetar a senha de "${profile.apelido || profile.name}"? O usuário precisará definir nova senha no próximo login.`)) return
+    const { error } = await supabase.from('profiles').update({ password_hash: null }).eq('id', profile.id)
+    if (error) { setUserError(`Erro ao resetar senha: ${error.message}`); return }
+    await loadUsers()
+  }
+
   async function handleDeleteUser(profile: Profile) {
     if (profile.id === currentProfile?.id) return
     const adminCount = users.filter(u => u.tipo === 'admin').length
@@ -291,6 +313,19 @@ export default function ConfiguracoesPage() {
     document.documentElement.style.setProperty('--accent', color)
   }
 
+  async function handleDesativarSenha() {
+    if (!currentProfile) return
+    if (pwCurrent !== currentProfile.password_hash) {
+      setPwError('Senha atual incorreta')
+      return
+    }
+    const { error } = await supabase.from('profiles').update({ password_hash: null }).eq('id', currentProfile.id)
+    if (error) { setPwError(`Erro: ${error.message}`); return }
+    setCurrentProfile({ ...currentProfile, password_hash: null })
+    setPwCurrent('')
+    setPwError('')
+  }
+
   async function handleSave() {
     if (!currentProfile) return
     setSaving(true)
@@ -315,7 +350,7 @@ export default function ConfiguracoesPage() {
       setCurrentProfile(profileToSave)
     }
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: nome,
       apelido: apelido.trim() || null,
       descricao: descricao.trim() || null,
@@ -323,6 +358,19 @@ export default function ConfiguracoesPage() {
       estado: estado.trim().toUpperCase() || null,
       theme_color: accentColor,
       dark_mode: darkMode,
+    }
+    if (pwNew.trim() || pwConfirm.trim()) {
+      if (pwNew !== pwConfirm) {
+        setPwError('Senhas não coincidem')
+        setSaving(false)
+        return
+      }
+      if (!pwNew.trim()) {
+        setPwError('Digite a nova senha')
+        setSaving(false)
+        return
+      }
+      payload.password_hash = pwNew.trim()
     }
     const { data, error } = await supabase
       .from('profiles')
@@ -340,6 +388,7 @@ export default function ConfiguracoesPage() {
     const updated = { ...profileToSave, ...(data as Profile) }
     setCurrentProfile(updated)
     document.documentElement.style.setProperty('--accent', accentColor)
+    setPwNew(''); setPwConfirm(''); setPwError('')
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
@@ -589,23 +638,72 @@ export default function ConfiguracoesPage() {
             <button
               type="button"
               onClick={() => setWelcomePreference(!showWelcomeOnEntry)}
-              className="flex items-center gap-2 flex-shrink-0"
-              aria-pressed={showWelcomeOnEntry}
-              title={showWelcomeOnEntry ? 'Boas-vindas ativada' : 'Boas-vindas desativada'}
+              className="w-12 h-6 rounded-full relative transition-colors flex-shrink-0"
+              style={{ background: showWelcomeOnEntry ? 'var(--accent)' : 'var(--border)' }}
             >
-              <span className="hidden sm:inline text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
-                {showWelcomeOnEntry ? 'Ativada' : 'Desativada'}
-              </span>
-              <span
-                className="w-12 h-6 rounded-full relative transition-colors"
-                style={{ background: showWelcomeOnEntry ? 'var(--accent)' : 'var(--border)' }}
-              >
-                <span
-                  className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform"
-                  style={{ transform: showWelcomeOnEntry ? 'translateX(26px)' : 'translateX(2px)' }}
-                />
-              </span>
+              <div
+                className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform"
+                style={{ transform: showWelcomeOnEntry ? 'translateX(26px)' : 'translateX(2px)' }}
+              />
             </button>
+          </div>
+
+          {/* Senha */}
+          <div className="flex flex-col gap-3 p-4 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+            <div className="flex items-center gap-2">
+              <KeyRound size={15} style={{ color: 'var(--accent)' }} />
+              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                {currentProfile?.password_hash ? '🔒 Senha definida' : '🔓 Sem senha — acesso direto'}
+              </p>
+            </div>
+
+            {currentProfile?.password_hash && (
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={pwCurrent}
+                  onChange={e => { setPwCurrent(e.target.value); setPwError('') }}
+                  placeholder="Senha atual"
+                  className="input-base flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={handleDesativarSenha}
+                  disabled={!pwCurrent.trim()}
+                  className="px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                  style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)' }}
+                >
+                  Desativar senha
+                </button>
+              </div>
+            )}
+
+            <Input
+              label="Nova senha"
+              type="password"
+              value={pwNew}
+              onChange={e => { setPwNew(e.target.value); setPwError('') }}
+              placeholder="Digite a nova senha"
+            />
+            <Input
+              label="Confirmar nova senha"
+              type="password"
+              value={pwConfirm}
+              onChange={e => { setPwConfirm(e.target.value); setPwError('') }}
+              placeholder="Repita a nova senha"
+            />
+
+            {pwError && (
+              <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)' }}>
+                {pwError}
+              </p>
+            )}
+
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {currentProfile?.password_hash
+                ? 'Para trocar, preencha Nova senha + Confirmar e clique em Salvar. Para remover, confirme a senha atual e clique em Desativar.'
+                : 'Preencha os dois campos para definir uma senha de acesso.'}
+            </p>
           </div>
 
           <Button loading={saving} onClick={handleSave} disabled={!nome.trim()}>
@@ -613,6 +711,98 @@ export default function ConfiguracoesPage() {
           </Button>
         </div>
       </div>
+
+      {/* Gestão de usuários — apenas ADM (movido para logo após Perfil) */}
+      {isAdmin && (
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,123,248,0.15)' }}>
+                <Users size={14} style={{ color: 'var(--accent)' }} />
+              </div>
+              Gestão de usuários
+            </h2>
+            <Button size="sm" icon={<Plus size={16} />} onClick={openCreateUser}>
+              Novo usuário
+            </Button>
+          </div>
+
+          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
+            Como administrador, você pode criar, editar e remover perfis, e definir quem é administrador do sistema.
+          </p>
+
+          {usersLoading ? (
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Carregando usuários...</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {users.map(user => (
+                <div key={user.id} className="flex items-center justify-between gap-3 p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    {user.photo_url ? (
+                      <img src={user.photo_url} alt={user.name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                    ) : (
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold flex-shrink-0"
+                        style={{ background: user.theme_color || 'var(--accent)' }}
+                      >
+                        {user.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                          {user.apelido || user.name}
+                        </p>
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0"
+                          style={{
+                            background: user.tipo === 'admin' ? 'rgba(59,123,248,0.15)' : user.tipo === 'cliente' ? 'rgba(16,185,129,0.12)' : user.tipo === 'prestador' ? 'rgba(245,158,11,0.12)' : 'var(--bg-card)',
+                            color: user.tipo === 'admin' ? 'var(--accent)' : user.tipo === 'cliente' ? 'var(--success)' : user.tipo === 'prestador' ? 'var(--warning)' : 'var(--text-secondary)',
+                          }}
+                        >
+                          {user.tipo === 'admin' && <ShieldCheck size={11} />}
+                          {TIPO_LABELS[user.tipo] || user.tipo}
+                        </span>
+                        {user.id === currentProfile?.id && (
+                          <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>(você)</span>
+                        )}
+                      </div>
+                      <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                        {[user.cidade, user.estado].filter(Boolean).join(' / ') || 'Localização não informada'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => openEditUser(user)}
+                      className="p-2 rounded-lg hover:bg-[var(--bg-card)] transition-colors"
+                      title="Editar usuário"
+                    >
+                      <Pencil size={14} style={{ color: 'var(--text-secondary)' }} />
+                    </button>
+                    <button
+                      onClick={() => handleResetSenha(user)}
+                      disabled={user.id === currentProfile?.id}
+                      className="p-2 rounded-lg hover:bg-[var(--bg-card)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Resetar senha"
+                    >
+                      <KeyRound size={14} style={{ color: 'var(--text-secondary)' }} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(user)}
+                      disabled={user.id === currentProfile?.id}
+                      className="p-2 rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={user.id === currentProfile?.id ? 'Você não pode remover seu próprio perfil aqui' : 'Remover usuário'}
+                    >
+                      <Trash2 size={14} style={{ color: 'var(--danger)' }} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Clima e alertas */}
       <div className="card p-6">
@@ -636,18 +826,13 @@ export default function ConfiguracoesPage() {
             <button
               type="button"
               onClick={() => setClimaAtivo(!climaAtivo)}
-              className="flex items-center gap-2 flex-shrink-0"
-              aria-pressed={climaAtivo}
+              className="w-12 h-6 rounded-full relative transition-colors flex-shrink-0"
+              style={{ background: climaAtivo ? 'var(--accent)' : 'var(--border)' }}
             >
-              <span
-                className="w-12 h-6 rounded-full relative transition-colors"
-                style={{ background: climaAtivo ? 'var(--accent)' : 'var(--border)' }}
-              >
-                <span
-                  className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform"
-                  style={{ transform: climaAtivo ? 'translateX(26px)' : 'translateX(2px)' }}
-                />
-              </span>
+              <div
+                className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform"
+                style={{ transform: climaAtivo ? 'translateX(26px)' : 'translateX(2px)' }}
+              />
             </button>
           </div>
 
@@ -737,89 +922,6 @@ export default function ConfiguracoesPage() {
         </div>
       </div>
 
-      {/* Gestão de usuários — apenas ADM */}
-      {isAdmin && (
-        <div className="card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,123,248,0.15)' }}>
-                <Users size={14} style={{ color: 'var(--accent)' }} />
-              </div>
-              Gestão de usuários
-            </h2>
-            <Button size="sm" icon={<Plus size={16} />} onClick={openCreateUser}>
-              Novo usuário
-            </Button>
-          </div>
-
-          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
-            Como administrador, você pode criar, editar e remover perfis, e definir quem é administrador do sistema.
-          </p>
-
-          {usersLoading ? (
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Carregando usuários...</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {users.map(user => (
-                <div key={user.id} className="flex items-center justify-between gap-3 p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-                  <div className="flex items-center gap-3 min-w-0">
-                    {user.photo_url ? (
-                      <img src={user.photo_url} alt={user.name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
-                    ) : (
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-semibold flex-shrink-0"
-                        style={{ background: user.theme_color || 'var(--accent)' }}
-                      >
-                        {user.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                          {user.apelido || user.name}
-                        </p>
-                        {user.tipo === 'admin' && (
-                          <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0"
-                            style={{ background: 'rgba(59,123,248,0.15)', color: 'var(--accent)' }}
-                          >
-                            <ShieldCheck size={11} />
-                            ADM
-                          </span>
-                        )}
-                        {user.id === currentProfile?.id && (
-                          <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>(você)</span>
-                        )}
-                      </div>
-                      <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
-                        {[user.cidade, user.estado].filter(Boolean).join(' / ') || 'Localização não informada'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => openEditUser(user)}
-                      className="p-2 rounded-lg hover:bg-[var(--bg-card)] transition-colors"
-                      title="Editar usuário"
-                    >
-                      <Pencil size={14} style={{ color: 'var(--text-secondary)' }} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteUser(user)}
-                      disabled={user.id === currentProfile?.id}
-                      className="p-2 rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={user.id === currentProfile?.id ? 'Você não pode remover seu próprio perfil aqui' : 'Remover usuário'}
-                    >
-                      <Trash2 size={14} style={{ color: 'var(--danger)' }} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Modal de criação/edição de usuário */}
       {userModalOpen && (
         <div
@@ -894,28 +996,46 @@ export default function ConfiguracoesPage() {
 
               <div>
                 <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--text-secondary)' }}>
-                  Tipo de perfil
+                  Tipo de acesso
                 </label>
-                <div className="flex gap-2">
-                  {(['usuario', 'admin'] as const).map(tipo => (
+                <div className="grid grid-cols-2 gap-2">
+                  {(['usuario', 'admin', 'cliente', 'prestador'] as const).map(tipo => (
                     <button
                       key={tipo}
                       type="button"
                       onClick={() => setUserForm(f => ({ ...f, tipo }))}
                       disabled={editingUser?.id === currentProfile?.id && tipo !== 'admin'}
-                      className="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-left"
                       style={{
                         background: userForm.tipo === tipo ? 'var(--accent)' : 'var(--bg-secondary)',
                         color: userForm.tipo === tipo ? '#fff' : 'var(--text-secondary)',
                       }}
                     >
-                      {tipo === 'admin' ? 'Administrador' : 'Usuário comum'}
+                      {TIPO_LABELS[tipo]}
                     </button>
                   ))}
                 </div>
                 <p className="text-xs mt-1.5" style={{ color: 'var(--text-secondary)' }}>
-                  Administradores podem gerenciar todos os usuários do sistema.
+                  Clientes e prestadores têm acesso restrito às obras vinculadas a eles.
                 </p>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+                <div>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Pode excluir registros</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Se desativado, botões de exclusão ficam ocultos</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUserForm(f => ({ ...f, pode_excluir: !f.pode_excluir }))}
+                  className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0"
+                  style={{ background: userForm.pode_excluir ? 'var(--accent)' : 'var(--border)' }}
+                >
+                  <span
+                    className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow-sm"
+                    style={{ transform: userForm.pode_excluir ? 'translateX(20px)' : 'translateX(0)' }}
+                  />
+                </button>
               </div>
 
               {userError && (
@@ -965,8 +1085,7 @@ export default function ConfiguracoesPage() {
         <div className="flex flex-col gap-3">
           {[
             { label: 'Supabase', desc: 'Banco de dados', status: 'Conectado' },
-            { label: 'Claude API (Anthropic)', desc: 'BuildAssist IA', status: 'Configurar chave em .env.local' },
-            { label: 'Open-Meteo API', desc: 'Previsão do tempo (gratuita, sem chave)', status: 'Conectado' },
+            { label: 'Claude API — claude-sonnet-4-6', desc: 'BuildAssist IA (Anthropic)', status: 'Configurar chave em .env.local' },
           ].map(({ label, desc, status }) => (
             <div key={label} className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
               <div>
@@ -989,7 +1108,7 @@ export default function ConfiguracoesPage() {
       {/* Versão */}
       <div className="card p-4 text-center">
         <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          BuildSmart AI v{APP_VERSION} — Next.js 16 + Supabase + Claude API
+          BuildSmart AI v{APP_VERSION} — Next.js 16 + Supabase + Claude API (claude-sonnet-4-6)
         </p>
       </div>
 

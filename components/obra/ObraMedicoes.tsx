@@ -147,23 +147,19 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
       <div className="flex items-center gap-1.5 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
         <button
           onClick={() => setSubTab('medicao')}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors"
-          style={{
-            background: subTab === 'medicao' ? 'var(--bg-primary)' : 'transparent',
-            color: subTab === 'medicao' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            boxShadow: subTab === 'medicao' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
-          }}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
+          style={subTab === 'medicao'
+            ? { background: 'var(--accent)', color: 'white' }
+            : { color: 'var(--text-secondary)' }}
         >
           <ClipboardList size={15} /> Medição
         </button>
         <button
           onClick={() => setSubTab('diario')}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors"
-          style={{
-            background: subTab === 'diario' ? 'var(--bg-primary)' : 'transparent',
-            color: subTab === 'diario' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            boxShadow: subTab === 'diario' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
-          }}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
+          style={subTab === 'diario'
+            ? { background: 'var(--accent)', color: 'white' }
+            : { color: 'var(--text-secondary)' }}
         >
           <NotebookPen size={15} /> Diário (RDO)
         </button>

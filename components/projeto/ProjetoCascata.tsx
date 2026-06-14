@@ -84,10 +84,10 @@ function calcStatus(node: ProjetoItemNode): StatusKey {
 
 export function ProjetoCascata({ itens, canEdit = true, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem }: Props) {
   return (
-    <div>
+    <div className="min-w-0">
       {/* Cabeçalho de colunas */}
       <div
-        className="grid text-xs font-medium px-2 py-2 rounded-t-lg mb-1"
+        className="hidden sm:grid text-xs font-medium px-2 py-2 rounded-t-lg mb-1"
         style={{
           gridTemplateColumns: '1fr 130px 110px 110px',
           background: 'var(--bg-secondary)',
@@ -169,18 +169,18 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
     <div>
       {/* Linha principal — grid de 3 colunas */}
       <div
-        className="grid items-center group hover:bg-[var(--bg-secondary)] transition-colors"
+        className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors rounded-lg sm:rounded-none mb-1 sm:mb-0 px-2 sm:px-0 py-2 sm:py-0"
         style={{
           gridTemplateColumns: '1fr 130px 110px 110px',
           paddingLeft: 8,
           paddingRight: 8,
           minHeight: 36,
-          background: item.nivel === 1 ? NIVEL_BG[1] : 'transparent',
+          background: item.nivel === 1 ? NIVEL_BG[1] : item.nivel === 2 ? 'rgba(255,255,255,0.018)' : 'transparent',
           borderBottom: '1px solid var(--border)',
         }}
       >
         {/* Coluna 1 — checkbox + expand + nome */}
-        <div className="flex items-center gap-1.5 py-1.5 min-w-0" style={{ paddingLeft: indent }}>
+        <div className="flex items-center gap-1.5 py-1.5 min-w-0 flex-wrap sm:flex-nowrap" style={{ paddingLeft: indent }}>
           <button
             className="w-4 h-4 flex items-center justify-center flex-shrink-0"
             style={{ color: 'var(--text-secondary)', visibility: hasChildren ? 'visible' : 'hidden' }}
@@ -234,9 +234,19 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             </span>
           )}
 
+          <div className="basis-full mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:hidden" style={{ color: 'var(--text-secondary)', paddingLeft: 42 }}>
+            {item.responsavel && <span>{item.responsavel}</span>}
+            {(eff.inicio || eff.fim) && (
+              <span>
+                {eff.inicio ? fmtDate(eff.inicio) : '--'}
+                {eff.fim ? ` -> ${fmtDate(eff.fim)}` : ''}
+              </span>
+            )}
+          </div>
+
           {/* Ações hover */}
           {canEdit && !editingNome && (
-            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
+            <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
               <button
                 className="p-1 rounded hover:bg-[var(--bg-card)]"
                 title="Renomear"
@@ -267,7 +277,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
         </div>
 
         {/* Coluna 2 — Responsável */}
-        <div className="py-1.5 pr-2">
+        <div className="hidden sm:block py-1.5 pr-2">
           {editingResp ? (
             <div className="flex items-center gap-1">
               {profiles.length > 0 ? (
@@ -315,7 +325,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
         </div>
 
         {/* Coluna 3 — Início */}
-        <div className="py-1 pr-1">
+        <div className="hidden sm:block py-1 pr-1">
           {hasDateInput ? (
             editingDate === 'inicio' && canEdit ? (
               <input
@@ -353,7 +363,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
         </div>
 
         {/* Coluna 4 — Fim */}
-        <div className="py-1 pr-2">
+        <div className="hidden sm:block py-1 pr-2">
           {hasDateInput ? (
             editingDate === 'fim' && canEdit ? (
               <input

@@ -2,17 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import {
-  HardHat, FileText, AlertTriangle, TrendingUp, Calendar,
-  Package, ShoppingCart, Zap, CheckCircle2, ChevronRight,
+  HardHat, AlertTriangle, TrendingUp, Calendar,
+  Package, ShoppingCart, Zap, CheckCircle2, ChevronRight, LayoutGrid, User,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, Etapa, Material } from '@/lib/types'
 import { formatCurrency, diasAteData, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
+import { useProfile } from '@/lib/profile-context'
 import { ClimaWidgets } from '@/components/dashboard/ClimaWidgets'
 import Link from 'next/link'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, LineChart, Line, Legend,
+  PieChart, Pie, Cell, LineChart, Line, Legend, BarChart, Bar,
 } from 'recharts'
 
 type DashboardData = {
@@ -33,6 +34,10 @@ type AcaoPrioritaria = {
 
 export default function DashboardPage() {
   const supabase = createClient()
+  const { currentProfile } = useProfile()
+  const isAdmin = currentProfile?.tipo === 'admin'
+  const [mode, setMode] = useState<'geral' | 'meu'>(() => isAdmin ? 'geral' : 'meu')
+  const [minhasObraIds, setMinhasObraIds] = useState<Set<string>>(new Set())
   const [data, setData] = useState<DashboardData>({
     obras: [],
     etapasProximas: [],
@@ -42,13 +47,24 @@ export default function DashboardPage() {
   })
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { loadDashboard() }, [])
+  useEffect(() => {
+    if (currentProfile) {
+      supabase.from('obra_usuarios').select('obra_id').eq('profile_id', currentProfile.id)
+        .then(({ data: rows }: { data: { obra_id: string }[] | null }) => {
+          setMinhasObraIds(new Set((rows || []).map(r => r.obra_id)))
+        })
+    }
+  }, [currentProfile?.id])
+
+  useEffect(() => { loadDashboard() }, [mode, minhasObraIds])
 
   async function loadDashboard() {
     setLoading(true)
 
+    const obrasQuery = supabase.from('obras').select('*').order('created_at', { ascending: false })
+
     const [obrasRes, etapasRes, todasEtapasRes, materiaisRes] = await Promise.all([
-      supabase.from('obras').select('*').order('created_at', { ascending: false }),
+      obrasQuery,
       supabase
         .from('etapas')
         .select('*, obras(nome)')
@@ -64,20 +80,33 @@ export default function DashboardPage() {
         .order('data_necessidade'),
     ])
 
-    const obras = obrasRes.data || []
+    let obras = (obrasRes.data || []) as Obra[]
+
+    // Filtra por "Meu Painel" (obras vinculadas ao usuário via obra_usuarios)
+    if (mode === 'meu' && minhasObraIds.size > 0) {
+      obras = obras.filter(o => minhasObraIds.has(o.id))
+    } else if (mode === 'meu' && currentProfile) {
+      // Fallback: obras onde responsavel = nome do usuário (compatibilidade)
+      obras = obras.filter(o => o.responsavel === currentProfile.name)
+    }
+
+    // Avisos e informações do dashboard consideram APENAS obras ativas
+    const idsAtivas = new Set(obras.filter((o: any) => o.status === 'ativa').map((o: any) => o.id))
 
     const etapas = (etapasRes.data || []).map((e: any) => ({
       ...e,
       obra_nome: e.obras?.nome || '',
-    })).filter((e: any) => e.data_inicio && diasAteData(e.data_inicio) <= 7)
+    })).filter((e: any) => idsAtivas.has(e.obra_id) && e.data_inicio && diasAteData(e.data_inicio) <= 7)
 
     const materiais = (materiaisRes.data || []).map((m: any) => ({
       ...m,
       obra_nome: m.obras?.nome || '',
       insumo_descricao: m.descricao || '',   // schema v3: coluna direta
-    }))
+    })).filter((m: any) => idsAtivas.has(m.obra_id))
 
-    setData({ obras, etapasProximas: etapas, todasEtapas: (todasEtapasRes.data || []) as Etapa[], materiaisPendentes: materiais, alertas: etapas.length })
+    const todasEtapas = ((todasEtapasRes.data || []) as Etapa[]).filter(e => idsAtivas.has(e.obra_id))
+
+    setData({ obras, etapasProximas: etapas, todasEtapas, materiaisPendentes: materiais, alertas: etapas.length })
     setLoading(false)
   }
 
@@ -125,21 +154,7 @@ export default function DashboardPage() {
       })
     })
 
-  // 3. Obras em orçamento (sem cronograma ativo)
-  data.obras
-    .filter(o => o.status === 'orcamento')
-    .slice(0, 1)
-    .forEach(o => {
-      acoesPrioritarias.push({
-        icon: FileText,
-        color: 'var(--accent)',
-        titulo: `Orçamento em elaboração`,
-        subtitulo: o.nome,
-        href: `/obras/${o.id}`,
-      })
-    })
-
-  // 4. Materiais sem prazo definido (pendentes sem data)
+  // 3. Materiais sem prazo definido (pendentes sem data)
   const semPrazo = data.materiaisPendentes.filter(m => !m.data_necessidade)
   if (semPrazo.length > 0 && acoesPrioritarias.length < 4) {
     acoesPrioritarias.push({
@@ -215,6 +230,27 @@ export default function DashboardPage() {
     })
   })()
 
+  // Avanço físico por obra ativa: % de etapas concluídas sobre o total de etapas
+  const avancoPorObra = data.obras
+    .filter(o => o.status === 'ativa')
+    .map(o => {
+      const etapasObra = data.todasEtapas.filter(e => e.obra_id === o.id)
+      const concluidas = etapasObra.filter(e => e.status === 'concluida').length
+      return {
+        nome: o.nome.length > 18 ? o.nome.slice(0, 18) + '…' : o.nome,
+        avanco: etapasObra.length > 0 ? Math.round((concluidas / etapasObra.length) * 100) : 0,
+      }
+    })
+    .slice(0, 8)
+
+  // Data atual formatada: dd/mm/aaaa + dia da semana
+  const hojeFmt = (() => {
+    const d = new Date()
+    const data = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    const dia = d.toLocaleDateString('pt-BR', { weekday: 'long' })
+    return `${data} · ${dia.charAt(0).toUpperCase()}${dia.slice(1)}`
+  })()
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -230,9 +266,30 @@ export default function DashboardPage() {
           <HardHat size={96} style={{ color: 'var(--accent)' }} />
         </div>
         <div className="relative">
-          <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent)' }}>Painel preditivo</p>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--accent)' }}>Painel preditivo</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold hidden sm:block" style={{ color: 'var(--text-primary)' }}>{hojeFmt}</p>
+              <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+                <button
+                  onClick={() => setMode('geral')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors"
+                  style={{ background: mode === 'geral' ? 'var(--accent)' : 'var(--bg-secondary)', color: mode === 'geral' ? '#fff' : 'var(--text-secondary)' }}
+                >
+                  <LayoutGrid size={12} /> Geral
+                </button>
+                <button
+                  onClick={() => setMode('meu')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors"
+                  style={{ background: mode === 'meu' ? 'var(--accent)' : 'var(--bg-secondary)', color: mode === 'meu' ? '#fff' : 'var(--text-secondary)' }}
+                >
+                  <User size={12} /> Meu painel
+                </button>
+              </div>
+            </div>
+          </div>
           <h1 className="text-2xl sm:text-3xl font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
-            Visão rápida das obras
+            {mode === 'meu' ? `Meu painel${currentProfile?.apelido ? `, ${currentProfile.apelido}` : ''}` : 'Visão rápida das obras'}
           </h1>
           <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--text-secondary)' }}>
             Próximas etapas, materiais a comprar, clima e pontos de decisão em um só lugar.
@@ -403,6 +460,35 @@ export default function DashboardPage() {
                 )
               })}
             </div>
+          )}
+        </div>
+
+        {/* Avanço físico por obra ativa */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <TrendingUp size={18} style={{ color: 'var(--success)' }} />
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Avanço por obra</h2>
+          </div>
+          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
+            % de etapas concluídas em cada obra ativa
+          </p>
+          {avancoPorObra.length === 0 ? (
+            <p className="text-sm py-8 text-center" style={{ color: 'var(--text-secondary)' }}>
+              Nenhuma obra ativa com etapas cadastradas
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(180, avancoPorObra.length * 44)}>
+              <BarChart data={avancoPorObra} layout="vertical" margin={{ left: 8, right: 24 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
+                  formatter={(value) => [`${value}%`, 'Avanço']}
+                />
+                <Bar dataKey="avanco" fill="var(--accent)" radius={[0, 6, 6, 0]} barSize={18} />
+              </BarChart>
+            </ResponsiveContainer>
           )}
         </div>
       </div>

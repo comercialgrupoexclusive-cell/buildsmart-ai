@@ -1,7 +1,7 @@
 'use client'
 
 import { ReactNode, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
 import { Sidebar } from './Sidebar'
@@ -12,6 +12,7 @@ import { LuiziaFloatingChat } from './LuiziaFloatingChat'
 export function AppLayout({ children }: { children: ReactNode }) {
   const { currentProfile, setCurrentProfile } = useProfile()
   const router = useRouter()
+  const pathname = usePathname()
   const [mounted, setMounted] = useState(false)
   const [checkedProfileId, setCheckedProfileId] = useState<string | null>(null)
 
@@ -20,6 +21,34 @@ export function AppLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (mounted && !currentProfile) router.replace('/')
   }, [mounted, currentProfile, router])
+
+  // Restrição de acesso por tipo de perfil
+  useEffect(() => {
+    if (!mounted || !currentProfile) return
+    const tipo = currentProfile.tipo
+
+    if (tipo === 'cliente') {
+      // Cliente só acessa sua obra vinculada
+      const isObraPage = pathname?.startsWith('/obras/')
+      if (!isObraPage) {
+        const supabase = createClient()
+        supabase
+          .from('obra_usuarios')
+          .select('obra_id')
+          .eq('profile_id', currentProfile.id)
+          .limit(1)
+          .then(({ data }: { data: { obra_id: string }[] | null }) => {
+            if (data?.[0]) router.replace(`/obras/${data[0].obra_id}`)
+            else router.replace('/obras')
+          })
+      }
+    } else if (tipo === 'prestador') {
+      // Prestador só acessa o canteiro (Sprint 6)
+      if (!pathname?.startsWith('/canteiro')) {
+        router.replace('/canteiro')
+      }
+    }
+  }, [mounted, currentProfile, pathname, router])
 
   useEffect(() => {
     if (!mounted || !currentProfile || checkedProfileId === currentProfile.id) return
@@ -77,6 +106,22 @@ export function AppLayout({ children }: { children: ReactNode }) {
   }
 
   if (!currentProfile) return null
+
+  const isInterno = currentProfile.tipo === 'admin' || currentProfile.tipo === 'usuario'
+
+  if (!isInterno) {
+    // Cliente / Prestador: layout simplificado sem sidebar
+    return (
+      <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
+        <Header />
+        <main className="pt-16 min-h-screen">
+          <div className="p-3 sm:p-6 max-w-full overflow-x-hidden">
+            {children}
+          </div>
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>

@@ -5,7 +5,7 @@ import {
   Package, AlertTriangle, CheckCircle,
   Plus, Pencil, Trash2, ChevronDown, ChevronRight,
   Square, CheckSquare, ShoppingCart, Copy, X,
-  Building2, Send, PackageCheck, ClipboardList, Download,
+  Building2, Send, PackageCheck, ClipboardList, Download, FileText,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { diasAteData } from '@/lib/utils'
@@ -14,15 +14,18 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { ObraFornecedores } from '@/components/obra/ObraFornecedores'
+import { ObraRequisicoes } from '@/components/obra/ObraRequisicoes'
 
 const STATUS_LABEL: Record<string, string> = {
   nao_comprado: 'Não comprado',
+  solicitado: 'Solicitado',
   parcial: 'Parcial',
   comprado: 'Comprado',
 }
 
 const STATUS_DOT: Record<string, string> = {
   nao_comprado: '#EF4444',
+  solicitado: '#3B7BF8',
   parcial: '#F59E0B',
   comprado: '#10B981',
 }
@@ -38,7 +41,7 @@ type MaterialRow = {
   unidade: string
   quantidade_total: number
   quantidade_comprada: number
-  status_compra: 'nao_comprado' | 'parcial' | 'comprado'
+  status_compra: 'nao_comprado' | 'solicitado' | 'parcial' | 'comprado'
   data_necessidade: string | null
   etapas?: { nome: string } | null
 }
@@ -135,7 +138,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   const [importando, setImportando] = useState(false)
 
   // ── Sub-aba: Materiais x Listas de compra ──
-  const [subView, setSubView] = useState<'materiais' | 'compras' | 'fornecedores'>('materiais')
+  const [subView, setSubView] = useState<'materiais' | 'compras' | 'fornecedores' | 'requisicoes'>('materiais')
   const [listas, setListas] = useState<ListaCompra[]>([])
   const [listasCarregadas, setListasCarregadas] = useState(false)
 
@@ -726,18 +729,19 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   return (
     <div className="flex flex-col gap-4">
       {/* ── Sub-abas: Materiais x Listas de compra ── */}
-      <div className="flex gap-2 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-secondary)' }}>
+      <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
         {[
           { id: 'materiais' as const, label: 'Materiais', icon: Package },
           { id: 'compras' as const, label: 'Listas de compra', icon: ShoppingCart, badge: listas.length },
+          { id: 'requisicoes' as const, label: 'Requisições', icon: FileText },
           { id: 'fornecedores' as const, label: 'Fornecedores', icon: Building2 },
         ].map(({ id, label, icon: Icon, badge }) => (
           <button
             key={id}
             onClick={() => setSubView(id)}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
             style={subView === id
-              ? { background: 'var(--bg-primary)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }
+              ? { background: 'var(--accent)', color: 'white' }
               : { color: 'var(--text-secondary)' }}
           >
             <Icon size={15} />
@@ -756,6 +760,8 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
       {subView === 'fornecedores' ? (
         <ObraFornecedores obraId={obraId} />
+      ) : subView === 'requisicoes' ? (
+        <ObraRequisicoes obraId={obraId} />
       ) : subView === 'compras' ? (
         <ListasDeComprasView
           listas={listas}
@@ -801,6 +807,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="input-base w-full sm:w-52">
           <option value="abertas">Em aberto</option>
           <option value="agora">Comprar agora</option>
+          <option value="solicitado">Solicitados</option>
           <option value="parcial">Parciais</option>
           <option value="comprado">Comprados</option>
           <option value="todos">Todos</option>
@@ -1076,6 +1083,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
                 className="input-base"
               >
                 <option value="nao_comprado">Não comprado</option>
+                <option value="solicitado">Solicitado</option>
                 <option value="parcial">Parcial</option>
                 <option value="comprado">Comprado</option>
               </select>

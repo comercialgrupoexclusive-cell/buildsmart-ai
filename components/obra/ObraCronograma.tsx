@@ -2,215 +2,261 @@
 
 import { Fragment, useEffect, useState } from 'react'
 import {
-  Plus, AlertTriangle, Calendar, Pencil, Trash2, ChevronDown, ChevronRight, X,
+  Plus, Calendar, Pencil, Trash2, ChevronDown, ChevronRight,
+  LayoutList, BarChart2, Check, AlertTriangle,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { Etapa } from '@/lib/types'
-import { diasAteData, STATUS_ETAPA_COLOR, STATUS_ETAPA_LABEL } from '@/lib/utils'
+import { Etapa, SubetapaCronograma, ServicoCronograma } from '@/lib/types'
+import { STATUS_ETAPA_COLOR, STATUS_ETAPA_LABEL } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { CronogramaGantt, SubetapaGantt } from '@/components/obra/CronogramaGantt'
+import { CronogramaGantt } from '@/components/obra/CronogramaGantt'
 
-export function ObraCronograma({ obraId }: { obraId: string }) {
+type Tab = 'cascata' | 'gantt'
+
+// ── Tipos de form ──
+type EtapaForm = { nome: string; data_inicio: string; data_fim: string; status: Etapa['status']; percentual_executado: number }
+type SubForm   = { nome: string; data_inicio: string; data_fim: string; status: SubetapaCronograma['status']; percentual_executado: number; responsavel: string }
+type SvcForm   = { nome: string; data_inicio: string; data_fim: string; percentual_executado: number; responsavel: string }
+
+const EMPTY_ETAPA: EtapaForm = { nome: '', data_inicio: '', data_fim: '', status: 'planejada', percentual_executado: 0 }
+const EMPTY_SUB:   SubForm   = { nome: '', data_inicio: '', data_fim: '', status: 'planejada', percentual_executado: 0, responsavel: '' }
+const EMPTY_SVC:   SvcForm   = { nome: '', data_inicio: '', data_fim: '', percentual_executado: 0, responsavel: '' }
+
+export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projetoId?: string }) {
   const supabase = createClient()
+  const [tab, setTab] = useState<Tab>('cascata')
   const [etapas, setEtapas] = useState<Etapa[]>([])
-  const [subetapas, setSubetapas] = useState<SubetapaGantt[]>([])
+  const [subetapas, setSubetapas] = useState<SubetapaCronograma[]>([])
+  const [servicos, setServicos] = useState<ServicoCronograma[]>([])
   const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editando, setEditando] = useState<Etapa | null>(null)
-  const [saving, setSaving] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const [form, setForm] = useState({
-    nome: '',
-    data_inicio: '',
-    data_fim: '',
-    status: 'planejada' as Etapa['status'],
-  })
 
-  // ─── Edição de prazo da subetapa (cascata) ───────────────────────────────
-  const [editandoSub, setEditandoSub] = useState<SubetapaGantt | null>(null)
-  const [subForm, setSubForm] = useState({ data_inicio: '', data_fim: '' })
-  const [savingSub, setSavingSub] = useState(false)
+  // Modais
+  const [etapaModal, setEtapaModal] = useState<{ open: boolean; editando: Etapa | null }>({ open: false, editando: null })
+  const [subModal, setSubModal]     = useState<{ open: boolean; etapaId: string | null; editando: SubetapaCronograma | null }>({ open: false, etapaId: null, editando: null })
+  const [svcModal, setSvcModal]     = useState<{ open: boolean; subetapaId: string | null; editando: ServicoCronograma | null }>({ open: false, subetapaId: null, editando: null })
 
-  const [ganttOffset] = useState(0)
+  const [etapaForm, setEtapaForm] = useState<EtapaForm>(EMPTY_ETAPA)
+  const [subForm,   setSubForm]   = useState<SubForm>(EMPTY_SUB)
+  const [svcForm,   setSvcForm]   = useState<SvcForm>(EMPTY_SVC)
+  const [saving, setSaving] = useState(false)
 
-  useEffect(() => { loadEtapas() }, [obraId])
+  useEffect(() => { loadData() }, [obraId, projetoId])
 
-  async function loadEtapas() {
+  async function loadData() {
     setLoading(true)
-    const [{ data }, { data: orcamentos }] = await Promise.all([
-      supabase
-        .from('etapas')
+    const etapasQuery = supabase.from('etapas').select('*').order('ordem')
+    if (obraId) etapasQuery.eq('obra_id', obraId)
+    else if (projetoId) etapasQuery.eq('projeto_id', projetoId)
+    const { data: etps } = await etapasQuery
+
+    const etapasData = (etps ?? []) as Etapa[]
+    const etapaIds = etapasData.map(e => e.id)
+    let subsData: SubetapaCronograma[] = []
+    let svcsData: ServicoCronograma[] = []
+
+    if (etapaIds.length > 0) {
+      const { data: subs } = await supabase
+        .from('subetapas_cronograma')
         .select('*')
-        .eq('obra_id', obraId)
-        .order('ordem'),
-      supabase
-        .from('orcamentos')
-        .select('id')
-        .eq('obra_id', obraId),
-    ])
+        .in('etapa_id', etapaIds)
+        .order('ordem')
 
-    setEtapas(data || [])
+      subsData = (subs ?? []) as SubetapaCronograma[]
+      const subIds = subsData.map(s => s.id)
 
-    const orcamentoIds = ((orcamentos || []) as { id: string }[]).map(o => o.id)
-    if (orcamentoIds.length > 0) {
-      const { data: itens } = await supabase
-        .from('orcamento_itens')
-        .select('*')
-        .in('orcamento_id', orcamentoIds)
-        .order('updated_at')
-
-      setSubetapas(((itens || []) as any[])
-        .filter(item => item.etapa_id)
-        .map(item => ({
-          id: item.id,
-          etapa_id: item.etapa_id,
-          nome: item.subetapa || item.descricao_snapshot || 'Item do orçamento',
-          codigo: item.codigo_snapshot,
-          quantidade: item.quantidade,
-          unidade: item.unidade_snapshot,
-          data_inicio: item.data_inicio ?? null,
-          data_fim: item.data_fim ?? null,
-        })))
-    } else {
-      setSubetapas([])
+      if (subIds.length > 0) {
+        const { data: svcs } = await supabase
+          .from('servicos_cronograma')
+          .select('*')
+          .in('subetapa_id', subIds)
+          .order('ordem')
+        svcsData = (svcs ?? []) as ServicoCronograma[]
+      }
     }
 
+    setEtapas(etapasData)
+    setSubetapas(subsData)
+    setServicos(svcsData)
     setLoading(false)
   }
 
-  async function handleSave() {
-    if (!form.nome || !form.data_inicio || !form.data_fim) return
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  function toggle(id: string) {
+    setCollapsed(prev => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  function subsDaEtapa(etapaId: string) {
+    return subetapas.filter(s => s.etapa_id === etapaId).sort((a, b) => a.ordem - b.ordem)
+  }
+
+  function svcsDaSub(subId: string) {
+    return servicos.filter(s => s.subetapa_id === subId).sort((a, b) => a.ordem - b.ordem)
+  }
+
+  function progressoEtapa(etapaId: string): number {
+    const subs = subsDaEtapa(etapaId)
+    if (subs.length === 0) return etapas.find(e => e.id === etapaId)?.percentual_executado ?? 0
+    return Math.round(subs.reduce((acc, s) => acc + s.percentual_executado, 0) / subs.length)
+  }
+
+  // ── CRUD Etapa ────────────────────────────────────────────────────────────────
+
+  function openNewEtapa() {
+    setEtapaForm(EMPTY_ETAPA)
+    setEtapaModal({ open: true, editando: null })
+  }
+
+  function openEditEtapa(etapa: Etapa) {
+    setEtapaForm({
+      nome: etapa.nome, data_inicio: etapa.data_inicio ?? '',
+      data_fim: etapa.data_fim ?? '', status: etapa.status,
+      percentual_executado: etapa.percentual_executado ?? 0,
+    })
+    setEtapaModal({ open: true, editando: etapa })
+  }
+
+  async function saveEtapa() {
+    if (!etapaForm.nome) return
     setSaving(true)
+    const { editando } = etapaModal
+    const payload = {
+      nome: etapaForm.nome.trim(),
+      data_inicio: etapaForm.data_inicio || null,
+      data_fim: etapaForm.data_fim || null,
+      status: etapaForm.status,
+      percentual_executado: etapaForm.percentual_executado,
+    }
     if (editando) {
-      await supabase.from('etapas').update({
-        nome: form.nome, data_inicio: form.data_inicio,
-        data_fim: form.data_fim, status: form.status,
-      }).eq('id', editando.id)
-      setEtapas(prev => prev.map(e => e.id === editando.id
-        ? { ...e, ...form } : e))
+      await supabase.from('etapas').update(payload).eq('id', editando.id)
+      setEtapas(prev => prev.map(e => e.id === editando.id ? { ...e, ...payload } : e))
     } else {
-      const maxOrdem = etapas.reduce((max, e) => Math.max(max, e.ordem), 0)
-      const { data } = await supabase.from('etapas').insert({
-        obra_id: obraId, nome: form.nome, data_inicio: form.data_inicio,
-        data_fim: form.data_fim, status: form.status, ordem: maxOrdem + 1,
-      }).select().single()
-      if (data) setEtapas(prev => [...prev, data])
+      const maxOrdem = etapas.reduce((m, e) => Math.max(m, e.ordem), 0)
+      const fk = obraId ? { obra_id: obraId } : { projeto_id: projetoId }
+      const { data } = await supabase.from('etapas').insert({ ...fk, ...payload, ordem: maxOrdem + 1 }).select().single()
+      if (data) setEtapas(prev => [...prev, data as Etapa])
     }
     setSaving(false)
-    setShowModal(false)
-    setEditando(null)
-    resetForm()
+    setEtapaModal({ open: false, editando: null })
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Remover esta etapa? Os itens de orçamento vinculados serão desvinculados.')) return
+  async function deleteEtapa(id: string) {
+    if (!confirm('Remover etapa e todas as subetapas?')) return
     await supabase.from('etapas').delete().eq('id', id)
     setEtapas(prev => prev.filter(e => e.id !== id))
+    const subIds = subsDaEtapa(id).map(s => s.id)
+    setSubetapas(prev => prev.filter(s => s.etapa_id !== id))
+    setServicos(prev => prev.filter(s => !subIds.includes(s.subetapa_id)))
   }
 
-  async function updateStatus(etapaId: string, status: Etapa['status']) {
-    await supabase.from('etapas').update({ status }).eq('id', etapaId)
-    setEtapas(prev => prev.map(e => e.id === etapaId ? { ...e, status } : e))
+  // ── CRUD Subetapa ─────────────────────────────────────────────────────────────
+
+  function openNewSub(etapaId: string) {
+    setSubForm(EMPTY_SUB)
+    setSubModal({ open: true, etapaId, editando: null })
   }
 
-  // Edição direta da data (inline, na planilha) — sem precisar abrir o modal
-  async function handleEditarDataEtapa(etapaId: string, campo: 'data_inicio' | 'data_fim', valor: string) {
-    if (!valor) return
-    setEtapas(prev => prev.map(e => e.id === etapaId ? { ...e, [campo]: valor } : e))
-    await supabase.from('etapas').update({ [campo]: valor }).eq('id', etapaId)
+  function openEditSub(sub: SubetapaCronograma) {
+    setSubForm({
+      nome: sub.nome, data_inicio: sub.data_inicio ?? '',
+      data_fim: sub.data_fim ?? '', status: sub.status,
+      percentual_executado: sub.percentual_executado, responsavel: sub.responsavel ?? '',
+    })
+    setSubModal({ open: true, etapaId: sub.etapa_id, editando: sub })
   }
 
-  // ─── Edição de prazo da subetapa direto na cascata (Gantt) ───────────────
-  function abrirEdicaoSubetapa(sub: SubetapaGantt) {
-    setEditandoSub(sub)
-    setSubForm({ data_inicio: sub.data_inicio || '', data_fim: sub.data_fim || '' })
-  }
-
-  async function salvarPrazoSubetapa() {
-    if (!editandoSub) return
-    if (subForm.data_inicio && subForm.data_fim && subForm.data_inicio > subForm.data_fim) {
-      alert('A data de início não pode ser depois da data de término.')
-      return
-    }
-    setSavingSub(true)
-    const novaData = {
+  async function saveSub() {
+    if (!subForm.nome) return
+    setSaving(true)
+    const { editando, etapaId } = subModal
+    const payload = {
+      nome: subForm.nome.trim(),
       data_inicio: subForm.data_inicio || null,
       data_fim: subForm.data_fim || null,
+      status: subForm.status,
+      percentual_executado: subForm.percentual_executado,
+      responsavel: subForm.responsavel || null,
     }
-    await supabase.from('orcamento_itens').update(novaData).eq('id', editandoSub.id)
-    setSubetapas(prev => prev.map(s => s.id === editandoSub.id ? { ...s, ...novaData } : s))
-    setSavingSub(false)
-    setEditandoSub(null)
+    if (editando) {
+      await supabase.from('subetapas_cronograma').update(payload).eq('id', editando.id)
+      setSubetapas(prev => prev.map(s => s.id === editando.id ? { ...s, ...payload } : s))
+    } else {
+      const maxOrdem = subsDaEtapa(etapaId!).reduce((m, s) => Math.max(m, s.ordem), 0)
+      const { data } = await supabase.from('subetapas_cronograma').insert({ etapa_id: etapaId, ...payload, ordem: maxOrdem + 1 }).select().single()
+      if (data) setSubetapas(prev => [...prev, data as SubetapaCronograma])
+    }
+    setSaving(false)
+    setSubModal({ open: false, etapaId: null, editando: null })
   }
 
-  async function limparPrazoSubetapa() {
-    if (!editandoSub) return
-    setSavingSub(true)
-    await supabase.from('orcamento_itens').update({ data_inicio: null, data_fim: null }).eq('id', editandoSub.id)
-    setSubetapas(prev => prev.map(s => s.id === editandoSub.id ? { ...s, data_inicio: null, data_fim: null } : s))
-    setSavingSub(false)
-    setEditandoSub(null)
+  async function deleteSub(sub: SubetapaCronograma) {
+    if (!confirm('Remover subetapa e serviços vinculados?')) return
+    await supabase.from('subetapas_cronograma').delete().eq('id', sub.id)
+    setSubetapas(prev => prev.filter(s => s.id !== sub.id))
+    setServicos(prev => prev.filter(s => s.subetapa_id !== sub.id))
   }
 
-  function openEdit(etapa: Etapa) {
-    setEditando(etapa)
-    setForm({
-      nome: etapa.nome,
-      data_inicio: etapa.data_inicio || '',
-      data_fim: etapa.data_fim || '',
-      status: etapa.status,
+  // ── CRUD Serviço ──────────────────────────────────────────────────────────────
+
+  function openNewSvc(subetapaId: string) {
+    setSvcForm(EMPTY_SVC)
+    setSvcModal({ open: true, subetapaId, editando: null })
+  }
+
+  function openEditSvc(svc: ServicoCronograma) {
+    setSvcForm({
+      nome: svc.nome, data_inicio: svc.data_inicio ?? '',
+      data_fim: svc.data_fim ?? '',
+      percentual_executado: svc.percentual_executado, responsavel: svc.responsavel ?? '',
     })
-    setShowModal(true)
+    setSvcModal({ open: true, subetapaId: svc.subetapa_id, editando: svc })
   }
 
-  function openNew() {
-    setEditando(null)
-    resetForm()
-    setShowModal(true)
+  async function saveSvc() {
+    if (!svcForm.nome) return
+    setSaving(true)
+    const { editando, subetapaId } = svcModal
+    const payload = {
+      nome: svcForm.nome.trim(),
+      data_inicio: svcForm.data_inicio || null,
+      data_fim: svcForm.data_fim || null,
+      percentual_executado: svcForm.percentual_executado,
+      responsavel: svcForm.responsavel || null,
+    }
+    if (editando) {
+      await supabase.from('servicos_cronograma').update(payload).eq('id', editando.id)
+      setServicos(prev => prev.map(s => s.id === editando.id ? { ...s, ...payload } : s))
+    } else {
+      const maxOrdem = svcsDaSub(subetapaId!).reduce((m, s) => Math.max(m, s.ordem), 0)
+      const { data } = await supabase.from('servicos_cronograma').insert({ subetapa_id: subetapaId, ...payload, ordem: maxOrdem + 1 }).select().single()
+      if (data) setServicos(prev => [...prev, data as ServicoCronograma])
+    }
+    setSaving(false)
+    setSvcModal({ open: false, subetapaId: null, editando: null })
   }
 
-  function resetForm() {
-    setForm({ nome: '', data_inicio: '', data_fim: '', status: 'planejada' })
+  async function deleteSvc(id: string) {
+    if (!confirm('Remover serviço?')) return
+    await supabase.from('servicos_cronograma').delete().eq('id', id)
+    setServicos(prev => prev.filter(s => s.id !== id))
   }
 
-  // ─── Gantt visual ─────────────────────────────────────────────────────────
-  const hoje = new Date()
-  const ganttStart = new Date(hoje.getFullYear(), hoje.getMonth() + ganttOffset - 1, 1)
-  const ganttEnd = new Date(hoje.getFullYear(), hoje.getMonth() + ganttOffset + 3, 0)
-  const totalDias = Math.ceil((ganttEnd.getTime() - ganttStart.getTime()) / 86400000) + 1
+  // ── Inline % update ───────────────────────────────────────────────────────────
 
-  // Gerar cabeçalho de meses
-  const meses: { label: string; pctStart: number; pctWidth: number }[] = []
-  let cursorMes = new Date(ganttStart.getFullYear(), ganttStart.getMonth(), 1)
-  while (cursorMes <= ganttEnd) {
-    const mesStart = Math.max(0, Math.ceil((cursorMes.getTime() - ganttStart.getTime()) / 86400000))
-    const mesEnd = new Date(cursorMes.getFullYear(), cursorMes.getMonth() + 1, 0)
-    const mesFim = Math.min(totalDias - 1, Math.ceil((mesEnd.getTime() - ganttStart.getTime()) / 86400000))
-    meses.push({
-      label: cursorMes.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
-      pctStart: (mesStart / totalDias) * 100,
-      pctWidth: ((mesFim - mesStart + 1) / totalDias) * 100,
-    })
-    cursorMes = new Date(cursorMes.getFullYear(), cursorMes.getMonth() + 1, 1)
+  async function updatePct(
+    table: 'etapas' | 'subetapas_cronograma' | 'servicos_cronograma',
+    id: string,
+    pct: number
+  ) {
+    await supabase.from(table).update({ percentual_executado: pct }).eq('id', id)
+    if (table === 'etapas') setEtapas(prev => prev.map(e => e.id === id ? { ...e, percentual_executado: pct } : e))
+    if (table === 'subetapas_cronograma') setSubetapas(prev => prev.map(s => s.id === id ? { ...s, percentual_executado: pct } : s))
+    if (table === 'servicos_cronograma') setServicos(prev => prev.map(s => s.id === id ? { ...s, percentual_executado: pct } : s))
   }
-
-  // Calcular posição de cada etapa na barra
-  const etapasGantt = etapas.filter(e => e.data_inicio && e.data_fim).map(e => {
-    const inicio = new Date(e.data_inicio! + 'T12:00')
-    const fim = new Date(e.data_fim! + 'T12:00')
-    const startDia = Math.ceil((inicio.getTime() - ganttStart.getTime()) / 86400000)
-    const endDia = Math.ceil((fim.getTime() - ganttStart.getTime()) / 86400000)
-    const pctLeft = (Math.max(0, startDia) / totalDias) * 100
-    const pctWidth = ((Math.min(totalDias, endDia) - Math.max(0, startDia) + 1) / totalDias) * 100
-    const visivel = startDia <= totalDias && endDia >= 0 && pctWidth > 0
-    return { etapa: e, pctLeft, pctWidth: Math.max(pctWidth, 0), visivel }
-  })
-
-  const hojeOffset = Math.ceil((hoje.getTime() - ganttStart.getTime()) / 86400000)
-  const hojePercent = (hojeOffset / totalDias) * 100
 
   if (loading) {
     return (
@@ -222,8 +268,26 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button icon={<Plus size={16} />} onClick={openNew}>Nova Etapa</Button>
+      {/* ── Tabs ── */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
+          {([
+            { key: 'cascata', label: 'Cascata', icon: LayoutList },
+            { key: 'gantt',   label: 'Gantt',   icon: BarChart2 },
+          ] as const).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
+              style={tab === key
+                ? { background: 'var(--accent)', color: 'white' }
+                : { color: 'var(--text-secondary)' }}
+            >
+              <Icon size={15} />{label}
+            </button>
+          ))}
+        </div>
+        <Button icon={<Plus size={16} />} onClick={openNewEtapa}>Nova Etapa</Button>
       </div>
 
       {etapas.length === 0 ? (
@@ -231,221 +295,357 @@ export function ObraCronograma({ obraId }: { obraId: string }) {
           icon={Calendar}
           title="Nenhuma etapa cadastrada"
           description="Adicione etapas com datas para visualizar o cronograma."
-          action={<Button icon={<Plus size={16} />} onClick={openNew}>Nova Etapa</Button>}
+          action={<Button icon={<Plus size={16} />} onClick={openNewEtapa}>Nova Etapa</Button>}
         />
-      ) : (
-        <div className="flex flex-col gap-4">
-          {/* ── Gantt visual ── */}
-          {etapasGantt.length > 0 ? (
-            <CronogramaGantt etapas={etapas} subetapas={subetapas} onEditSubetapa={abrirEdicaoSubetapa} />
-          ) : (
-            <div className="card p-5 flex items-start gap-3">
-              <Calendar size={18} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 2 }} />
-              <div>
-                <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Gantt pronto para montar</p>
-                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                  Defina inicio e termino das etapas para exibir o grafico de Gantt.
-                </p>
-              </div>
-            </div>
-          )}
+      ) : tab === 'cascata' ? (
+        /* ────────────────────────────────────────────────────────────────────
+           ABA: CASCATA 3 NÍVEIS
+        ──────────────────────────────────────────────────────────────────── */
+        <div className="card overflow-hidden">
+          {etapas.map((etapa, eIdx) => {
+            const subs = subsDaEtapa(etapa.id)
+            const isCollapsedEtapa = collapsed[etapa.id] ?? false
+            const prog = progressoEtapa(etapa.id)
 
-          {/* ── Tabela de etapas ── */}
-          <div className="card overflow-hidden">
-            <table className="w-full table-zebra">
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['Ord.', 'Etapa', 'Início', 'Fim', 'Status', 'Alterar', ''].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {etapas.map(etapa => {
-                  const dias = etapa.data_inicio ? diasAteData(etapa.data_inicio) : null
-                  const atrasada = dias !== null && dias < 0 && etapa.status !== 'concluida'
-                  const subs = subetapas.filter(s => s.etapa_id === etapa.id)
-                  const isCollapsed = collapsed[etapa.id] ?? false
+            return (
+              <Fragment key={etapa.id}>
+                {/* ── Linha Etapa (nível 1) ── */}
+                <div
+                  className="flex items-center gap-2 px-4 py-3 group hover:bg-[var(--bg-secondary)] transition-colors"
+                  style={{ borderBottom: '1px solid var(--border)', background: eIdx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.02)' }}
+                >
+                  <button
+                    onClick={() => toggle(etapa.id)}
+                    className="p-1 rounded hover:bg-[var(--bg-card)] flex-shrink-0"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    {isCollapsedEtapa ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[etapa.status]}`}>
+                        {STATUS_ETAPA_LABEL[etapa.status]}
+                      </span>
+                    </div>
+                    {(etapa.data_inicio || etapa.data_fim) && (
+                      <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                        {etapa.data_inicio ? new Date(etapa.data_inicio + 'T12:00').toLocaleDateString('pt-BR') : '—'}
+                        {' → '}
+                        {etapa.data_fim ? new Date(etapa.data_fim + 'T12:00').toLocaleDateString('pt-BR') : '—'}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Barra de progresso da etapa */}
+                  <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+                    <div className="w-20 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+                      <div className="h-full rounded-full" style={{ width: `${prog}%`, background: prog >= 100 ? '#10b981' : 'var(--accent)' }} />
+                    </div>
+                    <span className="text-xs w-9 text-right" style={{ color: 'var(--text-secondary)' }}>{prog}%</span>
+                  </div>
+
+                  {/* Ações */}
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => openNewSub(etapa.id)}
+                      className="p-1.5 rounded text-xs hover:bg-[var(--bg-card)]"
+                      style={{ color: 'var(--accent)' }}
+                      title="Adicionar subetapa"
+                    >
+                      <Plus size={13} />
+                    </button>
+                    <button onClick={() => openEditEtapa(etapa)} className="p-1.5 rounded hover:bg-[var(--bg-card)]" title="Editar">
+                      <Pencil size={13} style={{ color: 'var(--text-secondary)' }} />
+                    </button>
+                    <button onClick={() => deleteEtapa(etapa.id)} className="p-1.5 rounded hover:bg-red-500/10" title="Excluir">
+                      <Trash2 size={13} style={{ color: 'var(--danger)' }} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── Subetapas (nível 2) ── */}
+                {!isCollapsedEtapa && subs.map(sub => {
+                  const svcs = svcsDaSub(sub.id)
+                  const isCollapsedSub = collapsed[sub.id] ?? false
                   return (
-                    <Fragment key={etapa.id}>
-                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{etapa.ordem}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setCollapsed(prev => ({ ...prev, [etapa.id]: !isCollapsed }))}
-                            disabled={subs.length === 0}
-                            className="p-1 rounded hover:bg-[var(--bg-secondary)] transition-colors"
-                            style={{ color: 'var(--text-secondary)', opacity: subs.length ? 1 : 0.35 }}
-                            title={subs.length ? 'Abrir subetapas' : 'Sem subetapas'}
-                          >
-                            {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                          </button>
-                          {atrasada && <AlertTriangle size={13} style={{ color: 'var(--danger)', flexShrink: 0 }} />}
-                          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
-                          {subs.length > 0 && (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
-                              {subs.length} {subs.length === 1 ? 'subetapa' : 'subetapas'}
+                    <Fragment key={sub.id}>
+                      <div
+                        className="flex items-center gap-2 pl-10 pr-4 py-2.5 group hover:bg-[var(--bg-secondary)] transition-colors"
+                        style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+                      >
+                        <button
+                          onClick={() => toggle(sub.id)}
+                          className="p-1 rounded flex-shrink-0"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          {isCollapsedSub ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                        </button>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{sub.nome}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[sub.status]}`}>
+                              {STATUS_ETAPA_LABEL[sub.status]}
                             </span>
+                          </div>
+                          {(sub.data_inicio || sub.data_fim) && (
+                            <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                              {sub.data_inicio ? new Date(sub.data_inicio + 'T12:00').toLocaleDateString('pt-BR') : '—'}
+                              {' → '}
+                              {sub.data_fim ? new Date(sub.data_fim + 'T12:00').toLocaleDateString('pt-BR') : '—'}
+                            </p>
                           )}
                         </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                        <input
-                          type="date"
-                          value={etapa.data_inicio || ''}
-                          onChange={e => handleEditarDataEtapa(etapa.id, 'data_inicio', e.target.value)}
-                          className="text-xs rounded-lg px-2 py-1 w-[130px]"
-                          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+
+                        {/* % inline editável */}
+                        <PctInput
+                          value={sub.percentual_executado}
+                          onChange={v => updatePct('subetapas_cronograma', sub.id, v)}
                         />
-                      </td>
-                      <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                        <input
-                          type="date"
-                          value={etapa.data_fim || ''}
-                          onChange={e => handleEditarDataEtapa(etapa.id, 'data_fim', e.target.value)}
-                          className="text-xs rounded-lg px-2 py-1 w-[130px]"
-                          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[etapa.status]}`}>
-                          {STATUS_ETAPA_LABEL[etapa.status]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <select
-                          value={etapa.status}
-                          onChange={e => updateStatus(etapa.id, e.target.value as Etapa['status'])}
-                          className="text-xs rounded-lg px-2 py-1"
-                          style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
-                        >
-                          <option value="planejada">A executar</option>
-                          <option value="em_andamento">Em execucao</option>
-                          <option value="concluida">Concluida</option>
-                          <option value="atrasada">Ponto de atencao</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-1">
-                          <button onClick={() => openEdit(etapa)} className="p-1 rounded hover:bg-[var(--bg-secondary)] transition-colors">
-                            <Pencil size={13} style={{ color: 'var(--text-secondary)' }} />
+
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openNewSvc(sub.id)} className="p-1.5 rounded" style={{ color: 'var(--accent)' }} title="Adicionar serviço">
+                            <Plus size={12} />
                           </button>
-                          <button onClick={() => handleDelete(etapa.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors">
-                            <Trash2 size={13} style={{ color: 'var(--danger)' }} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    {!isCollapsed && subs.map(sub => (
-                      <tr key={sub.id} style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-                        <td />
-                        <td className="px-4 py-2 pl-12 text-xs" style={{ color: 'var(--text-primary)' }}>
-                          {sub.codigo && <span style={{ color: 'var(--text-secondary)' }}>{sub.codigo} - </span>}
-                          {sub.nome}
-                        </td>
-                        <td colSpan={2} className="px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          {sub.data_inicio && sub.data_fim
-                            ? <>{new Date(sub.data_inicio + 'T12:00').toLocaleDateString('pt-BR')} – {new Date(sub.data_fim + 'T12:00').toLocaleDateString('pt-BR')}</>
-                            : 'Dentro do período da etapa'}
-                        </td>
-                        <td className="px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          {sub.quantidade ? `${sub.quantidade} ${sub.unidade || ''}` : '-'}
-                        </td>
-                        <td colSpan={2} className="px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          Item do orçamento
-                        </td>
-                        <td className="px-4 py-2">
-                          <button onClick={() => abrirEdicaoSubetapa(sub)} className="p-1 rounded hover:bg-[var(--bg-secondary)] transition-colors" title="Editar prazo da subetapa">
+                          <button onClick={() => openEditSub(sub)} className="p-1.5 rounded">
                             <Pencil size={12} style={{ color: 'var(--text-secondary)' }} />
                           </button>
-                        </td>
-                      </tr>
-                    ))}
+                          <button onClick={() => deleteSub(sub)} className="p-1.5 rounded hover:bg-red-500/10">
+                            <Trash2 size={12} style={{ color: 'var(--danger)' }} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* ── Serviços (nível 3) ── */}
+                      {!isCollapsedSub && svcs.map(svc => (
+                        <div
+                          key={svc.id}
+                          className="flex items-center gap-2 pl-16 pr-4 py-2 group hover:bg-[var(--bg-card)] transition-colors"
+                          style={{ borderBottom: '1px solid var(--border)' }}
+                        >
+                          <Check size={12} className="flex-shrink-0" style={{ color: svc.percentual_executado >= 100 ? '#10b981' : 'var(--border)' }} />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs" style={{ color: 'var(--text-primary)' }}>{svc.nome}</span>
+                            {(svc.data_inicio || svc.data_fim || svc.responsavel) && (
+                              <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                                {svc.data_inicio ? new Date(svc.data_inicio + 'T12:00').toLocaleDateString('pt-BR') : ''}
+                                {svc.data_inicio && svc.data_fim ? ' → ' : ''}
+                                {svc.data_fim ? new Date(svc.data_fim + 'T12:00').toLocaleDateString('pt-BR') : ''}
+                                {svc.responsavel ? `  · ${svc.responsavel}` : ''}
+                              </p>
+                            )}
+                          </div>
+
+                          <PctInput
+                            value={svc.percentual_executado}
+                            onChange={v => updatePct('servicos_cronograma', svc.id, v)}
+                            small
+                          />
+
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => openEditSvc(svc)} className="p-1 rounded">
+                              <Pencil size={11} style={{ color: 'var(--text-secondary)' }} />
+                            </button>
+                            <button onClick={() => deleteSvc(svc.id)} className="p-1 rounded hover:bg-red-500/10">
+                              <Trash2 size={11} style={{ color: 'var(--danger)' }} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Adicionar serviço inline */}
+                      {!isCollapsedSub && (
+                        <div
+                          className="pl-16 pr-4 py-1.5"
+                          style={{ borderBottom: '1px solid var(--border)', background: 'transparent' }}
+                        >
+                          <button
+                            onClick={() => openNewSvc(sub.id)}
+                            className="text-xs opacity-40 hover:opacity-70 transition-opacity"
+                            style={{ color: 'var(--accent)' }}
+                          >
+                            + Serviço
+                          </button>
+                        </div>
+                      )}
                     </Fragment>
                   )
                 })}
-              </tbody>
-            </table>
-          </div>
+
+                {/* Adicionar subetapa inline */}
+                {!isCollapsedEtapa && (
+                  <div
+                    className="pl-10 pr-4 py-1.5"
+                    style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+                  >
+                    <button
+                      onClick={() => openNewSub(etapa.id)}
+                      className="text-xs opacity-40 hover:opacity-70 transition-opacity"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      + Subetapa
+                    </button>
+                  </div>
+                )}
+              </Fragment>
+            )
+          })}
         </div>
+      ) : (
+        /* ────────────────────────────────────────────────────────────────────
+           ABA: GANTT
+        ──────────────────────────────────────────────────────────────────── */
+        <CronogramaGantt
+          etapas={etapas}
+          subetapas={subetapas}
+        />
       )}
 
-      {/* Modal */}
+      {/* ── Modal Etapa ── */}
       <Modal
-        open={showModal}
-        onClose={() => { setShowModal(false); setEditando(null); resetForm() }}
-        title={editando ? 'Editar etapa' : 'Nova Etapa'}
+        open={etapaModal.open}
+        onClose={() => setEtapaModal({ open: false, editando: null })}
+        title={etapaModal.editando ? 'Editar Etapa' : 'Nova Etapa'}
         size="md"
       >
         <div className="flex flex-col gap-4">
-          <Input
-            label="Nome da etapa *"
-            value={form.nome}
-            onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
-            placeholder="Ex: Fundação, Alvenaria, Cobertura..."
-            autoFocus
-          />
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Início *" type="date" value={form.data_inicio} onChange={e => setForm(f => ({ ...f, data_inicio: e.target.value }))} />
-            <Input label="Término *" type="date" value={form.data_fim} onChange={e => setForm(f => ({ ...f, data_fim: e.target.value }))} />
+          <Input label="Nome *" value={etapaForm.nome} onChange={e => setEtapaForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Fundação, Estrutura..." autoFocus />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Início" type="date" value={etapaForm.data_inicio} onChange={e => setEtapaForm(f => ({ ...f, data_inicio: e.target.value }))} />
+            <Input label="Término" type="date" value={etapaForm.data_fim} onChange={e => setEtapaForm(f => ({ ...f, data_fim: e.target.value }))} />
           </div>
-          <Select label="Status" value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as Etapa['status'] }))}>
+          <Select label="Status" value={etapaForm.status} onChange={e => setEtapaForm(f => ({ ...f, status: e.target.value as Etapa['status'] }))}>
             <option value="planejada">A executar</option>
-            <option value="em_andamento">Em execucao</option>
-            <option value="concluida">Concluida</option>
-            <option value="atrasada">Ponto de atencao</option>
+            <option value="em_andamento">Em execução</option>
+            <option value="concluida">Concluída</option>
+            <option value="atrasada">Ponto de atenção</option>
           </Select>
+          <div className="space-y-1">
+            <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>% Executado</label>
+            <input type="number" min={0} max={100} className="w-full px-3 py-2 text-sm rounded-lg border outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              value={etapaForm.percentual_executado}
+              onChange={e => setEtapaForm(f => ({ ...f, percentual_executado: Math.min(100, Math.max(0, Number(e.target.value))) }))}
+            />
+          </div>
           <div className="flex gap-3 pt-2">
-            <Button variant="secondary" className="flex-1" onClick={() => { setShowModal(false); setEditando(null); resetForm() }}>Cancelar</Button>
-            <Button className="flex-1" loading={saving} disabled={!form.nome || !form.data_inicio || !form.data_fim} onClick={handleSave}>
-              {editando ? 'Salvar' : 'Adicionar'}
+            <Button variant="secondary" className="flex-1" onClick={() => setEtapaModal({ open: false, editando: null })}>Cancelar</Button>
+            <Button className="flex-1" loading={saving} disabled={!etapaForm.nome} onClick={saveEtapa}>
+              {etapaModal.editando ? 'Salvar' : 'Adicionar'}
             </Button>
           </div>
         </div>
       </Modal>
 
-      {/* Modal — prazo da subetapa (editado direto pela cascata ou pela planilha) */}
+      {/* ── Modal Subetapa ── */}
       <Modal
-        open={!!editandoSub}
-        onClose={() => setEditandoSub(null)}
-        title="Prazo da subetapa"
+        open={subModal.open}
+        onClose={() => setSubModal({ open: false, etapaId: null, editando: null })}
+        title={subModal.editando ? 'Editar Subetapa' : 'Nova Subetapa'}
         size="md"
       >
-        {editandoSub && (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-start gap-2">
-              <Calendar size={16} style={{ color: 'var(--accent)', marginTop: 2, flexShrink: 0 }} />
-              <div>
-                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                  {editandoSub.codigo && <span style={{ color: 'var(--text-secondary)' }}>{editandoSub.codigo} - </span>}
-                  {editandoSub.nome}
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                  Defina um período próprio para esta subetapa, ou deixe em branco para que ela continue distribuída dentro do período da etapa-mãe.
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Início" type="date" value={subForm.data_inicio} onChange={e => setSubForm(f => ({ ...f, data_inicio: e.target.value }))} />
-              <Input label="Término" type="date" value={subForm.data_fim} onChange={e => setSubForm(f => ({ ...f, data_fim: e.target.value }))} />
-            </div>
-            <div className="flex gap-3 pt-2">
-              <Button
-                variant="secondary"
-                className="flex items-center gap-1.5"
-                onClick={limparPrazoSubetapa}
-                disabled={savingSub || (!editandoSub.data_inicio && !editandoSub.data_fim)}
-                title="Remover prazo próprio e voltar a distribuir dentro da etapa"
-              >
-                <X size={14} /> Limpar prazo
-              </Button>
-              <Button variant="secondary" className="flex-1" onClick={() => setEditandoSub(null)}>Cancelar</Button>
-              <Button className="flex-1" loading={savingSub} onClick={salvarPrazoSubetapa}>Salvar</Button>
-            </div>
+        <div className="flex flex-col gap-4">
+          <Input label="Nome *" value={subForm.nome} onChange={e => setSubForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Escavação, Forma, Concretagem..." autoFocus />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Início" type="date" value={subForm.data_inicio} onChange={e => setSubForm(f => ({ ...f, data_inicio: e.target.value }))} />
+            <Input label="Término" type="date" value={subForm.data_fim} onChange={e => setSubForm(f => ({ ...f, data_fim: e.target.value }))} />
           </div>
-        )}
+          <Select label="Status" value={subForm.status} onChange={e => setSubForm(f => ({ ...f, status: e.target.value as SubetapaCronograma['status'] }))}>
+            <option value="planejada">A executar</option>
+            <option value="em_andamento">Em execução</option>
+            <option value="concluida">Concluída</option>
+            <option value="atrasada">Ponto de atenção</option>
+          </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>% Executado</label>
+              <input type="number" min={0} max={100} className="w-full px-3 py-2 text-sm rounded-lg border outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                value={subForm.percentual_executado}
+                onChange={e => setSubForm(f => ({ ...f, percentual_executado: Math.min(100, Math.max(0, Number(e.target.value))) }))}
+              />
+            </div>
+            <Input label="Responsável" value={subForm.responsavel} onChange={e => setSubForm(f => ({ ...f, responsavel: e.target.value }))} placeholder="Nome ou equipe" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" className="flex-1" onClick={() => setSubModal({ open: false, etapaId: null, editando: null })}>Cancelar</Button>
+            <Button className="flex-1" loading={saving} disabled={!subForm.nome} onClick={saveSub}>
+              {subModal.editando ? 'Salvar' : 'Adicionar'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Modal Serviço ── */}
+      <Modal
+        open={svcModal.open}
+        onClose={() => setSvcModal({ open: false, subetapaId: null, editando: null })}
+        title={svcModal.editando ? 'Editar Serviço' : 'Novo Serviço'}
+        size="md"
+      >
+        <div className="flex flex-col gap-4">
+          <Input label="Nome *" value={svcForm.nome} onChange={e => setSvcForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex: Instalação elétrica sala..." autoFocus />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Início" type="date" value={svcForm.data_inicio} onChange={e => setSvcForm(f => ({ ...f, data_inicio: e.target.value }))} />
+            <Input label="Término" type="date" value={svcForm.data_fim} onChange={e => setSvcForm(f => ({ ...f, data_fim: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>% Executado</label>
+              <input type="number" min={0} max={100} className="w-full px-3 py-2 text-sm rounded-lg border outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                value={svcForm.percentual_executado}
+                onChange={e => setSvcForm(f => ({ ...f, percentual_executado: Math.min(100, Math.max(0, Number(e.target.value))) }))}
+              />
+            </div>
+            <Input label="Responsável" value={svcForm.responsavel} onChange={e => setSvcForm(f => ({ ...f, responsavel: e.target.value }))} placeholder="Nome ou equipe" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" className="flex-1" onClick={() => setSvcModal({ open: false, subetapaId: null, editando: null })}>Cancelar</Button>
+            <Button className="flex-1" loading={saving} disabled={!svcForm.nome} onClick={saveSvc}>
+              {svcModal.editando ? 'Salvar' : 'Adicionar'}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
+  )
+}
+
+// ── Componente inline de porcentagem ─────────────────────────────────────────
+function PctInput({ value, onChange, small = false }: { value: number; onChange: (v: number) => void; small?: boolean }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(String(value))
+
+  function commit() {
+    const n = Math.min(100, Math.max(0, Number(val) || 0))
+    onChange(n)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="number"
+        min={0} max={100}
+        className="w-14 text-center rounded border px-1 py-0.5 text-xs outline-none"
+        style={{ background: 'var(--bg-card)', borderColor: 'var(--accent)', color: 'var(--text-primary)' }}
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+      />
+    )
+  }
+
+  return (
+    <button
+      onClick={() => { setVal(String(value)); setEditing(true) }}
+      className="flex-shrink-0 text-right"
+      title="Clique para editar %"
+      style={{ minWidth: small ? 36 : 44 }}
+    >
+      <span className="text-xs font-medium" style={{ color: value >= 100 ? '#10b981' : 'var(--accent)' }}>{value}%</span>
+    </button>
   )
 }

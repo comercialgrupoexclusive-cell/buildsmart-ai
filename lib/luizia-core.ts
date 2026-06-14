@@ -155,7 +155,7 @@ export async function askLuizia({
   const contextLimit = isWhatsapp ? 12000 : 60000
   const maxTokens = isWhatsapp ? 420 : complex ? 1800 : 900
 
-  const systemPrompt = `Voce e a Luizia, a assistente IA da BuildSmart AI. O nome vem de Luiz + IA.
+  const systemPrompt = `Voce e a Luiza, a assistente IA da BuildSmart AI. O nome vem de Luiz + IA.
 
 DATA ATUAL: ${hoje}
 

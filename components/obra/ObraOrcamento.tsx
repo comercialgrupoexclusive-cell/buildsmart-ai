@@ -254,9 +254,21 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }
 
   async function loadOrcamento() {
-    const { data: orc } = await supabase
+    let { data: orc } = await supabase
       .from('orcamentos').select('*').eq('obra_id', obraId)
       .order('versao', { ascending: false }).limit(1).maybeSingle()
+
+    // Obra sem orçamento (criada fora do fluxo padrão): cria automaticamente
+    // um orçamento em rascunho — usuário cai direto na tela de "Adicionar primeiro item"
+    if (!orc) {
+      const { data: novo } = await supabase
+        .from('orcamentos')
+        .insert({ obra_id: obraId, tipo: 'executivo', bdi_percentual: 25, status: 'rascunho', versao: 1 })
+        .select()
+        .single()
+      orc = novo
+    }
+
     if (orc) { setOrcamento(orc); setBdi(orc.bdi_percentual); await loadItens(orc.id) }
   }
 
@@ -1084,9 +1096,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         </div>
       </div>
 
-      {/* ── Card 2 — composição de custos (fixo ao rolar) ── */}
+      {/* ── Card 2 — composição de custos (fixo ao rolar) ──
+          Para abaixo da barra superior fixa (header h-16 / 64px) com folga de 8px,
+          z-20 < z-30 do header garante que nunca "entra" na barra */}
       <div
-        className="sticky top-16 z-20 rounded-2xl overflow-hidden"
+        className="sticky top-[72px] z-20 rounded-2xl overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
       >
         <div className="px-4 py-3 flex flex-col gap-2.5">
@@ -1447,13 +1461,14 @@ function CustoCard({ icon: Icon, cor, label, value, hint, highlight, children }:
         <Icon size={12} style={{ color: cor }} className="flex-shrink-0" />
         <span className="text-[10px] font-medium truncate" style={{ color: 'var(--text-secondary)' }}>{label}</span>
       </div>
-      <div className="flex items-baseline gap-1.5 min-w-0">
+      {/* Valor em cima, % / hint embaixo — melhor leitura em telas pequenas */}
+      <div className="flex flex-col min-w-0">
         {children ?? (
           <span className="text-sm font-semibold leading-tight truncate" style={{ color: highlight ? 'var(--accent)' : 'var(--text-primary)' }}>
             {value}
           </span>
         )}
-        {hint && <span className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>{hint}</span>}
+        {hint && <span className="text-[10px] truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>{hint}</span>}
       </div>
     </div>
   )

@@ -7,12 +7,22 @@ export type Profile = {
   dark_mode: boolean
   onboarding_done: boolean
   password_hash: string | null
-  tipo: 'admin' | 'usuario'
-  apelido: string | null         // como a IA chama o usuário, se preenchido
-  descricao: string | null       // bio breve para personalizar a IA
+  tipo: 'admin' | 'usuario' | 'cliente' | 'prestador'
+  pode_excluir: boolean
+  apelido: string | null
+  descricao: string | null
   cidade: string | null
   estado: string | null          // CHAR(2) UF — usado para previsão do tempo
   created_at: string
+}
+
+// ─── Vínculo Obra ↔ Usuário ───────────────────────────────────────────────────
+export type ObraUsuario = {
+  obra_id: string
+  profile_id: string
+  papel: string
+  created_at: string
+  profile?: Profile
 }
 
 // ─── Obra ─────────────────────────────────────────────────────────────────────
@@ -163,7 +173,36 @@ export type Etapa = {
   data_inicio: string | null
   data_fim: string | null
   status: 'planejada' | 'em_andamento' | 'concluida' | 'atrasada'
+  percentual_executado: number
   ordem: number
+}
+
+// ─── Subetapa de Cronograma (nível 2) ────────────────────────────────────────
+export type SubetapaCronograma = {
+  id: string
+  etapa_id: string
+  nome: string
+  data_inicio: string | null
+  data_fim: string | null
+  percentual_executado: number
+  status: 'planejada' | 'em_andamento' | 'concluida' | 'atrasada'
+  responsavel: string | null
+  ordem: number
+  created_at: string
+  servicos?: ServicoCronograma[]
+}
+
+// ─── Serviço de Cronograma (nível 3) ─────────────────────────────────────────
+export type ServicoCronograma = {
+  id: string
+  subetapa_id: string
+  nome: string
+  data_inicio: string | null
+  data_fim: string | null
+  percentual_executado: number
+  responsavel: string | null
+  ordem: number
+  created_at: string
 }
 
 // ─── Material ─────────────────────────────────────────────────────────────────
@@ -231,6 +270,31 @@ export type AlertaPreditivo = {
   etapa_nome: string
   dias_para_inicio: number
   materiais_pendentes: number
+}
+
+// ─── RDO (Relatório Diário de Obra) ──────────────────────────────────────────
+export type Rdo = {
+  id: string
+  obra_id: string
+  data: string
+  autor_id: string | null
+  equipe_presente: string | null
+  servicos_executados: string | null
+  ocorrencias: string | null
+  fotos: string[]
+  created_at: string
+}
+
+// ─── Comunicado de Obra ───────────────────────────────────────────────────────
+export type ComunicadoObra = {
+  id: string
+  obra_id: string
+  autor_id: string | null
+  titulo: string
+  conteudo: string
+  fixado: boolean
+  created_at: string
+  autor?: { name: string; apelido: string | null } | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

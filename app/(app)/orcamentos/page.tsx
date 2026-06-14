@@ -7,7 +7,8 @@ import { formatCurrency, formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { NovoCadastroModal } from '@/components/cadastro/NovoCadastroModal'
+
 import ServicosPage from '@/app/(app)/servicos/page'
 import SinapiPage from '@/app/(app)/sinapi/page'
 
@@ -25,15 +26,17 @@ type OrcamentoComObra = {
 }
 
 export default function OrcamentosPage() {
-  const router = useRouter()
   const supabase = createClient()
   const [orcamentos, setOrcamentos] = useState<OrcamentoComObra[]>([])
+  const [obras, setObras] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<string>('todos')
   const [aba, setAba] = useState<'orcamentos' | 'composicoes' | 'insumos' | 'base'>('orcamentos')
+  const [showNovoModal, setShowNovoModal] = useState(false)
 
   useEffect(() => {
     loadOrcamentos()
+    supabase.from('obras').select('id, nome').order('nome').then((res: { data: { id: string; nome: string }[] | null }) => setObras(res.data ?? []))
   }, [])
 
   async function loadOrcamentos() {
@@ -111,8 +114,8 @@ export default function OrcamentosPage() {
             <option key={s} value={s}>{s === 'todos' ? 'Todos os status' : STATUS_ORC_LABEL[s]}</option>
           ))}
         </select>
-        <Button onClick={() => router.push('/obras')} icon={<Plus size={16} />}>
-          Nova Obra / Orçamento
+        <Button onClick={() => setShowNovoModal(true)} icon={<Plus size={16} />}>
+          Novo Orçamento
         </Button>
       </div>
 
@@ -126,8 +129,8 @@ export default function OrcamentosPage() {
           title="Nenhum orçamento encontrado"
           description="Crie uma nova obra para iniciar o orçamento."
           action={
-            <Button onClick={() => router.push('/obras')} icon={<Plus size={16} />}>
-              Nova Obra
+            <Button onClick={() => setShowNovoModal(true)} icon={<Plus size={16} />}>
+              Novo Orçamento
             </Button>
           }
         />
@@ -184,6 +187,15 @@ export default function OrcamentosPage() {
         </div>
       )}
       </>
+      )}
+
+      {showNovoModal && (
+        <NovoCadastroModal
+          tipo="orcamento"
+          obras={obras}
+          onClose={() => setShowNovoModal(false)}
+          onCreated={loadOrcamentos}
+        />
       )}
     </div>
   )

@@ -11,6 +11,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { useProfile } from '@/lib/profile-context'
+import { usePermission } from '@/lib/permissions'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
@@ -33,6 +34,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   const router = useRouter()
   const supabase = createClient()
   const { theme } = useProfile()
+  const { canDelete } = usePermission()
   const [obra, setObra] = useState<Obra | null>(null)
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab') as Tab | null
@@ -51,6 +53,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     nome: '', endereco: '', responsavel: '', data_inicio: '', data_previsao: '', foto_url: '', area_m2: '', uf: 'SP',
   })
   const [uploadingFoto, setUploadingFoto] = useState(false)
+  const [usuarios, setUsuarios] = useState<{ id: string; name: string }[]>([])
 
   // Upload de foto da obra — converte a imagem em data URL (base64) e salva
   // direto no campo foto_url, sem depender de bucket externo configurado.
@@ -102,8 +105,13 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   }, [])
 
   async function loadObra() {
-    const { data } = await supabase.from('obras').select('*').eq('id', id).single()
+    const [{ data }, { data: profs }] = await Promise.all([
+      supabase.from('obras').select('*').eq('id', id).single(),
+      // Lista dinâmica de usuários do sistema para o campo "Responsável pela obra"
+      supabase.from('profiles').select('id,name').order('name'),
+    ])
     setObra(data)
+    setUsuarios((profs || []) as { id: string; name: string }[])
     setLoading(false)
   }
 
@@ -310,16 +318,20 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
                           <Copy size={14} style={{ color: 'var(--text-secondary)' }} />
                           {duplicating ? 'Duplicando...' : 'Duplicar obra'}
                         </button>
-                        <div className="my-1 mx-3" style={{ height: '1px', background: 'var(--border)' }} />
-                        <button
-                          onClick={handleDelete}
-                          disabled={deleting}
-                          className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-left hover:bg-[var(--bg-secondary)] transition-colors disabled:opacity-50"
-                          style={{ color: 'var(--danger)' }}
-                        >
-                          <Trash2 size={14} />
-                          {deleting ? 'Excluindo...' : 'Excluir obra'}
-                        </button>
+                        {canDelete && (
+                          <>
+                            <div className="my-1 mx-3" style={{ height: '1px', background: 'var(--border)' }} />
+                            <button
+                              onClick={handleDelete}
+                              disabled={deleting}
+                              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-left hover:bg-[var(--bg-secondary)] transition-colors disabled:opacity-50"
+                              style={{ color: 'var(--danger)' }}
+                            >
+                              <Trash2 size={14} />
+                              {deleting ? 'Excluindo...' : 'Excluir obra'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -380,15 +392,28 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
             label="Endereço"
             value={editForm.endereco}
             onChange={e => setEditForm(f => ({ ...f, endereco: e.target.value }))}
-            placeholder="Rua, nÃºmero, bairro, cidade"
+            placeholder="Rua, número, bairro, cidade"
           />
           <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Responsável técnico"
-              value={editForm.responsavel}
-              onChange={e => setEditForm(f => ({ ...f, responsavel: e.target.value }))}
-              placeholder="Engenheiro responsável"
-            />
+            <div>
+              <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                Responsável pela obra
+              </label>
+              <select
+                value={editForm.responsavel}
+                onChange={e => setEditForm(f => ({ ...f, responsavel: e.target.value }))}
+                className="input-base"
+              >
+                <option value="">Selecione um usuário...</option>
+                {/* Valor antigo (texto livre) que não está na lista de usuários */}
+                {editForm.responsavel && !usuarios.some(u => u.name === editForm.responsavel) && (
+                  <option value={editForm.responsavel}>{editForm.responsavel}</option>
+                )}
+                {usuarios.map(u => (
+                  <option key={u.id} value={u.name}>{u.name}</option>
+                ))}
+              </select>
+            </div>
             <Input
               label="Área construída (m²)"
               type="number"

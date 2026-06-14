@@ -111,7 +111,7 @@ async function buildWhatsappContext(from: string) {
       materiaisEmAberto: materiaisAbertos.length,
       proximasEtapas: proximasEtapas.length,
     },
-    observacao: 'Atendimento pelo WhatsApp. Contexto carregado no servidor em modo somente leitura. A Luizia nao pode criar, editar nem excluir dados.',
+    observacao: 'Atendimento pelo WhatsApp. Contexto carregado no servidor em modo somente leitura. A Luiza nao pode criar, editar nem excluir dados.',
   }
 }
 
@@ -135,7 +135,7 @@ async function logWhatsappConversation(payload: {
       model: payload.model || null,
     })
   } catch (error) {
-    console.error('WhatsApp Luizia monitor error:', error)
+    console.error('WhatsApp Luiza monitor error:', error)
   }
 }
 
@@ -162,7 +162,7 @@ function isValidTwilioRequest(req: NextRequest, params: Record<string, string>) 
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Tempo limite da resposta da Luizia no WhatsApp')), ms)
+    const timer = setTimeout(() => reject(new Error('Tempo limite da resposta da Luiza no WhatsApp')), ms)
     promise
       .then(resolve)
       .catch(reject)
@@ -174,7 +174,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     route: '/api/whatsapp/luizia',
-    message: 'Webhook da Luizia para WhatsApp ativo. Configure esta URL no Twilio como POST.',
+    message: 'Webhook da Luiza para WhatsApp ativo. Configure esta URL no Twilio como POST.',
   })
 }
 
@@ -192,18 +192,18 @@ export async function POST(req: NextRequest) {
     const mediaCount = Number(params.NumMedia || 0)
 
     if (!body && mediaCount > 0) {
-      return twiml('Recebi seu arquivo/imagem, mas nesta primeira versao eu respondo melhor por texto. Envie uma pergunta escrita para a Luizia.')
+      return twiml('Recebi seu arquivo/imagem, mas nesta primeira versao eu respondo melhor por texto. Envie uma pergunta escrita para a Luiza.')
     }
 
     if (!body) {
-      return twiml('Oi, eu sou a Luizia. Envie uma pergunta sobre obra, orcamento, materiais, compras ou cronograma.')
+      return twiml('Oi, eu sou a Luiza. Envie uma pergunta sobre obra, orcamento, materiais, compras ou cronograma.')
     }
 
     let context
     try {
       context = await withTimeout(buildWhatsappContext(from), 2500)
     } catch (error) {
-      console.error('WhatsApp Luizia context timeout/error:', error)
+      console.error('WhatsApp Luiza context timeout/error:', error)
       context = {
         modo: 'whatsapp',
         origem: 'whatsapp',
@@ -219,8 +219,8 @@ export async function POST(req: NextRequest) {
         context,
       }), 8500)
     } catch (error) {
-      console.error('WhatsApp Luizia timeout/error:', error)
-      return twiml('A Luizia demorou mais do que o WhatsApp permite para responder. Tente enviar uma pergunta mais curta ou tente novamente em instantes.')
+      console.error('WhatsApp Luiza timeout/error:', error)
+      return twiml('A Luiza demorou mais do que o WhatsApp permite para responder. Tente enviar uma pergunta mais curta ou tente novamente em instantes.')
     }
 
     await logWhatsappConversation({
@@ -233,7 +233,7 @@ export async function POST(req: NextRequest) {
 
     return twiml(result.message)
   } catch (error: unknown) {
-    console.error('WhatsApp Luizia error:', error)
-    return twiml('Nao consegui responder agora. Confira a configuracao da Luizia no servidor e tente novamente.', 500)
+    console.error('WhatsApp Luiza error:', error)
+    return twiml('Nao consegui responder agora. Confira a configuracao da Luiza no servidor e tente novamente.', 500)
   }
 }
