@@ -20,6 +20,7 @@ import { exportOrcamentoXLSX, ItemExportRow } from '@/lib/export-orcamento'
 import { InsumoOrcamentoAntigo, LinhaOrcamentoTabular } from '@/lib/import-export-orcamento'
 import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
+import { ETAPAS_PADRAO_CHANGED_EVENT, readEtapasPadrao } from '@/lib/settings/etapas-padrao'
 
 type FonteBusca = 'proprias' | 'sinapi'
 
@@ -158,7 +159,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   // Modal adicionar item
   const [showAddItem, setShowAddItem] = useState(false)
   const [showImportExportTabular, setShowImportExportTabular] = useState(false)
-  const [etapasPadrao, setEtapasPadrao] = useState<string[]>(ETAPAS_PADRAO_FALLBACK)
+  const [etapasPadrao, setEtapasPadrao] = useState<string[]>([])
   const [selectedEtapaNome, setSelectedEtapaNome] = useState('')
   const [subetapaLivre, setSubetapaLivre] = useState('')
   const [fonte, setFonte] = useState<FonteBusca>('proprias')
@@ -226,15 +227,18 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
   // ─── Etapas padrão ───────────────────────────────────────────────────────
   useEffect(() => {
-    const stored = localStorage.getItem(ETAPAS_PADRAO_KEY)
-    if (!stored) { localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_FALLBACK)); return }
-    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
-    Promise.resolve().then(() => {
-      try {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed) && parsed.length > 0) setEtapasPadrao(parsed.slice(0, 20))
-      } catch { localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_FALLBACK)) }
-    })
+    function syncEtapasPadrao() {
+      setEtapasPadrao(readEtapasPadrao())
+    }
+
+    syncEtapasPadrao()
+    window.addEventListener(ETAPAS_PADRAO_CHANGED_EVENT, syncEtapasPadrao)
+    window.addEventListener('storage', syncEtapasPadrao)
+
+    return () => {
+      window.removeEventListener(ETAPAS_PADRAO_CHANGED_EVENT, syncEtapasPadrao)
+      window.removeEventListener('storage', syncEtapasPadrao)
+    }
   }, [])
 
   // ─── Fechar menu ao clicar fora ──────────────────────────────────────────
@@ -410,8 +414,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }
 
   function openItemModal(etapaId: string | null = null) {
+    const etapasConfig = readEtapasPadrao()
+    setEtapasPadrao(etapasConfig)
     const etapa = etapaId ? etapas.find(e => e.id === etapaId) : null
-    setSelectedEtapaNome(etapa?.nome || etapasPadrao[0] || '')
+    setSelectedEtapaNome(etapa?.nome || etapasConfig[0] || '')
     setSubetapaLivre('')
     setShowAddItem(true)
   }

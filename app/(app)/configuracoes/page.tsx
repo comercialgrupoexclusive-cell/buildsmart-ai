@@ -10,6 +10,7 @@ import { BackupRestauracaoModal } from '@/components/ui/BackupRestauracaoModal'
 import { APP_VERSION } from '@/lib/version'
 import { CLIMA_ATIVO_KEY, CLIMA_THRESHOLD_KEY, CLIMA_THRESHOLD_DEFAULT, readClimaSettings } from '@/components/dashboard/ClimaWidgets'
 import { SINAPI_UFS, type Profile } from '@/lib/types'
+import { readEtapasPadrao, saveEtapasPadraoStorage } from '@/lib/settings/etapas-padrao'
 
 const EMPTY_USER_FORM = {
   name: '',
@@ -290,18 +291,7 @@ export default function ConfiguracoesPage() {
     setClimaAtivoState(clima.ativo)
     setChuvaThresholdState(clima.threshold)
 
-    const stored = localStorage.getItem(ETAPAS_PADRAO_KEY)
-    if (!stored) {
-      localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_SINAPI))
-      return
-    }
-
-    try {
-      const parsed = JSON.parse(stored)
-      if (Array.isArray(parsed) && parsed.length > 0) setEtapasPadrao(parsed.slice(0, 20))
-    } catch {
-      localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_SINAPI))
-    }
+    setEtapasPadrao(readEtapasPadrao())
   }, [])
 
   // Verifica se a cor selecionada é uma das pré-definidas
@@ -395,9 +385,8 @@ export default function ConfiguracoesPage() {
   }
 
   function saveEtapasPadrao(next: string[]) {
-    const cleaned = next.map(e => e.trim()).filter(Boolean).slice(0, 20)
+    const cleaned = saveEtapasPadraoStorage(next)
     setEtapasPadrao(cleaned)
-    localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(cleaned))
   }
 
   function updateEtapaPadrao(index: number, value: string) {
