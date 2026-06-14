@@ -90,10 +90,6 @@ const STATUS_LISTA_INFO: Record<StatusLista, { label: string; icon: typeof Send;
   concluida: { label: 'Concluída', icon: PackageCheck, color: 'var(--success)' },
 }
 
-function listasStorageKey(obraId: string) {
-  return `bs_listas_compra_${obraId}`
-}
-
 // Agrupa uma lista de materiais (já filtrada por etapa) em blocos por subetapa,
 // preservando a ordem de primeira aparição. Itens sem subetapa caem no grupo "Sem subetapa".
 function agruparPorSubetapa(itens: MaterialRow[]): { nome: string; itens: MaterialRow[] }[] {
@@ -462,25 +458,18 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     Promise.resolve().then(() => loadMateriais())
   }, [obraId])
 
-  // ── Listas de compra — persistidas em localStorage (modo local), por obra ──
+  // ── Listas de compra — carrega do Supabase ──
   useEffect(() => {
-    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
-    Promise.resolve().then(() => {
-      setListasCarregadas(false)
-      try {
-        const raw = localStorage.getItem(listasStorageKey(obraId))
-        setListas(raw ? JSON.parse(raw) as ListaCompra[] : [])
-      } catch {
-        setListas([])
-      }
-      setListasCarregadas(true)
-    })
+    if (!obraId) return
+    supabase.from('listas_compra').select('*').eq('obra_id', obraId).order('criado_em', { ascending: false })
+      .then(({ data }: { data: { id: string; nome: string; fornecedor_id: string | null; itens: ListaCompraItem[]; status: StatusLista; criado_em: string }[] | null }) => {
+        setListas((data ?? []).map((r) => ({
+          id: r.id, nome: r.nome, fornecedorId: r.fornecedor_id,
+          itens: r.itens ?? [], status: r.status, criadoEm: r.criado_em,
+        })))
+        setListasCarregadas(true)
+      })
   }, [obraId])
-
-  useEffect(() => {
-    if (!listasCarregadas) return
-    localStorage.setItem(listasStorageKey(obraId), JSON.stringify(listas))
-  }, [listas, obraId, listasCarregadas])
 
   async function handleSave() {
     if (!form.descricao.trim() || !form.quantidade_total) return
@@ -668,39 +657,43 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     }
   }
 
-  function salvarLista() {
+  async function salvarLista() {
     if (!nomeLista.trim() || itensSelecionados.length === 0) return
     setSalvandoLista(true)
-    const nova: ListaCompra = {
-      id: `lista-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    const itensLista: ListaCompraItem[] = itensSelecionados.map(m => ({
+      id: m.id,
+      descricao: m.descricao,
+      quantidade: Math.max(0, m.quantidade_total - m.quantidade_comprada),
+      unidade: m.unidade,
+      sinapiCodigo: m.sinapi_codigo,
+    }))
+    const { data: nova } = await supabase.from('listas_compra').insert({
+      obra_id: obraId,
       nome: nomeLista.trim(),
-      fornecedorId: fornecedorLista || null,
-      itens: itensSelecionados.map(m => ({
-        id: m.id,
-        descricao: m.descricao,
-        quantidade: Math.max(0, m.quantidade_total - m.quantidade_comprada),
-        unidade: m.unidade,
-        sinapiCodigo: m.sinapi_codigo,
-      })),
+      fornecedor_id: fornecedorLista || null,
+      itens: itensLista,
       status: 'aberta',
-      criadoEm: new Date().toISOString(),
+    }).select().single()
+    if (nova) {
+      setListas(prev => [{
+        id: nova.id, nome: nova.nome, fornecedorId: nova.fornecedor_id,
+        itens: itensLista, status: 'aberta', criadoEm: nova.criado_em,
+      }, ...prev])
     }
-    setListas(prev => [nova, ...prev])
-    setNomeLista('')
-    setFornecedorLista('')
-    setSalvandoLista(false)
-    setShowLista(false)
-    limparSelecao()
-    setSubView('compras')
+    setNomeLista(''); setFornecedorLista('')
+    setSalvandoLista(false); setShowLista(false)
+    limparSelecao(); setSubView('compras')
   }
 
-  function atualizarStatusLista(id: string, status: StatusLista) {
+  async function atualizarStatusLista(id: string, status: StatusLista) {
     setListas(prev => prev.map(l => l.id === id ? { ...l, status } : l))
+    await supabase.from('listas_compra').update({ status, updated_at: new Date().toISOString() }).eq('id', id)
   }
 
-  function removerLista(id: string) {
+  async function removerLista(id: string) {
     if (!confirm('Remover esta lista de compras?')) return
     setListas(prev => prev.filter(l => l.id !== id))
+    await supabase.from('listas_compra').delete().eq('id', id)
   }
 
   async function marcarSelecionadosComoComprados() {

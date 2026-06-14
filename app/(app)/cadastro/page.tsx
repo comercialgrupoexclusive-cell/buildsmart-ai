@@ -39,7 +39,7 @@ interface ObraRow {
   avanco: number
 }
 interface OrcRow {
-  id: string; obra_id: string; status: string; versao: number
+  id: string; obra_id: string | null; nome: string | null; status: string; versao: number
   bdi_percentual: number; created_at: string
   obras: { nome: string; foto_url: string | null } | null
 }
@@ -262,12 +262,14 @@ export default function CadastroPage() {
 
           {tab === 'orcamentos' && orcFiltrados.map(o => {
             const st = STATUS_ORC[o.status as keyof typeof STATUS_ORC] ?? { label: o.status, color: '#6B7280' }
+            const href = o.obra_id ? `/obras/${o.obra_id}?tab=orcamento` : `/cadastro`
+            const nomeCard = o.nome || (o.obras?.nome ? `Orç. v${o.versao} — ${o.obras.nome}` : `Orçamento v${o.versao}`)
             return (
               <CadastroCard key={o.id} tipo="orcamento" id={o.id}
-                nome={o.obras?.nome ? `Orç. v${o.versao} — ${o.obras.nome}` : `Orçamento v${o.versao}`}
+                nome={nomeCard}
                 foto_url={o.obras?.foto_url} status={o.status} statusLabel={st.label} statusColor={st.color}
-                data_inicio={o.created_at} responsaveis={[]} href={`/obras/${o.obra_id}?tab=orcamento`}
-                onEdit={() => { window.location.href = `/obras/${o.obra_id}?tab=orcamento` }}
+                data_inicio={o.created_at} responsaveis={[]} href={href}
+                onEdit={() => { window.location.href = href }}
                 onDelete={() => handleDeleteOrc(o.id)}
               />
             )

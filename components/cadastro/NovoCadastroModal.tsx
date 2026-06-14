@@ -89,11 +89,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
 
   async function handleSave() {
     setError('')
-    if (tipo === 'orcamento') {
-      if (!form.obra_id) { setError('Selecione uma obra.'); return }
-    } else {
-      if (!form.nome.trim()) { setError('Nome é obrigatório.'); return }
-    }
+    if (!form.nome.trim() && tipo !== 'orcamento') { setError('Nome é obrigatório.'); return }
     setSaving(true)
 
     try {
@@ -164,12 +160,15 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
 
       } else {
         // tipo === 'orcamento'
-        // Busca a última versão da obra para incrementar
-        const { data: existentes } = await supabase.from('orcamentos').select('versao').eq('obra_id', form.obra_id).order('versao', { ascending: false }).limit(1)
-        const proxVersao = existentes?.[0]?.versao ? existentes[0].versao + 1 : 1
+        let proxVersao = 1
+        if (form.obra_id) {
+          const { data: existentes } = await supabase.from('orcamentos').select('versao').eq('obra_id', form.obra_id).order('versao', { ascending: false }).limit(1)
+          proxVersao = existentes?.[0]?.versao ? existentes[0].versao + 1 : 1
+        }
 
         await supabase.from('orcamentos').insert({
-          obra_id: form.obra_id,
+          obra_id: form.obra_id || null,
+          nome: form.nome.trim() || null,
           tipo: 'executivo',
           bdi_percentual: 25,
           status: 'rascunho',
@@ -235,19 +234,27 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
 
           {/* Campos para Orçamento */}
           {tipo === 'orcamento' && (
-            <div>
-              <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Obra *</label>
-              <select
-                value={form.obra_id}
-                onChange={e => setForm(f => ({ ...f, obra_id: e.target.value }))}
-                className="input-base w-full"
-              >
-                <option value="">Selecione a obra...</option>
-                {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-              </select>
-              <p className="text-xs mt-2 opacity-60" style={{ color: 'var(--text-secondary)' }}>
-                Será criado um novo orçamento (nova versão) vinculado a esta obra.
-              </p>
+            <div className="flex flex-col gap-3">
+              <Input
+                label="Nome do orçamento"
+                value={form.nome}
+                onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
+                placeholder="Ex.: Orçamento Reforma Fachada"
+              />
+              <div>
+                <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Obra (opcional)</label>
+                <select
+                  value={form.obra_id}
+                  onChange={e => setForm(f => ({ ...f, obra_id: e.target.value }))}
+                  className="input-base w-full"
+                >
+                  <option value="">Sem obra vinculada</option>
+                  {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                </select>
+                <p className="text-xs mt-2 opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                  Será criado um novo orçamento (nova versão). Vincular a uma obra é opcional.
+                </p>
+              </div>
             </div>
           )}
 
