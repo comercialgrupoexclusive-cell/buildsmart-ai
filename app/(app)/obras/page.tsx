@@ -20,6 +20,7 @@ export default function ObrasPage() {
   const router = useRouter()
   const supabase = createClient()
   const [obras, setObras] = useState<ObraComAvanco[]>([])
+  const [usuarios, setUsuarios] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState('ativa')
   const [busca, setBusca] = useState('')
@@ -78,7 +79,12 @@ export default function ObrasPage() {
 
   async function loadObras() {
     setLoading(true)
-    const { data } = await supabase.from('obras').select('*').order('created_at', { ascending: false })
+    const [{ data }, { data: profs }] = await Promise.all([
+      supabase.from('obras').select('*').order('created_at', { ascending: false }),
+      // Lista dinâmica de usuários do sistema para o campo "Responsável pela obra"
+      supabase.from('profiles').select('id,name').order('name'),
+    ])
+    setUsuarios((profs || []) as { id: string; name: string }[])
     const lista = (data || []) as Obra[]
 
     // Avanço físico: última medição registrada de cada obra
@@ -87,7 +93,7 @@ export default function ObrasPage() {
         .from('medicoes')
         .select('percentual_executado')
         .eq('obra_id', obra.id)
-        .order('data_medicao', { ascending: false })
+        .order('periodo_inicio', { ascending: false })
         .limit(1)
       return { ...obra, avanco: meds && meds.length > 0 ? (meds[0].percentual_executado ?? 0) : 0 }
     }))
@@ -209,12 +215,25 @@ export default function ObrasPage() {
             placeholder="Rua, número, bairro, cidade"
           />
           <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Responsável técnico"
-              value={form.responsavel}
-              onChange={e => setForm(f => ({ ...f, responsavel: e.target.value }))}
-              placeholder="Engenheiro responsável"
-            />
+            <div>
+              <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                Responsável pela obra
+              </label>
+              <select
+                value={form.responsavel}
+                onChange={e => setForm(f => ({ ...f, responsavel: e.target.value }))}
+                className="input-base"
+              >
+                <option value="">Selecione um usuário...</option>
+                {/* Valor antigo (texto livre) que não está na lista de usuários */}
+                {form.responsavel && !usuarios.some(u => u.name === form.responsavel) && (
+                  <option value={form.responsavel}>{form.responsavel}</option>
+                )}
+                {usuarios.map(u => (
+                  <option key={u.id} value={u.name}>{u.name}</option>
+                ))}
+              </select>
+            </div>
             <Input
               label="Área construída (m²)"
               type="number"

@@ -16,7 +16,7 @@ const CHAT_KEY = 'buildsmart-luizia-floating-chat-session'
 const ASSIST_ON_ENTRY_KEY = 'buildsmart-open-luizia-on-entry'
 
 function greeting(name?: string) {
-  return `Oi${name ? `, ${name}` : ''}! Eu sou a Luizia.
+  return `Oi${name ? `, ${name}` : ''}! Eu sou a Luiza.
 
 Prometo nao complicar sua vida: posso ajudar com orcamento, materiais, compras, cronograma e aquelas duvidas de obra que aparecem do nada.
 
@@ -197,7 +197,7 @@ export function LuiziaFloatingChat() {
                 <BotMessageSquare size={16} />
               </div>
               <div>
-                <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Luizia</p>
+                <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Luiza</p>
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Assistente rapida da obra</p>
               </div>
             </div>
@@ -236,7 +236,7 @@ export function LuiziaFloatingChat() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                placeholder="Pergunte para a Luizia..."
+                placeholder="Pergunte para a Luiza..."
                 className="input-base flex-1 h-10 text-sm"
                 disabled={loading}
               />
@@ -262,7 +262,7 @@ export function LuiziaFloatingChat() {
         }}
         className="fixed bottom-5 right-5 z-50 w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-transform hover:scale-105"
         style={{ background: 'var(--accent)', color: 'white' }}
-        title="Falar com a Luizia"
+        title="Falar com a Luiza"
       >
         {open ? <X size={22} /> : <MessageCircle size={23} />}
       </button>

@@ -5,7 +5,7 @@ import {
   Package, AlertTriangle, CheckCircle,
   Plus, Pencil, Trash2, ChevronDown, ChevronRight,
   Square, CheckSquare, ShoppingCart, Copy, X,
-  Building2, Send, PackageCheck, ClipboardList, Download,
+  Building2, Send, PackageCheck, ClipboardList, Download, FileText,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { diasAteData } from '@/lib/utils'
@@ -14,15 +14,18 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { ObraFornecedores } from '@/components/obra/ObraFornecedores'
+import { ObraRequisicoes } from '@/components/obra/ObraRequisicoes'
 
 const STATUS_LABEL: Record<string, string> = {
   nao_comprado: 'Não comprado',
+  solicitado: 'Solicitado',
   parcial: 'Parcial',
   comprado: 'Comprado',
 }
 
 const STATUS_DOT: Record<string, string> = {
   nao_comprado: '#EF4444',
+  solicitado: '#3B7BF8',
   parcial: '#F59E0B',
   comprado: '#10B981',
 }
@@ -38,7 +41,7 @@ type MaterialRow = {
   unidade: string
   quantidade_total: number
   quantidade_comprada: number
-  status_compra: 'nao_comprado' | 'parcial' | 'comprado'
+  status_compra: 'nao_comprado' | 'solicitado' | 'parcial' | 'comprado'
   data_necessidade: string | null
   etapas?: { nome: string } | null
 }
@@ -87,10 +90,6 @@ const STATUS_LISTA_INFO: Record<StatusLista, { label: string; icon: typeof Send;
   concluida: { label: 'Concluída', icon: PackageCheck, color: 'var(--success)' },
 }
 
-function listasStorageKey(obraId: string) {
-  return `bs_listas_compra_${obraId}`
-}
-
 // Agrupa uma lista de materiais (já filtrada por etapa) em blocos por subetapa,
 // preservando a ordem de primeira aparição. Itens sem subetapa caem no grupo "Sem subetapa".
 function agruparPorSubetapa(itens: MaterialRow[]): { nome: string; itens: MaterialRow[] }[] {
@@ -135,7 +134,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   const [importando, setImportando] = useState(false)
 
   // ── Sub-aba: Materiais x Listas de compra ──
-  const [subView, setSubView] = useState<'materiais' | 'compras' | 'fornecedores'>('materiais')
+  const [subView, setSubView] = useState<'materiais' | 'compras' | 'fornecedores' | 'requisicoes'>('materiais')
   const [listas, setListas] = useState<ListaCompra[]>([])
   const [listasCarregadas, setListasCarregadas] = useState(false)
 
@@ -459,25 +458,18 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     Promise.resolve().then(() => loadMateriais())
   }, [obraId])
 
-  // ── Listas de compra — persistidas em localStorage (modo local), por obra ──
+  // ── Listas de compra — carrega do Supabase ──
   useEffect(() => {
-    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
-    Promise.resolve().then(() => {
-      setListasCarregadas(false)
-      try {
-        const raw = localStorage.getItem(listasStorageKey(obraId))
-        setListas(raw ? JSON.parse(raw) as ListaCompra[] : [])
-      } catch {
-        setListas([])
-      }
-      setListasCarregadas(true)
-    })
+    if (!obraId) return
+    supabase.from('listas_compra').select('*').eq('obra_id', obraId).order('criado_em', { ascending: false })
+      .then(({ data }: { data: { id: string; nome: string; fornecedor_id: string | null; itens: ListaCompraItem[]; status: StatusLista; criado_em: string }[] | null }) => {
+        setListas((data ?? []).map((r) => ({
+          id: r.id, nome: r.nome, fornecedorId: r.fornecedor_id,
+          itens: r.itens ?? [], status: r.status, criadoEm: r.criado_em,
+        })))
+        setListasCarregadas(true)
+      })
   }, [obraId])
-
-  useEffect(() => {
-    if (!listasCarregadas) return
-    localStorage.setItem(listasStorageKey(obraId), JSON.stringify(listas))
-  }, [listas, obraId, listasCarregadas])
 
   async function handleSave() {
     if (!form.descricao.trim() || !form.quantidade_total) return
@@ -665,39 +657,43 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     }
   }
 
-  function salvarLista() {
+  async function salvarLista() {
     if (!nomeLista.trim() || itensSelecionados.length === 0) return
     setSalvandoLista(true)
-    const nova: ListaCompra = {
-      id: `lista-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    const itensLista: ListaCompraItem[] = itensSelecionados.map(m => ({
+      id: m.id,
+      descricao: m.descricao,
+      quantidade: Math.max(0, m.quantidade_total - m.quantidade_comprada),
+      unidade: m.unidade,
+      sinapiCodigo: m.sinapi_codigo,
+    }))
+    const { data: nova } = await supabase.from('listas_compra').insert({
+      obra_id: obraId,
       nome: nomeLista.trim(),
-      fornecedorId: fornecedorLista || null,
-      itens: itensSelecionados.map(m => ({
-        id: m.id,
-        descricao: m.descricao,
-        quantidade: Math.max(0, m.quantidade_total - m.quantidade_comprada),
-        unidade: m.unidade,
-        sinapiCodigo: m.sinapi_codigo,
-      })),
+      fornecedor_id: fornecedorLista || null,
+      itens: itensLista,
       status: 'aberta',
-      criadoEm: new Date().toISOString(),
+    }).select().single()
+    if (nova) {
+      setListas(prev => [{
+        id: nova.id, nome: nova.nome, fornecedorId: nova.fornecedor_id,
+        itens: itensLista, status: 'aberta', criadoEm: nova.criado_em,
+      }, ...prev])
     }
-    setListas(prev => [nova, ...prev])
-    setNomeLista('')
-    setFornecedorLista('')
-    setSalvandoLista(false)
-    setShowLista(false)
-    limparSelecao()
-    setSubView('compras')
+    setNomeLista(''); setFornecedorLista('')
+    setSalvandoLista(false); setShowLista(false)
+    limparSelecao(); setSubView('compras')
   }
 
-  function atualizarStatusLista(id: string, status: StatusLista) {
+  async function atualizarStatusLista(id: string, status: StatusLista) {
     setListas(prev => prev.map(l => l.id === id ? { ...l, status } : l))
+    await supabase.from('listas_compra').update({ status, updated_at: new Date().toISOString() }).eq('id', id)
   }
 
-  function removerLista(id: string) {
+  async function removerLista(id: string) {
     if (!confirm('Remover esta lista de compras?')) return
     setListas(prev => prev.filter(l => l.id !== id))
+    await supabase.from('listas_compra').delete().eq('id', id)
   }
 
   async function marcarSelecionadosComoComprados() {
@@ -726,18 +722,19 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   return (
     <div className="flex flex-col gap-4">
       {/* ── Sub-abas: Materiais x Listas de compra ── */}
-      <div className="flex gap-2 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-secondary)' }}>
+      <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
         {[
           { id: 'materiais' as const, label: 'Materiais', icon: Package },
           { id: 'compras' as const, label: 'Listas de compra', icon: ShoppingCart, badge: listas.length },
+          { id: 'requisicoes' as const, label: 'Requisições', icon: FileText },
           { id: 'fornecedores' as const, label: 'Fornecedores', icon: Building2 },
         ].map(({ id, label, icon: Icon, badge }) => (
           <button
             key={id}
             onClick={() => setSubView(id)}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
             style={subView === id
-              ? { background: 'var(--bg-primary)', color: 'var(--text-primary)', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }
+              ? { background: 'var(--accent)', color: 'white' }
               : { color: 'var(--text-secondary)' }}
           >
             <Icon size={15} />
@@ -756,6 +753,8 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
       {subView === 'fornecedores' ? (
         <ObraFornecedores obraId={obraId} />
+      ) : subView === 'requisicoes' ? (
+        <ObraRequisicoes obraId={obraId} />
       ) : subView === 'compras' ? (
         <ListasDeComprasView
           listas={listas}
@@ -801,6 +800,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="input-base w-full sm:w-52">
           <option value="abertas">Em aberto</option>
           <option value="agora">Comprar agora</option>
+          <option value="solicitado">Solicitados</option>
           <option value="parcial">Parciais</option>
           <option value="comprado">Comprados</option>
           <option value="todos">Todos</option>
@@ -1076,6 +1076,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
                 className="input-base"
               >
                 <option value="nao_comprado">Não comprado</option>
+                <option value="solicitado">Solicitado</option>
                 <option value="parcial">Parcial</option>
                 <option value="comprado">Comprado</option>
               </select>

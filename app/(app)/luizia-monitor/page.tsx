@@ -73,7 +73,7 @@ export default function LuiziaMonitorPage() {
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
             <BotMessageSquare size={21} style={{ color: 'var(--accent)' }} />
-            Monitor da Luizia
+            Monitor da Luiza
           </h1>
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
             {logs.length} conversa(s) registradas {remote ? 'online' : 'neste navegador'}.

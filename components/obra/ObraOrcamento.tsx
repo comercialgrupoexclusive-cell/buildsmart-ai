@@ -20,6 +20,7 @@ import { exportOrcamentoXLSX, ItemExportRow } from '@/lib/export-orcamento'
 import { InsumoOrcamentoAntigo, LinhaOrcamentoTabular } from '@/lib/import-export-orcamento'
 import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
+import { ETAPAS_PADRAO_CHANGED_EVENT, readEtapasPadrao } from '@/lib/settings/etapas-padrao'
 
 type FonteBusca = 'proprias' | 'sinapi'
 
@@ -158,7 +159,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   // Modal adicionar item
   const [showAddItem, setShowAddItem] = useState(false)
   const [showImportExportTabular, setShowImportExportTabular] = useState(false)
-  const [etapasPadrao, setEtapasPadrao] = useState<string[]>(ETAPAS_PADRAO_FALLBACK)
+  const [etapasPadrao, setEtapasPadrao] = useState<string[]>([])
   const [selectedEtapaNome, setSelectedEtapaNome] = useState('')
   const [subetapaLivre, setSubetapaLivre] = useState('')
   const [fonte, setFonte] = useState<FonteBusca>('proprias')
@@ -226,15 +227,18 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
   // ─── Etapas padrão ───────────────────────────────────────────────────────
   useEffect(() => {
-    const stored = localStorage.getItem(ETAPAS_PADRAO_KEY)
-    if (!stored) { localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_FALLBACK)); return }
-    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
-    Promise.resolve().then(() => {
-      try {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed) && parsed.length > 0) setEtapasPadrao(parsed.slice(0, 20))
-      } catch { localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_FALLBACK)) }
-    })
+    function syncEtapasPadrao() {
+      setEtapasPadrao(readEtapasPadrao())
+    }
+
+    syncEtapasPadrao()
+    window.addEventListener(ETAPAS_PADRAO_CHANGED_EVENT, syncEtapasPadrao)
+    window.addEventListener('storage', syncEtapasPadrao)
+
+    return () => {
+      window.removeEventListener(ETAPAS_PADRAO_CHANGED_EVENT, syncEtapasPadrao)
+      window.removeEventListener('storage', syncEtapasPadrao)
+    }
   }, [])
 
   // ─── Fechar menu ao clicar fora ──────────────────────────────────────────
@@ -254,9 +258,21 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }
 
   async function loadOrcamento() {
-    const { data: orc } = await supabase
+    let { data: orc } = await supabase
       .from('orcamentos').select('*').eq('obra_id', obraId)
       .order('versao', { ascending: false }).limit(1).maybeSingle()
+
+    // Obra sem orçamento (criada fora do fluxo padrão): cria automaticamente
+    // um orçamento em rascunho — usuário cai direto na tela de "Adicionar primeiro item"
+    if (!orc) {
+      const { data: novo } = await supabase
+        .from('orcamentos')
+        .insert({ obra_id: obraId, tipo: 'executivo', bdi_percentual: 25, status: 'rascunho', versao: 1 })
+        .select()
+        .single()
+      orc = novo
+    }
+
     if (orc) { setOrcamento(orc); setBdi(orc.bdi_percentual); await loadItens(orc.id) }
   }
 
@@ -398,8 +414,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }
 
   function openItemModal(etapaId: string | null = null) {
+    const etapasConfig = readEtapasPadrao()
+    setEtapasPadrao(etapasConfig)
     const etapa = etapaId ? etapas.find(e => e.id === etapaId) : null
-    setSelectedEtapaNome(etapa?.nome || etapasPadrao[0] || '')
+    setSelectedEtapaNome(etapa?.nome || etapasConfig[0] || '')
     setSubetapaLivre('')
     setShowAddItem(true)
   }
@@ -1084,9 +1102,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         </div>
       </div>
 
-      {/* ── Card 2 — composição de custos (fixo ao rolar) ── */}
+      {/* ── Card 2 — composição de custos (fixo ao rolar) ──
+          Para abaixo da barra superior fixa (header h-16 / 64px) com folga de 8px,
+          z-20 < z-30 do header garante que nunca "entra" na barra */}
       <div
-        className="sticky top-16 z-20 rounded-2xl overflow-hidden"
+        className="sticky top-[72px] z-20 rounded-2xl overflow-hidden"
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
       >
         <div className="px-4 py-3 flex flex-col gap-2.5">
@@ -1284,9 +1304,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
           {selectedItem ? (
             <div className="p-3 rounded-xl flex items-start gap-3" style={{ background: 'rgba(59,123,248,0.08)', border: '1px solid rgba(59,123,248,0.25)' }}>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{selectedItem.codigo}</span>
-                  <span className="text-sm font-medium truncate" style={{ color: 'var(--accent)' }}>{selectedItem.descricao}</span>
+                <div className="flex items-start gap-2 mb-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--accent)' }}>{selectedItem.descricao}</p>
+                    <p className="text-xs font-mono truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{selectedItem.codigo}</p>
+                  </div>
                   {getItemCost(selectedItem) > 0 && (
                     <span className="text-xs ml-auto flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
                       {formatCurrency(getItemCost(selectedItem))}/{selectedItem.unidade}
@@ -1341,15 +1363,19 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                 listaFiltrada.slice(0, 60).map(c => (
                   <button key={c.id}
                     onClick={() => { setSelectedItem(c); setBusca(''); setTimeout(() => qtdInputRef.current?.focus(), 60) }}
-                    className="flex items-center gap-3 p-3 rounded-lg text-left transition-colors hover:bg-[var(--bg-secondary)]"
+                    className="flex items-start gap-3 p-3 rounded-lg text-left transition-colors hover:bg-[var(--bg-secondary)]"
                     style={{ border: '1px solid transparent' }}
                   >
-                    <span className="text-xs font-mono flex-shrink-0 w-20 truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{c.codigo}</span>
-                    <span className="text-sm flex-1 truncate" style={{ color: 'var(--text-primary)' }}>{c.descricao}</span>
-                    <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>{c.unidade}</span>
-                    {getItemCost(c) > 0 && (
-                      <span className="text-xs font-semibold flex-shrink-0" style={{ color: 'var(--accent)' }}>{formatCurrency(getItemCost(c))}</span>
-                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{c.descricao}</p>
+                      <p className="text-xs font-mono truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{c.codigo}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{c.unidade}</span>
+                      {getItemCost(c) > 0 && (
+                        <span className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>{formatCurrency(getItemCost(c))}</span>
+                      )}
+                    </div>
                   </button>
                 ))
               )}
@@ -1447,13 +1473,14 @@ function CustoCard({ icon: Icon, cor, label, value, hint, highlight, children }:
         <Icon size={12} style={{ color: cor }} className="flex-shrink-0" />
         <span className="text-[10px] font-medium truncate" style={{ color: 'var(--text-secondary)' }}>{label}</span>
       </div>
-      <div className="flex items-baseline gap-1.5 min-w-0">
+      {/* Valor em cima, % / hint embaixo — melhor leitura em telas pequenas */}
+      <div className="flex flex-col min-w-0">
         {children ?? (
           <span className="text-sm font-semibold leading-tight truncate" style={{ color: highlight ? 'var(--accent)' : 'var(--text-primary)' }}>
             {value}
           </span>
         )}
-        {hint && <span className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>{hint}</span>}
+        {hint && <span className="text-[10px] truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>{hint}</span>}
       </div>
     </div>
   )
@@ -1570,7 +1597,7 @@ function GrupoEtapa({
             <table className="w-full min-w-[760px] table-zebra">
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['', 'Código', 'Descrição', 'Unid.', 'Qtd.', 'Unit. R$', 'Total R$', ''].map((h, i) => (
+                  {['', 'Etapa', 'Descrição', 'Unid.', 'Qtd.', 'Unit. R$', 'Total R$', ''].map((h, i) => (
                     <th key={i} className="text-left px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{h}</th>
                   ))}
                 </tr>
@@ -1600,8 +1627,8 @@ function GrupoEtapa({
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-xs font-mono whitespace-nowrap" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                          {item.codigo}
+                        <td className="px-3 py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          {nome}
                         </td>
                         <td className="px-3 py-2.5 text-sm" style={{ color: 'var(--text-primary)', maxWidth: 260 }}>
                           <span className="truncate block">{item.descricao}</span>
@@ -1645,7 +1672,7 @@ function GrupoEtapa({
                               <span style={{ color: 'var(--border)', fontSize: 10 }}>└</span>
                             </td>
                             <td className="px-3 py-2 text-xs font-mono" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                              {info.codigo}
+                              {info.codigo !== '—' ? info.codigo : ''}
                             </td>
                             <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)', maxWidth: 260 }}>
                               <span className="truncate block">{info.descricao}</span>

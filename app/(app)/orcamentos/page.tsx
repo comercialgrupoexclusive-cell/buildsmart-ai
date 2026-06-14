@@ -7,33 +7,37 @@ import { formatCurrency, formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { NovoCadastroModal } from '@/components/cadastro/NovoCadastroModal'
+
 import ServicosPage from '@/app/(app)/servicos/page'
 import SinapiPage from '@/app/(app)/sinapi/page'
 
 type OrcamentoComObra = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  nome: string | null
   tipo: string
   bdi_percentual: number
   status: string
   versao: number
   created_at: string
-  obra: { id: string; nome: string; endereco: string; status: string; foto_url: string | null }
+  obra: { id: string; nome: string; endereco: string; status: string; foto_url: string | null } | null
   total_itens: number
   valor_total: number
 }
 
 export default function OrcamentosPage() {
-  const router = useRouter()
   const supabase = createClient()
   const [orcamentos, setOrcamentos] = useState<OrcamentoComObra[]>([])
+  const [obras, setObras] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<string>('todos')
   const [aba, setAba] = useState<'orcamentos' | 'composicoes' | 'insumos' | 'base'>('orcamentos')
+  const [showNovoModal, setShowNovoModal] = useState(false)
 
   useEffect(() => {
     loadOrcamentos()
+    supabase.from('obras').select('id, nome').order('nome').then((res: { data: { id: string; nome: string }[] | null }) => setObras(res.data ?? []))
   }, [])
 
   async function loadOrcamentos() {
@@ -47,7 +51,7 @@ export default function OrcamentosPage() {
       `)
       .order('created_at', { ascending: false })
 
-    const enriched = (data || []).filter((o: any) => Boolean(o.obra)).map((o: any) => {
+    const enriched = (data || []).map((o: any) => {
       const itens = o.orcamento_itens || []
       const subtotal = itens.reduce((acc: number, i: any) => acc + (i.quantidade * i.preco_unitario_snapshot), 0)
       const valor_total = subtotal * (1 + o.bdi_percentual / 100)
@@ -111,8 +115,8 @@ export default function OrcamentosPage() {
             <option key={s} value={s}>{s === 'todos' ? 'Todos os status' : STATUS_ORC_LABEL[s]}</option>
           ))}
         </select>
-        <Button onClick={() => router.push('/obras')} icon={<Plus size={16} />}>
-          Nova Obra / Orçamento
+        <Button onClick={() => setShowNovoModal(true)} icon={<Plus size={16} />}>
+          Novo Orçamento
         </Button>
       </div>
 
@@ -126,17 +130,20 @@ export default function OrcamentosPage() {
           title="Nenhum orçamento encontrado"
           description="Crie uma nova obra para iniciar o orçamento."
           action={
-            <Button onClick={() => router.push('/obras')} icon={<Plus size={16} />}>
-              Nova Obra
+            <Button onClick={() => setShowNovoModal(true)} icon={<Plus size={16} />}>
+              Novo Orçamento
             </Button>
           }
         />
       ) : (
         <div className="flex flex-col gap-3">
-          {filtrados.map((orc, i) => (
+          {filtrados.map((orc, i) => {
+            const href = orc.obra_id ? `/obras/${orc.obra_id}?tab=orcamento` : `/cadastro`
+            const nomeExibido = orc.nome || orc.obra?.nome || `Orçamento v${orc.versao}`
+            return (
             <Link
               key={orc.id}
-              href={`/obras/${orc.obra_id}?tab=orcamento`}
+              href={href}
               className="card p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center hover:scale-[1.005] transition-transform animate-enter block"
               style={{ animationDelay: `${i * 40}ms` }}
             >
@@ -146,7 +153,7 @@ export default function OrcamentosPage() {
                 style={{ background: 'var(--bg-secondary)' }}
               >
                 {orc.obra?.foto_url ? (
-                  <img src={orc.obra.foto_url} alt={orc.obra.nome} className="w-full h-full rounded-xl object-cover" />
+                  <img src={orc.obra.foto_url} alt={nomeExibido} className="w-full h-full rounded-xl object-cover" />
                 ) : (
                   <HardHat size={24} style={{ color: 'var(--text-secondary)' }} />
                 )}
@@ -156,7 +163,7 @@ export default function OrcamentosPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                    {orc.obra?.nome || '—'}
+                    {nomeExibido}
                   </span>
                   {orc.obra?.status && (
                     <span className={`text-xs px-2 py-0.5 rounded-full border ${STATUS_OBRA_COLOR[orc.obra.status]}`}>
@@ -180,10 +187,19 @@ export default function OrcamentosPage() {
                 </p>
               </div>
             </Link>
-          ))}
+          )})}
         </div>
       )}
       </>
+      )}
+
+      {showNovoModal && (
+        <NovoCadastroModal
+          tipo="orcamento"
+          obras={obras}
+          onClose={() => setShowNovoModal(false)}
+          onCreated={loadOrcamentos}
+        />
       )}
     </div>
   )

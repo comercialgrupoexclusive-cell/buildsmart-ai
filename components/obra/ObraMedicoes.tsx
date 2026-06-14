@@ -69,26 +69,24 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
     Promise.resolve().then(() => loadDados())
   }, [obraId])
 
-  // Carrega progresso salvo localmente para esta obra
+  // Carrega progresso do Supabase para esta obra
   useEffect(() => {
     if (!obraId) return
     setProgressoLoaded(false)
-    const stored = localStorage.getItem(`bs_progresso_${obraId}`)
-    if (stored) {
-      try { setProgresso(JSON.parse(stored)) } catch { setProgresso({}) }
-    } else {
-      setProgresso({})
-    }
-    setProgressoLoaded(true)
+    supabase.from('medicao_progresso').select('chave, percentual').eq('obra_id', obraId)
+      .then(({ data }: { data: { chave: string; percentual: number }[] | null }) => {
+        const map: Record<string, number> = {}
+        ;(data ?? []).forEach((row) => { map[row.chave] = Number(row.percentual) })
+        setProgresso(map)
+        setProgressoLoaded(true)
+      })
   }, [obraId])
 
-  // Persiste progresso a cada alteração — só depois que o carregamento inicial
-  // terminou, pra não sobrescrever o valor salvo com o estado inicial vazio
-  // (corrida entre o efeito de carga e o de persistência, agravada pelo
-  // StrictMode/montagem condicional da aba)
+  // Persiste progresso no Supabase a cada alteração (upsert em lote)
   useEffect(() => {
-    if (!obraId || !progressoLoaded) return
-    localStorage.setItem(`bs_progresso_${obraId}`, JSON.stringify(progresso))
+    if (!obraId || !progressoLoaded || Object.keys(progresso).length === 0) return
+    const rows = Object.entries(progresso).map(([chave, percentual]) => ({ obra_id: obraId, chave, percentual }))
+    supabase.from('medicao_progresso').upsert(rows, { onConflict: 'obra_id,chave' })
   }, [obraId, progresso, progressoLoaded])
 
   const chaveEtapa = (etapaId: string) => `etapa:${etapaId}`
@@ -147,23 +145,19 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
       <div className="flex items-center gap-1.5 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
         <button
           onClick={() => setSubTab('medicao')}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors"
-          style={{
-            background: subTab === 'medicao' ? 'var(--bg-primary)' : 'transparent',
-            color: subTab === 'medicao' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            boxShadow: subTab === 'medicao' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
-          }}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
+          style={subTab === 'medicao'
+            ? { background: 'var(--accent)', color: 'white' }
+            : { color: 'var(--text-secondary)' }}
         >
           <ClipboardList size={15} /> Medição
         </button>
         <button
           onClick={() => setSubTab('diario')}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors"
-          style={{
-            background: subTab === 'diario' ? 'var(--bg-primary)' : 'transparent',
-            color: subTab === 'diario' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            boxShadow: subTab === 'diario' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none',
-          }}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
+          style={subTab === 'diario'
+            ? { background: 'var(--accent)', color: 'white' }
+            : { color: 'var(--text-secondary)' }}
         >
           <NotebookPen size={15} /> Diário (RDO)
         </button>
@@ -358,8 +352,8 @@ const CLIMA_INFO: Record<Clima, { label: string; icon: typeof Sun }> = {
 }
 
 function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
+  const supabase = createClient()
   const [entradas, setEntradas] = useState<DiarioEntrada[]>([])
-  const [entradasLoaded, setEntradasLoaded] = useState(false)
   const [data, setData] = useState(() => new Date().toISOString().slice(0, 10))
   const [clima, setClima] = useState<Clima>('sol')
   const [etapaId, setEtapaId] = useState('')
@@ -367,26 +361,22 @@ function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
   const [observacoes, setObservacoes] = useState('')
   const [fotos, setFotos] = useState<string[]>([])
 
-  // Carrega/persiste registros do diário desta obra (mesmo padrão de localStorage do progresso de medição).
-  // Importante: o carregamento precisa terminar (entradasLoaded=true) ANTES do efeito de
-  // persistência rodar — caso contrário ele grava `[]` (estado inicial) por cima do que já
-  // estava salvo, apagando os registros (bug "registrei um diário e ele sumiu").
+  // Carrega registros do diário do Supabase
   useEffect(() => {
     if (!obraId) return
-    setEntradasLoaded(false)
-    const stored = localStorage.getItem(`bs_diario_${obraId}`)
-    if (stored) {
-      try { setEntradas(JSON.parse(stored)) } catch { setEntradas([]) }
-    } else {
-      setEntradas([])
-    }
-    setEntradasLoaded(true)
+    supabase.from('diario_obra').select('*').eq('obra_id', obraId).order('data', { ascending: false })
+      .then(({ data: rows }: { data: { id: string; data: string; clima: string; etapa_id: string | null; atividades: string | null; observacoes: string | null; fotos: string[] | null }[] | null }) => {
+        setEntradas((rows ?? []).map((r) => ({
+          id: r.id,
+          data: r.data,
+          clima: (r.clima as Clima) ?? 'sol',
+          etapaId: r.etapa_id,
+          atividades: r.atividades ?? '',
+          observacoes: r.observacoes ?? '',
+          fotos: r.fotos ?? [],
+        })))
+      })
   }, [obraId])
-
-  useEffect(() => {
-    if (!obraId || !entradasLoaded) return
-    localStorage.setItem(`bs_diario_${obraId}`, JSON.stringify(entradas))
-  }, [obraId, entradas, entradasLoaded])
 
   function handleFotos(files: FileList | null) {
     if (!files) return
@@ -400,58 +390,57 @@ function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
   }
 
   const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [salvandoDiario, setSalvandoDiario] = useState(false)
 
-  function adicionarEntrada() {
-    // Permite registrar com apenas fotos (sem texto) — antes o registro era
-    // descartado silenciosamente se não houvesse atividades/observações.
+  function limparFormDiario() {
+    setAtividades(''); setObservacoes(''); setFotos([])
+    setData(new Date().toISOString().slice(0, 10)); setClima('sol'); setEtapaId('')
+  }
+
+  async function adicionarEntrada() {
     if (!atividades.trim() && !observacoes.trim() && fotos.length === 0) return
+    setSalvandoDiario(true)
+    const payload = {
+      obra_id: obraId, data, clima,
+      etapa_id: etapaId || null,
+      atividades: atividades.trim(),
+      observacoes: observacoes.trim(),
+      fotos,
+    }
     if (editandoId) {
+      await supabase.from('diario_obra').update(payload).eq('id', editandoId)
       setEntradas(prev => prev.map(e => e.id === editandoId
         ? { ...e, data, clima, etapaId: etapaId || null, atividades: atividades.trim(), observacoes: observacoes.trim(), fotos }
         : e))
       setEditandoId(null)
     } else {
-      const nova: DiarioEntrada = {
-        id: `diario-${Date.now()}`,
-        data,
-        clima,
-        etapaId: etapaId || null,
-        atividades: atividades.trim(),
-        observacoes: observacoes.trim(),
-        fotos,
+      const { data: nova } = await supabase.from('diario_obra').insert(payload).select().single()
+      if (nova) {
+        setEntradas(prev => [{
+          id: nova.id, data, clima, etapaId: etapaId || null,
+          atividades: atividades.trim(), observacoes: observacoes.trim(), fotos,
+        }, ...prev])
       }
-      setEntradas(prev => [nova, ...prev])
     }
-    setAtividades('')
-    setObservacoes('')
-    setFotos([])
-    setData(new Date().toISOString().slice(0, 10))
-    setClima('sol')
-    setEtapaId('')
+    limparFormDiario()
+    setSalvandoDiario(false)
   }
 
   function editarEntrada(entrada: DiarioEntrada) {
     setEditandoId(entrada.id)
-    setData(entrada.data)
-    setClima(entrada.clima)
-    setEtapaId(entrada.etapaId || '')
-    setAtividades(entrada.atividades)
-    setObservacoes(entrada.observacoes)
-    setFotos(entrada.fotos)
+    setData(entrada.data); setClima(entrada.clima)
+    setEtapaId(entrada.etapaId || ''); setAtividades(entrada.atividades)
+    setObservacoes(entrada.observacoes); setFotos(entrada.fotos)
   }
 
   function cancelarEdicao() {
     setEditandoId(null)
-    setAtividades('')
-    setObservacoes('')
-    setFotos([])
-    setData(new Date().toISOString().slice(0, 10))
-    setClima('sol')
-    setEtapaId('')
+    limparFormDiario()
   }
 
-  function removerEntrada(id: string) {
+  async function removerEntrada(id: string) {
     if (!confirm('Remover este registro do diário?')) return
+    await supabase.from('diario_obra').delete().eq('id', id)
     setEntradas(prev => prev.filter(e => e.id !== id))
     if (editandoId === id) cancelarEdicao()
   }
@@ -559,8 +548,8 @@ function DiarioObra({ obraId, etapas }: { obraId: string; etapas: Etapa[] }) {
               Cancelar edição
             </button>
           )}
-          <button onClick={adicionarEntrada} className="btn-primary flex items-center gap-2 text-sm px-4 py-2">
-            <Plus size={15} /> {editandoId ? 'Salvar alterações' : 'Registrar no diário'}
+          <button onClick={adicionarEntrada} disabled={salvandoDiario} className="btn-primary flex items-center gap-2 text-sm px-4 py-2 disabled:opacity-60">
+            <Plus size={15} /> {salvandoDiario ? 'Salvando...' : editandoId ? 'Salvar alterações' : 'Registrar no diário'}
           </button>
         </div>
       </div>

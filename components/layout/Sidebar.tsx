@@ -4,21 +4,25 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, HardHat, FileText, CalendarDays,
-  Package, ClipboardList, BotMessageSquare, BarChart3, Settings,
+  ShoppingCart, ClipboardList, BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, Briefcase,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/cadastro', label: 'Cadastro', icon: Briefcase },
+  { href: '/projetos', label: 'Projetos', icon: FolderOpen },
   { href: '/obras', label: 'Obras', icon: HardHat },
   { href: '/orcamentos', label: 'Orçamentos', icon: FileText },
   { href: '/cronograma', label: 'Cronograma', icon: CalendarDays },
-  { href: '/materiais', label: 'Materiais', icon: Package },
+  { href: '/materiais', label: 'Compras', icon: ShoppingCart },
   { href: '/medicoes', label: 'Diário / Medições', icon: ClipboardList },
+  { href: '/canteiro', label: 'Canteiro', icon: Hammer },
   { href: '/buildassist', label: 'BuildAssistente IA', icon: BotMessageSquare, featured: true },
 ]
 
+// Painel da Luiza WhatsApp fica oculto do menu — acesso direto via /admin-luiza
 const NAV_BOTTOM = [
   { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
   { href: '/configuracoes', label: 'Configurações', icon: Settings },

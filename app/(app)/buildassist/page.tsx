@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  Bot, CalendarDays, CheckCircle2, Cloud, FileSearch, FileText, Loader2,
+  Bot, CheckCircle2, Cloud, FileSearch, Loader2,
   Package, RefreshCw, Send, ShoppingCart, Upload, Users2,
 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
@@ -269,7 +269,7 @@ export default function BuildAssistPage() {
     if (ctx.arquivos.length > 0) {
       msg += `E ${ctx.arquivos.length} arquivo(s) anexado(s) à obra. `
     }
-    msg += 'Eu sou a Luizia, sua IA da obra. Posso ajudar a interpretar projetos, organizar orçamento, prever materiais, compras, avanço e próximas decisões.'
+    msg += 'Eu sou a Luiza, sua IA da obra. Posso ajudar a interpretar projetos, organizar orçamento, prever materiais, compras, avanço e próximas decisões.'
     setOpeningMsg(msg)
   }
 
@@ -333,6 +333,7 @@ export default function BuildAssistPage() {
 
     for (const file of Array.from(files)) {
       const isText = file.type.startsWith('text/') || /\.(txt|md|csv|json)$/i.test(file.name)
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
       const item: UploadedFile = {
         nome: file.name,
         tipo: file.type || 'arquivo',
@@ -342,6 +343,17 @@ export default function BuildAssistPage() {
       if (isText) {
         const text = await file.text()
         item.conteudo = text.slice(0, 12000)
+      } else if (isPdf) {
+        // Extrai o texto do PDF no servidor para a IA conseguir ler o conteúdo
+        try {
+          const fd = new FormData()
+          fd.append('file', file)
+          const res = await fetch('/api/extract-pdf', { method: 'POST', body: fd })
+          const data = await res.json()
+          if (data?.texto) {
+            item.conteudo = `[PDF ${data.paginas} pág.] ${data.texto}`.slice(0, 12000)
+          }
+        } catch { /* PDF fica só como metadata se a extração falhar */ }
       }
 
       parsed.push(item)
@@ -474,31 +486,35 @@ export default function BuildAssistPage() {
             onChange={event => handleFiles(event.target.files)}
           />
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2">
+          {/* Ações rápidas em lista suspensa — substitui o grid de cards (melhor em telas pequenas) */}
+          <div className="flex gap-2">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--bg-secondary)]"
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--bg-secondary)] flex-shrink-0"
               style={{ color: 'var(--text-primary)', border: '1px solid var(--border)' }}
             >
               <Upload size={14} style={{ color: 'var(--accent)' }} />
               Enviar projeto
             </button>
-            {[
-              { icon: FileSearch, label: 'Ler arquivos', prompt: 'Leia os arquivos anexados desta obra e resuma informações úteis para orçamento, cronograma, compras e materiais.' },
-              { icon: FileText, label: 'Ajudar orçamento', prompt: 'Com base na obra atual, sugira um caminho simples para montar ou revisar o orçamento executivo.' },
-              { icon: ShoppingCart, label: 'Planejar compras', prompt: 'Analise materiais, listas de compras e fornecedores. Sugira o que comprar primeiro e com quem consultar.' },
-              { icon: CalendarDays, label: 'Gerar previsões', prompt: 'Gere previsões objetivas de próximas etapas, materiais, compras e pontos de decisão da obra.' },
-            ].map(action => (
-              <button
-                key={action.label}
-                onClick={() => aplicarPrompt(action.prompt)}
-                className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors hover:bg-[var(--bg-secondary)]"
-                style={{ color: 'var(--text-primary)', border: '1px solid var(--border)' }}
-              >
-                <action.icon size={14} style={{ color: 'var(--accent)' }} />
-                {action.label}
-              </button>
-            ))}
+            <select
+              value=""
+              onChange={e => {
+                const acoes: Record<string, string> = {
+                  ler: 'Leia os arquivos anexados desta obra e resuma informações úteis para orçamento, cronograma, compras e materiais.',
+                  orcamento: 'Com base na obra atual, sugira um caminho simples para montar ou revisar o orçamento executivo.',
+                  compras: 'Analise materiais, listas de compras e fornecedores. Sugira o que comprar primeiro e com quem consultar.',
+                  previsoes: 'Gere previsões objetivas de próximas etapas, materiais, compras e pontos de decisão da obra.',
+                }
+                if (acoes[e.target.value]) aplicarPrompt(acoes[e.target.value])
+              }}
+              className="input-base text-xs flex-1 min-w-0"
+            >
+              <option value="">⚡ Ações rápidas...</option>
+              <option value="ler">📄 Ler arquivos</option>
+              <option value="orcamento">📋 Ajudar orçamento</option>
+              <option value="compras">🛒 Planejar compras</option>
+              <option value="previsoes">📅 Gerar previsões</option>
+            </select>
           </div>
 
           {uploadedFiles.length > 0 && (

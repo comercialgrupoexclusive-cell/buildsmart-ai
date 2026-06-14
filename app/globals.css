@@ -168,3 +168,39 @@ select optgroup {
 .input-search {
   padding-left: 2.25rem !important; /* 36px = espaço para ícone de 14px em left-3 */
 }
+
+/* ── Bordas de elementos interativos levemente mais visíveis ── */
+:root {
+  --border-interactive: #3D4464;
+}
+[data-theme="light"] {
+  --border-interactive: #B8C5D6;
+}
+
+/* Checkboxes e radios nativos */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+  outline: 1px solid var(--border-interactive);
+  outline-offset: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+input[type="checkbox"]:hover,
+input[type="radio"]:hover {
+  outline-color: var(--accent);
+}
+
+/* Caixas de seleção (.card clicável) com borda levemente mais forte */
+.card-selectable {
+  border-color: var(--border-interactive) !important;
+}
+.card-selectable:hover {
+  border-color: var(--accent) !important;
+}
+
+/* Cards padrão ganham borda levemente mais visível no hover */
+.card:hover {
+  border-color: var(--border-interactive);
+  transition: border-color 0.15s ease;
+}

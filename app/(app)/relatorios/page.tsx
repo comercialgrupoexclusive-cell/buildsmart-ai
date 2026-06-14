@@ -54,7 +54,7 @@ export default function RelatoriosPage() {
           .limit(1),
         supabase.from('etapas').select('status').eq('obra_id', obra.id),
         supabase.from('materiais').select('status_compra').eq('obra_id', obra.id),
-        supabase.from('medicoes').select('percentual_executado').eq('obra_id', obra.id).order('data_medicao', { ascending: false }).limit(1),
+        supabase.from('medicoes').select('percentual_executado').eq('obra_id', obra.id).order('periodo_inicio', { ascending: false }).limit(1),
       ])
 
       const orc = (orcRes.data || [])[0]
