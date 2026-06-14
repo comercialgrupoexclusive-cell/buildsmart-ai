@@ -380,7 +380,8 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
   const maxDate  = addDays(new Date(Math.max(...dateDates.map(d => d.getTime()))), PAD_DAY)
   const totalDays = daysBetween(minDate, maxDate)
   const PX_PER_DAY = 18
-  const timelineW = totalDays * PX_PER_DAY
+  const timelineW = Math.max(totalDays * PX_PER_DAY, 420)
+  const ganttW = LEFT_W + timelineW
 
   function xOf(dateStr: string | null, fallback: Date): number {
     return daysBetween(minDate, dateStr ? new Date(dateStr) : fallback) * PX_PER_DAY
@@ -431,7 +432,8 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-      <div className="flex" style={{ overflowX: 'auto' }}>
+      <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
+        <div className="flex" style={{ width: ganttW, minWidth: ganttW }}>
         {/* Painel esquerdo — nomes */}
         <div style={{ width: LEFT_W, minWidth: LEFT_W, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
           <div
@@ -518,7 +520,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
         </div>
 
         {/* Painel direito — SVG timeline */}
-        <div style={{ flex: 1, overflowX: 'auto' }}>
+        <div style={{ width: timelineW, minWidth: timelineW, flexShrink: 0 }}>
           <svg width={timelineW} height={svgH} style={{ display: 'block' }}>
             {/* Fundo alternado */}
             {drows.map(({ id, isProj, nivel }, idx) => (
@@ -580,6 +582,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
               )
             })}
           </svg>
+        </div>
         </div>
       </div>
     </div>

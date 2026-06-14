@@ -1304,9 +1304,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
           {selectedItem ? (
             <div className="p-3 rounded-xl flex items-start gap-3" style={{ background: 'rgba(59,123,248,0.08)', border: '1px solid rgba(59,123,248,0.25)' }}>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{selectedItem.codigo}</span>
-                  <span className="text-sm font-medium truncate" style={{ color: 'var(--accent)' }}>{selectedItem.descricao}</span>
+                <div className="flex items-start gap-2 mb-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--accent)' }}>{selectedItem.descricao}</p>
+                    <p className="text-xs font-mono truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{selectedItem.codigo}</p>
+                  </div>
                   {getItemCost(selectedItem) > 0 && (
                     <span className="text-xs ml-auto flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
                       {formatCurrency(getItemCost(selectedItem))}/{selectedItem.unidade}
@@ -1361,15 +1363,19 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                 listaFiltrada.slice(0, 60).map(c => (
                   <button key={c.id}
                     onClick={() => { setSelectedItem(c); setBusca(''); setTimeout(() => qtdInputRef.current?.focus(), 60) }}
-                    className="flex items-center gap-3 p-3 rounded-lg text-left transition-colors hover:bg-[var(--bg-secondary)]"
+                    className="flex items-start gap-3 p-3 rounded-lg text-left transition-colors hover:bg-[var(--bg-secondary)]"
                     style={{ border: '1px solid transparent' }}
                   >
-                    <span className="text-xs font-mono flex-shrink-0 w-20 truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{c.codigo}</span>
-                    <span className="text-sm flex-1 truncate" style={{ color: 'var(--text-primary)' }}>{c.descricao}</span>
-                    <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>{c.unidade}</span>
-                    {getItemCost(c) > 0 && (
-                      <span className="text-xs font-semibold flex-shrink-0" style={{ color: 'var(--accent)' }}>{formatCurrency(getItemCost(c))}</span>
-                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{c.descricao}</p>
+                      <p className="text-xs font-mono truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{c.codigo}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{c.unidade}</span>
+                      {getItemCost(c) > 0 && (
+                        <span className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>{formatCurrency(getItemCost(c))}</span>
+                      )}
+                    </div>
                   </button>
                 ))
               )}
