@@ -48,6 +48,7 @@ function shortDate(value: string | null | undefined) {
 }
 
 const ZOOM_LABELS: Record<ZoomLevel, string> = { '3m': '3 meses', '6m': '6 meses', '12m': '12 meses' }
+const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const ZOOM_SPAN:  Record<ZoomLevel, number>  = { '3m': 3, '6m': 6, '12m': 12 }
 
 export function CronogramaGantt({
@@ -75,7 +76,7 @@ export function CronogramaGantt({
       const mesFim = Math.min(totalDias - 1, dayDiff(mesEnd, ganttStart))
       result.push({
         id: `${cursor.getFullYear()}-${cursor.getMonth()}`,
-        label: cursor.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''),
+        label: `${MONTH_NAMES[cursor.getMonth()]} ${String(cursor.getFullYear()).slice(2)}`,
         pctStart: (mesStart / totalDias) * 100,
         pctWidth: ((mesFim - mesStart + 1) / totalDias) * 100,
       })
@@ -98,7 +99,13 @@ export function CronogramaGantt({
 
   const hojePercent = (dayDiff(hoje, ganttStart) / totalDias) * 100
 
-  if (etapasComData.length === 0) return null
+  if (etapasComData.length === 0) return (
+    <div className="card p-8 flex flex-col items-center gap-2 text-center">
+      <Calendar size={28} style={{ color: 'var(--text-secondary)', opacity: 0.4 }} />
+      <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Nenhuma etapa com datas definidas</p>
+      <p className="text-xs" style={{ color: 'var(--text-secondary)', opacity: 0.6 }}>Adicione data de início e término nas etapas para visualizar o Gantt.</p>
+    </div>
+  )
 
   return (
     <div className="card p-5 overflow-hidden">

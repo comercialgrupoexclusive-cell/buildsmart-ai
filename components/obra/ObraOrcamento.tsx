@@ -1597,7 +1597,7 @@ function GrupoEtapa({
             <table className="w-full min-w-[760px] table-zebra">
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['', 'Código', 'Descrição', 'Unid.', 'Qtd.', 'Unit. R$', 'Total R$', ''].map((h, i) => (
+                  {['', 'Etapa', 'Descrição', 'Unid.', 'Qtd.', 'Unit. R$', 'Total R$', ''].map((h, i) => (
                     <th key={i} className="text-left px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{h}</th>
                   ))}
                 </tr>
@@ -1627,8 +1627,8 @@ function GrupoEtapa({
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-xs font-mono whitespace-nowrap" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                          {item.codigo}
+                        <td className="px-3 py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          {nome}
                         </td>
                         <td className="px-3 py-2.5 text-sm" style={{ color: 'var(--text-primary)', maxWidth: 260 }}>
                           <span className="truncate block">{item.descricao}</span>
@@ -1672,7 +1672,7 @@ function GrupoEtapa({
                               <span style={{ color: 'var(--border)', fontSize: 10 }}>└</span>
                             </td>
                             <td className="px-3 py-2 text-xs font-mono" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                              {info.codigo}
+                              {info.codigo !== '—' ? info.codigo : ''}
                             </td>
                             <td className="px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)', maxWidth: 260 }}>
                               <span className="truncate block">{info.descricao}</span>

@@ -338,6 +338,9 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
           onEditSub={openEditSub}
           onEditEtapa={openEditEtapa}
           onNewSub={openNewSub}
+          editField={editField}
+          onSetEditField={setEditField}
+          onUpdateDate={updateDateInline}
         />
       ) : tab === 'cascata' ? (
         /* ── CASCATA ── */
@@ -690,7 +693,7 @@ const KANBAN_COLS = [
 
 type KStatus = typeof KANBAN_COLS[number]['key']
 
-function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdatePct, onEditSub, onEditEtapa, onNewSub }: {
+function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdatePct, onEditSub, onEditEtapa, onNewSub, editField, onSetEditField, onUpdateDate }: {
   etapas: Etapa[]
   subetapas: SubetapaCronograma[]
   servicos: ServicoCronograma[]
@@ -699,6 +702,9 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
   onEditSub: (sub: SubetapaCronograma) => void
   onEditEtapa: (etapa: Etapa) => void
   onNewSub: (etapaId: string) => void
+  editField: EditField
+  onSetEditField: (f: EditField) => void
+  onUpdateDate: (table: 'etapas' | 'subetapas_cronograma' | 'servicos_cronograma', id: string, field: 'data_inicio' | 'data_fim', value: string) => void
 }) {
   // Agrupar subetapas por status; etapas sem subetapas também aparecem
   const byStatus: Record<KStatus, { type: 'etapa'; item: Etapa; subsCount: number }[] | { type: 'sub'; item: SubetapaCronograma; etapaNome: string }[]> = {
@@ -755,11 +761,21 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
                   <div key={etapa.id} className="card p-3 flex flex-col gap-2 hover:shadow-md transition-shadow">
                     <span className="text-[10px] px-1.5 py-0.5 rounded w-fit font-medium" style={{ background: 'rgba(59,123,248,0.12)', color: 'var(--accent)' }}>Etapa</span>
                     <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
-                    {(etapa.data_inicio || etapa.data_fim) && (
-                      <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-                        {fmtBR(etapa.data_inicio) ?? '—'} → {fmtBR(etapa.data_fim) ?? '—'}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-1">
+                      <DateCell
+                        value={etapa.data_inicio}
+                        isEditing={editField?.id === etapa.id && editField.field === 'data_inicio'}
+                        onStartEdit={() => onSetEditField({ id: etapa.id, table: 'etapas', field: 'data_inicio' })}
+                        onCommit={v => onUpdateDate('etapas', etapa.id, 'data_inicio', v)}
+                      />
+                      <span className="text-[10px] opacity-30" style={{ color: 'var(--text-secondary)' }}>→</span>
+                      <DateCell
+                        value={etapa.data_fim}
+                        isEditing={editField?.id === etapa.id && editField.field === 'data_fim'}
+                        onStartEdit={() => onSetEditField({ id: etapa.id, table: 'etapas', field: 'data_fim' })}
+                        onCommit={v => onUpdateDate('etapas', etapa.id, 'data_fim', v)}
+                      />
+                    </div>
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
                         <div className="h-full rounded-full" style={{ width: `${prog}%`, background: prog >= 100 ? '#10b981' : 'var(--accent)' }} />
@@ -790,11 +806,21 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
                     </span>
                   )}
                   <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{sub.nome}</span>
-                  {(sub.data_inicio || sub.data_fim) && (
-                    <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-                      {fmtBR(sub.data_inicio) ?? '—'} → {fmtBR(sub.data_fim) ?? '—'}
-                    </p>
-                  )}
+                  <div className="flex items-center gap-1">
+                    <DateCell
+                      value={sub.data_inicio}
+                      isEditing={editField?.id === sub.id && editField.field === 'data_inicio'}
+                      onStartEdit={() => onSetEditField({ id: sub.id, table: 'subetapas_cronograma', field: 'data_inicio' })}
+                      onCommit={v => onUpdateDate('subetapas_cronograma', sub.id, 'data_inicio', v)}
+                    />
+                    <span className="text-[10px] opacity-30" style={{ color: 'var(--text-secondary)' }}>→</span>
+                    <DateCell
+                      value={sub.data_fim}
+                      isEditing={editField?.id === sub.id && editField.field === 'data_fim'}
+                      onStartEdit={() => onSetEditField({ id: sub.id, table: 'subetapas_cronograma', field: 'data_fim' })}
+                      onCommit={v => onUpdateDate('subetapas_cronograma', sub.id, 'data_fim', v)}
+                    />
+                  </div>
                   {sub.responsavel && (
                     <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>👷 {sub.responsavel}</p>
                   )}
