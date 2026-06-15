@@ -21,7 +21,10 @@
     "recharts": "^3.8.1",
     "unpdf": "^1.6.2",
     "xlsx": "^0.18.5",
-    "googleapis": "^144.0.0"
+    "googleapis": "^144.0.0",
+    "pdfjs-dist": "^4.0.379",
+    "fabric": "^5.3.0",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@swc/helpers": "^0.5.23",
