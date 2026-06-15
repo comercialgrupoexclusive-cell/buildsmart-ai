@@ -256,6 +256,7 @@ export function createLocalSeed(): LocalDatabase {
       responsavel: 'Eng. Teste Local',
       area_m2: 84,
       uf: 'SP',
+      proprietario_id: null,
       created_at: now,
     }, {
       id: obraId2,
@@ -268,6 +269,7 @@ export function createLocalSeed(): LocalDatabase {
       responsavel: 'Eng. Teste Local 2',
       area_m2: 60,
       uf: 'SP',
+      proprietario_id: null,
       created_at: now,
     }],
     orcamentos: [{
