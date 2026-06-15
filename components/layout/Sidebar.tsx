@@ -13,7 +13,7 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/cadastro', label: 'Cadastro', icon: Briefcase },
   { href: '/projetos', label: 'Projetos', icon: FolderOpen },
-  { href: '/clientes', label: 'Clientes', icon: Users },
+  { href: '/clientes', label: 'Contatos', icon: Users },
   { href: '/obras', label: 'Obras', icon: HardHat },
   { href: '/orcamentos', label: 'Orçamentos', icon: FileText },
   { href: '/cronograma', label: 'Cronograma', icon: CalendarDays },

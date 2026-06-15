@@ -16,6 +16,28 @@ export type Profile = {
   created_at: string
 }
 
+// ─── Responsável Técnico (monitora pasta no Drive) ───────────────────────────
+export type Responsavel = {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+  drive_folder_url: string | null
+  drive_folder_id: string | null
+  notes: string | null
+  created_at: string
+}
+
+// ─── Proprietário (dono da obra/projeto) ─────────────────────────────────────
+export type Proprietario = {
+  id: string
+  name: string
+  phone: string | null
+  email: string | null
+  notes: string | null
+  created_at: string
+}
+
 // ─── Vínculo Obra ↔ Usuário ───────────────────────────────────────────────────
 export type ObraUsuario = {
   obra_id: string
@@ -37,6 +59,7 @@ export type Obra = {
   responsavel: string | null
   area_m2: number | null
   uf: string                   // CHAR(2): AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA, PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO
+  proprietario_id: string | null
   created_at: string
 }
 

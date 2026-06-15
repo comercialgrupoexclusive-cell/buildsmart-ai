@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, HardHat, MapPin, Calendar, Search, AlertTriangle, User, Camera, Loader2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { Obra, SINAPI_UFS } from '@/lib/types'
+import { Obra, Proprietario, SINAPI_UFS } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -21,6 +21,7 @@ export default function ObrasPage() {
   const supabase = createClient()
   const [obras, setObras] = useState<ObraComAvanco[]>([])
   const [usuarios, setUsuarios] = useState<{ id: string; name: string }[]>([])
+  const [proprietarios, setProprietarios] = useState<Proprietario[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState('ativa')
   const [busca, setBusca] = useState('')
@@ -36,6 +37,7 @@ export default function ObrasPage() {
     foto_url: '',
     area_m2: '',
     uf: 'SP',
+    proprietario_id: '',
   })
 
   useEffect(() => { loadObras() }, [])
@@ -79,12 +81,13 @@ export default function ObrasPage() {
 
   async function loadObras() {
     setLoading(true)
-    const [{ data }, { data: profs }] = await Promise.all([
+    const [{ data }, { data: profs }, { data: props }] = await Promise.all([
       supabase.from('obras').select('*').order('created_at', { ascending: false }),
-      // Lista dinâmica de usuários do sistema para o campo "Responsável pela obra"
       supabase.from('profiles').select('id,name').order('name'),
+      supabase.from('proprietarios').select('id,name,phone,email').order('name'),
     ])
     setUsuarios((profs || []) as { id: string; name: string }[])
+    setProprietarios((props || []) as Proprietario[])
     const lista = (data || []) as Obra[]
 
     // Avanço físico: última medição registrada de cada obra
@@ -118,6 +121,7 @@ export default function ObrasPage() {
         area_m2: form.area_m2 ? parseFloat(form.area_m2) : null,
         uf: form.uf,
         status: 'orcamento',
+        proprietario_id: form.proprietario_id || null,
       })
       .select()
       .single()
@@ -140,7 +144,7 @@ export default function ObrasPage() {
   }
 
   function resetForm() {
-    setForm({ nome: '', endereco: '', responsavel: '', data_inicio: '', data_previsao: '', foto_url: '', area_m2: '', uf: 'SP' })
+    setForm({ nome: '', endereco: '', responsavel: '', data_inicio: '', data_previsao: '', foto_url: '', area_m2: '', uf: 'SP', proprietario_id: '' })
   }
 
   const obrasFiltradas = obras.filter(o => {
@@ -257,6 +261,26 @@ export default function ObrasPage() {
                 <option key={uf} value={uf}>{uf}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+              Proprietário
+            </label>
+            <select
+              value={form.proprietario_id}
+              onChange={e => setForm(f => ({ ...f, proprietario_id: e.target.value }))}
+              className="input-base"
+            >
+              <option value="">— Selecionar proprietário —</option>
+              {proprietarios.map(p => (
+                <option key={p.id} value={p.id}>{p.name}{p.phone ? ` · ${p.phone}` : ''}</option>
+              ))}
+            </select>
+            {proprietarios.length === 0 && (
+              <p className="text-xs mt-1 opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                Nenhum proprietário cadastrado — acesse Contatos para cadastrar.
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Input

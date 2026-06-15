@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Plus, FolderOpen, Search, MoreVertical, Calendar, Link2, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
-import type { Profile } from '@/lib/types'
+import type { Profile, Proprietario } from '@/lib/types'
 
 type Projeto = {
   id: string
@@ -54,6 +54,7 @@ export default function ProjetosPage() {
   const [projetos, setProjetos] = useState<Projeto[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [proprietarios, setProprietarios] = useState<Proprietario[]>([])
   const [projetoStats, setProjetoStats] = useState<Record<string, { total: number; done: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -67,15 +68,17 @@ export default function ProjetosPage() {
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    const [{ data: p }, { data: t }, { data: profs }, { data: statsData }] = await Promise.all([
+    const [{ data: p }, { data: t }, { data: profs }, { data: statsData }, { data: props }] = await Promise.all([
       supabase.from('projetos').select('*').order('created_at', { ascending: false }),
       supabase.from('projeto_templates').select('*').order('nome'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
       supabase.from('projeto_itens').select('projeto_id, concluido'),
+      supabase.from('proprietarios').select('id, name, phone').order('name'),
     ])
     setProjetos(p ?? [])
     setTemplates((t ?? []) as Template[])
     setProfiles((profs ?? []) as Profile[])
+    setProprietarios((props ?? []) as Proprietario[])
 
     const statsMap: Record<string, { total: number; done: number }> = {}
     for (const item of statsData ?? []) {
@@ -354,8 +357,22 @@ export default function ProjetosPage() {
                   onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
                 />
               </Field>
-              <Field label="Cliente">
-                <input className="input-base" placeholder="Nome do cliente" value={form.cliente} onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))} />
+              <Field label="Proprietário">
+                <select
+                  className="input-base"
+                  value={form.cliente}
+                  onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))}
+                >
+                  <option value="">— Selecionar ou deixar em branco —</option>
+                  {proprietarios.map(p => (
+                    <option key={p.id} value={p.name}>{p.name}{p.phone ? ` · ${p.phone}` : ''}</option>
+                  ))}
+                </select>
+                {proprietarios.length === 0 && (
+                  <p className="text-xs mt-1 opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                    Cadastre proprietários em Contatos para usar esta lista.
+                  </p>
+                )}
               </Field>
               <Field label="Endereço">
                 <input className="input-base" placeholder="Rua, cidade..." value={form.endereco} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} />
