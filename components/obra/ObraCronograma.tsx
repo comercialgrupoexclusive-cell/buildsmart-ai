@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { CronogramaGantt } from '@/components/obra/CronogramaGantt'
 
 type Tab = 'kanban' | 'cascata' | 'gantt'
 
@@ -532,7 +531,13 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
         </div>
       ) : (
         /* ── GANTT ── */
-        <CronogramaGantt etapas={etapas} subetapas={subetapas} />
+        <ObraGanttView
+          etapas={etapas}
+          subetapas={subetapas}
+          servicos={servicos}
+          onUpdateDate={updateDateInline}
+          onUpdatePct={updatePct}
+        />
       )}
 
       {/* ── Modal Etapa ── */}
@@ -736,11 +741,11 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
   })
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:overflow-visible sm:pb-0">
       {KANBAN_COLS.map(col => {
         const cards = byStatus[col.key] as ({ type: 'etapa'; item: Etapa; subsCount: number } | { type: 'sub'; item: SubetapaCronograma; etapaNome: string })[]
         return (
-          <div key={col.key} className="flex flex-col gap-2 min-h-[120px]">
+          <div key={col.key} className="flex flex-col gap-2 min-h-[120px] min-w-[78vw] max-w-[78vw] snap-start sm:min-w-0 sm:max-w-none">
             {/* Header */}
             <div className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ background: col.bg }}>
               <div className="flex items-center gap-1.5">
@@ -853,17 +858,375 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
 function StatusButtons({ current, onMove }: { current: KStatus; onMove: (s: KStatus) => void }) {
   const opts = KANBAN_COLS.filter(c => c.key !== current).slice(0, 2)
   return (
-    <div className="flex gap-1 flex-wrap border-t pt-1.5" style={{ borderColor: 'var(--border)' }}>
+    <div className="flex gap-1.5 flex-wrap border-t pt-2" style={{ borderColor: 'var(--border)' }}>
       {opts.map(opt => (
         <button
           key={opt.key}
           onClick={() => onMove(opt.key)}
-          className="text-[9px] px-1.5 py-0.5 rounded border transition-colors hover:opacity-80"
+          className="text-[11px] sm:text-[9px] px-2 py-1.5 sm:px-1.5 sm:py-0.5 rounded border transition-colors hover:opacity-80 flex-1 sm:flex-none text-center"
           style={{ borderColor: opt.color + '55', color: opt.color }}
         >
           → {opt.label}
         </button>
       ))}
+    </div>
+  )
+}
+
+// ── Gantt no padrão do Gantt de projetos ─────────────────────────────────────
+type ObraGanttTable = 'etapas' | 'subetapas_cronograma' | 'servicos_cronograma'
+type ObraGanttNode = {
+  id: string
+  nome: string
+  table: ObraGanttTable
+  nivel: 1 | 2 | 3
+  data_inicio: string | null
+  data_fim: string | null
+  percentual_executado: number
+  status?: Etapa['status'] | SubetapaCronograma['status']
+  responsavel?: string | null
+  children: ObraGanttNode[]
+}
+
+type GanttEff = { inicio: string | null; fim: string | null; pct: number }
+
+const GANTT_ROW_H = 52
+const GANTT_HDR_H = 48
+const GANTT_LEFT_W = 250
+const GANTT_PAD_DAYS = 10
+const GANTT_MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+const GANTT_COLORS = ['#3B7BF8', '#8B5CF6', '#10B981', '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#F97316']
+
+function addDaysCrono(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r }
+function daysBetweenCrono(a: Date, b: Date) { return Math.round((a.getTime() - b.getTime()) / 86400000) }
+function startOfMonthCrono(d: Date) { return new Date(d.getFullYear(), d.getMonth(), 1) }
+function fmtGanttDate(v: string | null | undefined) { return fmtBR(v) ?? '--' }
+
+function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], servicos: ServicoCronograma[]) {
+  return etapas.map(etapa => {
+    const subs = subetapas
+      .filter(sub => sub.etapa_id === etapa.id)
+      .sort((a, b) => a.ordem - b.ordem)
+      .map(sub => ({
+        id: sub.id,
+        nome: sub.nome,
+        table: 'subetapas_cronograma' as const,
+        nivel: 2 as const,
+        data_inicio: sub.data_inicio,
+        data_fim: sub.data_fim,
+        percentual_executado: sub.percentual_executado ?? 0,
+        status: sub.status,
+        responsavel: sub.responsavel,
+        children: servicos
+          .filter(svc => svc.subetapa_id === sub.id)
+          .sort((a, b) => a.ordem - b.ordem)
+          .map(svc => ({
+            id: svc.id,
+            nome: svc.nome,
+            table: 'servicos_cronograma' as const,
+            nivel: 3 as const,
+            data_inicio: svc.data_inicio,
+            data_fim: svc.data_fim,
+            percentual_executado: svc.percentual_executado ?? 0,
+            responsavel: svc.responsavel,
+            children: [],
+          })),
+      }))
+
+    return {
+      id: etapa.id,
+      nome: etapa.nome,
+      table: 'etapas' as const,
+      nivel: 1 as const,
+      data_inicio: etapa.data_inicio,
+      data_fim: etapa.data_fim,
+      percentual_executado: etapa.percentual_executado ?? 0,
+      status: etapa.status,
+      children: subs,
+    }
+  })
+}
+
+function rollupObraGantt(node: ObraGanttNode, map: Map<string, GanttEff>): GanttEff {
+  if (node.children.length === 0) {
+    const eff = { inicio: node.data_inicio, fim: node.data_fim, pct: node.percentual_executado ?? 0 }
+    map.set(node.id, eff)
+    return eff
+  }
+
+  const childEffs = node.children.map(child => rollupObraGantt(child, map))
+  const inicios = childEffs.map(e => e.inicio).filter(Boolean) as string[]
+  const fims = childEffs.map(e => e.fim).filter(Boolean) as string[]
+  const pct = childEffs.length
+    ? Math.round(childEffs.reduce((sum, e) => sum + e.pct, 0) / childEffs.length)
+    : node.percentual_executado ?? 0
+  const eff = {
+    inicio: inicios.length ? inicios.reduce((a, b) => (a < b ? a : b)) : node.data_inicio,
+    fim: fims.length ? fims.reduce((a, b) => (a > b ? a : b)) : node.data_fim,
+    pct,
+  }
+  map.set(node.id, eff)
+  return eff
+}
+
+function ObraGanttView({
+  etapas,
+  subetapas,
+  servicos,
+  onUpdateDate,
+  onUpdatePct,
+}: {
+  etapas: Etapa[]
+  subetapas: SubetapaCronograma[]
+  servicos: ServicoCronograma[]
+  onUpdateDate: (table: ObraGanttTable, id: string, field: 'data_inicio' | 'data_fim', value: string) => void
+  onUpdatePct: (table: ObraGanttTable, id: string, pct: number) => void
+}) {
+  const tree = buildObraGanttTree(etapas, subetapas, servicos)
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(tree.flatMap(etapa => [etapa.id, ...etapa.children.map(sub => sub.id)]))
+  )
+  const today = new Date()
+
+  const effMap = new Map<string, GanttEff>()
+  tree.forEach(node => rollupObraGantt(node, effMap))
+
+  const rootEffs = tree.map(node => effMap.get(node.id)).filter(Boolean) as GanttEff[]
+  const totalInicios = rootEffs.map(e => e.inicio).filter((v): v is string => Boolean(v))
+  const totalFims = rootEffs.map(e => e.fim).filter((v): v is string => Boolean(v))
+  const totalInicio = totalInicios.reduce<string | null>((acc, v) => !acc || v < acc ? v : acc, null)
+  const totalFim = totalFims.reduce<string | null>((acc, v) => !acc || v > acc ? v : acc, null)
+  const totalPct = rootEffs.length ? Math.round(rootEffs.reduce((sum, e) => sum + e.pct, 0) / rootEffs.length) : 0
+
+  const allDates = [
+    ...etapas.flatMap(e => [e.data_inicio, e.data_fim]),
+    ...subetapas.flatMap(s => [s.data_inicio, s.data_fim]),
+    ...servicos.flatMap(s => [s.data_inicio, s.data_fim]),
+  ].filter(Boolean) as string[]
+
+  if (allDates.length === 0) {
+    return (
+      <div className="text-center py-16 rounded-xl border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+        <p className="text-sm font-medium">Nenhum periodo definido</p>
+        <p className="text-xs mt-1 opacity-60">Defina inicio e fim nas etapas para visualizar o Gantt.</p>
+      </div>
+    )
+  }
+
+  const dates = allDates.map(d => new Date(`${d}T12:00:00`))
+  const minDate = addDaysCrono(new Date(Math.min(...dates.map(d => d.getTime()))), -GANTT_PAD_DAYS)
+  const maxDate = addDaysCrono(new Date(Math.max(...dates.map(d => d.getTime()))), GANTT_PAD_DAYS)
+  const totalDays = Math.max(1, daysBetweenCrono(maxDate, minDate))
+  const pxPerDay = 18
+  const timelineW = Math.max(totalDays * pxPerDay, 460)
+  const ganttW = GANTT_LEFT_W + timelineW
+  const todayX = daysBetweenCrono(today, minDate) * pxPerDay
+
+  const nodeColorMap = new Map<string, string>()
+  tree.forEach((etapa, idx) => {
+    const color = GANTT_COLORS[idx % GANTT_COLORS.length]
+    function assign(node: ObraGanttNode) {
+      nodeColorMap.set(node.id, color)
+      node.children.forEach(assign)
+    }
+    assign(etapa)
+  })
+
+  function visibleRows(nodes: ObraGanttNode[], depth = 0): { node: ObraGanttNode; depth: number; eff: GanttEff }[] {
+    return nodes.flatMap(node => {
+      const own = [{ node, depth, eff: effMap.get(node.id) ?? { inicio: node.data_inicio, fim: node.data_fim, pct: node.percentual_executado ?? 0 } }]
+      return collapsed.has(node.id) ? own : [...own, ...visibleRows(node.children, depth + 1)]
+    })
+  }
+
+  const rows = [
+    { id: '__total__', nome: 'Obra (total)', depth: 0, isTotal: true, node: null as ObraGanttNode | null, inicio: totalInicio, fim: totalFim, pct: totalPct, hasKids: false },
+    ...visibleRows(tree).map(({ node, depth, eff }) => ({
+      id: node.id,
+      nome: node.nome,
+      depth: depth + 1,
+      isTotal: false,
+      node,
+      inicio: eff.inicio,
+      fim: eff.fim,
+      pct: eff.pct,
+      hasKids: node.children.length > 0,
+    })),
+  ]
+
+  const svgH = GANTT_HDR_H + rows.length * GANTT_ROW_H + 4
+  const months: { label: string; x: number; w: number }[] = []
+  let cursor = startOfMonthCrono(minDate)
+  while (cursor <= maxDate) {
+    const next = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
+    const x = Math.max(0, daysBetweenCrono(cursor, minDate) * pxPerDay)
+    const w = Math.min(timelineW - x, daysBetweenCrono(next, cursor) * pxPerDay)
+    if (w > 0) months.push({ label: `${GANTT_MONTHS[cursor.getMonth()]}/${String(cursor.getFullYear()).slice(2)}`, x, w })
+    cursor = next
+  }
+
+  function xOf(dateStr: string | null, fallback: Date) {
+    return daysBetweenCrono(dateStr ? new Date(`${dateStr}T12:00:00`) : fallback, minDate) * pxPerDay
+  }
+
+  function toggleRow(id: string) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+      <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
+        <div className="flex" style={{ width: ganttW, minWidth: ganttW }}>
+          <div style={{ width: GANTT_LEFT_W, minWidth: GANTT_LEFT_W, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
+            <div className="flex items-end px-3 pb-2 text-xs font-semibold" style={{ height: GANTT_HDR_H, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>
+              Item
+            </div>
+            {rows.map(row => {
+              const node = row.node
+              const isCollapsed = collapsed.has(row.id)
+              const atrasado = !!(row.fim && row.pct < 100 && new Date(`${row.fim}T12:00:00`) < today)
+              return (
+                <div
+                  key={row.id}
+                  className="flex flex-col justify-center border-b"
+                  style={{
+                    height: GANTT_ROW_H,
+                    paddingLeft: 8 + row.depth * 14,
+                    paddingRight: 8,
+                    borderColor: 'var(--border)',
+                    background: row.isTotal ? 'rgba(59,123,248,0.08)' : node?.nivel === 1 ? 'rgba(59,123,248,0.04)' : 'transparent',
+                  }}
+                >
+                  <div className="flex items-center gap-1">
+                    {row.hasKids && node ? (
+                      <button
+                        onClick={() => toggleRow(node.id)}
+                        className="text-[10px] w-4 h-4 flex items-center justify-center flex-shrink-0 rounded"
+                        style={{ color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}
+                      >
+                        {isCollapsed ? '>' : 'v'}
+                      </button>
+                    ) : (
+                      <span className="w-4 flex-shrink-0" />
+                    )}
+                    <span
+                      className="text-xs truncate flex-1"
+                      style={{
+                        color: row.isTotal || node?.nivel === 1 ? 'var(--accent)' : 'var(--text-primary)',
+                        fontWeight: row.isTotal ? 700 : node?.nivel === 1 ? 600 : 400,
+                      }}
+                      title={row.nome}
+                    >
+                      {row.nome}
+                    </span>
+                    {atrasado && <span className="text-[9px] flex-shrink-0" style={{ color: '#EF4444' }}>!</span>}
+                  </div>
+
+                  <div className="flex items-center gap-1 pl-5">
+                    {!row.isTotal && node ? (
+                      <>
+                        <input
+                          type="date"
+                          value={node.data_inicio ?? ''}
+                          className="text-[10px] rounded border px-1 py-0.5"
+                          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-secondary)', width: 78 }}
+                          onChange={e => onUpdateDate(node.table, node.id, 'data_inicio', e.target.value)}
+                        />
+                        <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>-&gt;</span>
+                        <input
+                          type="date"
+                          value={node.data_fim ?? ''}
+                          className="text-[10px] rounded border px-1 py-0.5"
+                          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-secondary)', width: 78 }}
+                          onChange={e => onUpdateDate(node.table, node.id, 'data_fim', e.target.value)}
+                        />
+                      </>
+                    ) : (
+                      <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                        {fmtGanttDate(row.inicio)} -&gt; {fmtGanttDate(row.fim)}
+                      </span>
+                    )}
+                    {!row.isTotal && node && (
+                      <PctInput value={node.percentual_executado ?? 0} onChange={v => onUpdatePct(node.table, node.id, v)} small />
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div style={{ width: timelineW, minWidth: timelineW, flexShrink: 0 }}>
+            <svg width={timelineW} height={svgH} style={{ display: 'block' }}>
+              {rows.map((row, idx) => (
+                <rect
+                  key={row.id}
+                  x={0}
+                  y={GANTT_HDR_H + idx * GANTT_ROW_H}
+                  width={timelineW}
+                  height={GANTT_ROW_H}
+                  fill={row.isTotal ? 'rgba(59,123,248,0.06)' : row.node?.nivel === 1 ? 'rgba(59,123,248,0.04)' : idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'}
+                />
+              ))}
+
+              {months.map((m, i) => (
+                <g key={i}>
+                  <rect x={m.x} y={0} width={m.w} height={GANTT_HDR_H} fill={i % 2 === 0 ? 'rgba(59,123,248,0.04)' : 'transparent'} />
+                  <text x={m.x + m.w / 2} y={GANTT_HDR_H / 2 + 5} textAnchor="middle" fontSize={10} fill="var(--text-secondary)" fontFamily="var(--font-sans)">{m.label}</text>
+                  <line x1={m.x} y1={0} x2={m.x} y2={svgH} stroke="var(--border)" strokeWidth={0.5} />
+                </g>
+              ))}
+
+              <line x1={0} y1={GANTT_HDR_H} x2={timelineW} y2={GANTT_HDR_H} stroke="var(--border)" strokeWidth={1} />
+
+              {todayX >= 0 && todayX <= timelineW && (
+                <g>
+                  <line x1={todayX} y1={GANTT_HDR_H} x2={todayX} y2={svgH} stroke="#3B7BF8" strokeWidth={1.5} strokeDasharray="4 3" />
+                  <rect x={todayX - 18} y={GANTT_HDR_H - 18} width={36} height={15} rx={4} fill="#3B7BF8" />
+                  <text x={todayX} y={GANTT_HDR_H - 7} textAnchor="middle" fontSize={8} fill="white" fontFamily="var(--font-sans)">hoje</text>
+                </g>
+              )}
+
+              {rows.map((row, idx) => {
+                if (!row.inicio && !row.fim) return null
+                const y = GANTT_HDR_H + idx * GANTT_ROW_H
+                const barH = GANTT_ROW_H - 18
+                const barY = y + 9
+                const x1 = xOf(row.inicio, row.fim ? addDaysCrono(new Date(`${row.fim}T12:00:00`), -1) : today)
+                const x2 = xOf(row.fim, row.inicio ? addDaysCrono(new Date(`${row.inicio}T12:00:00`), 1) : today)
+                const barW = Math.max(x2 - x1, 8)
+                const pct = Math.min(100, Math.max(0, row.pct ?? 0))
+                const atrasado = !!(row.fim && pct < 100 && new Date(`${row.fim}T12:00:00`) < today)
+                const baseColor = row.isTotal ? '#1D4ED8' : (row.node ? nodeColorMap.get(row.node.id) : '#3B7BF8') ?? '#3B7BF8'
+                const color = pct >= 100 ? '#10B981' : atrasado ? '#EF4444' : baseColor
+                const opacity = row.isTotal || row.node?.nivel === 1 ? 1 : row.node?.nivel === 2 ? 0.75 : 0.55
+
+                return (
+                  <g key={row.id} opacity={opacity}>
+                    <rect x={x1} y={barY} width={barW} height={barH} rx={row.isTotal ? 3 : barH / 2} fill={color} />
+                    {pct > 0 && pct < 100 && (
+                      <rect x={x1} y={barY} width={Math.max(2, barW * pct / 100)} height={barH} rx={row.isTotal ? 3 : barH / 2} fill="rgba(0,0,0,0.25)" />
+                    )}
+                    {row.isTotal && barW > 90 ? (
+                      <text x={x1 + barW / 2} y={barY + barH / 2 + 3.5} textAnchor="middle" fontSize={9} fill="white" fontFamily="var(--font-sans)" style={{ pointerEvents: 'none' }}>
+                        {fmtGanttDate(row.inicio)} - {fmtGanttDate(row.fim)}
+                      </text>
+                    ) : row.fim && (
+                      <text x={x2 + 4} y={barY + barH / 2 + 3.5} fontSize={8} fill={atrasado ? '#EF4444' : 'var(--text-secondary)'} fontFamily="var(--font-sans)">
+                        {fmtGanttDate(row.fim)}
+                      </text>
+                    )}
+                  </g>
+                )
+              })}
+            </svg>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
