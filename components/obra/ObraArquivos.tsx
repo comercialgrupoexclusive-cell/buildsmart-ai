@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BotMessageSquare, FileText, ImageIcon, Upload, X } from 'lucide-react'
 import Link from 'next/link'
 import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
+import { createClient } from '@/lib/supabase/client'
 
 type ArquivoObra = {
   id: string
@@ -49,7 +50,24 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
 
   useEffect(() => {
     const raw = localStorage.getItem(storageKey(obraId))
-    setArquivos(raw ? JSON.parse(raw) : [])
+    const locais = raw ? JSON.parse(raw) : []
+    setArquivos(locais)
+
+    async function carregarArquivos() {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('obra_files')
+        .select('id,nome,tipo,tamanho,categoria,criado_em,url')
+        .eq('obra_id', obraId)
+        .order('criado_em', { ascending: false })
+
+      if (error || !data) return
+      const remotos = data as ArquivoObra[]
+      setArquivos(remotos)
+      localStorage.setItem(storageKey(obraId), JSON.stringify(remotos))
+    }
+
+    void carregarArquivos()
   }, [obraId])
 
   function salvar(next: ArquivoObra[]) {
@@ -68,7 +86,7 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return
-    const novos = await Promise.all(Array.from(files).map(async file => ({
+    const novos: ArquivoObra[] = await Promise.all(Array.from(files).map(async file => ({
       id: `arquivo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       nome: file.name,
       tipo: file.type || 'arquivo',
@@ -77,12 +95,34 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
       criado_em: new Date().toISOString(),
       url: file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf') ? await fileToDataUrl(file) : undefined,
     })))
-    salvar([...novos, ...arquivos])
+
+    let arquivosPersistidos: ArquivoObra[] = novos
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('obra_files')
+      .insert(novos.map(arquivo => ({
+        obra_id: obraId,
+        nome: arquivo.nome,
+        tipo: arquivo.tipo,
+        tamanho: arquivo.tamanho,
+        categoria: arquivo.categoria,
+        url: arquivo.url,
+      })))
+      .select('id,nome,tipo,tamanho,categoria,criado_em,url')
+
+    if (data?.length) {
+      arquivosPersistidos = data as ArquivoObra[]
+    }
+
+    salvar([...arquivosPersistidos, ...arquivos])
     if (inputRef.current) inputRef.current.value = ''
   }
 
   function remover(id: string) {
     salvar(arquivos.filter(a => a.id !== id))
+    const supabase = createClient()
+    void supabase.from('obra_files').delete().eq('id', id)
+    if (pdfAberto?.id === id) setPdfAberto(null)
   }
 
   return (
