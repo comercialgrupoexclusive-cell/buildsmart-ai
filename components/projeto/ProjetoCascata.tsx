@@ -1,8 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil, Paperclip } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { ProjectItemFile } from '@/lib/types'
+
+export type { ProjectItemFile }
 
 export type ProjetoItemNode = {
   id: string
@@ -22,11 +25,14 @@ type Props = {
   itens: ProjetoItemNode[]
   canEdit?: boolean
   profiles?: { id: string; name: string; apelido: string | null }[]
+  itemFiles?: Record<string, ProjectItemFile[]>
   onToggle: (id: string, concluido: boolean) => void
   onAdd: (parentId: string | null, nivel: number, nome: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
   onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo'>>) => void
+  onAttachFile?: (itemId: string) => void
+  onOpenFile?: (file: ProjectItemFile) => void
 }
 
 const NIVEL_LABELS = ['', 'Disciplina', 'Item', 'Subitem']
@@ -82,7 +88,7 @@ function calcStatus(node: ProjetoItemNode): StatusKey {
   return 'pendente'
 }
 
-export function ProjetoCascata({ itens, canEdit = true, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem }: Props) {
+export function ProjetoCascata({ itens, canEdit = true, profiles = [], itemFiles = {}, onToggle, onAdd, onDelete, onRename, onUpdateItem, onAttachFile, onOpenFile }: Props) {
   return (
     <div className="min-w-0">
       {/* Cabeçalho de colunas */}
@@ -108,11 +114,14 @@ export function ProjetoCascata({ itens, canEdit = true, profiles = [], onToggle,
             item={item}
             canEdit={canEdit}
             profiles={profiles}
+            itemFiles={itemFiles}
             onToggle={onToggle}
             onAdd={onAdd}
             onDelete={onDelete}
             onRename={onRename}
             onUpdateItem={onUpdateItem}
+            onAttachFile={onAttachFile}
+            onOpenFile={onOpenFile}
           />
         ))}
         {canEdit && (
@@ -123,15 +132,18 @@ export function ProjetoCascata({ itens, canEdit = true, profiles = [], onToggle,
   )
 }
 
-function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem }: {
+function CascataNode({ item, canEdit, profiles = [], itemFiles = {}, onToggle, onAdd, onDelete, onRename, onUpdateItem, onAttachFile, onOpenFile }: {
   item: ProjetoItemNode
   canEdit: boolean
   profiles: { id: string; name: string; apelido: string | null }[]
+  itemFiles: Record<string, ProjectItemFile[]>
   onToggle: (id: string, concluido: boolean) => void
   onAdd: (parentId: string | null, nivel: number, nome: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
   onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo'>>) => void
+  onAttachFile?: (itemId: string) => void
+  onOpenFile?: (file: ProjectItemFile) => void
 }) {
   const [open, setOpen]               = useState(item.nivel !== 1)
   const [editingNome, setEditingNome] = useState(false)
@@ -234,6 +246,20 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             </span>
           )}
 
+          {/* File attachment indicator */}
+          {(itemFiles[item.id]?.length ?? 0) > 0 && (
+            <button
+              onClick={() => onOpenFile?.(itemFiles[item.id][0])}
+              className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 hover:opacity-80 transition-opacity"
+              style={{ background: 'rgba(59,123,248,0.12)', color: 'var(--accent)' }}
+              title={itemFiles[item.id][0].file_name}
+            >
+              <Paperclip size={9} />
+              <span className="max-w-[80px] truncate hidden sm:inline">{itemFiles[item.id][0].file_name}</span>
+              {itemFiles[item.id].length > 1 && <span>+{itemFiles[item.id].length - 1}</span>}
+            </button>
+          )}
+
           <div className="basis-full mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:hidden" style={{ color: 'var(--text-secondary)', paddingLeft: 42 }}>
             {item.responsavel && <span>{item.responsavel}</span>}
             {(eff.inicio || eff.fim) && (
@@ -278,6 +304,15 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                 onClick={() => { setEditingNome(true); setOpen(true) }}
               >
                 <Pencil size={11} style={{ color: 'var(--text-secondary)' }} />
+              </button>
+              {/* Paperclip: attach or open file */}
+              <button
+                className="p-1 rounded hover:bg-[var(--bg-card)]"
+                title="Anexar PDF"
+                onClick={() => onAttachFile?.(item.id)}
+                style={{ color: (itemFiles[item.id]?.length ?? 0) > 0 ? 'var(--accent)' : 'var(--text-secondary)' }}
+              >
+                <Paperclip size={11} />
               </button>
               {canHaveChildren && (
                 <button
@@ -435,11 +470,14 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
               item={child}
               canEdit={canEdit}
               profiles={profiles}
+              itemFiles={itemFiles}
               onToggle={onToggle}
               onAdd={onAdd}
               onDelete={onDelete}
               onRename={onRename}
               onUpdateItem={onUpdateItem}
+              onAttachFile={onAttachFile}
+              onOpenFile={onOpenFile}
             />
           ))}
         </div>

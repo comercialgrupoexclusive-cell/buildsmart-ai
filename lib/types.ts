@@ -38,6 +38,17 @@ export type Proprietario = {
   created_at: string
 }
 
+// ─── Arquivo de item de projeto ──────────────────────────────────────────────
+export type ProjectItemFile = {
+  id: string
+  project_id: string
+  item_id: string
+  file_name: string
+  file_url: string
+  file_size: number | null
+  created_at: string
+}
+
 // ─── Vínculo Obra ↔ Usuário ───────────────────────────────────────────────────
 export type ObraUsuario = {
   obra_id: string

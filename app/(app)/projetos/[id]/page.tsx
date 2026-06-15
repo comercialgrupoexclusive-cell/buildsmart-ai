@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect, use, useRef } from 'react'
 import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, FolderOpen, ExternalLink } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
-import type { Responsavel } from '@/lib/types'
+import type { Responsavel, ProjectItemFile } from '@/lib/types'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
 import { ProjetoDriveFiles } from '@/components/projeto/ProjetoDriveFiles'
+import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
 
 type Projeto = {
   id: string
@@ -51,18 +52,35 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [dadosForm, setDadosForm] = useState<Partial<Projeto>>({})
   const [saving, setSaving] = useState(false)
 
+  // File attachments per item
+  const [itemFiles, setItemFiles] = useState<Record<string, ProjectItemFile[]>>({})
+  // Upload drawer: which item is being targeted
+  const [attachTarget, setAttachTarget] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  // Annotator state
+  const [pdfOpen, setPdfOpen] = useState<ProjectItemFile | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
   useEffect(() => { loadData() }, [id])
 
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    const [{ data: p }, { data: its }, { data: profs }, { data: resps }] = await Promise.all([
+    const [{ data: p }, { data: its }, { data: profs }, { data: resps }, { data: files }] = await Promise.all([
       supabase.from('projetos').select('*').eq('id', id).single(),
       supabase.from('projeto_itens').select('*').eq('projeto_id', id).order('ordem'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
       supabase.from('responsaveis').select('id, name, drive_folder_url').order('name'),
+      supabase.from('project_item_files').select('*').eq('project_id', id).order('created_at'),
     ])
     setResponsaveisTecnicos((resps ?? []) as Responsavel[])
+    // Group files by item_id
+    const grouped: Record<string, ProjectItemFile[]> = {}
+    for (const f of (files ?? []) as ProjectItemFile[]) {
+      if (!grouped[f.item_id]) grouped[f.item_id] = []
+      grouped[f.item_id].push(f)
+    }
+    setItemFiles(grouped)
     setProfiles((profs ?? []) as { id: string; name: string; apelido: string | null }[])
     if (p) {
       setProjeto(p)
@@ -161,6 +179,53 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     setSaving(false)
   }
 
+  // ── File attachment handlers ──────────────────────────────────────────────
+
+  async function handleUploadItemFile(fileList: FileList | null) {
+    if (!fileList?.length || !attachTarget) return
+    const file = fileList[0]
+    if (file.type !== 'application/pdf') { alert('Apenas arquivos PDF são suportados.'); return }
+    setUploading(true)
+
+    const supabase = createClient()
+    const fileId   = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const path     = `${id}/${attachTarget}/${fileId}-${file.name.replace(/[^a-z0-9._-]/gi, '_')}`
+
+    const { error: upErr } = await supabase.storage.from('project-files').upload(path, file)
+    if (upErr) {
+      alert('Erro no upload: ' + upErr.message)
+      setUploading(false)
+      return
+    }
+
+    const { data: pub } = supabase.storage.from('project-files').getPublicUrl(path)
+    const { data: inserted } = await supabase.from('project_item_files').insert({
+      project_id: id,
+      item_id:    attachTarget,
+      file_name:  file.name,
+      file_url:   pub.publicUrl,
+      file_size:  file.size,
+    }).select().single()
+
+    if (inserted) {
+      setItemFiles(prev => ({
+        ...prev,
+        [attachTarget]: [...(prev[attachTarget] ?? []), inserted as ProjectItemFile],
+      }))
+    }
+    setUploading(false)
+    setAttachTarget(null)
+  }
+
+  async function handleDeleteItemFile(fileToRemove: ProjectItemFile) {
+    const supabase = createClient()
+    await supabase.from('project_item_files').delete().eq('id', fileToRemove.id)
+    setItemFiles(prev => {
+      const updated = (prev[fileToRemove.item_id] ?? []).filter(f => f.id !== fileToRemove.id)
+      return { ...prev, [fileToRemove.item_id]: updated }
+    })
+  }
+
   // Calcula progresso
   const totalItens = itens.length
   const concluidosCount = itens.filter(i => i.concluido).length
@@ -245,11 +310,14 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
             itens={tree}
             canEdit={!isCliente}
             profiles={profiles}
+            itemFiles={itemFiles}
             onToggle={handleToggle}
             onAdd={handleAdd}
             onDelete={handleDelete}
             onRename={handleRename}
             onUpdateItem={(id, fields) => handleUpdateItem(id, fields)}
+            onAttachFile={setAttachTarget}
+            onOpenFile={setPdfOpen}
           />
         </div>
       )}
@@ -404,6 +472,84 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
             </div>
           )}
         </div>
+      )}
+      {/* ── File attachment modal ──────────────────────────────────── */}
+      {attachTarget && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.6)' }}
+          onClick={() => !uploading && setAttachTarget(null)}
+        >
+          <div
+            className="rounded-xl p-6 w-80 space-y-4"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Anexar PDF ao item</h3>
+
+            {/* Existing files */}
+            {(itemFiles[attachTarget] ?? []).length > 0 && (
+              <div className="space-y-2">
+                {(itemFiles[attachTarget] ?? []).map(f => (
+                  <div key={f.id} className="flex items-center gap-2 p-2 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+                    <span className="text-xs flex-1 truncate" style={{ color: 'var(--text-primary)' }}>{f.file_name}</span>
+                    <button
+                      onClick={() => { setPdfOpen(f); setAttachTarget(null) }}
+                      className="text-xs px-2 py-1 rounded font-medium"
+                      style={{ background: 'var(--accent)', color: 'white' }}
+                    >
+                      Abrir
+                    </button>
+                    <button
+                      onClick={() => handleDeleteItemFile(f)}
+                      className="p-1 rounded hover:bg-red-500/20"
+                      title="Remover"
+                    >
+                      <span className="text-xs" style={{ color: 'var(--danger)' }}>✕</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <label
+              className="flex flex-col items-center justify-center gap-2 p-4 rounded-lg border-2 border-dashed cursor-pointer hover:opacity-80 transition-opacity"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <span className="text-sm font-medium" style={{ color: uploading ? 'var(--text-secondary)' : 'var(--accent)' }}>
+                {uploading ? 'Enviando…' : '+ Novo PDF'}
+              </span>
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Clique para selecionar</span>
+              <input
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                disabled={uploading}
+                onChange={e => handleUploadItemFile(e.target.files)}
+              />
+            </label>
+
+            <button
+              onClick={() => setAttachTarget(null)}
+              className="w-full text-center text-xs py-1.5 rounded-lg"
+              style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── PDF Annotator fullscreen ───────────────────────────────── */}
+      {pdfOpen && (
+        <PdfAnnotator
+          fileUrl={pdfOpen.file_url}
+          fileName={pdfOpen.file_name}
+          contextType="projeto"
+          contextId={id}
+          itemId={pdfOpen.item_id}
+          onClose={() => setPdfOpen(null)}
+        />
       )}
     </div>
   )

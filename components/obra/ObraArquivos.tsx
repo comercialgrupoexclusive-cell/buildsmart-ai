@@ -1,8 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { BotMessageSquare, FileText, ImageIcon, Upload, X } from 'lucide-react'
+import { BotMessageSquare, FileText, ImageIcon, Paperclip, Upload, X } from 'lucide-react'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
+import { isLocalDataMode } from '@/lib/data/local-client'
+import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
 
 type ArquivoObra = {
   id: string
@@ -11,14 +14,15 @@ type ArquivoObra = {
   tamanho: number
   categoria: 'projeto' | 'planta' | 'memorial' | 'imagem' | 'outro'
   criado_em: string
+  file_url?: string  // undefined = não é PDF ou não foi possível obter URL
 }
 
 const CATEGORIA_LABEL: Record<ArquivoObra['categoria'], string> = {
   projeto: 'Projeto',
-  planta: 'Planta',
-  memorial: 'Memorial',
-  imagem: 'Imagem',
-  outro: 'Outro',
+  planta:  'Planta',
+  memorial:'Memorial',
+  imagem:  'Imagem',
+  outro:   'Outro',
 }
 
 function storageKey(obraId: string) {
@@ -28,21 +32,32 @@ function storageKey(obraId: string) {
 function categoriaPorArquivo(file: File): ArquivoObra['categoria'] {
   const nome = file.name.toLowerCase()
   if (file.type.startsWith('image/')) return 'imagem'
-  if (nome.includes('planta')) return 'planta'
-  if (nome.includes('memorial')) return 'memorial'
-  if (nome.includes('projeto')) return 'projeto'
+  if (nome.includes('planta'))         return 'planta'
+  if (nome.includes('memorial'))       return 'memorial'
+  if (nome.includes('projeto'))        return 'projeto'
   return 'outro'
 }
 
 function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024)             return `${bytes} B`
+  if (bytes < 1024 * 1024)     return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload  = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 export function ObraArquivos({ obraId }: { obraId: string }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [arquivos, setArquivos] = useState<ArquivoObra[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [pdf, setPdf] = useState<{ url: string; nome: string } | null>(null)
 
   useEffect(() => {
     const raw = localStorage.getItem(storageKey(obraId))
@@ -54,23 +69,53 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
     localStorage.setItem(storageKey(obraId), JSON.stringify(next))
   }
 
-  function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | null) {
     if (!files?.length) return
-    const novos = Array.from(files).map(file => ({
-      id: `arquivo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      nome: file.name,
-      tipo: file.type || 'arquivo',
-      tamanho: file.size,
-      categoria: categoriaPorArquivo(file),
-      criado_em: new Date().toISOString(),
+    setUploading(true)
+
+    const supabase   = createClient()
+    const localMode  = isLocalDataMode()
+
+    const novos = await Promise.all(Array.from(files).map(async (file): Promise<ArquivoObra> => {
+      const id  = `arquivo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      let file_url: string | undefined
+
+      if (file.type === 'application/pdf') {
+        if (localMode) {
+          // Local mode: data URL (works for current session; large files may be slow)
+          try { file_url = await fileToDataUrl(file) } catch { /* ignore */ }
+        } else {
+          // Remote mode: upload to Supabase Storage
+          const path = `${obraId}/${id}-${file.name.replace(/[^a-z0-9._-]/gi, '_')}`
+          const { error } = await supabase.storage.from('obra-arquivos').upload(path, file)
+          if (!error) {
+            const { data: pub } = supabase.storage.from('obra-arquivos').getPublicUrl(path)
+            file_url = pub.publicUrl
+          }
+        }
+      }
+
+      return {
+        id,
+        nome:     file.name,
+        tipo:     file.type || 'arquivo',
+        tamanho:  file.size,
+        categoria:categoriaPorArquivo(file),
+        criado_em:new Date().toISOString(),
+        file_url,
+      }
     }))
+
     salvar([...novos, ...arquivos])
+    setUploading(false)
     if (inputRef.current) inputRef.current.value = ''
   }
 
   function remover(id: string) {
     salvar(arquivos.filter(a => a.id !== id))
   }
+
+  const isPdf = (a: ArquivoObra) => a.tipo === 'application/pdf'
 
   return (
     <div className="flex flex-col gap-4">
@@ -79,16 +124,17 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
           <div>
             <h2 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Arquivos da obra</h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Anexe projetos, plantas, memoriais, imagens e documentos técnicos para consulta e futura leitura pela IA.
+              Anexe projetos, plantas, memoriais, imagens e documentos técnicos. PDFs podem ser anotados.
             </p>
           </div>
           <div className="flex gap-2">
             <button
               onClick={() => inputRef.current?.click()}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-white"
+              disabled={uploading}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-60"
               style={{ background: 'var(--accent)' }}
             >
-              <Upload size={15} /> Anexar arquivo
+              <Upload size={15} /> {uploading ? 'Enviando…' : 'Anexar arquivo'}
             </button>
             <Link
               href={`/buildassist?obra=${obraId}`}
@@ -99,7 +145,14 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
             </Link>
           </div>
         </div>
-        <input ref={inputRef} type="file" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept="application/pdf,image/*"
+          className="hidden"
+          onChange={e => handleFiles(e.target.files)}
+        />
       </div>
 
       {arquivos.length === 0 ? (
@@ -114,23 +167,58 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {arquivos.map(arquivo => (
             <div key={arquivo.id} className="card p-4 flex items-start gap-3">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)' }}>
+              <div
+                className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ background: 'var(--bg-secondary)' }}
+              >
                 {arquivo.categoria === 'imagem'
                   ? <ImageIcon size={18} style={{ color: 'var(--accent)' }} />
-                  : <FileText size={18} style={{ color: 'var(--accent)' }} />}
+                  : <FileText  size={18} style={{ color: 'var(--accent)' }} />}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{arquivo.nome}</p>
+                <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                  {arquivo.nome}
+                </p>
                 <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
                   {CATEGORIA_LABEL[arquivo.categoria]} · {formatSize(arquivo.tamanho)} · {new Date(arquivo.criado_em).toLocaleDateString('pt-BR')}
                 </p>
+                {/* Open in annotator (PDF only) */}
+                {isPdf(arquivo) && arquivo.file_url && (
+                  <button
+                    onClick={() => setPdf({ url: arquivo.file_url!, nome: arquivo.nome })}
+                    className="mt-2 flex items-center gap-1.5 text-xs font-medium hover:opacity-80 transition-opacity"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    <Paperclip size={11} /> Abrir com anotações
+                  </button>
+                )}
+                {isPdf(arquivo) && !arquivo.file_url && (
+                  <p className="mt-2 text-xs opacity-50" style={{ color: 'var(--text-secondary)' }}>
+                    URL não disponível (re-faça o upload)
+                  </p>
+                )}
               </div>
-              <button onClick={() => remover(arquivo.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors" title="Remover">
+              <button
+                onClick={() => remover(arquivo.id)}
+                className="p-1 rounded hover:bg-red-500/20 transition-colors flex-shrink-0"
+                title="Remover"
+              >
                 <X size={14} style={{ color: 'var(--danger)' }} />
               </button>
             </div>
           ))}
         </div>
+      )}
+
+      {/* PDF Annotator fullscreen overlay */}
+      {pdf && (
+        <PdfAnnotator
+          fileUrl={pdf.url}
+          fileName={pdf.nome}
+          contextType="obra"
+          contextId={obraId}
+          onClose={() => setPdf(null)}
+        />
       )}
     </div>
   )
