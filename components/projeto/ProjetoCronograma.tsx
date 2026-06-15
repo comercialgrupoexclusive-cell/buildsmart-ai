@@ -182,9 +182,9 @@ function KanbanView({ flat, tree, onToggle, onMoveStatus }: {
   }
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:overflow-visible sm:pb-0">
       {KANBAN_COLS.map(col => (
-        <div key={col.key} className="flex flex-col gap-2 min-h-[120px]">
+        <div key={col.key} className="flex flex-col gap-2 min-h-[120px] min-w-[78vw] max-w-[78vw] snap-start sm:min-w-0 sm:max-w-none">
           {/* Header da coluna */}
           <div
             className="flex items-center justify-between px-3 py-2 rounded-lg"
@@ -279,7 +279,7 @@ function KanbanCard({ item, disciplina, onToggle, onMoveStatus }: {
       </div>
 
       {/* Mover para outro status */}
-      <div className="flex gap-1 flex-wrap border-t pt-1.5" style={{ borderColor: 'var(--border)' }}>
+      <div className="flex gap-1.5 flex-wrap border-t pt-2" style={{ borderColor: 'var(--border)' }}>
         {([
           { key: 'pendente',     label: 'Pendente'  },
           { key: 'em_andamento', label: 'Andamento' },
@@ -288,7 +288,7 @@ function KanbanCard({ item, disciplina, onToggle, onMoveStatus }: {
           <button
             key={s.key}
             onClick={e => { e.stopPropagation(); onMoveStatus(item, s.key) }}
-            className="text-[9px] px-1.5 py-0.5 rounded border transition-colors hover:opacity-80"
+            className="text-[11px] sm:text-[9px] px-2 py-1.5 sm:px-1.5 sm:py-0.5 rounded border transition-colors hover:opacity-80 flex-1 sm:flex-none text-center"
             style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
           >
             → {s.label}

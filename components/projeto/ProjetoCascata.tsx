@@ -245,6 +245,31 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
           </div>
 
           {/* Ações hover */}
+          {canEdit && hasDateInput && (
+            <div className="basis-full sm:hidden grid grid-cols-2 gap-2 mt-2" style={{ paddingLeft: 42 }}>
+              <label className="min-w-0">
+                <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Inicio</span>
+                <input
+                  type="date"
+                  className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
+                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  value={item.data_inicio ?? ''}
+                  onChange={e => onUpdateItem?.(item.id, { data_inicio: e.target.value || null })}
+                />
+              </label>
+              <label className="min-w-0">
+                <span className="block text-[10px] mb-1" style={{ color: atrasado ? '#EF4444' : 'var(--text-secondary)' }}>Fim</span>
+                <input
+                  type="date"
+                  className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
+                  style={{ background: 'var(--bg-card)', borderColor: atrasado ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }}
+                  value={item.data_prazo ?? ''}
+                  onChange={e => onUpdateItem?.(item.id, { data_prazo: e.target.value || null })}
+                />
+              </label>
+            </div>
+          )}
+
           {canEdit && !editingNome && (
             <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
               <button
