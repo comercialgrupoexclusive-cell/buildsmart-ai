@@ -82,15 +82,17 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
 
       if (file.type === 'application/pdf') {
         if (localMode) {
-          // Local mode: data URL (works for current session; large files may be slow)
           try { file_url = await fileToDataUrl(file) } catch { /* ignore */ }
         } else {
-          // Remote mode: upload to Supabase Storage
+          // Remote mode: try Supabase Storage first; fall back to data URL so the
+          // annotator always works even if the bucket is not configured yet.
           const path = `${obraId}/${id}-${file.name.replace(/[^a-z0-9._-]/gi, '_')}`
           const { error } = await supabase.storage.from('obra-arquivos').upload(path, file)
           if (!error) {
             const { data: pub } = supabase.storage.from('obra-arquivos').getPublicUrl(path)
             file_url = pub.publicUrl
+          } else {
+            try { file_url = await fileToDataUrl(file) } catch { /* ignore */ }
           }
         }
       }
@@ -193,9 +195,14 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
                   </button>
                 )}
                 {isPdf(arquivo) && !arquivo.file_url && (
-                  <p className="mt-2 text-xs opacity-50" style={{ color: 'var(--text-secondary)' }}>
-                    URL não disponível (re-faça o upload)
-                  </p>
+                  <button
+                    onClick={() => { remover(arquivo.id); inputRef.current?.click() }}
+                    className="mt-2 flex items-center gap-1.5 text-xs font-medium hover:opacity-80 transition-opacity"
+                    style={{ color: '#f59e0b' }}
+                    title="Este PDF foi enviado antes da função de anotação. Clique para removê-lo e re-enviar."
+                  >
+                    <Upload size={11} /> Re-enviar para anotar
+                  </button>
                 )}
               </div>
               <button

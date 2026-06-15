@@ -297,7 +297,7 @@ function CascataNode({ item, canEdit, profiles = [], itemFiles = {}, onToggle, o
           )}
 
           {canEdit && !editingNome && (
-            <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
+            <div className="flex items-center gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
               <button
                 className="p-1 rounded hover:bg-[var(--bg-card)]"
                 title="Renomear"
