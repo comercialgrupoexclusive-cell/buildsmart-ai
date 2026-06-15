@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList, NotebookPen, Sun, Cloud, CloudRain, Camera, X, Plus, Trash2, Pencil } from 'lucide-react'
+import { TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList, NotebookPen, Sun, Cloud, CloudRain, Camera, X, Plus, Trash2, Pencil, Square, CheckSquare } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Etapa, Medicao } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -236,28 +236,52 @@ function CampoPercentual({ valor, onChange, tamanho = 'md' }: {
   onChange: (v: number) => void
   tamanho?: 'md' | 'sm'
 }) {
+  const presets = [
+    { label: 'Pendente', value: 0, active: valor <= 0 },
+    { label: 'Andamento', value: 50, active: valor > 0 && valor < 100 },
+    { label: 'Concluído', value: 100, active: valor >= 100 },
+  ]
+
   return (
-    <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
-      <div className={tamanho === 'md' ? 'w-28' : 'w-20'} style={{ height: tamanho === 'md' ? 6 : 5 }}>
-        <div className="h-full rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
-          <div
-            className="h-full rounded-full transition-all duration-300"
-            style={{ width: `${Math.min(100, valor)}%`, background: corPorPercentual(valor) }}
-          />
-        </div>
+    <div className="flex flex-col gap-2 flex-shrink-0 w-full sm:w-auto" onClick={e => e.stopPropagation()}>
+      <div className="grid grid-cols-3 gap-1.5">
+        {presets.map(preset => (
+          <button
+            key={preset.label}
+            type="button"
+            onClick={() => onChange(preset.value)}
+            className="min-h-9 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-all"
+            style={preset.active
+              ? { background: 'var(--accent)', color: 'white', border: '1px solid var(--accent)' }
+              : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+          >
+            {preset.active ? <CheckSquare size={14} /> : <Square size={14} />}
+            <span className={tamanho === 'sm' ? 'hidden min-[420px]:inline' : ''}>{preset.label}</span>
+          </button>
+        ))}
       </div>
-      <div className="relative flex items-center">
-        <input
-          type="number"
-          min={0}
-          max={100}
-          step={0.5}
-          value={valor || 0}
-          onChange={e => onChange(parseFloat(e.target.value))}
-          className="input-base py-1 text-sm text-right tabular-nums"
-          style={{ width: tamanho === 'md' ? 84 : 76, color: corPorPercentual(valor), fontWeight: 600, paddingRight: 26 }}
-        />
-        <span className="absolute right-2.5 text-sm pointer-events-none" style={{ color: 'var(--text-secondary)' }}>%</span>
+      <div className="flex items-center gap-2">
+        <div className="flex-1 min-w-16" style={{ height: tamanho === 'md' ? 6 : 5 }}>
+          <div className="h-full rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{ width: `${Math.min(100, valor)}%`, background: corPorPercentual(valor) }}
+            />
+          </div>
+        </div>
+        <div className="relative flex items-center">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={0.5}
+            value={valor || 0}
+            onChange={e => onChange(parseFloat(e.target.value))}
+            className="input-base py-1 text-sm text-right tabular-nums"
+            style={{ width: tamanho === 'md' ? 84 : 72, color: corPorPercentual(valor), fontWeight: 600, paddingRight: 24 }}
+          />
+          <span className="absolute right-2 text-sm pointer-events-none" style={{ color: 'var(--text-secondary)' }}>%</span>
+        </div>
       </div>
     </div>
   )
@@ -284,7 +308,7 @@ function GrupoEtapaProgresso({
     <div className="card overflow-hidden">
       {/* Cabeçalho etapa */}
       <div
-        className="flex items-center gap-3 px-4 py-3 select-none"
+        className="flex flex-col gap-3 px-4 py-3 select-none sm:flex-row sm:items-center"
         style={{
           background: 'var(--bg-secondary)',
           borderBottom: collapsed || !temSubetapas ? 'none' : '1px solid var(--border)',
@@ -292,16 +316,18 @@ function GrupoEtapaProgresso({
         }}
         onClick={() => temSubetapas && onToggleGrupo()}
       >
-        <span className="flex-shrink-0" style={{ color: 'var(--text-secondary)', visibility: temSubetapas ? 'visible' : 'hidden' }}>
-          {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-        </span>
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{nome}</p>
-          {temSubetapas && (
-            <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
-              {subetapas.length} {subetapas.length === 1 ? 'subetapa' : 'subetapas'}
-            </p>
-          )}
+        <div className="flex items-center gap-3 min-w-0 w-full sm:flex-1">
+          <span className="flex-shrink-0" style={{ color: 'var(--text-secondary)', visibility: temSubetapas ? 'visible' : 'hidden' }}>
+            {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{nome}</p>
+            {temSubetapas && (
+              <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                {subetapas.length} {subetapas.length === 1 ? 'subetapa' : 'subetapas'}
+              </p>
+            )}
+          </div>
         </div>
         <CampoPercentual valor={percentual} onChange={onChangePercentual} />
       </div>
@@ -312,7 +338,7 @@ function GrupoEtapaProgresso({
           {subetapas.map(subNome => (
             <div
               key={subNome}
-              className="flex items-center gap-3 pl-9 pr-4 py-2.5"
+              className="flex flex-col gap-2 pl-9 pr-4 py-3 sm:flex-row sm:items-center"
               style={{ borderBottom: '1px solid var(--border)' }}
             >
               <span style={{ color: 'var(--border)', fontSize: 10 }}>└</span>

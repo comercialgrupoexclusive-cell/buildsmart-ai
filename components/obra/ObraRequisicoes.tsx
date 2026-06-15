@@ -207,10 +207,13 @@ export function ObraRequisicoes({ obraId }: { obraId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          {requisicoes.length} {requisicoes.length === 1 ? 'requisição' : 'requisições'}
-        </p>
+      <div className="card p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Requisições e cotações</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+            {requisicoes.length} {requisicoes.length === 1 ? 'requisição formal' : 'requisições formais'} para aprovação, cotação e compra.
+          </p>
+        </div>
         <Button icon={<Plus size={15} />} size="sm" onClick={() => { setReqForm({ ...EMPTY_REQ, numero: gerarNumero() }); setReqModal(true) }}>
           Nova Requisição
         </Button>

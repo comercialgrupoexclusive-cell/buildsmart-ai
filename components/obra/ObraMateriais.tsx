@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Package, AlertTriangle, CheckCircle,
+  Package, AlertTriangle,
   Plus, Pencil, Trash2, ChevronDown, ChevronRight,
   Square, CheckSquare, ShoppingCart, Copy, X,
-  Building2, Send, PackageCheck, ClipboardList, Download, FileText,
+  Building2, Send, PackageCheck, ClipboardList, FileText,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { diasAteData } from '@/lib/utils'
@@ -126,8 +126,8 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   const [collapsedSub, setCollapsedSub] = useState<Record<string, boolean>>({})
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [showLista, setShowLista] = useState(false)
+  const [quantidadesLista, setQuantidadesLista] = useState<Record<string, string>>({})
   const [copiado, setCopiado] = useState(false)
-  const [marcandoLote, setMarcandoLote] = useState(false)
   const [salvandoLista, setSalvandoLista] = useState(false)
   const [nomeLista, setNomeLista] = useState('')
   const [fornecedorLista, setFornecedorLista] = useState('')
@@ -221,16 +221,16 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   // do zero, não duplica) o total por (etapa, subetapa, código) em "materiais".
   // Quando não há detalhamento de insumos disponível para a composição, lança
   // a própria composição como material — garante que o dado sempre "puxe".
-  async function importarDoOrcamento() {
+  async function importarDoOrcamento(silencioso = false) {
     if (importando) return
     setImportando(true)
     try {
       // 1) Orçamentos da obra
       const { data: orcs, error: erroOrcs } = await supabase.from('orcamentos').select('id').eq('obra_id', obraId)
-      if (erroOrcs) { alert(`Não foi possível ler os orçamentos da obra.\n\nErro: ${erroOrcs.message}`); return }
+      if (erroOrcs) { if (!silencioso) alert(`Não foi possível ler os orçamentos da obra.\n\nErro: ${erroOrcs.message}`); return }
       const orcamentoIds = ((orcs || []) as { id: string }[]).map(o => o.id)
       if (orcamentoIds.length === 0) {
-        alert('Esta obra ainda não tem orçamento. Crie um orçamento na aba "Orçamento" primeiro — os materiais são derivados dele.')
+        if (!silencioso) alert('Esta obra ainda não tem orçamento. Crie um orçamento na aba "Orçamento" primeiro — os materiais são derivados dele.')
         return
       }
 
@@ -252,13 +252,13 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         .in('orcamento_id', orcamentoIds)
 
       if (erroItens) {
-        alert(`Não foi possível ler os itens do orçamento.\n\nErro: ${erroItens.message}`)
+        if (!silencioso) alert(`Não foi possível ler os itens do orçamento.\n\nErro: ${erroItens.message}`)
         return
       }
 
       const itens = (itensRaw || []) as ItemLean[]
       if (itens.length === 0) {
-        alert('O orçamento desta obra ainda não tem itens lançados. Adicione composições na aba "Orçamento" — os materiais são derivados delas.')
+        if (!silencioso) alert('O orçamento desta obra ainda não tem itens lançados. Adicione composições na aba "Orçamento" — os materiais são derivados delas.')
         return
       }
 
@@ -277,7 +277,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           .from('composicoes_proprias')
           .select('id, codigo, descricao, unidade, composicao_insumos(coeficiente, insumo:sinapi_insumos(codigo,descricao,unidade), insumo_proprio:insumos_proprios(codigo,descricao,unidade))')
           .in('id', composicaoIds)
-        if (error) { alert(`Não foi possível ler as composições próprias do orçamento.\n\nErro: ${error.message}`); return }
+        if (error) { if (!silencioso) alert(`Não foi possível ler as composições próprias do orçamento.\n\nErro: ${error.message}`); return }
         for (const c of (data || []) as unknown as ComposicaoPropriaRow[]) composicoesProprias.set(c.id, c)
       }
 
@@ -289,7 +289,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         const { data, error } = await supabase.from('sinapi_composicoes')
           .select('id, codigo, descricao, unidade, mes_referencia')
           .in('id', sinapiCompIds)
-        if (error) { alert(`Não foi possível ler as composições SINAPI do orçamento.\n\nErro: ${error.message}`); return }
+        if (error) { if (!silencioso) alert(`Não foi possível ler as composições SINAPI do orçamento.\n\nErro: ${error.message}`); return }
         for (const c of (data || []) as SinapiCompRow[]) sinapiComposicoes.set(c.id, c)
       }
 
@@ -368,7 +368,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       }
 
       if (mapa.size === 0) {
-        alert('Não há insumos para importar a partir deste orçamento — os itens lançados não têm composição nem código/descrição que permitam gerar materiais.')
+        if (!silencioso) alert('Não há insumos para importar a partir deste orçamento — os itens lançados não têm composição nem código/descrição que permitam gerar materiais.')
         return
       }
 
@@ -384,7 +384,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           .select(temSubetapa ? 'id, etapa_id, subetapa, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)' : 'id, etapa_id, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)')
           .eq('obra_id', obraId)
       const { data: existentesRaw, error: erroExistentes } = await existentesQuery
-      if (erroExistentes) { alert(`Nao foi possivel ler os materiais ja cadastrados.\n\nErro: ${erroExistentes.message}`); return }
+      if (erroExistentes) { if (!silencioso) alert(`Nao foi possivel ler os materiais ja cadastrados.\n\nErro: ${erroExistentes.message}`); return }
       const existentesMap = new Map<string, { id: string; quantidade_total: number }>()
       for (const e of (existentesRaw || []) as { id: string; etapa_id: string | null; subetapa?: string | null; sinapi_codigo?: string | null; insumo_id?: string | null; quantidade_total: number; insumo?: { codigo: string } | null }[]) {
         const codigoExistente = schemaMateriais === 'snapshot' ? e.sinapi_codigo : e.insumo?.codigo
@@ -431,6 +431,10 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
       await loadMateriais()
 
+      if (silencioso) {
+        return
+      }
+
       if (!temSubetapa) {
         alert(
           `Importação concluída (sem agrupamento por subetapa — coluna pendente no banco).\n\n` +
@@ -447,7 +451,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     } catch (e) {
       console.error('Erro ao importar materiais do orçamento:', e)
       const msg = e instanceof Error ? e.message : 'Erro desconhecido'
-      alert(`Não foi possível importar os dados do orçamento.\n\nErro: ${msg}`)
+      if (!silencioso) alert(`Não foi possível importar os dados do orçamento.\n\nErro: ${msg}`)
     } finally {
       setImportando(false)
     }
@@ -455,7 +459,10 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
   useEffect(() => {
     // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
-    Promise.resolve().then(() => loadMateriais())
+    Promise.resolve().then(async () => {
+      await loadMateriais()
+      await importarDoOrcamento(true)
+    })
   }, [obraId])
 
   // ── Listas de compra — carrega do Supabase ──
@@ -529,13 +536,18 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     setMateriais(prev => prev.filter(m => m.id !== id))
   }
 
-  async function marcarComprado(m: MaterialRow) {
+  async function alternarComprado(m: MaterialRow) {
+    const comprado = m.status_compra === 'comprado'
+    const proximoStatus: MaterialRow['status_compra'] = comprado ? 'nao_comprado' : 'comprado'
+    const proximaQuantidade = comprado ? 0 : m.quantidade_total
+
     await supabase.from('materiais').update({
-      status_compra: 'comprado',
-      quantidade_comprada: m.quantidade_total,
+      status_compra: proximoStatus,
+      quantidade_comprada: proximaQuantidade,
     }).eq('id', m.id)
+
     setMateriais(prev => prev.map(mat => mat.id === m.id
-      ? { ...mat, status_compra: 'comprado', quantidade_comprada: mat.quantidade_total }
+      ? { ...mat, status_compra: proximoStatus, quantidade_comprada: proximoStatus === 'comprado' ? mat.quantidade_total : 0 }
       : mat))
   }
 
@@ -622,6 +634,27 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
   const itensSelecionados = materiais.filter(m => selecionados.has(m.id))
 
+  function quantidadePendente(m: MaterialRow) {
+    return Math.max(0, m.quantidade_total - m.quantidade_comprada)
+  }
+
+  function quantidadeDaLista(m: MaterialRow) {
+    const valor = quantidadesLista[m.id]
+    const parsed = Number(String(valor ?? '').replace(',', '.'))
+    const pendente = quantidadePendente(m)
+    if (!Number.isFinite(parsed)) return pendente
+    return Math.min(pendente, Math.max(0, parsed))
+  }
+
+  function abrirListaCompras() {
+    const quantidades: Record<string, string> = {}
+    itensSelecionados.forEach(m => {
+      quantidades[m.id] = String(quantidadePendente(m))
+    })
+    setQuantidadesLista(quantidades)
+    setShowLista(true)
+  }
+
   function gerarTextoLista() {
     const linhas: string[] = ['Lista de compras', '']
     const grupos: Record<string, MaterialRow[]> = { sem_etapa: [] }
@@ -637,7 +670,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       agruparPorSubetapa(itens).forEach(({ nome: subNome, itens: subItens }) => {
         if (subNome !== SEM_SUBETAPA) linhas.push(`  ${subNome}:`)
         subItens.forEach(m => {
-          const falta = Math.max(0, m.quantidade_total - m.quantidade_comprada)
+          const falta = quantidadeDaLista(m)
           const prefixo = subNome !== SEM_SUBETAPA ? '    ' : '  '
           linhas.push(`${prefixo}- ${m.descricao}: ${falta} ${m.unidade}${m.sinapi_codigo ? ` (${m.sinapi_codigo})` : ''}`)
         })
@@ -660,13 +693,21 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   async function salvarLista() {
     if (!nomeLista.trim() || itensSelecionados.length === 0) return
     setSalvandoLista(true)
-    const itensLista: ListaCompraItem[] = itensSelecionados.map(m => ({
-      id: m.id,
-      descricao: m.descricao,
-      quantidade: Math.max(0, m.quantidade_total - m.quantidade_comprada),
-      unidade: m.unidade,
-      sinapiCodigo: m.sinapi_codigo,
-    }))
+    const itensLista: ListaCompraItem[] = itensSelecionados
+      .map(m => ({
+        id: m.id,
+        descricao: m.descricao,
+        quantidade: quantidadeDaLista(m),
+        unidade: m.unidade,
+        sinapiCodigo: m.sinapi_codigo,
+      }))
+      .filter(item => item.quantidade > 0)
+
+    if (itensLista.length === 0) {
+      setSalvandoLista(false)
+      return
+    }
+
     const { data: nova } = await supabase.from('listas_compra').insert({
       obra_id: obraId,
       nome: nomeLista.trim(),
@@ -679,36 +720,86 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         id: nova.id, nome: nova.nome, fornecedorId: nova.fornecedor_id,
         itens: itensLista, status: 'aberta', criadoEm: nova.criado_em,
       }, ...prev])
+
+      try {
+        const { count } = await supabase
+          .from('requisicoes_compra')
+          .select('id', { count: 'exact', head: true })
+          .eq('obra_id', obraId)
+        const numero = `RC-${String((count ?? 0) + 1).padStart(3, '0')}`
+        const { data: req } = await supabase.from('requisicoes_compra').insert({
+          obra_id: obraId,
+          numero,
+          data_solicitacao: new Date().toISOString().slice(0, 10),
+          status: 'aberta',
+          observacao: `Gerada pela lista de compras: ${nomeLista.trim()}`,
+          solicitante: null,
+        }).select().single()
+
+        if (req) {
+          await supabase.from('requisicao_itens').insert(itensLista.map(item => ({
+            requisicao_id: req.id,
+            material_id: item.id,
+            descricao: item.descricao,
+            quantidade: item.quantidade,
+            unidade: item.unidade,
+            urgente: false,
+            observacao: item.sinapiCodigo ? `Código: ${item.sinapiCodigo}` : null,
+          })))
+        }
+      } catch (e) {
+        console.error('Lista salva, mas não foi possível criar a requisição formal:', e)
+      }
     }
-    setNomeLista(''); setFornecedorLista('')
+    const idsSolicitados = new Set(itensLista.map(item => item.id))
+    await Promise.all(itensLista.map(item => supabase.from('materiais').update({
+      status_compra: 'solicitado',
+    }).eq('id', item.id)))
+    setMateriais(prev => prev.map(m => idsSolicitados.has(m.id) && m.status_compra !== 'comprado'
+      ? { ...m, status_compra: 'solicitado' as const }
+      : m))
+    setNomeLista(''); setFornecedorLista(''); setQuantidadesLista({})
     setSalvandoLista(false); setShowLista(false)
     limparSelecao(); setSubView('compras')
   }
 
   async function atualizarStatusLista(id: string, status: StatusLista) {
+    const listaAtual = listas.find(l => l.id === id)
     setListas(prev => prev.map(l => l.id === id ? { ...l, status } : l))
     await supabase.from('listas_compra').update({ status, updated_at: new Date().toISOString() }).eq('id', id)
+
+    if (status === 'concluida' && listaAtual?.itens.length) {
+      const idsDaLista = new Set(listaAtual.itens.map(item => item.id))
+      const materiaisDaLista = materiais.filter(m => idsDaLista.has(m.id))
+
+      await Promise.all(materiaisDaLista.map(m => {
+        const itemLista = listaAtual.itens.find(item => item.id === m.id)
+        const novaQuantidade = Math.min(m.quantidade_total, m.quantidade_comprada + (itemLista?.quantidade ?? 0))
+        const novoStatus: MaterialRow['status_compra'] = novaQuantidade >= m.quantidade_total ? 'comprado' : 'parcial'
+        return supabase.from('materiais').update({
+          status_compra: novoStatus,
+          quantidade_comprada: novaQuantidade,
+        }).eq('id', m.id)
+      }))
+
+      setMateriais(prev => prev.map(m => idsDaLista.has(m.id)
+        ? (() => {
+          const itemLista = listaAtual.itens.find(item => item.id === m.id)
+          const novaQuantidade = Math.min(m.quantidade_total, m.quantidade_comprada + (itemLista?.quantidade ?? 0))
+          return {
+            ...m,
+            status_compra: novaQuantidade >= m.quantidade_total ? 'comprado' as const : 'parcial' as const,
+            quantidade_comprada: novaQuantidade,
+          }
+        })()
+        : m))
+    }
   }
 
   async function removerLista(id: string) {
     if (!confirm('Remover esta lista de compras?')) return
     setListas(prev => prev.filter(l => l.id !== id))
     await supabase.from('listas_compra').delete().eq('id', id)
-  }
-
-  async function marcarSelecionadosComoComprados() {
-    if (itensSelecionados.length === 0) return
-    setMarcandoLote(true)
-    await Promise.all(itensSelecionados.map(m => supabase.from('materiais').update({
-      status_compra: 'comprado',
-      quantidade_comprada: m.quantidade_total,
-    }).eq('id', m.id)))
-    setMateriais(prev => prev.map(m => selecionados.has(m.id)
-      ? { ...m, status_compra: 'comprado' as const, quantidade_comprada: m.quantidade_total }
-      : m))
-    setMarcandoLote(false)
-    setShowLista(false)
-    limparSelecao()
   }
 
   if (loading) {
@@ -722,23 +813,24 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   return (
     <div className="flex flex-col gap-4">
       {/* ── Sub-abas: Materiais x Listas de compra ── */}
-      <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
+      <div className="flex gap-1 p-1 rounded-lg w-full max-w-full overflow-x-auto sm:w-fit" style={{ background: 'var(--bg-secondary)' }}>
         {[
-          { id: 'materiais' as const, label: 'Materiais', icon: Package },
-          { id: 'compras' as const, label: 'Listas de compra', icon: ShoppingCart, badge: listas.length },
-          { id: 'requisicoes' as const, label: 'Requisições', icon: FileText },
-          { id: 'fornecedores' as const, label: 'Fornecedores', icon: Building2 },
-        ].map(({ id, label, icon: Icon, badge }) => (
+          { id: 'materiais' as const, label: 'Materiais', mobileLabel: 'Itens', icon: Package },
+          { id: 'compras' as const, label: 'Listas de compra', mobileLabel: 'Listas', icon: ShoppingCart, badge: listas.length },
+          { id: 'requisicoes' as const, label: 'Requisições', mobileLabel: 'Req.', icon: FileText },
+          { id: 'fornecedores' as const, label: 'Fornecedores', mobileLabel: 'Forn.', icon: Building2 },
+        ].map(({ id, label, mobileLabel, icon: Icon, badge }) => (
           <button
             key={id}
             onClick={() => setSubView(id)}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
+            className="flex flex-shrink-0 items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
             style={subView === id
               ? { background: 'var(--accent)', color: 'white' }
               : { color: 'var(--text-secondary)' }}
           >
             <Icon size={15} />
-            {label}
+            <span className="hidden sm:inline">{label}</span>
+            <span className="sm:hidden">{mobileLabel}</span>
             {!!badge && (
               <span
                 className="text-xs font-semibold px-1.5 py-0.5 rounded-full leading-none"
@@ -806,21 +898,17 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           <option value="todos">Todos</option>
         </select>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={<Download size={14} className={importando ? 'animate-pulse' : ''} />}
-            onClick={importarDoOrcamento}
-            disabled={importando}
-            title="Recalcula os materiais a partir das composições lançadas no orçamento (pode rodar quantas vezes quiser — não duplica)"
-          >
-            {importando ? 'Importando...' : 'Importar do orçamento'}
-          </Button>
           <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>
             Adicionar
           </Button>
         </div>
       </div>
+
+      {importando && (
+        <div className="card px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          Sincronizando automaticamente os insumos do orçamento...
+        </div>
+      )}
 
       {/* Filtro por etapa */}
       {etapas.length > 0 && (
@@ -837,18 +925,9 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         <EmptyState
           icon={Package}
           title="Nenhum material"
-          description={'Os materiais são gerados pelas composições do orçamento ou adicionados manualmente. Já lançou itens no orçamento? Clique em "Importar do orçamento" para puxá-los pra cá.'}
+          description={'Os materiais são gerados automaticamente pelas composições do orçamento. Se o orçamento já tem itens e ainda não apareceu nada, aguarde a sincronização ou confira se os itens possuem composição/insumos vinculados.'}
           action={
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={<Download size={14} className={importando ? 'animate-pulse' : ''} />}
-                onClick={importarDoOrcamento}
-                disabled={importando}
-              >
-                {importando ? 'Importando...' : 'Importar do orçamento'}
-              </Button>
               <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar material</Button>
             </div>
           }
@@ -874,7 +953,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
               onToggleItem={toggleSelecionado}
               onToggleGrupoSelecao={() => toggleSelecionarGrupo(materiaisPorEtapa.sem_etapa)}
               onToggleSubGrupoSelecao={toggleSelecionarGrupo}
-              onComprado={marcarComprado}
+              onComprado={alternarComprado}
               onEdit={openEdit}
               onDelete={handleDelete}
             />
@@ -896,7 +975,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
                 onToggleItem={toggleSelecionado}
                 onToggleGrupoSelecao={() => toggleSelecionarGrupo(itensDaEtapa)}
                 onToggleSubGrupoSelecao={toggleSelecionarGrupo}
-                onComprado={marcarComprado}
+                onComprado={alternarComprado}
                 onEdit={openEdit}
                 onDelete={handleDelete}
               />
@@ -921,7 +1000,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           >
             <X size={14} style={{ color: 'var(--text-secondary)' }} />
           </button>
-          <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={() => setShowLista(true)}>
+          <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={abrirListaCompras}>
             Gerar lista de compras
           </Button>
         </div>
@@ -933,8 +1012,35 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       <Modal open={showLista} onClose={() => setShowLista(false)} title="Lista de compras" size="md">
         <div className="flex flex-col gap-4">
           <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            {itensSelecionados.length} {itensSelecionados.length === 1 ? 'item selecionado' : 'itens selecionados'}, agrupados por etapa. Copie o texto para enviar ao fornecedor ou marque tudo como comprado de uma vez.
+            {itensSelecionados.length} {itensSelecionados.length === 1 ? 'item selecionado' : 'itens selecionados'}. Ajuste a quantidade a solicitar; ao salvar, os insumos passam para status Solicitado.
           </p>
+          <div className="flex flex-col rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+            {itensSelecionados.map(m => {
+              const pendente = quantidadePendente(m)
+              return (
+                <div key={m.id} className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-2 p-3" style={{ borderBottom: '1px solid var(--border)' }}>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{m.descricao}</p>
+                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      Pendente: {pendente} {m.unidade}{m.sinapi_codigo ? ` · ${m.sinapi_codigo}` : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>Qtd solicitada</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max={pendente}
+                      step="any"
+                      value={quantidadesLista[m.id] ?? String(pendente)}
+                      onChange={e => setQuantidadesLista(prev => ({ ...prev, [m.id]: e.target.value }))}
+                      className="input-base w-full text-right"
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
           <pre
             className="text-xs whitespace-pre-wrap rounded-lg p-3 max-h-80 overflow-y-auto"
             style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}
@@ -944,14 +1050,6 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" icon={<Copy size={14} />} onClick={copiarLista}>
               {copiado ? 'Copiado!' : 'Copiar lista'}
-            </Button>
-            <Button
-              className="flex-1"
-              icon={<CheckCircle size={14} />}
-              loading={marcandoLote}
-              onClick={marcarSelecionadosComoComprados}
-            >
-              Marcar tudo como comprado
             </Button>
           </div>
 
@@ -1274,17 +1372,22 @@ function LinhaMaterial({
   const falta = Math.max(0, m.quantidade_total - m.quantidade_comprada)
   const diasParaNecessidade = m.data_necessidade ? diasAteData(m.data_necessidade) : null
   const urgente = diasParaNecessidade !== null && diasParaNecessidade <= 7 && m.status_compra !== 'comprado'
+  const comprado = m.status_compra === 'comprado'
 
   return (
     <div
       onClick={() => onToggleItem(m.id)}
-      className={`flex items-center gap-3 ${recuado ? 'pl-9' : 'px-4'} pr-4 py-3 cursor-pointer transition-colors`}
+      className={`flex items-start gap-3 ${recuado ? 'pl-9' : 'px-4'} pr-4 py-3 cursor-pointer transition-colors`}
       style={{
         borderBottom: '1px solid var(--border)',
         background: selecionado ? 'rgba(59,123,248,0.08)' : 'transparent',
       }}
     >
-      <span className="flex-shrink-0" style={{ color: selecionado ? 'var(--accent)' : 'var(--text-secondary)' }}>
+      <span
+        className="flex-shrink-0 pt-1"
+        title="Selecionar para lista de compras"
+        style={{ color: selecionado ? 'var(--accent)' : 'var(--text-secondary)' }}
+      >
         {selecionado ? <CheckSquare size={16} /> : <Square size={16} />}
       </span>
 
@@ -1309,17 +1412,18 @@ function LinhaMaterial({
         {urgente ? 'Comprar agora' : STATUS_LABEL[m.status_compra]}
       </span>
 
-      <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-        {m.status_compra !== 'comprado' && (
-          <button
-            onClick={() => onComprado(m)}
-            title="Marcar como comprado"
-            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
-            style={{ background: 'rgba(16,185,129,0.14)', color: 'var(--success)' }}
-          >
-            <CheckCircle size={13} /> <span className="hidden md:inline">Comprado</span>
-          </button>
-        )}
+      <div className="flex items-center gap-1 flex-shrink-0 pt-0.5" onClick={e => e.stopPropagation()}>
+        <button
+          onClick={() => onComprado(m)}
+          title={comprado ? 'Desfazer compra' : 'Marcar como comprado'}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+          style={comprado
+            ? { background: 'rgba(16,185,129,0.16)', color: 'var(--success)', border: '1px solid rgba(16,185,129,0.35)' }
+            : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+        >
+          {comprado ? <CheckSquare size={14} /> : <Square size={14} />}
+          <span className="hidden sm:inline">{comprado ? 'Comprado' : 'Comprar'}</span>
+        </button>
         <button onClick={() => onEdit(m)} title="Editar" className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
           <Pencil size={14} style={{ color: 'var(--text-secondary)' }} />
         </button>
@@ -1366,6 +1470,47 @@ function ListasDeComprasView({
       <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
         {listas.length} {listas.length === 1 ? 'lista salva' : 'listas salvas'} · gere novas listas selecionando itens na aba Materiais
       </p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {(Object.keys(STATUS_LISTA_INFO) as StatusLista[]).map(status => {
+          const info = STATUS_LISTA_INFO[status]
+          const Icon = info.icon
+          const listasDaColuna = listas.filter(lista => lista.status === status)
+          return (
+            <div key={status} className="card p-3 flex flex-col gap-2 min-h-32">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: info.color }}>
+                  <Icon size={15} /> {info.label}
+                </span>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}>
+                  {listasDaColuna.length}
+                </span>
+              </div>
+              {listasDaColuna.length === 0 ? (
+                <p className="text-xs py-3" style={{ color: 'var(--text-secondary)' }}>Sem listas neste status.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {listasDaColuna.map(lista => {
+                    const fornecedor = nomeFornecedor(lista.fornecedorId)
+                    return (
+                      <button
+                        key={lista.id}
+                        onClick={() => setExpandida(e => ({ ...e, [lista.id]: true }))}
+                        className="text-left rounded-lg p-2 transition-colors hover:bg-[var(--bg-secondary)]"
+                        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+                      >
+                        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{lista.nome}</p>
+                        <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                          {lista.itens.length} {lista.itens.length === 1 ? 'item' : 'itens'}{fornecedor ? ` · ${fornecedor}` : ''}
+                        </p>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
       {listas.map(lista => {
         const fornecedor = nomeFornecedor(lista.fornecedorId)
         const StatusIcon = STATUS_LISTA_INFO[lista.status].icon
