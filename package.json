@@ -20,7 +20,8 @@
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
     "unpdf": "^1.6.2",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "googleapis": "^144.0.0"
   },
   "devDependencies": {
     "@swc/helpers": "^0.5.23",

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   HardHat, AlertTriangle, TrendingUp, Calendar,
-  Package, ShoppingCart, Zap, CheckCircle2, ChevronRight, LayoutGrid, User,
+  Package, ShoppingCart, Zap, CheckCircle2, ChevronRight, LayoutGrid, User, FolderOpen, FileText,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, Etapa, Material } from '@/lib/types'
@@ -22,6 +22,15 @@ type DashboardData = {
   todasEtapas: Etapa[]
   materiaisPendentes: (Material & { obra_nome: string; insumo_descricao: string })[]
   alertas: number
+}
+
+type DriveEventRow = {
+  id: string
+  file_name: string
+  mime_type: string | null
+  action: string
+  created_at: string
+  projetos: { nome: string } | null
 }
 
 type AcaoPrioritaria = {
@@ -46,6 +55,7 @@ export default function DashboardPage() {
     alertas: 0,
   })
   const [loading, setLoading] = useState(true)
+  const [driveEvents, setDriveEvents] = useState<DriveEventRow[]>([])
 
   useEffect(() => {
     if (currentProfile) {
@@ -63,7 +73,7 @@ export default function DashboardPage() {
 
     const obrasQuery = supabase.from('obras').select('*').order('created_at', { ascending: false })
 
-    const [obrasRes, etapasRes, todasEtapasRes, materiaisRes] = await Promise.all([
+    const [obrasRes, etapasRes, todasEtapasRes, materiaisRes, driveRes] = await Promise.all([
       obrasQuery,
       supabase
         .from('etapas')
@@ -78,6 +88,11 @@ export default function DashboardPage() {
         .select('*, obras(nome)')
         .neq('status_compra', 'comprado')
         .order('data_necessidade'),
+      supabase
+        .from('drive_events')
+        .select('id, file_name, mime_type, action, created_at, projetos(nome)')
+        .order('created_at', { ascending: false })
+        .limit(5),
     ])
 
     let obras = (obrasRes.data || []) as Obra[]
@@ -107,6 +122,7 @@ export default function DashboardPage() {
     const todasEtapas = ((todasEtapasRes.data || []) as Etapa[]).filter(e => idsAtivas.has(e.obra_id))
 
     setData({ obras, etapasProximas: etapas, todasEtapas, materiaisPendentes: materiais, alertas: etapas.length })
+    setDriveEvents((driveRes.data || []) as DriveEventRow[])
     setLoading(false)
   }
 
@@ -566,6 +582,44 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Atividade recente no Drive */}
+      <div className="card p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <FolderOpen size={18} style={{ color: '#3B7BF8' }} />
+          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Atividade recente no Drive</h2>
+        </div>
+        {driveEvents.length === 0 ? (
+          <div className="py-8 text-center flex flex-col items-center gap-2">
+            <FolderOpen size={30} style={{ color: 'var(--border)' }} />
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma atividade registrada</p>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)', opacity: 0.7 }}>
+              Abra a aba Arquivos de um projeto com Drive vinculado para sincronizar.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0">
+            {driveEvents.map((ev, i) => (
+              <div
+                key={ev.id}
+                className={`flex items-center gap-3 py-2.5 ${i < driveEvents.length - 1 ? 'border-b' : ''}`}
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <FileText size={14} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{ev.file_name}</p>
+                  <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                    {(ev.projetos as any)?.nome ?? 'Projeto desconhecido'}
+                  </p>
+                </div>
+                <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+                  {new Date(ev.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
     </div>

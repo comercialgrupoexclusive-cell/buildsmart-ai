@@ -7,6 +7,7 @@ import { usePermission } from '@/lib/permissions'
 import type { Responsavel } from '@/lib/types'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
+import { ProjetoDriveFiles } from '@/components/projeto/ProjetoDriveFiles'
 
 type Projeto = {
   id: string
@@ -42,7 +43,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [projeto, setProjeto] = useState<Projeto | null>(null)
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma'>('estrutura')
+  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'arquivos'>('estrutura')
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [responsaveisTecnicos, setResponsaveisTecnicos] = useState<Responsavel[]>([])
   const [loading, setLoading] = useState(true)
@@ -210,6 +211,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
         {([
           { key: 'estrutura',  label: 'Estrutura',    icon: LayoutList },
           { key: 'cronograma', label: 'Cronograma',   icon: CalendarDays },
+          { key: 'arquivos',   label: 'Arquivos',     icon: FolderOpen },
           { key: 'dados',      label: 'Dados Gerais', icon: Info },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
@@ -254,6 +256,14 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
 
       {tab === 'cronograma' && (
         <ProjetoCronograma projetoId={projeto.id} profiles={profiles} />
+      )}
+
+      {tab === 'arquivos' && (
+        <ProjetoDriveFiles
+          folderId={projeto.drive_folder_id}
+          folderUrl={projeto.drive_folder_url}
+          projectId={projeto.id}
+        />
       )}
 
       {tab === 'dados' && (
