@@ -171,6 +171,18 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
     inputRef.current?.click()
   }
 
+  async function removeFile(file: ProjectItemFile) {
+    if (!confirm(`Remover o PDF "${file.file_name}" deste item?`)) return
+    const next = files.filter(f => f.id !== file.id)
+    persist(next)
+    try {
+      await createClient().from('project_item_files').delete().eq('id', file.id)
+    } catch {
+      // fallback local
+    }
+    if (pdfAberto?.id === file.id) setPdfAberto(null)
+  }
+
   return (
     <div className="min-w-0">
       <input ref={inputRef} type="file" accept="application/pdf" className="hidden" onChange={e => void handleFile(e.target.files)} />
@@ -206,6 +218,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
             allFiles={files}
             onAttach={attachToItem}
             onOpenFile={setPdfAberto}
+            onRemoveFile={removeFile}
           />
         ))}
         {canEdit && (
@@ -226,7 +239,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
   )
 }
 
-function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, file, allFiles, onAttach, onOpenFile }: {
+function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, file, allFiles, onAttach, onOpenFile, onRemoveFile }: {
   item: ProjetoItemNode
   canEdit: boolean
   profiles: { id: string; name: string; apelido: string | null }[]
@@ -239,6 +252,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   allFiles: ProjectItemFile[]
   onAttach: (itemId: string) => void
   onOpenFile: (file: ProjectItemFile) => void
+  onRemoveFile: (file: ProjectItemFile) => void
 }) {
   const [open, setOpen]               = useState(item.nivel !== 1)
   const [editingNome, setEditingNome] = useState(false)
@@ -353,6 +367,19 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
           >
             <Paperclip size={12} />
           </button>
+          {file && canEdit && (
+            <button
+              className="p-1 rounded hover:bg-red-500/10 flex-shrink-0"
+              title="Remover PDF"
+              onClick={e => {
+                e.stopPropagation()
+                onRemoveFile(file)
+              }}
+              style={{ color: '#f87171' }}
+            >
+              <Trash2 size={11} />
+            </button>
+          )}
 
           <div className="basis-full mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:hidden" style={{ color: 'var(--text-secondary)', paddingLeft: 42 }}>
             {item.responsavel && <span>{item.responsavel}</span>}
@@ -565,6 +592,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
               allFiles={allFiles}
               onAttach={onAttach}
               onOpenFile={onOpenFile}
+              onRemoveFile={onRemoveFile}
             />
           ))}
         </div>
