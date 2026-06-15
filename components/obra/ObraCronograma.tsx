@@ -371,7 +371,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                         {STATUS_ETAPA_LABEL[etapa.status]}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1 mt-0.5">
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
                       <DateCell
                         value={etapa.data_inicio}
                         isEditing={editField?.id === etapa.id && editField.field === 'data_inicio'}
@@ -429,7 +429,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                               {STATUS_ETAPA_LABEL[sub.status]}
                             </span>
                           </div>
-                          <div className="flex items-center gap-1 mt-0.5">
+                          <div className="flex flex-wrap items-center gap-2 mt-2">
                             <DateCell
                               value={sub.data_inicio}
                               isEditing={editField?.id === sub.id && editField.field === 'data_inicio'}
@@ -474,7 +474,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                           <Check size={12} className="flex-shrink-0" style={{ color: svc.percentual_executado >= 100 ? '#10b981' : 'var(--border)' }} />
                           <div className="flex-1 min-w-0">
                             <span className="text-xs" style={{ color: 'var(--text-primary)' }}>{svc.nome}</span>
-                            <div className="flex items-center gap-1 mt-0.5">
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
                               <DateCell
                                 value={svc.data_inicio}
                                 isEditing={editField?.id === svc.id && editField.field === 'data_inicio'}
@@ -622,41 +622,23 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
 }
 
 // ── DateCell: clique para editar data inline ──────────────────────────────────
-function DateCell({ value, isEditing, onStartEdit, onCommit }: {
+function DateCell({ value, onCommit }: {
   value: string | null | undefined
   isEditing: boolean
   onStartEdit: () => void
   onCommit: (v: string) => void
 }) {
-  if (isEditing) {
-    return (
-      <input
-        type="date"
-        autoFocus
-        className="rounded border px-1 py-0.5 outline-none"
-        style={{ fontSize: 11, background: 'var(--bg-secondary)', borderColor: 'var(--accent)', color: 'var(--text-primary)' }}
-        defaultValue={value ?? ''}
-        onBlur={e => onCommit(e.target.value)}
-        onKeyDown={e => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-          if (e.key === 'Escape') onCommit(value ?? '')
-        }}
-      />
-    )
-  }
   return (
-    <button
-      onClick={onStartEdit}
-      className="rounded px-1 py-0.5 hover:bg-[var(--bg-card)] transition-colors"
-      title="Clique para editar data"
-      style={{ fontSize: 11, color: 'var(--text-secondary)' }}
-    >
-      {value ? fmtBR(value) : <span style={{ opacity: 0.3 }}>—</span>}
-    </button>
+    <input
+      type="date"
+      value={value ?? ''}
+      onChange={e => onCommit(e.target.value)}
+      className="min-h-9 w-[8.75rem] rounded-lg border px-2 text-xs outline-none"
+      style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+    />
   )
 }
 
-// ── PctInput: % editável inline ───────────────────────────────────────────────
 function PctInput({ value, onChange, small = false }: { value: number; onChange: (v: number) => void; small?: boolean }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(String(value))
@@ -892,7 +874,7 @@ type GanttEff = { inicio: string | null; fim: string | null; pct: number }
 
 const GANTT_ROW_H = 52
 const GANTT_HDR_H = 48
-const GANTT_LEFT_W = 250
+const GANTT_LEFT_W = 330
 const GANTT_PAD_DAYS = 10
 const GANTT_MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const GANTT_COLORS = ['#3B7BF8', '#8B5CF6', '#10B981', '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#F97316']
@@ -1133,16 +1115,16 @@ function ObraGanttView({
                         <input
                           type="date"
                           value={node.data_inicio ?? ''}
-                          className="text-[10px] rounded border px-1 py-0.5"
-                          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-secondary)', width: 78 }}
+                          className="min-h-8 w-[8.25rem] rounded-lg border px-2 text-[10px] outline-none"
+                          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                           onChange={e => onUpdateDate(node.table, node.id, 'data_inicio', e.target.value)}
                         />
                         <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>-&gt;</span>
                         <input
                           type="date"
                           value={node.data_fim ?? ''}
-                          className="text-[10px] rounded border px-1 py-0.5"
-                          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-secondary)', width: 78 }}
+                          className="min-h-8 w-[8.25rem] rounded-lg border px-2 text-[10px] outline-none"
+                          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                           onChange={e => onUpdateDate(node.table, node.id, 'data_fim', e.target.value)}
                         />
                       </>
