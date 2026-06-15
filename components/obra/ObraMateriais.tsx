@@ -529,13 +529,18 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     setMateriais(prev => prev.filter(m => m.id !== id))
   }
 
-  async function marcarComprado(m: MaterialRow) {
+  async function alternarComprado(m: MaterialRow) {
+    const comprado = m.status_compra === 'comprado'
+    const proximoStatus: MaterialRow['status_compra'] = comprado ? 'nao_comprado' : 'comprado'
+    const proximaQuantidade = comprado ? 0 : m.quantidade_total
+
     await supabase.from('materiais').update({
-      status_compra: 'comprado',
-      quantidade_comprada: m.quantidade_total,
+      status_compra: proximoStatus,
+      quantidade_comprada: proximaQuantidade,
     }).eq('id', m.id)
+
     setMateriais(prev => prev.map(mat => mat.id === m.id
-      ? { ...mat, status_compra: 'comprado', quantidade_comprada: mat.quantidade_total }
+      ? { ...mat, status_compra: proximoStatus, quantidade_comprada: proximoStatus === 'comprado' ? mat.quantidade_total : 0 }
       : mat))
   }
 
@@ -686,8 +691,23 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   }
 
   async function atualizarStatusLista(id: string, status: StatusLista) {
+    const listaAtual = listas.find(l => l.id === id)
     setListas(prev => prev.map(l => l.id === id ? { ...l, status } : l))
     await supabase.from('listas_compra').update({ status, updated_at: new Date().toISOString() }).eq('id', id)
+
+    if (status === 'concluida' && listaAtual?.itens.length) {
+      const idsDaLista = new Set(listaAtual.itens.map(item => item.id))
+      const materiaisDaLista = materiais.filter(m => idsDaLista.has(m.id))
+
+      await Promise.all(materiaisDaLista.map(m => supabase.from('materiais').update({
+        status_compra: 'comprado',
+        quantidade_comprada: m.quantidade_total,
+      }).eq('id', m.id)))
+
+      setMateriais(prev => prev.map(m => idsDaLista.has(m.id)
+        ? { ...m, status_compra: 'comprado' as const, quantidade_comprada: m.quantidade_total }
+        : m))
+    }
   }
 
   async function removerLista(id: string) {
@@ -874,7 +894,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
               onToggleItem={toggleSelecionado}
               onToggleGrupoSelecao={() => toggleSelecionarGrupo(materiaisPorEtapa.sem_etapa)}
               onToggleSubGrupoSelecao={toggleSelecionarGrupo}
-              onComprado={marcarComprado}
+              onComprado={alternarComprado}
               onEdit={openEdit}
               onDelete={handleDelete}
             />
@@ -896,7 +916,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
                 onToggleItem={toggleSelecionado}
                 onToggleGrupoSelecao={() => toggleSelecionarGrupo(itensDaEtapa)}
                 onToggleSubGrupoSelecao={toggleSelecionarGrupo}
-                onComprado={marcarComprado}
+                onComprado={alternarComprado}
                 onEdit={openEdit}
                 onDelete={handleDelete}
               />
@@ -1274,17 +1294,22 @@ function LinhaMaterial({
   const falta = Math.max(0, m.quantidade_total - m.quantidade_comprada)
   const diasParaNecessidade = m.data_necessidade ? diasAteData(m.data_necessidade) : null
   const urgente = diasParaNecessidade !== null && diasParaNecessidade <= 7 && m.status_compra !== 'comprado'
+  const comprado = m.status_compra === 'comprado'
 
   return (
     <div
       onClick={() => onToggleItem(m.id)}
-      className={`flex items-center gap-3 ${recuado ? 'pl-9' : 'px-4'} pr-4 py-3 cursor-pointer transition-colors`}
+      className={`flex items-start gap-3 ${recuado ? 'pl-9' : 'px-4'} pr-4 py-3 cursor-pointer transition-colors`}
       style={{
         borderBottom: '1px solid var(--border)',
         background: selecionado ? 'rgba(59,123,248,0.08)' : 'transparent',
       }}
     >
-      <span className="flex-shrink-0" style={{ color: selecionado ? 'var(--accent)' : 'var(--text-secondary)' }}>
+      <span
+        className="flex-shrink-0 pt-1"
+        title="Selecionar para lista de compras"
+        style={{ color: selecionado ? 'var(--accent)' : 'var(--text-secondary)' }}
+      >
         {selecionado ? <CheckSquare size={16} /> : <Square size={16} />}
       </span>
 
@@ -1309,17 +1334,18 @@ function LinhaMaterial({
         {urgente ? 'Comprar agora' : STATUS_LABEL[m.status_compra]}
       </span>
 
-      <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-        {m.status_compra !== 'comprado' && (
-          <button
-            onClick={() => onComprado(m)}
-            title="Marcar como comprado"
-            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
-            style={{ background: 'rgba(16,185,129,0.14)', color: 'var(--success)' }}
-          >
-            <CheckCircle size={13} /> <span className="hidden md:inline">Comprado</span>
-          </button>
-        )}
+      <div className="flex items-center gap-1 flex-shrink-0 pt-0.5" onClick={e => e.stopPropagation()}>
+        <button
+          onClick={() => onComprado(m)}
+          title={comprado ? 'Desfazer compra' : 'Marcar como comprado'}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+          style={comprado
+            ? { background: 'rgba(16,185,129,0.16)', color: 'var(--success)', border: '1px solid rgba(16,185,129,0.35)' }
+            : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+        >
+          {comprado ? <CheckSquare size={14} /> : <Square size={14} />}
+          <span className="hidden sm:inline">{comprado ? 'Comprado' : 'Comprar'}</span>
+        </button>
         <button onClick={() => onEdit(m)} title="Editar" className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
           <Pencil size={14} style={{ color: 'var(--text-secondary)' }} />
         </button>
