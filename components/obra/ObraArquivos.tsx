@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { BotMessageSquare, FileText, ImageIcon, Upload, X } from 'lucide-react'
 import Link from 'next/link'
+import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
 
 type ArquivoObra = {
   id: string
@@ -11,6 +12,7 @@ type ArquivoObra = {
   tamanho: number
   categoria: 'projeto' | 'planta' | 'memorial' | 'imagem' | 'outro'
   criado_em: string
+  url?: string
 }
 
 const CATEGORIA_LABEL: Record<ArquivoObra['categoria'], string> = {
@@ -43,6 +45,7 @@ function formatSize(bytes: number) {
 export function ObraArquivos({ obraId }: { obraId: string }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [arquivos, setArquivos] = useState<ArquivoObra[]>([])
+  const [pdfAberto, setPdfAberto] = useState<ArquivoObra | null>(null)
 
   useEffect(() => {
     const raw = localStorage.getItem(storageKey(obraId))
@@ -54,16 +57,26 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
     localStorage.setItem(storageKey(obraId), JSON.stringify(next))
   }
 
-  function handleFiles(files: FileList | null) {
+  async function fileToDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  async function handleFiles(files: FileList | null) {
     if (!files?.length) return
-    const novos = Array.from(files).map(file => ({
+    const novos = await Promise.all(Array.from(files).map(async file => ({
       id: `arquivo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       nome: file.name,
       tipo: file.type || 'arquivo',
       tamanho: file.size,
       categoria: categoriaPorArquivo(file),
       criado_em: new Date().toISOString(),
-    }))
+      url: file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf') ? await fileToDataUrl(file) : undefined,
+    })))
     salvar([...novos, ...arquivos])
     if (inputRef.current) inputRef.current.value = ''
   }
@@ -99,7 +112,7 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
             </Link>
           </div>
         </div>
-        <input ref={inputRef} type="file" multiple className="hidden" onChange={e => handleFiles(e.target.files)} />
+        <input ref={inputRef} type="file" multiple className="hidden" onChange={e => void handleFiles(e.target.files)} />
       </div>
 
       {arquivos.length === 0 ? (
@@ -125,12 +138,33 @@ export function ObraArquivos({ obraId }: { obraId: string }) {
                   {CATEGORIA_LABEL[arquivo.categoria]} · {formatSize(arquivo.tamanho)} · {new Date(arquivo.criado_em).toLocaleDateString('pt-BR')}
                 </p>
               </div>
-              <button onClick={() => remover(arquivo.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors" title="Remover">
-                <X size={14} style={{ color: 'var(--danger)' }} />
-              </button>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {arquivo.nome.toLowerCase().endsWith('.pdf') && (
+                  <button
+                    onClick={() => arquivo.url ? setPdfAberto(arquivo) : alert('Este PDF foi anexado antes do visualizador guardar o arquivo. Reenvie o PDF para abrir com anotações.')}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                    style={{ background: arquivo.url ? 'var(--accent)' : 'rgba(245,158,11,0.16)', color: arquivo.url ? 'white' : 'var(--warning)' }}
+                  >
+                    {arquivo.url ? 'Abrir com anotações' : 'Reenviar'}
+                  </button>
+                )}
+                <button onClick={() => remover(arquivo.id)} className="p-1 rounded hover:bg-red-500/20 transition-colors" title="Remover">
+                  <X size={14} style={{ color: 'var(--danger)' }} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
+      )}
+      {pdfAberto?.url && (
+        <PdfAnnotator
+          fileUrl={pdfAberto.url}
+          fileName={pdfAberto.nome}
+          contextType="obra"
+          contextId={obraId}
+          itemId={pdfAberto.id}
+          onClose={() => setPdfAberto(null)}
+        />
       )}
     </div>
   )

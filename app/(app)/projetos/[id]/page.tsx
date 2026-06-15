@@ -224,6 +224,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           )}
           <ProjetoCascata
             itens={tree}
+            projetoId={projeto.id}
             canEdit={!isCliente}
             profiles={profiles}
             onToggle={handleToggle}

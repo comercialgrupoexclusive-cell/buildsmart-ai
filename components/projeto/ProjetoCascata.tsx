@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil, Paperclip } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
+import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
 
 export type ProjetoItemNode = {
   id: string
@@ -20,6 +22,7 @@ export type ProjetoItemNode = {
 
 type Props = {
   itens: ProjetoItemNode[]
+  projetoId: string
   canEdit?: boolean
   profiles?: { id: string; name: string; apelido: string | null }[]
   onToggle: (id: string, concluido: boolean) => void
@@ -27,6 +30,16 @@ type Props = {
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
   onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo'>>) => void
+}
+
+type ProjectItemFile = {
+  id: string
+  project_id: string
+  item_id: string
+  file_name: string
+  file_url: string
+  file_size: number
+  created_at: string
 }
 
 const NIVEL_LABELS = ['', 'Disciplina', 'Item', 'Subitem']
@@ -82,9 +95,85 @@ function calcStatus(node: ProjetoItemNode): StatusKey {
   return 'pendente'
 }
 
-export function ProjetoCascata({ itens, canEdit = true, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem }: Props) {
+function projectFilesKey(projetoId: string) {
+  return `buildsmart_project_item_files_${projetoId}`
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem }: Props) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [files, setFiles] = useState<ProjectItemFile[]>([])
+  const [targetItemId, setTargetItemId] = useState<string | null>(null)
+  const [pdfAberto, setPdfAberto] = useState<ProjectItemFile | null>(null)
+
+  useEffect(() => {
+    const raw = localStorage.getItem(projectFilesKey(projetoId))
+    if (raw) setFiles(JSON.parse(raw))
+    createClient().from('project_item_files').select('*').eq('project_id', projetoId)
+      .then(({ data }: { data: ProjectItemFile[] | null }) => {
+        if (data?.length) {
+          const rows = data as ProjectItemFile[]
+          setFiles(rows)
+          localStorage.setItem(projectFilesKey(projetoId), JSON.stringify(rows))
+        }
+      })
+  }, [projetoId])
+
+  function persist(next: ProjectItemFile[]) {
+    setFiles(next)
+    localStorage.setItem(projectFilesKey(projetoId), JSON.stringify(next))
+  }
+
+  async function handleFile(filesList: FileList | null) {
+    const file = filesList?.[0]
+    if (!file || !targetItemId) return
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      alert('Anexe um arquivo PDF.')
+      return
+    }
+    const row: ProjectItemFile = {
+      id: `project-file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      project_id: projetoId,
+      item_id: targetItemId,
+      file_name: file.name,
+      file_url: await fileToDataUrl(file),
+      file_size: file.size,
+      created_at: new Date().toISOString(),
+    }
+    const next = [row, ...files.filter(f => f.item_id !== targetItemId)]
+    persist(next)
+    try {
+      await createClient().from('project_item_files').insert({
+        project_id: row.project_id,
+        item_id: row.item_id,
+        file_name: row.file_name,
+        file_url: row.file_url,
+        file_size: row.file_size,
+        created_at: row.created_at,
+      })
+    } catch {
+      // fallback local
+    }
+    if (inputRef.current) inputRef.current.value = ''
+    setTargetItemId(null)
+  }
+
+  function attachToItem(itemId: string) {
+    setTargetItemId(itemId)
+    inputRef.current?.click()
+  }
+
   return (
     <div className="min-w-0">
+      <input ref={inputRef} type="file" accept="application/pdf" className="hidden" onChange={e => void handleFile(e.target.files)} />
       {/* Cabeçalho de colunas */}
       <div
         className="hidden sm:grid text-xs font-medium px-2 py-2 rounded-t-lg mb-1"
@@ -113,17 +202,31 @@ export function ProjetoCascata({ itens, canEdit = true, profiles = [], onToggle,
             onDelete={onDelete}
             onRename={onRename}
             onUpdateItem={onUpdateItem}
+            file={files.find(f => f.item_id === item.id)}
+            allFiles={files}
+            onAttach={attachToItem}
+            onOpenFile={setPdfAberto}
           />
         ))}
         {canEdit && (
           <AddInlineRow parentId={null} nivel={1} placeholder="+ Nova disciplina" onAdd={onAdd} />
         )}
       </div>
+      {pdfAberto && (
+        <PdfAnnotator
+          fileUrl={pdfAberto.file_url}
+          fileName={pdfAberto.file_name}
+          contextType="projeto"
+          contextId={projetoId}
+          itemId={pdfAberto.item_id}
+          onClose={() => setPdfAberto(null)}
+        />
+      )}
     </div>
   )
 }
 
-function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem }: {
+function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, file, allFiles, onAttach, onOpenFile }: {
   item: ProjetoItemNode
   canEdit: boolean
   profiles: { id: string; name: string; apelido: string | null }[]
@@ -132,6 +235,10 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
   onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo'>>) => void
+  file?: ProjectItemFile
+  allFiles: ProjectItemFile[]
+  onAttach: (itemId: string) => void
+  onOpenFile: (file: ProjectItemFile) => void
 }) {
   const [open, setOpen]               = useState(item.nivel !== 1)
   const [editingNome, setEditingNome] = useState(false)
@@ -234,8 +341,22 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             </span>
           )}
 
+          <button
+            className="p-1 rounded hover:bg-[var(--bg-card)] flex-shrink-0"
+            title={file ? `Abrir ${file.file_name}` : 'Anexar PDF'}
+            onClick={e => {
+              e.stopPropagation()
+              if (file) onOpenFile(file)
+              else if (canEdit) onAttach(item.id)
+            }}
+            style={{ color: file ? 'var(--accent)' : 'var(--text-secondary)', opacity: file || canEdit ? 1 : 0.35 }}
+          >
+            <Paperclip size={12} />
+          </button>
+
           <div className="basis-full mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:hidden" style={{ color: 'var(--text-secondary)', paddingLeft: 42 }}>
             {item.responsavel && <span>{item.responsavel}</span>}
+            {file && <button onClick={() => onOpenFile(file)} className="truncate" style={{ color: 'var(--accent)' }}>{file.file_name}</button>}
             {(eff.inicio || eff.fim) && (
               <span>
                 {eff.inicio ? fmtDate(eff.inicio) : '--'}
@@ -440,6 +561,10 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
               onDelete={onDelete}
               onRename={onRename}
               onUpdateItem={onUpdateItem}
+              file={allFiles.find(f => f.item_id === child.id)}
+              allFiles={allFiles}
+              onAttach={onAttach}
+              onOpenFile={onOpenFile}
             />
           ))}
         </div>
