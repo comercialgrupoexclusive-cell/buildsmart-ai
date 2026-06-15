@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { Fragment, useEffect, useState, useRef, useCallback } from 'react'
 import {
   Plus, Lock, Unlock, Search, Trash2, MoreHorizontal, RefreshCw, Snowflake,
   ChevronDown, ChevronRight, FolderPlus, RotateCcw, FileSpreadsheet,
@@ -1641,7 +1641,218 @@ function GrupoEtapa({
               )}
             </div>
           ) : (
-            <div className="flex flex-col">
+            <>
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full min-w-[980px] border-collapse text-sm">
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
+                    <th className="w-10 px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}></th>
+                    <th className="px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}>Código</th>
+                    <th className="px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}>Descrição</th>
+                    <th className="px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}>Subetapa</th>
+                    <th className="px-3 py-2 text-center font-semibold" style={{ color: 'var(--text-secondary)' }}>Un.</th>
+                    <th className="px-3 py-2 text-center font-semibold" style={{ color: 'var(--text-secondary)' }}>Qtd.</th>
+                    <th className="px-3 py-2 text-right font-semibold" style={{ color: 'var(--text-secondary)' }}>Unitário</th>
+                    <th className="px-3 py-2 text-right font-semibold" style={{ color: 'var(--text-secondary)' }}>Total</th>
+                    <th className="w-12 px-3 py-2 text-right font-semibold" style={{ color: 'var(--text-secondary)' }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gruposSubetapa.map(grupo => {
+                    const subFechada = subetapasFechadas[grupo.key] ?? false
+                    const subtotalSubetapa = grupo.itens.reduce((acc, item) => acc + getItemTotal(item), 0)
+
+                    return (
+                      <Fragment key={grupo.key}>
+                        <tr style={{ background: 'color-mix(in srgb, var(--accent) 8%, var(--bg-secondary))', borderBottom: '1px solid var(--border)' }}>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => setSubetapasFechadas(prev => ({ ...prev, [grupo.key]: !subFechada }))}
+                              className="p-1 rounded hover:bg-[var(--bg-card)]"
+                              style={{ color: 'var(--text-secondary)' }}
+                            >
+                              {subFechada ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 font-semibold" colSpan={2} style={{ color: 'var(--text-primary)' }}>
+                            {grupo.nome}
+                          </td>
+                          <td className="px-3 py-2 text-xs" colSpan={3} style={{ color: 'var(--text-secondary)' }}>
+                            {grupo.itens.length} {grupo.itens.length === 1 ? 'composição' : 'composições'}
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                            Subtotal
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold" style={{ color: 'var(--accent)' }}>
+                            {formatCurrency(subtotalSubetapa)}
+                          </td>
+                          <td />
+                        </tr>
+
+                        {!subFechada && grupo.itens.map(item => {
+                          const hasInsumos = (item.composicao_itens?.length || 0) > 0
+                          const isExpanded = expandedItems[item.id] || false
+                          const itemTotal = getItemTotal(item)
+                          const hasOverride = (item.composicao_itens || []).some(ins => {
+                            const info = infoDoItem(ins, obraUf)
+                            return insumoOverrides[overrideKey(item.id, info.codigo !== '\u2014' ? info.codigo : ins.id)] !== undefined
+                          })
+
+                          return (
+                            <Fragment key={item.id}>
+                              <tr className="transition-colors hover:bg-[var(--bg-secondary)]" style={{ borderBottom: '1px solid var(--border)' }}>
+                                <td className="px-3 py-2 align-top">
+                                  {hasInsumos && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onToggleItem(item.id)}
+                                      className="p-1 rounded hover:bg-[var(--bg-card)]"
+                                      style={{ color: 'var(--text-secondary)' }}
+                                    >
+                                      {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                    </button>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 align-top font-mono text-xs" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
+                                  {item.codigo}
+                                </td>
+                                <td className="px-3 py-2 align-top" style={{ color: 'var(--text-primary)' }}>
+                                  <span className="line-clamp-2">{item.descricao}</span>
+                                </td>
+                                <td className="px-3 py-2 align-top text-xs" style={{ color: 'var(--text-secondary)' }}>{grupo.nome}</td>
+                                <td className="px-3 py-2 align-top text-center" style={{ color: 'var(--text-secondary)' }}>{item.unidade}</td>
+                                <td className="px-3 py-2 align-top text-center">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                    className="input-base py-1 text-xs text-center tabular-nums"
+                                    style={{ width: 86, color: 'var(--text-primary)' }}
+                                    disabled={isReadonly}
+                                    onFocus={e => e.currentTarget.select()}
+                                    onBlur={e => {
+                                      const next = parseQuantidadeInput(e.currentTarget.value)
+                                      if (next === null) {
+                                        e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                        return
+                                      }
+                                      e.currentTarget.value = next.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                      onUpdateQuantidade(item.id, next)
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') e.currentTarget.blur()
+                                      if (e.key === 'Escape') {
+                                        e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                        e.currentTarget.blur()
+                                      }
+                                    }}
+                                  />
+                                </td>
+                                <td className="px-3 py-2 align-top text-right tabular-nums" style={{ color: 'var(--text-secondary)' }}>{formatCurrency(item.preco_unitario_snapshot)}</td>
+                                <td className="px-3 py-2 align-top text-right font-semibold tabular-nums" style={{ color: hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
+                                  {formatCurrency(itemTotal)}
+                                </td>
+                                <td className="px-3 py-2 align-top text-right">
+                                  {!isReadonly && (
+                                    <button
+                                      onClick={e => { e.stopPropagation(); onRemove(item.id) }}
+                                      className="p-1.5 rounded hover:bg-red-500/20 transition-colors"
+                                      aria-label="Remover composição"
+                                    >
+                                      <Trash2 size={13} style={{ color: 'var(--danger)' }} />
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+
+                              {isExpanded && hasInsumos && (
+                                <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
+                                  <td />
+                                  <td colSpan={8} className="px-3 py-3">
+                                    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
+                                            <th className="px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}>Insumo</th>
+                                            <th className="px-3 py-2 text-center font-semibold" style={{ color: 'var(--text-secondary)' }}>Un.</th>
+                                            <th className="px-3 py-2 text-right font-semibold" style={{ color: 'var(--text-secondary)' }}>Preço</th>
+                                            <th className="px-3 py-2 text-center font-semibold" style={{ color: 'var(--text-secondary)' }}>Qtd. calc.</th>
+                                            <th className="px-3 py-2 text-center font-semibold" style={{ color: 'var(--text-secondary)' }}>Qtd. adotada</th>
+                                            <th className="px-3 py-2 text-right font-semibold" style={{ color: 'var(--text-secondary)' }}>Total</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {item.composicao_itens!.map(ins => {
+                                            const info = infoDoItem(ins, obraUf)
+                                            const insumoKey = info.codigo !== '\u2014' ? info.codigo : ins.id
+                                            const key = overrideKey(item.id, insumoKey)
+                                            const qtdCalculada = item.quantidade * ins.coeficiente
+                                            const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
+                                            const preco = info.preco
+                                            const totalIns = qtdAdotada * preco
+                                            const isOverridden = insumoOverrides[key] !== undefined
+
+                                            return (
+                                              <tr key={ins.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                                <td className="px-3 py-2">
+                                                  <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{info.descricao}</p>
+                                                  <p className="font-mono text-[11px]" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{info.codigo !== '\u2014' ? info.codigo : ''}</p>
+                                                </td>
+                                                <td className="px-3 py-2 text-center" style={{ color: 'var(--text-secondary)' }}>{info.unidade}</td>
+                                                <td className="px-3 py-2 text-right" style={{ color: 'var(--text-secondary)' }}>{preco > 0 ? formatCurrency(preco) : '-'}</td>
+                                                <td className="px-3 py-2 text-center tabular-nums" style={{ color: 'var(--text-secondary)' }}>{qtdCalculada.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td>
+                                                <td className="px-3 py-2 text-center">
+                                                  <div className="inline-flex items-center gap-1.5">
+                                                    <input
+                                                      type="number"
+                                                      value={isOverridden ? insumoOverrides[key] : qtdCalculada}
+                                                      onChange={e => {
+                                                        const v = parseFloat(e.target.value)
+                                                        onOverrideInsumo(item.id, insumoKey, isNaN(v) ? null : v)
+                                                      }}
+                                                      disabled={isReadonly}
+                                                      className="input-base py-1 text-xs text-center tabular-nums"
+                                                      style={{
+                                                        width: 88,
+                                                        border: isOverridden ? '1px solid var(--warning)' : '1px solid var(--border)',
+                                                        color: isOverridden ? 'var(--warning)' : 'var(--text-primary)',
+                                                      }}
+                                                      min={0}
+                                                      step="any"
+                                                    />
+                                                    {isOverridden && !isReadonly && (
+                                                      <button
+                                                        onClick={() => onOverrideInsumo(item.id, insumoKey, null)}
+                                                        title="Restaurar calculado"
+                                                        className="p-1 rounded transition-colors hover:bg-[var(--bg-secondary)]"
+                                                      >
+                                                        <RotateCcw size={11} style={{ color: 'var(--text-secondary)' }} />
+                                                      </button>
+                                                    )}
+                                                  </div>
+                                                </td>
+                                                <td className="px-3 py-2 text-right font-semibold" style={{ color: isOverridden ? 'var(--warning)' : 'var(--text-primary)' }}>{totalIns > 0 ? formatCurrency(totalIns) : '-'}</td>
+                                              </tr>
+                                            )
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          )
+                        })}
+                      </Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-col md:hidden">
               {gruposSubetapa.map(grupo => {
                 const subFechada = subetapasFechadas[grupo.key] ?? false
                 const subtotalSubetapa = grupo.itens.reduce((acc, item) => acc + getItemTotal(item), 0)
@@ -1831,6 +2042,7 @@ function GrupoEtapa({
                 )
               })}
             </div>
+            </>
           )}
         </>
       )}
