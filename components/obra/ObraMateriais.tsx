@@ -5,7 +5,7 @@ import {
   Package, AlertTriangle, CheckCircle,
   Plus, Pencil, Trash2, ChevronDown, ChevronRight,
   Square, CheckSquare, ShoppingCart, Copy, X,
-  Building2, Send, PackageCheck, ClipboardList, Download, FileText,
+  Building2, Send, PackageCheck, ClipboardList, FileText,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { diasAteData } from '@/lib/utils'
@@ -221,16 +221,16 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   // do zero, não duplica) o total por (etapa, subetapa, código) em "materiais".
   // Quando não há detalhamento de insumos disponível para a composição, lança
   // a própria composição como material — garante que o dado sempre "puxe".
-  async function importarDoOrcamento() {
+  async function importarDoOrcamento(silencioso = false) {
     if (importando) return
     setImportando(true)
     try {
       // 1) Orçamentos da obra
       const { data: orcs, error: erroOrcs } = await supabase.from('orcamentos').select('id').eq('obra_id', obraId)
-      if (erroOrcs) { alert(`Não foi possível ler os orçamentos da obra.\n\nErro: ${erroOrcs.message}`); return }
+      if (erroOrcs) { if (!silencioso) alert(`Não foi possível ler os orçamentos da obra.\n\nErro: ${erroOrcs.message}`); return }
       const orcamentoIds = ((orcs || []) as { id: string }[]).map(o => o.id)
       if (orcamentoIds.length === 0) {
-        alert('Esta obra ainda não tem orçamento. Crie um orçamento na aba "Orçamento" primeiro — os materiais são derivados dele.')
+        if (!silencioso) alert('Esta obra ainda não tem orçamento. Crie um orçamento na aba "Orçamento" primeiro — os materiais são derivados dele.')
         return
       }
 
@@ -252,13 +252,13 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         .in('orcamento_id', orcamentoIds)
 
       if (erroItens) {
-        alert(`Não foi possível ler os itens do orçamento.\n\nErro: ${erroItens.message}`)
+        if (!silencioso) alert(`Não foi possível ler os itens do orçamento.\n\nErro: ${erroItens.message}`)
         return
       }
 
       const itens = (itensRaw || []) as ItemLean[]
       if (itens.length === 0) {
-        alert('O orçamento desta obra ainda não tem itens lançados. Adicione composições na aba "Orçamento" — os materiais são derivados delas.')
+        if (!silencioso) alert('O orçamento desta obra ainda não tem itens lançados. Adicione composições na aba "Orçamento" — os materiais são derivados delas.')
         return
       }
 
@@ -277,7 +277,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           .from('composicoes_proprias')
           .select('id, codigo, descricao, unidade, composicao_insumos(coeficiente, insumo:sinapi_insumos(codigo,descricao,unidade), insumo_proprio:insumos_proprios(codigo,descricao,unidade))')
           .in('id', composicaoIds)
-        if (error) { alert(`Não foi possível ler as composições próprias do orçamento.\n\nErro: ${error.message}`); return }
+        if (error) { if (!silencioso) alert(`Não foi possível ler as composições próprias do orçamento.\n\nErro: ${error.message}`); return }
         for (const c of (data || []) as unknown as ComposicaoPropriaRow[]) composicoesProprias.set(c.id, c)
       }
 
@@ -289,7 +289,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         const { data, error } = await supabase.from('sinapi_composicoes')
           .select('id, codigo, descricao, unidade, mes_referencia')
           .in('id', sinapiCompIds)
-        if (error) { alert(`Não foi possível ler as composições SINAPI do orçamento.\n\nErro: ${error.message}`); return }
+        if (error) { if (!silencioso) alert(`Não foi possível ler as composições SINAPI do orçamento.\n\nErro: ${error.message}`); return }
         for (const c of (data || []) as SinapiCompRow[]) sinapiComposicoes.set(c.id, c)
       }
 
@@ -368,7 +368,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       }
 
       if (mapa.size === 0) {
-        alert('Não há insumos para importar a partir deste orçamento — os itens lançados não têm composição nem código/descrição que permitam gerar materiais.')
+        if (!silencioso) alert('Não há insumos para importar a partir deste orçamento — os itens lançados não têm composição nem código/descrição que permitam gerar materiais.')
         return
       }
 
@@ -384,7 +384,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           .select(temSubetapa ? 'id, etapa_id, subetapa, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)' : 'id, etapa_id, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)')
           .eq('obra_id', obraId)
       const { data: existentesRaw, error: erroExistentes } = await existentesQuery
-      if (erroExistentes) { alert(`Nao foi possivel ler os materiais ja cadastrados.\n\nErro: ${erroExistentes.message}`); return }
+      if (erroExistentes) { if (!silencioso) alert(`Nao foi possivel ler os materiais ja cadastrados.\n\nErro: ${erroExistentes.message}`); return }
       const existentesMap = new Map<string, { id: string; quantidade_total: number }>()
       for (const e of (existentesRaw || []) as { id: string; etapa_id: string | null; subetapa?: string | null; sinapi_codigo?: string | null; insumo_id?: string | null; quantidade_total: number; insumo?: { codigo: string } | null }[]) {
         const codigoExistente = schemaMateriais === 'snapshot' ? e.sinapi_codigo : e.insumo?.codigo
@@ -431,6 +431,10 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
       await loadMateriais()
 
+      if (silencioso) {
+        return
+      }
+
       if (!temSubetapa) {
         alert(
           `Importação concluída (sem agrupamento por subetapa — coluna pendente no banco).\n\n` +
@@ -447,7 +451,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     } catch (e) {
       console.error('Erro ao importar materiais do orçamento:', e)
       const msg = e instanceof Error ? e.message : 'Erro desconhecido'
-      alert(`Não foi possível importar os dados do orçamento.\n\nErro: ${msg}`)
+      if (!silencioso) alert(`Não foi possível importar os dados do orçamento.\n\nErro: ${msg}`)
     } finally {
       setImportando(false)
     }
@@ -455,7 +459,10 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
   useEffect(() => {
     // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
-    Promise.resolve().then(() => loadMateriais())
+    Promise.resolve().then(async () => {
+      await loadMateriais()
+      await importarDoOrcamento(true)
+    })
   }, [obraId])
 
   // ── Listas de compra — carrega do Supabase ──
@@ -826,21 +833,17 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           <option value="todos">Todos</option>
         </select>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={<Download size={14} className={importando ? 'animate-pulse' : ''} />}
-            onClick={importarDoOrcamento}
-            disabled={importando}
-            title="Recalcula os materiais a partir das composições lançadas no orçamento (pode rodar quantas vezes quiser — não duplica)"
-          >
-            {importando ? 'Importando...' : 'Importar do orçamento'}
-          </Button>
           <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>
             Adicionar
           </Button>
         </div>
       </div>
+
+      {importando && (
+        <div className="card px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          Sincronizando automaticamente os insumos do orçamento...
+        </div>
+      )}
 
       {/* Filtro por etapa */}
       {etapas.length > 0 && (
@@ -857,18 +860,9 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         <EmptyState
           icon={Package}
           title="Nenhum material"
-          description={'Os materiais são gerados pelas composições do orçamento ou adicionados manualmente. Já lançou itens no orçamento? Clique em "Importar do orçamento" para puxá-los pra cá.'}
+          description={'Os materiais são gerados automaticamente pelas composições do orçamento. Se o orçamento já tem itens e ainda não apareceu nada, aguarde a sincronização ou confira se os itens possuem composição/insumos vinculados.'}
           action={
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={<Download size={14} className={importando ? 'animate-pulse' : ''} />}
-                onClick={importarDoOrcamento}
-                disabled={importando}
-              >
-                {importando ? 'Importando...' : 'Importar do orçamento'}
-              </Button>
               <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar material</Button>
             </div>
           }
@@ -1392,6 +1386,47 @@ function ListasDeComprasView({
       <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
         {listas.length} {listas.length === 1 ? 'lista salva' : 'listas salvas'} · gere novas listas selecionando itens na aba Materiais
       </p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {(Object.keys(STATUS_LISTA_INFO) as StatusLista[]).map(status => {
+          const info = STATUS_LISTA_INFO[status]
+          const Icon = info.icon
+          const listasDaColuna = listas.filter(lista => lista.status === status)
+          return (
+            <div key={status} className="card p-3 flex flex-col gap-2 min-h-32">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-2 text-sm font-semibold" style={{ color: info.color }}>
+                  <Icon size={15} /> {info.label}
+                </span>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}>
+                  {listasDaColuna.length}
+                </span>
+              </div>
+              {listasDaColuna.length === 0 ? (
+                <p className="text-xs py-3" style={{ color: 'var(--text-secondary)' }}>Sem listas neste status.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {listasDaColuna.map(lista => {
+                    const fornecedor = nomeFornecedor(lista.fornecedorId)
+                    return (
+                      <button
+                        key={lista.id}
+                        onClick={() => setExpandida(e => ({ ...e, [lista.id]: true }))}
+                        className="text-left rounded-lg p-2 transition-colors hover:bg-[var(--bg-secondary)]"
+                        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+                      >
+                        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{lista.nome}</p>
+                        <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                          {lista.itens.length} {lista.itens.length === 1 ? 'item' : 'itens'}{fornecedor ? ` · ${fornecedor}` : ''}
+                        </p>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
       {listas.map(lista => {
         const fornecedor = nomeFornecedor(lista.fornecedorId)
         const StatusIcon = STATUS_LISTA_INFO[lista.status].icon
