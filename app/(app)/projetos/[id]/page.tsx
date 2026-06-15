@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect, use } from 'react'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, FolderOpen, ExternalLink } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
+import type { Responsavel } from '@/lib/types'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
 
@@ -17,7 +18,16 @@ type Projeto = {
   status: 'em_andamento' | 'concluido' | 'suspenso'
   obra_id: string | null
   responsavel: string | null
+  responsavel_tecnico_id: string | null
+  drive_folder_url: string | null
+  drive_folder_id: string | null
   created_at: string
+}
+
+function extractDriveFolderId(url: string): string | null {
+  if (!url) return null
+  const match = url.match(/\/folders\/([a-zA-Z0-9_-]+)/)
+  return match ? match[1] : null
 }
 
 const STATUS_OPTIONS = [
@@ -34,6 +44,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
   const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma'>('estrutura')
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
+  const [responsaveisTecnicos, setResponsaveisTecnicos] = useState<Responsavel[]>([])
   const [loading, setLoading] = useState(true)
   const [editingDados, setEditingDados] = useState(false)
   const [dadosForm, setDadosForm] = useState<Partial<Projeto>>({})
@@ -44,11 +55,13 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    const [{ data: p }, { data: its }, { data: profs }] = await Promise.all([
+    const [{ data: p }, { data: its }, { data: profs }, { data: resps }] = await Promise.all([
       supabase.from('projetos').select('*').eq('id', id).single(),
       supabase.from('projeto_itens').select('*').eq('projeto_id', id).order('ordem'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
+      supabase.from('responsaveis').select('id, name, drive_folder_url').order('name'),
     ])
+    setResponsaveisTecnicos((resps ?? []) as Responsavel[])
     setProfiles((profs ?? []) as { id: string; name: string; apelido: string | null }[])
     if (p) {
       setProjeto(p)
@@ -128,6 +141,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     if (!projeto) return
     setSaving(true)
     const supabase = createClient()
+    const driveUrl = dadosForm.drive_folder_url?.trim() ?? projeto.drive_folder_url ?? ''
     const payload = {
       nome: dadosForm.nome ?? projeto.nome,
       cliente: dadosForm.cliente ?? null,
@@ -136,6 +150,9 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       data_previsao: dadosForm.data_previsao ?? null,
       status: dadosForm.status ?? projeto.status,
       responsavel: dadosForm.responsavel ?? null,
+      responsavel_tecnico_id: dadosForm.responsavel_tecnico_id ?? projeto.responsavel_tecnico_id ?? null,
+      drive_folder_url: driveUrl || null,
+      drive_folder_id: extractDriveFolderId(driveUrl),
       updated_at: new Date().toISOString(),
     }
     const { data } = await supabase.from('projetos').update(payload).eq('id', id).select().single()
@@ -280,6 +297,78 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
                 <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
                   {STATUS_OPTIONS.find(o => o.value === projeto.status)?.label ?? '—'}
                 </p>
+              </div>
+            )}
+
+            {/* Responsável Técnico */}
+            {editingDados ? (
+              <div className="space-y-1">
+                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Responsável Técnico</label>
+                <select
+                  className="w-full px-3 py-2 rounded-lg text-sm border outline-none"
+                  style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  value={dadosForm.responsavel_tecnico_id ?? ''}
+                  onChange={e => {
+                    const rid = e.target.value
+                    const resp = responsaveisTecnicos.find(r => r.id === rid)
+                    setDadosForm(f => ({
+                      ...f,
+                      responsavel_tecnico_id: rid || null,
+                      drive_folder_url: resp?.drive_folder_url ?? f.drive_folder_url ?? '',
+                    }))
+                  }}
+                >
+                  <option value="">— Selecionar —</option>
+                  {responsaveisTecnicos.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Responsável Técnico</label>
+                <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                  {responsaveisTecnicos.find(r => r.id === projeto.responsavel_tecnico_id)?.name ?? '—'}
+                </p>
+              </div>
+            )}
+
+            {/* Pasta Drive do projeto */}
+            {editingDados ? (
+              <div className="space-y-1">
+                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Pasta do Drive (projeto)</label>
+                <input
+                  type="url"
+                  className="w-full px-3 py-2 rounded-lg text-sm border outline-none"
+                  style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  value={dadosForm.drive_folder_url ?? ''}
+                  onChange={e => setDadosForm(f => ({ ...f, drive_folder_url: e.target.value }))}
+                />
+                {dadosForm.drive_folder_url && (
+                  <p className="text-xs mt-0.5" style={{ color: extractDriveFolderId(dadosForm.drive_folder_url) ? '#10b981' : '#f59e0b' }}>
+                    {extractDriveFolderId(dadosForm.drive_folder_url)
+                      ? `✓ ID: ${extractDriveFolderId(dadosForm.drive_folder_url)}`
+                      : '⚠ URL não reconhecida'}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Pasta do Drive</label>
+                {projeto.drive_folder_url ? (
+                  <a
+                    href={projeto.drive_folder_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-sm font-medium hover:opacity-80"
+                    style={{ color: '#10b981' }}
+                  >
+                    <FolderOpen size={14} /> Abrir no Drive <ExternalLink size={11} />
+                  </a>
+                ) : (
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>—</p>
+                )}
               </div>
             )}
           </div>

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Plus, FolderOpen, Search, MoreVertical, Calendar, Link2, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
-import type { Profile, Proprietario } from '@/lib/types'
+import type { Profile, Proprietario, Responsavel } from '@/lib/types'
 
 type Projeto = {
   id: string
@@ -47,6 +47,14 @@ const EMPTY_FORM = {
   status: 'em_andamento' as Projeto['status'],
   responsavel: '',
   template_id: '',
+  responsavel_tecnico_id: '',
+  drive_folder_url: '',
+}
+
+function extractDriveFolderId(url: string): string | null {
+  if (!url) return null
+  const match = url.match(/\/folders\/([a-zA-Z0-9_-]+)/)
+  return match ? match[1] : null
 }
 
 export default function ProjetosPage() {
@@ -55,6 +63,7 @@ export default function ProjetosPage() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [proprietarios, setProprietarios] = useState<Proprietario[]>([])
+  const [responsaveisTecnicos, setResponsaveisTecnicos] = useState<Responsavel[]>([])
   const [projetoStats, setProjetoStats] = useState<Record<string, { total: number; done: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -68,17 +77,19 @@ export default function ProjetosPage() {
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    const [{ data: p }, { data: t }, { data: profs }, { data: statsData }, { data: props }] = await Promise.all([
+    const [{ data: p }, { data: t }, { data: profs }, { data: statsData }, { data: props }, { data: resps }] = await Promise.all([
       supabase.from('projetos').select('*').order('created_at', { ascending: false }),
       supabase.from('projeto_templates').select('*').order('nome'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
       supabase.from('projeto_itens').select('projeto_id, concluido'),
       supabase.from('proprietarios').select('id, name, phone').order('name'),
+      supabase.from('responsaveis').select('id, name, drive_folder_url').order('name'),
     ])
     setProjetos(p ?? [])
     setTemplates((t ?? []) as Template[])
     setProfiles((profs ?? []) as Profile[])
     setProprietarios((props ?? []) as Proprietario[])
+    setResponsaveisTecnicos((resps ?? []) as Responsavel[])
 
     const statsMap: Record<string, { total: number; done: number }> = {}
     for (const item of statsData ?? []) {
@@ -95,6 +106,7 @@ export default function ProjetosPage() {
     if (!form.nome.trim()) return
     setSaving(true)
     const supabase = createClient()
+    const driveUrl = form.drive_folder_url.trim()
     const payload = {
       nome: form.nome.trim(),
       cliente: form.cliente || null,
@@ -103,6 +115,9 @@ export default function ProjetosPage() {
       data_previsao: form.data_previsao || null,
       status: form.status,
       responsavel: form.responsavel || null,
+      responsavel_tecnico_id: form.responsavel_tecnico_id || null,
+      drive_folder_url: driveUrl || null,
+      drive_folder_id: extractDriveFolderId(driveUrl),
     }
     const { data, error } = await supabase.from('projetos').insert(payload).select().single()
     if (!error && data) {
@@ -410,6 +425,51 @@ export default function ProjetosPage() {
                     </div>
                   )}
                 </div>
+              </Field>
+
+              {/* Responsável Técnico */}
+              <Field label="Responsável Técnico (Drive)">
+                <select
+                  className="input-base"
+                  value={form.responsavel_tecnico_id}
+                  onChange={e => {
+                    const id = e.target.value
+                    const resp = responsaveisTecnicos.find(r => r.id === id)
+                    setForm(f => ({
+                      ...f,
+                      responsavel_tecnico_id: id,
+                      drive_folder_url: resp?.drive_folder_url ?? f.drive_folder_url,
+                    }))
+                  }}
+                >
+                  <option value="">— Selecionar responsável técnico —</option>
+                  {responsaveisTecnicos.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+                {responsaveisTecnicos.length === 0 && (
+                  <p className="text-xs mt-1 opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                    Cadastre responsáveis técnicos em Contatos para usar esta lista.
+                  </p>
+                )}
+              </Field>
+
+              {/* Pasta Drive do projeto */}
+              <Field label="Pasta do Drive (projeto)">
+                <input
+                  type="url"
+                  className="input-base"
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  value={form.drive_folder_url}
+                  onChange={e => setForm(f => ({ ...f, drive_folder_url: e.target.value }))}
+                />
+                {form.drive_folder_url && (
+                  <p className="text-xs mt-1" style={{ color: extractDriveFolderId(form.drive_folder_url) ? '#10b981' : '#f59e0b' }}>
+                    {extractDriveFolderId(form.drive_folder_url)
+                      ? `✓ ID: ${extractDriveFolderId(form.drive_folder_url)}`
+                      : '⚠ URL não reconhecida — use o formato drive.google.com/drive/folders/...'}
+                  </p>
+                )}
               </Field>
 
               {/* Template */}
