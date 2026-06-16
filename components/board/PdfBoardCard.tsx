@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { FileText, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 interface PdfBoardCardProps {
   item: {
@@ -49,7 +49,7 @@ export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps)
     return () => { cancelled = true }
   }, [item.content.url])
 
-  // Render current page whenever page or loading changes
+  // Render current page
   useEffect(() => {
     if (loading || errored || !pdfRef.current) return
     let cancelled = false
@@ -61,20 +61,21 @@ export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps)
       const pdfPage = await pdfRef.current.getPage(page)
       if (cancelled) return
 
-      // Render at physical pixels so it stays sharp on retina / high-DPR screens
+      // Render at physical pixel resolution for sharpness
       const dpr     = window.devicePixelRatio || 1
-      const desired = item.width - 4          // logical CSS width to fill
+      const desired = item.width - 2           // logical CSS width
       const raw     = pdfPage.getViewport({ scale: 1 })
       const scale   = (desired / raw.width) * dpr
       const viewport = pdfPage.getViewport({ scale })
 
-      // Canvas pixel buffer = physical pixels
-      canvas.width  = Math.floor(viewport.width)
-      canvas.height = Math.floor(viewport.height)
+      const physW = Math.floor(viewport.width)
+      const physH = Math.floor(viewport.height)
+      const logicH = Math.floor(physH / dpr)
 
-      // CSS display size = logical pixels (sharp on any DPR)
+      canvas.width  = physW
+      canvas.height = physH
       canvas.style.width  = `${desired}px`
-      canvas.style.height = `${Math.floor(viewport.height / dpr)}px`
+      canvas.style.height = `${logicH}px`
 
       if (renderTask.current) {
         try { renderTask.current.cancel() } catch { /* ignore */ }
@@ -84,19 +85,17 @@ export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps)
       if (!ctx || cancelled) return
 
       renderTask.current = pdfPage.render({ canvasContext: ctx, viewport })
-      try {
-        await renderTask.current.promise
-      } catch {
-        // render was cancelled — that's fine
-      }
+      try { await renderTask.current.promise } catch { /* cancelled */ }
     }
 
     render()
     return () => { cancelled = true }
   }, [page, loading, errored, item.width])
 
-  const border = isActive ? '2px solid var(--accent)' : '1.5px solid rgba(0,0,0,0.15)'
-  const shadow = isActive ? '0 0 0 3px rgba(59,123,248,0.2)' : '0 2px 12px rgba(0,0,0,0.18)'
+  const border = isActive ? '2px solid var(--accent)' : '1.5px solid rgba(0,0,0,0.18)'
+  const shadow = isActive
+    ? '0 0 0 3px rgba(59,123,248,0.25), 0 8px 32px rgba(0,0,0,0.22)'
+    : '0 4px 20px rgba(0,0,0,0.22)'
 
   return (
     <div
@@ -106,54 +105,58 @@ export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps)
         left: item.x,
         top: item.y,
         width: item.width,
-        background: 'var(--bg-card)',
-        borderRadius: 10,
-        overflow: 'hidden',
+        background: '#fff',
+        borderRadius: 4,
         cursor: 'grab',
         border,
         boxShadow: shadow,
         userSelect: 'none',
+        overflow: 'visible',
       }}
     >
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '6px 10px', background: '#DC2626', flexShrink: 0,
-      }}>
-        <FileText size={13} color="white" style={{ flexShrink: 0 }} />
-        <span style={{
-          fontSize: 12, color: 'white', fontWeight: 600,
-          flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
-          {item.content.name}
-        </span>
-      </div>
-
-      {/* ── PDF canvas ──────────────────────────────────────────────────── */}
+      {/* PDF canvas — fills full width, height is natural from the page */}
       {errored ? (
-        <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Erro ao carregar PDF</span>
+        <div style={{
+          height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#666', fontSize: 13,
+        }}>
+          Erro ao carregar PDF
         </div>
       ) : loading ? (
         <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{
-            width: 24, height: 24, borderRadius: '50%', border: '2px solid var(--border)',
-            borderTopColor: 'var(--accent)', animation: 'spin 0.8s linear infinite',
+            width: 24, height: 24, borderRadius: '50%',
+            border: '2px solid #ddd', borderTopColor: 'var(--accent)',
+            animation: 'spin 0.8s linear infinite',
           }} />
         </div>
       ) : (
-        <canvas
-          ref={canvasRef}
-          style={{ display: 'block' }}
-        />
+        <canvas ref={canvasRef} style={{ display: 'block', borderRadius: 4 }} />
       )}
 
-      {/* ── Page navigation ─────────────────────────────────────────────── */}
+      {/* Filename badge — overlaid top-left */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0,
+        background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+        color: 'white', fontSize: 11, fontWeight: 600,
+        padding: '3px 8px',
+        borderRadius: '4px 0 6px 0',
+        maxWidth: item.width - 80,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        pointerEvents: 'none',
+      }}>
+        {item.content.name}
+      </div>
+
+      {/* Page navigation — overlaid at bottom, only when multiple pages */}
       {pageCount > 1 && !loading && !errored && (
         <div style={{
+          position: 'absolute',
+          bottom: 0, left: 0, right: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          padding: '4px 8px', background: 'var(--bg-secondary)',
-          borderTop: '1px solid var(--border)',
+          padding: '4px 8px',
+          background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+          borderRadius: '0 0 4px 4px',
         }}>
           <button
             onMouseDown={e => e.stopPropagation()}
@@ -161,13 +164,12 @@ export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps)
             disabled={page === 1}
             style={{
               border: 'none', background: 'none', cursor: page === 1 ? 'default' : 'pointer',
-              color: page === 1 ? 'var(--text-secondary)' : 'var(--text-primary)', padding: 2,
-              opacity: page === 1 ? 0.3 : 1,
+              color: 'white', padding: 2, opacity: page === 1 ? 0.3 : 1,
             }}
           >
             <ChevronLeft size={15} />
           </button>
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 48, textAlign: 'center' }}>
+          <span style={{ fontSize: 11, color: 'white', minWidth: 44, textAlign: 'center' }}>
             {page} / {pageCount}
           </span>
           <button
@@ -176,8 +178,7 @@ export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps)
             disabled={page === pageCount}
             style={{
               border: 'none', background: 'none', cursor: page === pageCount ? 'default' : 'pointer',
-              color: page === pageCount ? 'var(--text-secondary)' : 'var(--text-primary)', padding: 2,
-              opacity: page === pageCount ? 0.3 : 1,
+              color: 'white', padding: 2, opacity: page === pageCount ? 0.3 : 1,
             }}
           >
             <ChevronRight size={15} />
@@ -185,7 +186,6 @@ export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps)
         </div>
       )}
 
-      {/* Spin keyframe — injected once via style tag */}
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )

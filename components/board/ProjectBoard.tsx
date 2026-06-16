@@ -306,14 +306,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     const currentTool = toolRef.current
     const pos = toCanvas(e.clientX, e.clientY)
 
-    if (currentTool === 'pen') {
-      isDrawing.current = true
-      livePointsRef.current = [pos]
-      setLivePoints([pos])
-      return
-    }
-
-    if (currentTool !== 'select') {
+    if (currentTool !== 'select' && currentTool !== 'pen') {
       createItem(pos.x, pos.y)
       return
     }
@@ -324,13 +317,6 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   }
 
   function onBgMove(e: React.MouseEvent) {
-    if (isDrawing.current) {
-      const pos = toCanvas(e.clientX, e.clientY)
-      livePointsRef.current = [...livePointsRef.current, pos]
-      setLivePoints([...livePointsRef.current])
-      return
-    }
-
     if (isPanning.current) {
       setPan({
         x: panStart.current.px + (e.clientX - panStart.current.mx),
@@ -347,32 +333,30 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     }
   }
 
-  function onBgUp(e: React.MouseEvent) {
-    if (isDrawing.current) {
-      isDrawing.current = false
-      const pts = livePointsRef.current
-      setLivePoints([])
-      livePointsRef.current = []
-      if (pts.length < 2) return
-
-      const d = pointsToPath(pts)
-      const xs = pts.map(p => p.x)
-      const ys = pts.map(p => p.y)
-      const minX = Math.min(...xs), maxX = Math.max(...xs)
-      const minY = Math.min(...ys), maxY = Math.max(...ys)
-
-      const newItem: FreehandItem = {
-        id: uid(), type: 'freehand',
-        x: minX, y: minY,
-        width: Math.max(maxX - minX, 1),
-        height: Math.max(maxY - minY, 1),
-        tags: [],
-        content: { d, color: penColorRef.current, strokeWidth: penWidthRef.current },
-      }
-      commit([...itemsRef.current, newItem])
-      return
+  function finishStroke() {
+    if (!isDrawing.current) return
+    isDrawing.current = false
+    const pts = livePointsRef.current
+    setLivePoints([])
+    livePointsRef.current = []
+    if (pts.length < 2) return
+    const d = pointsToPath(pts)
+    const xs = pts.map(p => p.x)
+    const ys = pts.map(p => p.y)
+    const minX = Math.min(...xs), maxX = Math.max(...xs)
+    const minY = Math.min(...ys), maxY = Math.max(...ys)
+    const newItem: FreehandItem = {
+      id: uid(), type: 'freehand',
+      x: minX, y: minY,
+      width: Math.max(maxX - minX, 1),
+      height: Math.max(maxY - minY, 1),
+      tags: [],
+      content: { d, color: penColorRef.current, strokeWidth: penWidthRef.current },
     }
+    commit([...itemsRef.current, newItem])
+  }
 
+  function onBgUp(e: React.MouseEvent) {
     if (dragging.current) {
       const { id, sx, sy, ox, oy } = dragging.current
       const dx = (e.clientX - sx) / zoomRef.current
@@ -431,7 +415,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     reader.onload = () => {
       const dataUrl = String(reader.result)
       const newItem: PdfItem = {
-        id, type: 'pdf', x: pos.x, y: pos.y, width: 480, height: 340,
+        id, type: 'pdf', x: pos.x, y: pos.y, width: 600, height: 10,
         content: { name, url: dataUrl }, tags: [],
       }
       commit([...itemsRef.current, newItem])
@@ -883,6 +867,27 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
               )
             })}
         </div>
+
+        {/* ── Pen overlay — sits above all items, captures all events when pen is active ── */}
+        {tool === 'pen' && (
+          <div
+            style={{ position: 'absolute', inset: 0, cursor: 'crosshair', zIndex: 500, background: 'transparent' }}
+            onMouseDown={e => {
+              const pos = toCanvas(e.clientX, e.clientY)
+              isDrawing.current = true
+              livePointsRef.current = [pos]
+              setLivePoints([pos])
+            }}
+            onMouseMove={e => {
+              if (!isDrawing.current) return
+              const pos = toCanvas(e.clientX, e.clientY)
+              livePointsRef.current = [...livePointsRef.current, pos]
+              setLivePoints([...livePointsRef.current])
+            }}
+            onMouseUp={finishStroke}
+            onMouseLeave={finishStroke}
+          />
+        )}
 
         {/* Connect hint */}
         {connectFrom && (
