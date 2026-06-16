@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Download, Eraser, MessageCircle, Minus, PenLine, Plus, RotateCcw, Save, Type, X, ZoomIn } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Download, Eraser, MessageCircle, Minus, PenLine, Plus, Save, Type, Undo2, X, ZoomIn } from 'lucide-react'
 import { PDFDocument } from 'pdf-lib'
 import { createClient } from '@/lib/supabase/client'
 
@@ -35,6 +35,7 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
   const pdfDocRef = useRef<any>(null)
   const pageJsonRef = useRef<Record<number, string>>({})
   const undoStackRef = useRef<string[]>([])
+  const currentPageRef = useRef<number>(1)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -48,11 +49,16 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
   const [width, setWidth] = useState(3)
   const storageKey = annotationKey(fileUrl, contextType, contextId, itemId)
 
+  // Keep currentPageRef in sync so event handlers always have the latest page
+  useEffect(() => {
+    currentPageRef.current = page
+  }, [page])
+
   const snapshotCurrentPage = useCallback(() => {
     const canvas = fabricCanvasRef.current
     if (!canvas) return
-    pageJsonRef.current[page] = JSON.stringify(canvas.toJSON())
-  }, [page])
+    pageJsonRef.current[currentPageRef.current] = JSON.stringify(canvas.toJSON())
+  }, [])
 
   async function persistPage(pageNumber: number, json: string) {
     const localRaw = localStorage.getItem(storageKey)
@@ -71,7 +77,7 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'file_url,context_type,context_id,item_id,page_number' })
     } catch {
-      // Supabase pode ainda não ter a tabela/migration; o fallback local mantém a função utilizável.
+      // Supabase fallback — localStorage mantém função utilizável.
     }
   }
 
@@ -103,8 +109,10 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     const canvas = fabricCanvasRef.current
     if (!canvas) return
 
-    // Remove any previous text-placement click listener
+    // Clean up all tool-specific listeners before re-configuring
+    canvas.off('mouse:down')
     canvas.off('mouse:down:before')
+    ;(canvas as any)._isTextEditing = false
 
     if (tool === 'pen') {
       canvas.isDrawingMode = true
@@ -117,10 +125,12 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
       canvas.isDrawingMode = false
       canvas.selection = false
       canvas.defaultCursor = 'text'
-      // Place a textbox wherever the user clicks
-      canvas.on('mouse:down:before', (opt: any) => {
+      // Click on empty area → place textbox; click on existing object → do nothing
+      canvas.on('mouse:down', (opt: any) => {
+        if (opt.target) return // clicked on existing object
         if ((canvas as any)._isTextEditing) return
         const pointer = canvas.getPointer(opt.e)
+        ;(canvas as any)._isTextEditing = true
         const textbox = new fabric.Textbox('', {
           left: pointer.x,
           top: pointer.y,
@@ -136,8 +146,6 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
         canvas.requestRenderAll()
         textbox.enterEditing()
         canvas.requestRenderAll()
-        // After placing, restore selection mode so user can click elsewhere
-        ;(canvas as any)._isTextEditing = true
         textbox.on('editing:exited', () => {
           ;(canvas as any)._isTextEditing = false
           if (!textbox.text || textbox.text.trim() === '') {
@@ -145,6 +153,18 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
           }
           canvas.requestRenderAll()
         })
+      })
+    } else if (tool === 'erase') {
+      canvas.isDrawingMode = false
+      canvas.selection = false
+      canvas.defaultCursor = 'crosshair'
+      // Click on any object → remove it immediately
+      canvas.on('mouse:down', (opt: any) => {
+        if (!opt.target) return
+        canvas.remove(opt.target)
+        canvas.discardActiveObject()
+        canvas.requestRenderAll()
+        pageJsonRef.current[currentPageRef.current] = JSON.stringify(canvas.toJSON())
       })
     } else {
       canvas.isDrawingMode = false
@@ -169,7 +189,7 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     return () => el.removeEventListener('wheel', handleWheel)
   }, [])
 
-  // Keyboard shortcuts: Delete/Backspace = remove, Ctrl+Z = undo
+  // Keyboard shortcuts: Delete/Backspace = remove selected, Ctrl+Z = undo (up to 20)
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement
@@ -178,9 +198,8 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
       if (!canvas) return
       const isEditingText = !!(canvas as any).isEditing || !!(canvas as any)._isTextEditing
 
-      // Ctrl+Z / Cmd+Z — undo
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        if (isTyping) return
+        if (isTyping || isEditingText) return
         e.preventDefault()
         const stack = undoStackRef.current
         if (stack.length <= 1) return
@@ -188,12 +207,11 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
         const previous = stack[stack.length - 1]
         canvas.loadFromJSON(previous).then(() => {
           canvas.requestRenderAll()
-          pageJsonRef.current[page] = previous
+          pageJsonRef.current[currentPageRef.current] = previous
         })
         return
       }
 
-      // Delete / Backspace — remove selected
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
       if (isTyping || isEditingText) return
       const active = canvas.getActiveObjects()
@@ -201,11 +219,11 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
       active.forEach((obj: any) => canvas.remove(obj))
       canvas.discardActiveObject()
       canvas.requestRenderAll()
-      pageJsonRef.current[page] = JSON.stringify(canvas.toJSON())
+      pageJsonRef.current[currentPageRef.current] = JSON.stringify(canvas.toJSON())
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [page])
+  }, [])
 
   const renderPage = useCallback(async (pageNumber: number) => {
     const pdf = pdfDocRef.current
@@ -226,14 +244,12 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
 
     await pdfPage.render({ canvasContext: ctx, viewport }).promise
 
-    // Dispose previous Fabric canvas and clear container
     if (fabricCanvasRef.current) {
       fabricCanvasRef.current.dispose()
       fabricCanvasRef.current = null
     }
     container.innerHTML = ''
 
-    // Create a fresh canvas element inside the container div
     const freshCanvas = document.createElement('canvas')
     container.appendChild(freshCanvas)
 
@@ -245,20 +261,25 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     })
     fabricCanvasRef.current = fabricCanvas
 
+    // Reset undo stack for this page and push the initial (possibly annotated) state
+    undoStackRef.current = []
     const json = pageJsonRef.current[pageNumber]
     if (json) {
       await fabricCanvas.loadFromJSON(json)
-      fabricCanvas.requestRenderAll()
+      fabricCanvas.renderAll()
+    }
+    undoStackRef.current.push(JSON.stringify(fabricCanvas.toJSON()))
+
+    const pushUndo = () => {
+      const j = JSON.stringify(fabricCanvas.toJSON())
+      const stack = undoStackRef.current
+      stack.push(j)
+      if (stack.length > 20) stack.splice(0, stack.length - 20) // cap at 20
+      pageJsonRef.current[pageNumber] = j
     }
 
-    fabricCanvas.on('object:added', () => {
-      undoStackRef.current.push(JSON.stringify(fabricCanvas.toJSON()))
-      pageJsonRef.current[pageNumber] = JSON.stringify(fabricCanvas.toJSON())
-    })
-    fabricCanvas.on('object:modified', () => {
-      undoStackRef.current.push(JSON.stringify(fabricCanvas.toJSON()))
-      pageJsonRef.current[pageNumber] = JSON.stringify(fabricCanvas.toJSON())
-    })
+    fabricCanvas.on('object:added', pushUndo)
+    fabricCanvas.on('object:modified', pushUndo)
     fabricCanvas.on('object:removed', () => {
       pageJsonRef.current[pageNumber] = JSON.stringify(fabricCanvas.toJSON())
     })
@@ -273,7 +294,6 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
       setError(null)
       try {
         const pdfjs = await import('pdfjs-dist')
-        // Worker local (copiado para /public/ no build)
         pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
         await loadAnnotations()
         const source = fileUrl.startsWith('data:')
@@ -310,20 +330,6 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     configureTool()
   }, [configureTool])
 
-  function activateTextTool() {
-    setTool('text')
-  }
-
-  function eraseSelected() {
-    const canvas = fabricCanvasRef.current
-    if (!canvas) return
-    const selected = canvas.getActiveObjects()
-    selected.forEach((obj: any) => canvas.remove(obj))
-    canvas.discardActiveObject()
-    canvas.requestRenderAll()
-    pageJsonRef.current[page] = JSON.stringify(canvas.toJSON())
-  }
-
   async function undo() {
     const canvas = fabricCanvasRef.current
     if (!canvas || undoStackRef.current.length <= 1) return
@@ -331,7 +337,7 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     const previous = undoStackRef.current[undoStackRef.current.length - 1]
     await canvas.loadFromJSON(previous)
     canvas.requestRenderAll()
-    pageJsonRef.current[page] = previous
+    pageJsonRef.current[currentPageRef.current] = previous
   }
 
   async function saveAll() {
@@ -353,15 +359,30 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
       for (const [pageNumberRaw, json] of Object.entries(pageJsonRef.current)) {
         const pageNumber = Number(pageNumberRaw)
         if (!json || !pages[pageNumber - 1]) continue
+
         await renderPage(pageNumber)
-        // Get PNG data URL from Fabric canvas
+
         const fabricCanvas = fabricCanvasRef.current
-        if (!fabricCanvas) continue
-        const pngDataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 })
+        const pdfCanvas = pdfCanvasRef.current
+        if (!fabricCanvas || !pdfCanvas) continue
+
+        // Sync render before capture
+        fabricCanvas.renderAll()
+
+        // Merge PDF canvas + annotation layer into one image
+        const merged = document.createElement('canvas')
+        merged.width = pdfCanvas.width
+        merged.height = pdfCanvas.height
+        const mctx = merged.getContext('2d')!
+        mctx.drawImage(pdfCanvas, 0, 0)
+        mctx.drawImage(fabricCanvas.getElement(), 0, 0)
+
+        const pngDataUrl = merged.toDataURL('image/png')
         const pngBytes = await dataUrlToBytes(pngDataUrl)
         const png = await output.embedPng(pngBytes)
         const pdfPage = pages[pageNumber - 1]
         const { width: pageWidth, height: pageHeight } = pdfPage.getSize()
+        // Replace page content with the merged image
         pdfPage.drawImage(png, { x: 0, y: 0, width: pageWidth, height: pageHeight })
       }
 
@@ -383,6 +404,8 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     await saveAll()
     alert('Anotações salvas. Exporte o PDF anotado e envie pelo WhatsApp da obra; o envio automático de arquivo será conectado quando houver endpoint de mídia configurado.')
   }
+
+  const cursorStyle = tool === 'text' ? 'text' : tool === 'pen' ? 'crosshair' : tool === 'erase' ? 'crosshair' : 'default'
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col" style={{ background: 'var(--bg-primary)' }}>
@@ -414,10 +437,10 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
           </button>
         </div>
 
-        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={() => setTool('pen')} style={{ color: tool === 'pen' ? 'var(--accent)' : 'var(--text-secondary)' }}><PenLine size={16} /></button>
-        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={activateTextTool} title="Texto — clique no PDF para posicionar" style={{ color: tool === 'text' ? 'var(--accent)' : 'var(--text-secondary)' }}><Type size={16} /></button>
-        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={eraseSelected} style={{ color: tool === 'erase' ? 'var(--danger)' : 'var(--text-secondary)' }}><Eraser size={16} /></button>
-        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={undo}><RotateCcw size={16} /></button>
+        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={() => setTool('pen')} title="Caneta" style={{ color: tool === 'pen' ? 'var(--accent)' : 'var(--text-secondary)' }}><PenLine size={16} /></button>
+        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={() => setTool('text')} title="Texto — clique no PDF para posicionar" style={{ color: tool === 'text' ? 'var(--accent)' : 'var(--text-secondary)' }}><Type size={16} /></button>
+        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={() => setTool('erase')} title="Borracha — clique em anotação para apagar" style={{ color: tool === 'erase' ? 'var(--danger)' : 'var(--text-secondary)' }}><Eraser size={16} /></button>
+        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={undo} title="Desfazer (Ctrl+Z)"><Undo2 size={16} style={{ color: 'var(--text-secondary)' }} /></button>
         <input type="color" value={color} onChange={e => setColor(e.target.value)} className="h-9 w-9 rounded-lg border-0 bg-transparent" />
         <input type="range" min={1} max={12} value={width} onChange={e => setWidth(Number(e.target.value))} className="w-20" />
 
@@ -446,14 +469,12 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
           </div>
         )}
         {!loading && !error && (
-          /* O div externo tem position:relative para o container do Fabric ficar sobreposto ao pdfCanvas */
           <div className="relative mx-auto shadow-2xl" style={{ background: 'white', width: 'fit-content' }}>
             <canvas ref={pdfCanvasRef} className="block" />
-            {/* Container div com absolute inset-0 — Fabric.js cria seus canvases aqui sem quebrar o posicionamento */}
             <div
               ref={fabricContainerRef}
               className="absolute inset-0"
-              style={{ pointerEvents: 'auto', cursor: tool === 'text' ? 'text' : tool === 'pen' ? 'crosshair' : 'default' }}
+              style={{ pointerEvents: 'auto', cursor: cursorStyle }}
             />
           </div>
         )}
