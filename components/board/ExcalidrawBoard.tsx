@@ -1,41 +1,38 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Excalidraw } from '@excalidraw/excalidraw'
+import { Excalidraw, MainMenu } from '@excalidraw/excalidraw'
 import '@excalidraw/excalidraw/index.css'
 import { createClient } from '@/lib/supabase/client'
-import { FileText } from 'lucide-react'
+import { AlertTriangle, FileText } from 'lucide-react'
+import { NCPanel } from './NCPanel'
 
-// ─── Types (loose — avoids fighting with Excalidraw's internal types) ──────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyApi = any
+type Any = any
 
 interface Props {
   projectId: string
 }
 
-// ─── Helper: strip un-serialisable fields from appState ───────────────────────
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function sanitiseAppState(appState: any) {
-  const {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    collaborators, openDialog, openPopup, contextMenu,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    toast, ...rest
-  } = appState ?? {}
+function sanitiseAppState(appState: Any) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { collaborators, openDialog, openPopup, contextMenu, toast, ...rest } = appState ?? {}
   return rest
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export function ExcalidrawBoard({ projectId }: Props) {
-  const [initialData, setInitialData] = useState<AnyApi>(null)
-  const [loaded, setLoaded] = useState(false)
-  const apiRef      = useRef<AnyApi>(null)
-  const debouncer   = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [initialData, setInitialData]      = useState<Any>(null)
+  const [loaded, setLoaded]                = useState(false)
+  const [selectedElementId, setSelectedId] = useState<string | null>(null)
+  const [showNC, setShowNC]                = useState(false)
 
-  // ── Load board data ────────────────────────────────────────────────────────
+  const apiRef        = useRef<Any>(null)
+  const debouncer     = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fileInputRef  = useRef<HTMLInputElement>(null)
+  const containerRef  = useRef<HTMLDivElement>(null)
+  const selectedIdRef = useRef<string | null>(null)
+
+  // ── Carregar board_data ───────────────────────────────────────────────────
 
   useEffect(() => {
     async function load() {
@@ -54,30 +51,59 @@ export function ExcalidrawBoard({ projectId }: Props) {
     load()
   }, [projectId])
 
-  // ── Debounced save ─────────────────────────────────────────────────────────
+  // ── Scroll = zoom ─────────────────────────────────────────────────────────
+  // Excalidraw interpreta ctrlKey+wheel como zoom e scroll simples como pan.
+  // Interceptamos o wheel, bloqueamos o original e reenviamos com ctrlKey:true.
+
+  useEffect(() => {
+    if (!loaded) return
+    const container = containerRef.current
+    if (!container) return
+
+    function onWheel(e: WheelEvent) {
+      if (e.ctrlKey || e.metaKey) return  // já é zoom nativo
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      e.target?.dispatchEvent(
+        new WheelEvent('wheel', {
+          bubbles: true, cancelable: true,
+          ctrlKey: true,
+          deltaY: e.deltaY, deltaX: 0,
+          clientX: e.clientX, clientY: e.clientY,
+        })
+      )
+    }
+
+    container.addEventListener('wheel', onWheel, { passive: false, capture: true })
+    return () => container.removeEventListener('wheel', onWheel, { capture: true })
+  }, [loaded])
+
+  // ── onChange: tracking de seleção + save debounced ───────────────────────
 
   const handleChange = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (elements: any, appState: any, files: any) => {
+    (elements: Any, appState: Any, files: Any) => {
+      // Rastrear elemento selecionado evitando re-render desnecessário
+      const ids = appState.selectedElementIds ?? {}
+      const newId = Object.keys(ids).find(id => ids[id]) ?? null
+      if (newId !== selectedIdRef.current) {
+        selectedIdRef.current = newId
+        setSelectedId(newId)
+      }
+
+      // Salvar no Supabase com debounce de 1,5 s
       if (debouncer.current) clearTimeout(debouncer.current)
       debouncer.current = setTimeout(async () => {
         const supabase = createClient()
         await supabase
           .from('projetos')
-          .update({
-            board_data: {
-              elements,
-              appState: sanitiseAppState(appState),
-              files,
-            },
-          })
+          .update({ board_data: { elements, appState: sanitiseAppState(appState), files } })
           .eq('id', projectId)
       }, 1500)
     },
     [projectId],
   )
 
-  // ── PDF import ─────────────────────────────────────────────────────────────
+  // ── Importar PDF como imagem no canvas ───────────────────────────────────
 
   async function importPdf(file: File) {
     const api = apiRef.current
@@ -86,84 +112,47 @@ export function ExcalidrawBoard({ projectId }: Props) {
     const pdfjs = await import('pdfjs-dist')
     pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
-    const arrayBuffer = await file.arrayBuffer()
-    const pdf = await pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
+    const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise
+    const existingEls: Any[] = api.getSceneElements()
+    const newFiles: Any[]    = []
+    const newEls: Any[]      = []
+    let startY = 100
 
-    const existingElements = api.getSceneElements() as AnyApi[]
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const newFiles: any[]    = []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const newElements: any[] = []
-
-    // Start inserting to the right of existing content
-    const startX = 100
-    let   startY = 100
-
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      const page     = await pdf.getPage(pageNum)
-      // scale=2 → retina resolution; logical size = viewport / 2
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page     = await pdf.getPage(p)
       const viewport = page.getViewport({ scale: 2 })
+      const canvas   = document.createElement('canvas')
+      canvas.width   = viewport.width
+      canvas.height  = viewport.height
+      await page.render({ canvasContext: canvas.getContext('2d')!, viewport } as Any).promise
 
-      const offscreen       = document.createElement('canvas')
-      offscreen.width  = viewport.width
-      offscreen.height = viewport.height
-      const ctx = offscreen.getContext('2d')!
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await page.render({ canvasContext: ctx, viewport } as any).promise
-
-      const dataURL  = offscreen.toDataURL('image/png')
-      const fileId   = `pdf-${Date.now()}-p${pageNum}` as AnyApi
-      const logicW   = Math.round(viewport.width  / 2)
-      const logicH   = Math.round(viewport.height / 2)
+      const fileId = `pdf-${Date.now()}-p${p}` as Any
+      const w      = Math.round(viewport.width  / 2)
+      const h      = Math.round(viewport.height / 2)
 
       newFiles.push({
-        id:            fileId,
-        mimeType:      'image/png',
-        dataURL,
-        created:       Date.now(),
-        lastRetrieved: Date.now(),
+        id: fileId, mimeType: 'image/png',
+        dataURL: canvas.toDataURL('image/png'),
+        created: Date.now(), lastRetrieved: Date.now(),
       })
-
-      newElements.push({
-        type:            'image',
-        id:              `${fileId}-el`,
-        x:               startX,
-        y:               startY,
-        width:           logicW,
-        height:          logicH,
-        angle:           0,
-        strokeColor:     'transparent',
-        backgroundColor: 'transparent',
-        fillStyle:       'solid',
-        strokeWidth:     1,
-        strokeStyle:     'solid',
-        roughness:       0,
-        opacity:         100,
-        groupIds:        [],
-        frameId:         null,
-        roundness:       null,
-        seed:            Math.floor(Math.random() * 1e9),
-        version:         1,
-        versionNonce:    Math.floor(Math.random() * 1e9),
-        isDeleted:       false,
-        boundElements:   null,
-        updated:         Date.now(),
-        link:            null,
-        locked:          false,
-        fileId,
-        scale:           [1, 1],
-        status:          'saved',
-        crop:            null,
+      newEls.push({
+        type: 'image', id: `${fileId}-el`, x: 100, y: startY, width: w, height: h,
+        angle: 0, strokeColor: 'transparent', backgroundColor: 'transparent',
+        fillStyle: 'solid', strokeWidth: 1, strokeStyle: 'solid', roughness: 0,
+        opacity: 100, groupIds: [], frameId: null, roundness: null,
+        seed: Math.floor(Math.random() * 1e9), version: 1,
+        versionNonce: Math.floor(Math.random() * 1e9),
+        isDeleted: false, boundElements: null, updated: Date.now(),
+        link: null, locked: false, fileId, scale: [1, 1], status: 'saved', crop: null,
       })
-
-      startY += logicH + 40
+      startY += h + 40
     }
 
     api.addFiles(newFiles)
-    api.updateScene({ elements: [...existingElements, ...newElements] })
+    api.updateScene({ elements: [...existingEls, ...newEls] })
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Loading ───────────────────────────────────────────────────────────────
 
   if (!loaded) {
     return (
@@ -178,13 +167,12 @@ export function ExcalidrawBoard({ projectId }: Props) {
     )
   }
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      {/* Hidden PDF file picker */}
+    <div style={{ width: '100%', height: '100%', display: 'flex', position: 'relative' }}>
       <input
-        ref={fileInputRef}
-        type="file"
-        accept=".pdf,application/pdf"
+        ref={fileInputRef} type="file" accept=".pdf,application/pdf"
         style={{ display: 'none' }}
         onChange={e => {
           const file = e.target.files?.[0]
@@ -193,27 +181,72 @@ export function ExcalidrawBoard({ projectId }: Props) {
         }}
       />
 
-      <Excalidraw
-        initialData={initialData ?? undefined}
-        onChange={handleChange}
-        excalidrawAPI={(api: AnyApi) => { apiRef.current = api }}
-        renderTopRightUI={() => (
-          <button
-            title="Importar PDF como imagem no canvas"
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 14px', borderRadius: 8,
-              background: '#e8e6ff', border: '1px solid #c4bfff',
-              cursor: 'pointer', fontSize: 13, fontWeight: 600,
-              color: '#4e46dc',
-            }}
-          >
-            <FileText size={14} />
-            PDF
-          </button>
-        )}
-      />
+      {/* Canvas */}
+      <div ref={containerRef} style={{ flex: 1, height: '100%', minWidth: 0 }}>
+        <Excalidraw
+          initialData={initialData ?? undefined}
+          onChange={handleChange}
+          excalidrawAPI={(api: Any) => { apiRef.current = api }}
+          langCode="pt-BR"
+          renderTopRightUI={() => (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                title="Importar PDF como imagem no canvas"
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '6px 14px', borderRadius: 8,
+                  background: '#e8e6ff', border: '1px solid #c4bfff',
+                  cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#4e46dc',
+                }}
+              >
+                <FileText size={14} /> PDF
+              </button>
+
+              <button
+                title="Painel de não-conformidades"
+                onClick={() => setShowNC(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '6px 14px', borderRadius: 8,
+                  background: showNC ? '#fef2f2' : '#fff7ed',
+                  border: `1px solid ${showNC ? '#fca5a5' : '#fed7aa'}`,
+                  cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  color: showNC ? '#dc2626' : '#ea580c',
+                }}
+              >
+                <AlertTriangle size={14} /> NCs
+              </button>
+            </div>
+          )}
+        >
+          {/* MainMenu sem links externos (GitHub, Discord, Twitter) */}
+          <MainMenu>
+            <MainMenu.DefaultItems.ClearCanvas />
+            <MainMenu.DefaultItems.Export />
+            <MainMenu.DefaultItems.SaveAsImage />
+            <MainMenu.Separator />
+            <MainMenu.DefaultItems.ToggleTheme />
+            <MainMenu.DefaultItems.ChangeCanvasBackground />
+          </MainMenu>
+        </Excalidraw>
+      </div>
+
+      {/* Painel lateral de NCs */}
+      {showNC && (
+        <div style={{
+          width: 300, height: '100%', flexShrink: 0,
+          borderLeft: '1px solid var(--border)',
+          background: '#ffffff',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}>
+          <NCPanel
+            api={apiRef}
+            projectId={projectId}
+            selectedElementId={selectedElementId}
+          />
+        </div>
+      )}
     </div>
   )
 }
