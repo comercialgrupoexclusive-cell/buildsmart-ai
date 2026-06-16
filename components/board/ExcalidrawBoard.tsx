@@ -196,7 +196,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
         const supabase = createClient()
         const { error } = await supabase
           .from('projetos')
-          .update({ board_data: { elements, appState: sanitiseAppState(appState) } })
+          .update({ board_data: { elements, appState: sanitiseAppState(appState), files } })
           .eq('id', projectId)
         if (error) console.error('[Board] Falha ao salvar:', error.message, error.code)
       }, 1500)
