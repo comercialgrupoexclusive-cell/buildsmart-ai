@@ -6,7 +6,9 @@ import {
   MousePointer2, MessageSquare, Network, FileText,
   Link2, ZoomIn, ZoomOut, Trash2, Tag,
 } from 'lucide-react'
+// FileText usado na toolbar PDF tool button — PdfBoardCard tem o próprio
 import { useRouter } from 'next/navigation'
+import { PdfBoardCard } from '@/components/board/PdfBoardCard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -278,7 +280,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     reader.onload = () => {
       const dataUrl = String(reader.result)
       const newItem: PdfItem = {
-        id, type: 'pdf', x: pos.x, y: pos.y, width: 220, height: 110,
+        id, type: 'pdf', x: pos.x, y: pos.y, width: 480, height: 340,
         content: { name, url: dataUrl }, tags: [],
       }
       const next = [...itemsRef.current, newItem]
@@ -539,35 +541,49 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
           {/* Item cards */}
           {visibleItems
             .filter(it => it.type !== 'connector')
-            .map(item => (
-              <ItemCard
-                key={item.id}
-                item={item}
-                isActive={item.id === activeId}
-                isEditing={item.id === editingId}
-                editText={editText}
-                setEditText={setEditText}
-                connectFrom={connectFrom}
-                tool={tool}
-                onMouseDown={e => {
-                  e.stopPropagation()
-                  if (tool === 'connect') { handleConnectClick(item.id); return }
-                  if (tool !== 'select') return
-                  setActiveId(item.id)
-                  dragging.current = { id: item.id, sx: e.clientX, sy: e.clientY, ox: item.x, oy: item.y }
-                }}
-                onDoubleClick={e => {
-                  e.stopPropagation()
-                  if (item.type === 'sticky' || item.type === 'mindmap') {
-                    setEditingId(item.id)
-                    setEditText((item.content as { text: string }).text)
-                  } else if (item.type === 'pdf') {
-                    router.push(`/projetos/${projectId}/pdf/${item.id}`)
-                  }
-                }}
-                onFinishEdit={text => finishEdit(item.id, text)}
-              />
-            ))}
+            .map(item => {
+              const itemMouseDown = (e: React.MouseEvent) => {
+                e.stopPropagation()
+                if (tool === 'connect') { handleConnectClick(item.id); return }
+                if (tool !== 'select') return
+                setActiveId(item.id)
+                dragging.current = { id: item.id, sx: e.clientX, sy: e.clientY, ox: item.x, oy: item.y }
+              }
+
+              if (item.type === 'pdf') {
+                return (
+                  <PdfBoardCard
+                    key={item.id}
+                    item={item as PdfItem}
+                    projectId={projectId}
+                    isActive={item.id === activeId}
+                    onMouseDown={itemMouseDown}
+                  />
+                )
+              }
+
+              return (
+                <ItemCard
+                  key={item.id}
+                  item={item}
+                  isActive={item.id === activeId}
+                  isEditing={item.id === editingId}
+                  editText={editText}
+                  setEditText={setEditText}
+                  connectFrom={connectFrom}
+                  tool={tool}
+                  onMouseDown={itemMouseDown}
+                  onDoubleClick={e => {
+                    e.stopPropagation()
+                    if (item.type === 'sticky' || item.type === 'mindmap') {
+                      setEditingId(item.id)
+                      setEditText((item.content as { text: string }).text)
+                    }
+                  }}
+                  onFinishEdit={text => finishEdit(item.id, text)}
+                />
+              )
+            })}
         </div>
 
         {/* Connect hint */}
@@ -712,33 +728,6 @@ function ItemCard({ item, isActive, isEditing, editText, setEditText, connectFro
             )}
           </div>
         )}
-      </div>
-    )
-  }
-
-  if (item.type === 'pdf') {
-    const c = item.content
-    return (
-      <div
-        onMouseDown={onMouseDown}
-        onDoubleClick={onDoubleClick}
-        style={{
-          position: 'absolute', left: item.x, top: item.y,
-          width: item.width, height: item.height,
-          background: 'var(--bg-card)', borderRadius: 10, cursor: 'grab', overflow: 'hidden',
-          display: 'flex', flexDirection: 'column',
-          border: `${borderWidth}px ${borderStyle2} ${borderColor}`,
-          boxShadow: shadow,
-        }}
-      >
-        <div style={{ height: 30, background: '#DC2626', display: 'flex', alignItems: 'center', padding: '0 10px', gap: 6, flexShrink: 0 }}>
-          <FileText size={13} style={{ color: 'white' }} />
-          <span style={{ fontSize: 12, color: 'white', fontWeight: 600 }}>PDF</span>
-        </div>
-        <div style={{ flex: 1, padding: 10, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 4 }}>
-          <p style={{ margin: 0, fontSize: 12, textAlign: 'center', color: 'var(--text-primary)', wordBreak: 'break-all', lineHeight: 1.4 }}>{c.name}</p>
-          <span style={{ fontSize: 11, color: 'var(--accent)' }}>Duplo-clique para abrir e anotar →</span>
-        </div>
       </div>
     )
   }
