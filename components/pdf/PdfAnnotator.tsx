@@ -103,12 +103,53 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     const canvas = fabricCanvasRef.current
     if (!canvas) return
 
-    canvas.isDrawingMode = tool === 'pen'
-    canvas.selection = tool !== 'pen'
+    // Remove any previous text-placement click listener
+    canvas.off('mouse:down:before')
+
     if (tool === 'pen') {
+      canvas.isDrawingMode = true
+      canvas.selection = false
+      canvas.defaultCursor = 'crosshair'
       canvas.freeDrawingBrush = new fabric.PencilBrush(canvas)
       canvas.freeDrawingBrush.color = color
       canvas.freeDrawingBrush.width = width
+    } else if (tool === 'text') {
+      canvas.isDrawingMode = false
+      canvas.selection = false
+      canvas.defaultCursor = 'text'
+      // Place a textbox wherever the user clicks
+      canvas.on('mouse:down:before', (opt: any) => {
+        if ((canvas as any)._isTextEditing) return
+        const pointer = canvas.getPointer(opt.e)
+        const textbox = new fabric.Textbox('', {
+          left: pointer.x,
+          top: pointer.y,
+          width: 200,
+          fill: color,
+          fontSize: 18,
+          fontFamily: 'Arial',
+          editable: true,
+          cursorColor: color,
+        })
+        canvas.add(textbox)
+        canvas.setActiveObject(textbox)
+        canvas.requestRenderAll()
+        textbox.enterEditing()
+        canvas.requestRenderAll()
+        // After placing, restore selection mode so user can click elsewhere
+        ;(canvas as any)._isTextEditing = true
+        textbox.on('editing:exited', () => {
+          ;(canvas as any)._isTextEditing = false
+          if (!textbox.text || textbox.text.trim() === '') {
+            canvas.remove(textbox)
+          }
+          canvas.requestRenderAll()
+        })
+      })
+    } else {
+      canvas.isDrawingMode = false
+      canvas.selection = true
+      canvas.defaultCursor = 'default'
     }
   }, [color, tool, width])
 
@@ -128,19 +169,35 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     return () => el.removeEventListener('wheel', handleWheel)
   }, [])
 
-  // Delete key removes selected objects
+  // Keyboard shortcuts: Delete/Backspace = remove, Ctrl+Z = undo
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return
       const target = e.target as HTMLElement
-      // Ignore if user is typing inside a textbox
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+      const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
       const canvas = fabricCanvasRef.current
       if (!canvas) return
+      const isEditingText = !!(canvas as any).isEditing || !!(canvas as any)._isTextEditing
+
+      // Ctrl+Z / Cmd+Z — undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (isTyping) return
+        e.preventDefault()
+        const stack = undoStackRef.current
+        if (stack.length <= 1) return
+        stack.pop()
+        const previous = stack[stack.length - 1]
+        canvas.loadFromJSON(previous).then(() => {
+          canvas.requestRenderAll()
+          pageJsonRef.current[page] = previous
+        })
+        return
+      }
+
+      // Delete / Backspace — remove selected
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      if (isTyping || isEditingText) return
       const active = canvas.getActiveObjects()
       if (!active.length) return
-      // Don't delete while editing text inline
-      if ((canvas as any).isEditing) return
       active.forEach((obj: any) => canvas.remove(obj))
       canvas.discardActiveObject()
       canvas.requestRenderAll()
@@ -253,29 +310,7 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     configureTool()
   }, [configureTool])
 
-  async function addText() {
-    const fabric = await import('fabric')
-    const canvas = fabricCanvasRef.current
-    if (!canvas) return
-    // Disable drawing mode before adding text
-    canvas.isDrawingMode = false
-    canvas.selection = true
-    const text = new fabric.Textbox('Texto', {
-      left: 80,
-      top: 80,
-      width: 220,
-      fill: color,
-      fontSize: 18,
-      fontFamily: 'DM Sans, Arial',
-      editable: true,
-    })
-    canvas.add(text)
-    canvas.setActiveObject(text)
-    canvas.requestRenderAll()
-    // Enter edit mode so user can type immediately
-    text.enterEditing()
-    text.selectAll()
-    canvas.requestRenderAll()
+  function activateTextTool() {
     setTool('text')
   }
 
@@ -380,7 +415,7 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
         </div>
 
         <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={() => setTool('pen')} style={{ color: tool === 'pen' ? 'var(--accent)' : 'var(--text-secondary)' }}><PenLine size={16} /></button>
-        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={addText} style={{ color: tool === 'text' ? 'var(--accent)' : 'var(--text-secondary)' }}><Type size={16} /></button>
+        <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={activateTextTool} title="Texto — clique no PDF para posicionar" style={{ color: tool === 'text' ? 'var(--accent)' : 'var(--text-secondary)' }}><Type size={16} /></button>
         <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={eraseSelected} style={{ color: tool === 'erase' ? 'var(--danger)' : 'var(--text-secondary)' }}><Eraser size={16} /></button>
         <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={undo}><RotateCcw size={16} /></button>
         <input type="color" value={color} onChange={e => setColor(e.target.value)} className="h-9 w-9 rounded-lg border-0 bg-transparent" />
@@ -418,7 +453,7 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
             <div
               ref={fabricContainerRef}
               className="absolute inset-0"
-              style={{ pointerEvents: 'auto' }}
+              style={{ pointerEvents: 'auto', cursor: tool === 'text' ? 'text' : tool === 'pen' ? 'crosshair' : 'default' }}
             />
           </div>
         )}
