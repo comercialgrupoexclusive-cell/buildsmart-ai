@@ -7,7 +7,16 @@ import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
-import { ProjectBoard } from '@/components/board/ProjectBoard'
+import dynamic from 'next/dynamic'
+
+const ExcalidrawBoard = dynamic(
+  () => import('@/components/board/ExcalidrawBoard').then(m => ({ default: m.ExcalidrawBoard })),
+  { ssr: false, loading: () => (
+    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>
+      Carregando board…
+    </div>
+  )},
+)
 
 type Projeto = {
   id: string
@@ -247,8 +256,8 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       )}
 
       {tab === 'board' && (
-        <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
-          <ProjectBoard projectId={projeto.id} />
+        <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', height: 'calc(100vh - 200px)', minHeight: 520 }}>
+          <ExcalidrawBoard projectId={projeto.id} />
         </div>
       )}
 

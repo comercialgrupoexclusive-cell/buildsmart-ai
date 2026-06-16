@@ -43,3 +43,6 @@ dev-server.err.log
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Excalidraw fonts — copied by postinstall script, not needed in git
+/public/fonts/

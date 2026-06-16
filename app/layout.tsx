@@ -17,6 +17,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        {/* Excalidraw assets path — fonts loaded from /fonts/ */}
+        <script dangerouslySetInnerHTML={{ __html: 'window.EXCALIDRAW_ASSET_PATH = "/";' }} />
+      </head>
       <body className="min-h-screen antialiased">
         <ProfileProvider>{children}</ProfileProvider>
       </body>

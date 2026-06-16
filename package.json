@@ -3,13 +3,16 @@
   "version": "1.2.0",
   "private": true,
   "scripts": {
+    "copy:assets": "node scripts/copy-excalidraw-assets.mjs",
+    "postinstall": "node scripts/copy-excalidraw-assets.mjs",
     "dev": "next dev -p 3000",
-    "build": "next build",
+    "build": "npm run copy:assets && next build",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.107.0",
     "clsx": "^2.1.1",
