@@ -6,6 +6,10 @@ import '@excalidraw/excalidraw/index.css'
 import { createClient } from '@/lib/supabase/client'
 import { AlertTriangle, FileText } from 'lucide-react'
 import { NCPanel } from './NCPanel'
+import { RemoteCursors, type RemoteUser } from './RemoteCursors'
+import { FullscreenButton } from './FullscreenButton'
+import { generateUserColor, getInitials } from '@/lib/board-utils'
+import { useProfile } from '@/lib/profile-context'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any
@@ -14,37 +18,57 @@ interface Props {
   projectId: string
 }
 
+interface ViewState {
+  zoom: number
+  scrollX: number
+  scrollY: number
+}
+
 function sanitiseAppState(appState: Any) {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { collaborators, openDialog, openPopup, contextMenu, toast, ...rest } = appState ?? {}
   return rest
 }
 
+function zoomValue(appStateZoom: Any): number {
+  if (typeof appStateZoom === 'object' && appStateZoom !== null) return appStateZoom.value ?? 1
+  return typeof appStateZoom === 'number' ? appStateZoom : 1
+}
+
 export function ExcalidrawBoard({ projectId }: Props) {
+  const { currentProfile } = useProfile()
+
   const [initialData, setInitialData]      = useState<Any>(null)
   const [loaded, setLoaded]                = useState(false)
   const [selectedElementId, setSelectedId] = useState<string | null>(null)
   const [showNC, setShowNC]                = useState(false)
   const [excalidrawTheme, setExcalidrawTheme] = useState<'light' | 'dark'>('dark')
+  const [onlineUsers, setOnlineUsers]      = useState<RemoteUser[]>([])
+  const [viewState, setViewState]          = useState<ViewState>({ zoom: 1, scrollX: 0, scrollY: 0 })
 
-  const apiRef        = useRef<Any>(null)
-  const debouncer     = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const fileInputRef  = useRef<HTMLInputElement>(null)
-  const containerRef  = useRef<HTMLDivElement>(null)
-  const selectedIdRef = useRef<string | null>(null)
+  const apiRef           = useRef<Any>(null)
+  const debouncer        = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const broadcastDebouncer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fileInputRef     = useRef<HTMLInputElement>(null)
+  const containerRef     = useRef<HTMLDivElement>(null)
+  const selectedIdRef    = useRef<string | null>(null)
+  const channelRef       = useRef<Any>(null)
+  const cursorThrottle   = useRef(0)
+  const viewThrottle     = useRef(0)
+  // Ref para evitar closure stale dentro dos handlers do canal
+  const profileRef       = useRef(currentProfile)
+  profileRef.current     = currentProfile
 
   // ── Sincronizar tema Excalidraw com o sistema BuildSmart ──────────────────
-  // O BuildSmart usa data-theme="light" no <html>; sem atributo = escuro (padrão).
 
   useEffect(() => {
     function readTheme(): 'light' | 'dark' {
       return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
     }
     setExcalidrawTheme(readTheme())
-
-    const observer = new MutationObserver(() => setExcalidrawTheme(readTheme()))
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    return () => observer.disconnect()
+    const obs = new MutationObserver(() => setExcalidrawTheme(readTheme()))
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => obs.disconnect()
   }, [])
 
   // ── Carregar board_data ───────────────────────────────────────────────────
@@ -66,9 +90,47 @@ export function ExcalidrawBoard({ projectId }: Props) {
     load()
   }, [projectId])
 
-  // ── Scroll = zoom ─────────────────────────────────────────────────────────
-  // Excalidraw interpreta ctrlKey+wheel como zoom e scroll simples como pan.
-  // Interceptamos o wheel, bloqueamos o original e reenviamos com ctrlKey:true.
+  // ── Supabase Realtime — Broadcast + Presence ──────────────────────────────
+
+  useEffect(() => {
+    if (!currentProfile) return
+
+    const supabase = createClient()
+    const channel  = supabase.channel(`board:${projectId}`)
+
+    // Receber canvas de outros usuários
+    channel.on('broadcast', { event: 'canvas-update' }, ({ payload }: Any) => {
+      if (payload.userId === profileRef.current?.id) return
+      apiRef.current?.updateScene({ elements: payload.elements })
+    })
+
+    // Atualizar lista de usuários online e seus cursores
+    channel.on('presence', { event: 'sync' }, () => {
+      const state = channel.presenceState() as Record<string, RemoteUser[]>
+      const users = Object.values(state).flat()
+      setOnlineUsers(users.filter(u => u.userId !== profileRef.current?.id))
+    })
+
+    channel.subscribe(async (status: string) => {
+      if (status === 'SUBSCRIBED' && profileRef.current) {
+        await channel.track({
+          userId: profileRef.current.id,
+          name:   profileRef.current.name,
+          color:  generateUserColor(profileRef.current.id),
+          cursor: { x: 0, y: 0 },
+        })
+      }
+    })
+
+    channelRef.current = channel
+
+    return () => {
+      supabase.removeChannel(channel)
+      channelRef.current = null
+    }
+  }, [projectId, currentProfile?.id])
+
+  // ── Scroll = zoom (intercepta wheel sem Ctrl e re-despacha com Ctrl) ──────
 
   useEffect(() => {
     if (!loaded) return
@@ -76,7 +138,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
     if (!container) return
 
     function onWheel(e: WheelEvent) {
-      if (e.ctrlKey || e.metaKey) return  // já é zoom nativo
+      if (e.ctrlKey || e.metaKey) return
       e.preventDefault()
       e.stopImmediatePropagation()
       e.target?.dispatchEvent(
@@ -93,19 +155,40 @@ export function ExcalidrawBoard({ projectId }: Props) {
     return () => container.removeEventListener('wheel', onWheel, { capture: true })
   }, [loaded])
 
-  // ── onChange: tracking de seleção + save debounced ───────────────────────
+  // ── onChange: seleção + broadcast (300ms) + persist (1500ms) + viewState ──
 
   const handleChange = useCallback(
     (elements: Any, appState: Any, files: Any) => {
-      // Rastrear elemento selecionado evitando re-render desnecessário
-      const ids = appState.selectedElementIds ?? {}
+      // Rastrear elemento selecionado
+      const ids   = appState.selectedElementIds ?? {}
       const newId = Object.keys(ids).find(id => ids[id]) ?? null
       if (newId !== selectedIdRef.current) {
         selectedIdRef.current = newId
         setSelectedId(newId)
       }
 
-      // Salvar no Supabase com debounce de 1,5 s
+      // Atualizar viewState para RemoteCursors (throttle 100ms)
+      const now = Date.now()
+      if (now - viewThrottle.current > 100) {
+        viewThrottle.current = now
+        setViewState({
+          zoom:    zoomValue(appState.zoom),
+          scrollX: appState.scrollX ?? 0,
+          scrollY: appState.scrollY ?? 0,
+        })
+      }
+
+      // Broadcast para outros (300ms debounce)
+      if (broadcastDebouncer.current) clearTimeout(broadcastDebouncer.current)
+      broadcastDebouncer.current = setTimeout(() => {
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'canvas-update',
+          payload: { elements, userId: profileRef.current?.id },
+        })
+      }, 300)
+
+      // Persistir no Supabase (1500ms debounce)
       if (debouncer.current) clearTimeout(debouncer.current)
       debouncer.current = setTimeout(async () => {
         const supabase = createClient()
@@ -185,7 +268,10 @@ export function ExcalidrawBoard({ projectId }: Props) {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', position: 'relative' }}>
+    <div
+      id="board-container"
+      style={{ width: '100%', height: '100%', display: 'flex', position: 'relative' }}
+    >
       <input
         ref={fileInputRef} type="file" accept=".pdf,application/pdf"
         style={{ display: 'none' }}
@@ -196,32 +282,63 @@ export function ExcalidrawBoard({ projectId }: Props) {
         }}
       />
 
-      {/* Canvas */}
-      <div ref={containerRef} style={{ flex: 1, height: '100%', minWidth: 0 }}>
+      {/* Canvas + overlay de cursores remotos */}
+      <div ref={containerRef} style={{ flex: 1, height: '100%', minWidth: 0, position: 'relative' }}>
         <Excalidraw
           initialData={initialData ?? undefined}
           onChange={handleChange}
           excalidrawAPI={(api: Any) => {
             apiRef.current = api
-            // Auto-carregar templates BuildSmart na biblioteca nativa do Excalidraw
             fetch('/buildsmart-library.excalidrawlib')
               .then(r => r.json())
               .then(data => {
                 api.updateLibrary({
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   libraryItems: data.library.map((elements: any[]) => ({
-                    status: 'published',
-                    elements,
+                    status: 'published', elements,
                   })),
                   action: 'merge',
                 })
               })
               .catch(() => {})
           }}
+          // Atualizar cursor no canal com throttle de 80ms
+          onPointerUpdate={({ pointer }: Any) => {
+            const now = Date.now()
+            if (now - cursorThrottle.current < 80) return
+            cursorThrottle.current = now
+            const profile = profileRef.current
+            if (!profile) return
+            channelRef.current?.track({
+              userId: profile.id,
+              name:   profile.name,
+              color:  generateUserColor(profile.id),
+              cursor: { x: pointer.x, y: pointer.y },
+            })
+          }}
           theme={excalidrawTheme}
           langCode="pt-BR"
           renderTopRightUI={() => (
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* Avatares dos usuários online */}
+              {onlineUsers.map(user => (
+                <div
+                  key={user.userId}
+                  title={user.name}
+                  style={{
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: user.color, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: 'white', fontSize: 11, fontWeight: 700,
+                    border: '2px solid white', cursor: 'default',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                  }}
+                >
+                  {getInitials(user.name)}
+                </div>
+              ))}
+
+              {/* Botão PDF */}
               <button
                 title="Importar PDF como imagem no canvas"
                 onClick={() => fileInputRef.current?.click()}
@@ -235,6 +352,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
                 <FileText size={14} /> PDF
               </button>
 
+              {/* Botão NCs */}
               <button
                 title="Painel de não-conformidades"
                 onClick={() => setShowNC(v => !v)}
@@ -249,10 +367,12 @@ export function ExcalidrawBoard({ projectId }: Props) {
               >
                 <AlertTriangle size={14} /> NCs
               </button>
+
+              {/* Tela cheia */}
+              <FullscreenButton />
             </div>
           )}
         >
-          {/* MainMenu sem links externos (GitHub, Discord, Twitter) */}
           <MainMenu>
             <MainMenu.DefaultItems.ClearCanvas />
             <MainMenu.DefaultItems.Export />
@@ -262,6 +382,9 @@ export function ExcalidrawBoard({ projectId }: Props) {
             <MainMenu.DefaultItems.ChangeCanvasBackground />
           </MainMenu>
         </Excalidraw>
+
+        {/* Cursores remotos sobrepostos */}
+        <RemoteCursors onlineUsers={onlineUsers} viewState={viewState} />
       </div>
 
       {/* Painel lateral de NCs */}
