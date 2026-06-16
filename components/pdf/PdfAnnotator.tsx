@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Download, Eraser, MessageCircle, PenLine, RotateCcw, Save, Type, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Download, Eraser, MessageCircle, Minus, PenLine, Plus, RotateCcw, Save, Type, X, ZoomIn } from 'lucide-react'
 import { PDFDocument } from 'pdf-lib'
 import { createClient } from '@/lib/supabase/client'
 
@@ -29,8 +29,8 @@ async function dataUrlToBytes(dataUrl: string) {
 export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType, contextId, itemId = null, onClose }: PdfAnnotatorProps) {
   const supabase = createClient()
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null)
-  // Container div where Fabric.js creates its own canvases — keeps absolute overlay correct
   const fabricContainerRef = useRef<HTMLDivElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
   const fabricCanvasRef = useRef<any>(null)
   const pdfDocRef = useRef<any>(null)
   const pageJsonRef = useRef<Record<number, string>>({})
@@ -111,6 +111,22 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
       canvas.freeDrawingBrush.width = width
     }
   }, [color, tool, width])
+
+  // Ctrl+Scroll zoom
+  useEffect(() => {
+    const el = scrollAreaRef.current
+    if (!el) return
+    function handleWheel(e: WheelEvent) {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      setScale(prev => {
+        const delta = e.deltaY > 0 ? -0.1 : 0.1
+        return Math.round(Math.min(4, Math.max(0.25, prev + delta)) * 100) / 100
+      })
+    }
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [])
 
   // Delete key removes selected objects
   useEffect(() => {
@@ -348,12 +364,20 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
         <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] disabled:opacity-40" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}><ArrowLeft size={16} /></button>
         <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] disabled:opacity-40" disabled={page >= pageCount} onClick={() => setPage(p => Math.min(pageCount, p + 1))}><ArrowRight size={16} /></button>
 
-        <select className="input-base w-24 py-1 text-xs" value={scale} onChange={e => setScale(Number(e.target.value))}>
-          <option value={0.8}>80%</option>
-          <option value={1}>100%</option>
-          <option value={1.25}>125%</option>
-          <option value={1.5}>150%</option>
-        </select>
+        <div className="flex items-center gap-0.5 rounded-lg px-1" style={{ background: 'var(--bg-secondary)' }}>
+          <button onClick={() => setScale(s => Math.max(0.25, Math.round((s - 0.1) * 100) / 100))} className="p-1.5 rounded hover:bg-[var(--bg-primary)]" title="Diminuir zoom (Ctrl+Scroll)">
+            <Minus size={13} style={{ color: 'var(--text-secondary)' }} />
+          </button>
+          <span className="text-xs font-mono w-10 text-center select-none" style={{ color: 'var(--text-primary)' }}>
+            {Math.round(scale * 100)}%
+          </span>
+          <button onClick={() => setScale(s => Math.min(4, Math.round((s + 0.1) * 100) / 100))} className="p-1.5 rounded hover:bg-[var(--bg-primary)]" title="Aumentar zoom (Ctrl+Scroll)">
+            <Plus size={13} style={{ color: 'var(--text-secondary)' }} />
+          </button>
+          <button onClick={() => setScale(1)} className="p-1.5 rounded hover:bg-[var(--bg-primary)]" title="Redefinir zoom 100%">
+            <ZoomIn size={13} style={{ color: 'var(--text-secondary)' }} />
+          </button>
+        </div>
 
         <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={() => setTool('pen')} style={{ color: tool === 'pen' ? 'var(--accent)' : 'var(--text-secondary)' }}><PenLine size={16} /></button>
         <button className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" onClick={addText} style={{ color: tool === 'text' ? 'var(--accent)' : 'var(--text-secondary)' }}><Type size={16} /></button>
@@ -374,7 +398,7 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
       </div>
 
       {/* Canvas area */}
-      <div className="flex-1 overflow-auto p-4">
+      <div ref={scrollAreaRef} className="flex-1 overflow-auto p-4">
         {loading && (
           <div className="flex justify-center py-20">
             <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
