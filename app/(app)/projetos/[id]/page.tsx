@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect, use } from 'react'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
+import { ProjectBoard } from '@/components/board/ProjectBoard'
 
 type Projeto = {
   id: string
@@ -32,7 +33,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [projeto, setProjeto] = useState<Projeto | null>(null)
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma'>('estrutura')
+  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'board'>('estrutura')
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [editingDados, setEditingDados] = useState(false)
@@ -193,6 +194,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
         {([
           { key: 'estrutura',  label: 'Estrutura',    icon: LayoutList },
           { key: 'cronograma', label: 'Cronograma',   icon: CalendarDays },
+          { key: 'board',      label: 'Board',        icon: LayoutDashboard },
           { key: 'dados',      label: 'Dados Gerais', icon: Info },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
@@ -238,6 +240,12 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
 
       {tab === 'cronograma' && (
         <ProjetoCronograma projetoId={projeto.id} profiles={profiles} />
+      )}
+
+      {tab === 'board' && (
+        <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+          <ProjectBoard projectId={projeto.id} />
+        </div>
       )}
 
       {tab === 'dados' && (
