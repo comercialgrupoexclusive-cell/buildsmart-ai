@@ -6,6 +6,7 @@ import {
   MousePointer2, MessageSquare, Network, FileText,
   Link2, ZoomIn, ZoomOut, Trash2, Tag,
 } from 'lucide-react'
+import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const [connectFrom, setConnectFrom] = useState<string | null>(null)
   const [tagFilter,   setTagFilter]   = useState('')
   const [saving,      setSaving]      = useState(false)
+  const [pdfModal,    setPdfModal]    = useState<{ id: string; url: string; name: string } | null>(null)
 
   // Stable refs so mouse handlers don't go stale
   const panRef      = useRef(pan)
@@ -559,7 +561,8 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
                     setEditingId(item.id)
                     setEditText((item.content as { text: string }).text)
                   } else if (item.type === 'pdf') {
-                    window.open((item.content as { url: string }).url, '_blank')
+                    const c = item.content as { url: string; name: string }
+                    setPdfModal({ id: item.id, url: c.url, name: c.name })
                   }
                 }}
                 onFinishEdit={text => finishEdit(item.id, text)}
@@ -593,6 +596,24 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
           </div>
         )}
       </div>
+
+      {/* ── PDF Annotator modal ─────────────────────────────────────────── */}
+      {pdfModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.7)',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          <PdfAnnotator
+            fileUrl={pdfModal.url}
+            fileName={pdfModal.name}
+            contextType="projeto"
+            contextId={projectId}
+            itemId={pdfModal.id}
+            onClose={() => setPdfModal(null)}
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -733,7 +754,7 @@ function ItemCard({ item, isActive, isEditing, editText, setEditText, connectFro
         </div>
         <div style={{ flex: 1, padding: 10, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 4 }}>
           <p style={{ margin: 0, fontSize: 12, textAlign: 'center', color: 'var(--text-primary)', wordBreak: 'break-all', lineHeight: 1.4 }}>{c.name}</p>
-          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Duplo-clique para abrir</span>
+          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Duplo-clique para abrir e anotar</span>
         </div>
       </div>
     )
