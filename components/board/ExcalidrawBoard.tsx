@@ -55,6 +55,8 @@ export function ExcalidrawBoard({ projectId }: Props) {
   const channelRef       = useRef<Any>(null)
   const cursorThrottle   = useRef(0)
   const viewThrottle     = useRef(0)
+  // IDs de arquivos já persistidos na tabela board_files (evita re-upload)
+  const persistedFilesRef = useRef<Set<string>>(new Set())
   // Ref para evitar closure stale dentro dos handlers do canal
   const profileRef       = useRef(currentProfile)
   profileRef.current     = currentProfile
@@ -71,18 +73,35 @@ export function ExcalidrawBoard({ projectId }: Props) {
     return () => obs.disconnect()
   }, [])
 
-  // ── Carregar board_data ───────────────────────────────────────────────────
+  // ── Carregar board_data + board_files ────────────────────────────────────
 
   useEffect(() => {
     async function load() {
       try {
         const supabase = createClient()
-        const { data } = await supabase
-          .from('projetos')
-          .select('board_data')
-          .eq('id', projectId)
-          .single()
-        if (data?.board_data) setInitialData(data.board_data)
+        const [{ data: proj }, { data: fileRows }] = await Promise.all([
+          supabase.from('projetos').select('board_data').eq('id', projectId).single(),
+          supabase.from('board_files').select('id, mime_type, data_url, created').eq('projeto_id', projectId),
+        ])
+
+        // Reconstrói o mapa de arquivos e registra IDs já persistidos
+        const filesMap: Any = {}
+        for (const row of fileRows ?? []) {
+          filesMap[row.id] = {
+            id: row.id,
+            mimeType: row.mime_type,
+            dataURL: row.data_url,
+            created: row.created ?? Date.now(),
+            lastRetrieved: Date.now(),
+          }
+          persistedFilesRef.current.add(row.id)
+        }
+
+        if (proj?.board_data) {
+          setInitialData({ ...proj.board_data, files: filesMap })
+        } else if (Object.keys(filesMap).length > 0) {
+          setInitialData({ files: filesMap })
+        }
       } finally {
         setLoaded(true)
       }
@@ -194,11 +213,31 @@ export function ExcalidrawBoard({ projectId }: Props) {
       if (debouncer.current) clearTimeout(debouncer.current)
       debouncer.current = setTimeout(async () => {
         const supabase = createClient()
+
+        // 1) Salva elementos + appState (sem files — ficam em board_files)
         const { error } = await supabase
           .from('projetos')
-          .update({ board_data: { elements, appState: sanitiseAppState(appState), files } })
+          .update({ board_data: { elements, appState: sanitiseAppState(appState) } })
           .eq('id', projectId)
-        if (error) console.error('[Board] Falha ao salvar:', error.message, error.code)
+        if (error) console.error('[Board] Falha ao salvar elementos:', error.message)
+
+        // 2) Upsert apenas dos arquivos novos (não duplica uploads)
+        const newEntries = Object.entries(files as Record<string, Any>)
+          .filter(([fid]) => !persistedFilesRef.current.has(fid))
+        if (newEntries.length > 0) {
+          const rows = newEntries.map(([fid, f]) => ({
+            id: fid,
+            projeto_id: projectId,
+            mime_type: f.mimeType ?? 'image/png',
+            data_url: f.dataURL,
+            created: f.created ?? Date.now(),
+          }))
+          const { error: fe } = await supabase
+            .from('board_files')
+            .upsert(rows, { onConflict: 'id,projeto_id' })
+          if (fe) console.error('[Board] Falha ao salvar arquivos:', fe.message)
+          else newEntries.forEach(([fid]) => persistedFilesRef.current.add(fid))
+        }
       }, 1500)
     },
     [projectId],
