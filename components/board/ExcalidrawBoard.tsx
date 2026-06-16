@@ -25,12 +25,27 @@ export function ExcalidrawBoard({ projectId }: Props) {
   const [loaded, setLoaded]                = useState(false)
   const [selectedElementId, setSelectedId] = useState<string | null>(null)
   const [showNC, setShowNC]                = useState(false)
+  const [excalidrawTheme, setExcalidrawTheme] = useState<'light' | 'dark'>('dark')
 
   const apiRef        = useRef<Any>(null)
   const debouncer     = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef  = useRef<HTMLInputElement>(null)
   const containerRef  = useRef<HTMLDivElement>(null)
   const selectedIdRef = useRef<string | null>(null)
+
+  // ── Sincronizar tema Excalidraw com o sistema BuildSmart ──────────────────
+  // O BuildSmart usa data-theme="light" no <html>; sem atributo = escuro (padrão).
+
+  useEffect(() => {
+    function readTheme(): 'light' | 'dark' {
+      return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
+    }
+    setExcalidrawTheme(readTheme())
+
+    const observer = new MutationObserver(() => setExcalidrawTheme(readTheme()))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
 
   // ── Carregar board_data ───────────────────────────────────────────────────
 
@@ -186,7 +201,24 @@ export function ExcalidrawBoard({ projectId }: Props) {
         <Excalidraw
           initialData={initialData ?? undefined}
           onChange={handleChange}
-          excalidrawAPI={(api: Any) => { apiRef.current = api }}
+          excalidrawAPI={(api: Any) => {
+            apiRef.current = api
+            // Auto-carregar templates BuildSmart na biblioteca nativa do Excalidraw
+            fetch('/buildsmart-library.excalidrawlib')
+              .then(r => r.json())
+              .then(data => {
+                api.updateLibrary({
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  libraryItems: data.library.map((elements: any[]) => ({
+                    status: 'published',
+                    elements,
+                  })),
+                  action: 'merge',
+                })
+              })
+              .catch(() => {})
+          }}
+          theme={excalidrawTheme}
           langCode="pt-BR"
           renderTopRightUI={() => (
             <div style={{ display: 'flex', gap: 8 }}>
@@ -237,7 +269,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
         <div style={{
           width: 300, height: '100%', flexShrink: 0,
           borderLeft: '1px solid var(--border)',
-          background: '#ffffff',
+          background: 'var(--bg-card)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}>
           <NCPanel

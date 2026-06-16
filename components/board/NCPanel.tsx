@@ -80,11 +80,11 @@ export function NCPanel({ api, projectId: _projectId, selectedElementId }: Props
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <AlertTriangle size={16} color="#dc2626" />
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--fg)' }}>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>
             Não-Conformidades
           </span>
         </div>
-        <p style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 4 }}>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
           {selectedEl
             ? existingNC
               ? 'Editar NC do elemento selecionado'

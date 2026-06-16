@@ -18,12 +18,12 @@ interface Props {
 
 const input: React.CSSProperties = {
   width: '100%', padding: '6px 10px', fontSize: 13, borderRadius: 6,
-  border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--fg)',
+  border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)',
   boxSizing: 'border-box', outline: 'none',
 }
 
 const label: React.CSSProperties = {
-  fontSize: 12, fontWeight: 600, color: 'var(--fg-muted)',
+  fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)',
   display: 'block', marginBottom: 4,
 }
 
@@ -101,7 +101,7 @@ export function NCForm({ initialData, onSave, onRemove }: Props) {
             type="button" onClick={onRemove}
             style={{
               padding: '7px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-              background: 'transparent', color: 'var(--fg-muted)',
+              background: 'transparent', color: 'var(--text-secondary)',
               border: '1px solid var(--border)', cursor: 'pointer',
             }}
           >

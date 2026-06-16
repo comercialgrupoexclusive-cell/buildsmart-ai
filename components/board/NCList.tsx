@@ -40,7 +40,7 @@ export function NCList({ api, refresh, selectedElementId, onScrollTo }: Props) {
 
   if (ncs.length === 0) {
     return (
-      <p style={{ fontSize: 13, color: 'var(--fg-muted)', textAlign: 'center', paddingTop: 12 }}>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', paddingTop: 12 }}>
         Nenhuma NC registrada ainda
       </p>
     )
@@ -49,7 +49,7 @@ export function NCList({ api, refresh, selectedElementId, onScrollTo }: Props) {
   return (
     <div>
       <p style={{
-        fontSize: 11, fontWeight: 700, color: 'var(--fg-muted)', marginBottom: 10,
+        fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10,
         textTransform: 'uppercase', letterSpacing: '0.06em',
       }}>
         {ncs.length} {ncs.length === 1 ? 'NC' : 'NCs'} no canvas
@@ -67,13 +67,13 @@ export function NCList({ api, refresh, selectedElementId, onScrollTo }: Props) {
               style={{
                 padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
                 border: `1px solid ${isSelected ? color : 'var(--border)'}`,
-                background: isSelected ? `${color}12` : 'var(--bg)',
+                background: isSelected ? `${color}12` : 'var(--bg-secondary)',
                 transition: 'border-color 0.15s, background 0.15s',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                 <span style={{
-                  fontSize: 13, fontWeight: 600, color: 'var(--fg)',
+                  fontSize: 13, fontWeight: 600, color: 'var(--text-primary)',
                   flex: 1, wordBreak: 'break-word',
                 }}>
                   {nc.titulo}
@@ -87,7 +87,7 @@ export function NCList({ api, refresh, selectedElementId, onScrollTo }: Props) {
               </div>
 
               {(nc.responsavel || nc.dataPrazo) && (
-                <p style={{ fontSize: 12, color: 'var(--fg-muted)', marginTop: 4 }}>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
                   {nc.responsavel && `Resp: ${nc.responsavel}`}
                   {nc.responsavel && nc.dataPrazo && ' · '}
                   {nc.dataPrazo && `Prazo: ${nc.dataPrazo}`}
@@ -95,8 +95,8 @@ export function NCList({ api, refresh, selectedElementId, onScrollTo }: Props) {
               )}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
-                <MapPin size={11} color="var(--fg-muted)" />
-                <span style={{ fontSize: 11, color: 'var(--fg-muted)' }}>Clique para ir ao elemento</span>
+                <MapPin size={11} color="var(--text-secondary)" />
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Clique para ir ao elemento</span>
               </div>
             </div>
           )
