@@ -4,15 +4,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   MousePointer2, MessageSquare, Network, FileText,
-  Link2, ZoomIn, ZoomOut, Trash2, Tag,
+  Link2, ZoomIn, ZoomOut, Trash2, Tag, Pen, ImagePlus,
 } from 'lucide-react'
-// FileText usado na toolbar PDF tool button — PdfBoardCard tem o próprio
-import { useRouter } from 'next/navigation'
 import { PdfBoardCard } from '@/components/board/PdfBoardCard'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tool = 'select' | 'sticky' | 'mindmap' | 'pdf' | 'connect'
+type Tool = 'select' | 'sticky' | 'mindmap' | 'pdf' | 'connect' | 'pen' | 'image'
 
 interface BoardItemBase {
   id: string
@@ -24,27 +22,125 @@ interface BoardItemBase {
   assignedToName?: string
 }
 
-interface StickyItem extends BoardItemBase { type: 'sticky';   content: { text: string; color: string } }
-interface MindmapItem extends BoardItemBase { type: 'mindmap'; content: { text: string; color: string } }
-interface PdfItem extends BoardItemBase     { type: 'pdf';     content: { name: string; url: string } }
+interface StickyItem    extends BoardItemBase { type: 'sticky';    content: { text: string; color: string } }
+interface MindmapItem   extends BoardItemBase { type: 'mindmap';   content: { text: string; color: string } }
+interface PdfItem       extends BoardItemBase { type: 'pdf';       content: { name: string; url: string } }
 interface ConnectorItem extends BoardItemBase { type: 'connector'; content: { fromId: string; toId: string } }
-type BoardItem = StickyItem | MindmapItem | PdfItem | ConnectorItem
+interface FreehandItem  extends BoardItemBase { type: 'freehand';  content: { d: string; color: string; strokeWidth: number } }
+interface ImageItem     extends BoardItemBase { type: 'image';     content: { url: string; name: string } }
+
+type BoardItem = StickyItem | MindmapItem | PdfItem | ConnectorItem | FreehandItem | ImageItem
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STICKY_COLORS   = ['#FDE68A','#BBF7D0','#BFDBFE','#FCA5A5','#DDD6FE','#FED7AA','#E5E7EB']
 const MINDMAP_COLORS  = ['#6366F1','#10B981','#3B82F6','#EF4444','#8B5CF6','#F59E0B','#64748B']
+const PEN_COLORS      = ['#1E293B','#EF4444','#3B82F6','#22C55E','#F59E0B','#8B5CF6','#EC4899']
 
 function uid() { return Math.random().toString(36).slice(2, 11) }
-function parseTags(text: string)    { return [...new Set((text.match(/#\w+/g) ?? []).map(t => t.toLowerCase()))] }
+function parseTags(text: string)     { return [...new Set((text.match(/#\w+/g) ?? []).map(t => t.toLowerCase()))] }
 function parseAssigned(text: string) { const m = text.match(/@(\w+)/); return m ? m[1] : undefined }
-function rndColor(arr: string[])    { return arr[Math.floor(Math.random() * arr.length)] }
+function rndColor(arr: string[])     { return arr[Math.floor(Math.random() * arr.length)] }
+
+// Build SVG path string from array of points
+function pointsToPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return ''
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`
+  for (let i = 1; i < pts.length; i++) {
+    d += ` L ${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)}`
+  }
+  return d
+}
+
+// ─── ItemCard (sticky / mindmap) ──────────────────────────────────────────────
+
+function ItemCard({ item, isActive, isEditing, editText, setEditText, connectFrom, tool, onMouseDown, onDoubleClick, onFinishEdit }: {
+  item: BoardItem
+  isActive: boolean
+  isEditing: boolean
+  editText: string
+  setEditText: (v: string) => void
+  connectFrom: string | null
+  tool: Tool
+  onMouseDown: (e: React.MouseEvent) => void
+  onDoubleClick: (e: React.MouseEvent) => void
+  onFinishEdit: (text: string) => void
+}) {
+  if (item.type !== 'sticky' && item.type !== 'mindmap') return null
+  const c = item.content as { text: string; color: string }
+  const isSticky  = item.type === 'sticky'
+  const border    = isActive  ? '2px solid var(--accent)'   : '1.5px solid rgba(0,0,0,0.08)'
+  const shadow    = isActive  ? '0 0 0 3px rgba(59,123,248,0.18)' : '0 2px 8px rgba(0,0,0,0.12)'
+  const highlight = connectFrom ? (connectFrom === item.id ? '0 0 0 3px #F59E0B' : undefined) : undefined
+
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onDoubleClick={onDoubleClick}
+      style={{
+        position: 'absolute',
+        left: item.x, top: item.y,
+        width: item.width,
+        minHeight: item.height,
+        background: isSticky ? c.color : c.color,
+        borderRadius: isSticky ? 10 : 8,
+        padding: isSticky ? 12 : '10px 14px',
+        cursor: tool === 'select' ? 'grab' : 'crosshair',
+        border, boxShadow: highlight ?? shadow,
+        userSelect: 'none',
+        display: 'flex', flexDirection: 'column', gap: 6,
+      }}
+    >
+      {isEditing ? (
+        <textarea
+          autoFocus
+          value={editText}
+          onChange={e => setEditText(e.target.value)}
+          onBlur={() => onFinishEdit(editText)}
+          onKeyDown={e => { if (e.key === 'Escape') onFinishEdit(editText) }}
+          style={{
+            background: 'transparent', border: 'none', outline: 'none', resize: 'none',
+            fontSize: isSticky ? 14 : 13, fontWeight: isSticky ? 400 : 600,
+            color: isSticky ? '#1E293B' : 'white', width: '100%', minHeight: 60,
+            fontFamily: 'inherit',
+          }}
+          placeholder={isSticky ? 'Digite uma nota… use #tag ou @nome' : 'Texto do nó…'}
+        />
+      ) : (
+        <p style={{
+          margin: 0, fontSize: isSticky ? 14 : 13, fontWeight: isSticky ? 400 : 600,
+          color: isSticky ? '#1E293B' : 'white',
+          wordBreak: 'break-word', whiteSpace: 'pre-wrap',
+          minHeight: 24,
+        }}>
+          {c.text || <span style={{ opacity: 0.4 }}>{isSticky ? 'Duplo-clique para editar' : 'Nó'}</span>}
+        </p>
+      )}
+
+      {item.tags.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+          {item.tags.map(t => (
+            <span key={t} style={{
+              fontSize: 10, padding: '1px 5px', borderRadius: 4,
+              background: 'rgba(0,0,0,0.1)', color: isSticky ? '#1E293B' : 'white',
+            }}>{t}</span>
+          ))}
+        </div>
+      )}
+
+      {item.assignedToName && (
+        <span style={{ fontSize: 10, opacity: 0.65, color: isSticky ? '#1E293B' : 'white' }}>
+          @{item.assignedToName}
+        </span>
+      )}
+    </div>
+  )
+}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ProjectBoard({ projectId }: { projectId: string }) {
   const [items,       setItems]       = useState<BoardItem[]>([])
-  const [boardId,     setBoardId]     = useState<string | null>(null)
   const [dbError,     setDbError]     = useState(false)
   const [pan,         setPan]         = useState({ x: 60, y: 60 })
   const [zoom,        setZoom]        = useState(1)
@@ -55,25 +151,38 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const [connectFrom, setConnectFrom] = useState<string | null>(null)
   const [tagFilter,   setTagFilter]   = useState('')
   const [saving,      setSaving]      = useState(false)
+  const [penColor,    setPenColor]    = useState(PEN_COLORS[0])
+  const [penWidth,    setPenWidth]    = useState(3)
 
-  const router = useRouter()
+  // In-progress freehand path (shown live while drawing)
+  const [livePoints,  setLivePoints]  = useState<{ x: number; y: number }[]>([])
 
-  // Stable refs so mouse handlers don't go stale
-  const panRef      = useRef(pan)
-  const zoomRef     = useRef(zoom)
-  const itemsRef    = useRef<BoardItem[]>(items)
-  const boardIdRef  = useRef<string | null>(null)
-  const dragging    = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number } | null>(null)
-  const isPanning   = useRef(false)
-  const panStart    = useRef({ mx: 0, my: 0, px: 0, py: 0 })
-  const saveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const viewportRef = useRef<HTMLDivElement>(null)
+  // Stable refs
+  const panRef       = useRef(pan)
+  const zoomRef      = useRef(zoom)
+  const itemsRef     = useRef<BoardItem[]>(items)
+  const boardIdRef   = useRef<string | null>(null)
+  const dragging     = useRef<{ id: string; sx: number; sy: number; ox: number; oy: number } | null>(null)
+  const isPanning    = useRef(false)
+  const isDrawing    = useRef(false)
+  const panStart     = useRef({ mx: 0, my: 0, px: 0, py: 0 })
+  const saveTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const viewportRef  = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const imgInputRef  = useRef<HTMLInputElement>(null)
   const pendingPdfPos = useRef<{ x: number; y: number } | null>(null)
+  const pendingImgPos = useRef<{ x: number; y: number } | null>(null)
+  const livePointsRef = useRef<{ x: number; y: number }[]>([])
+  const penColorRef   = useRef(penColor)
+  const penWidthRef   = useRef(penWidth)
+  const toolRef       = useRef<Tool>(tool)
 
-  panRef.current   = pan
-  zoomRef.current  = zoom
-  itemsRef.current = items
+  panRef.current      = pan
+  zoomRef.current     = zoom
+  itemsRef.current    = items
+  penColorRef.current = penColor
+  penWidthRef.current = penWidth
+  toolRef.current     = tool
 
   // ── Load / create board ────────────────────────────────────────────────────
 
@@ -100,7 +209,6 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         }
 
         if (!board) return
-        setBoardId(board.id)
         boardIdRef.current = board.id
 
         const { data: its } = await supabase
@@ -192,21 +300,37 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   // ── Mouse ──────────────────────────────────────────────────────────────────
 
   function onBgDown(e: React.MouseEvent) {
-    // Only fires when clicking the viewport background, not items
     if (e.target !== viewportRef.current &&
         !(e.target as HTMLElement).dataset.bg) return
 
-    if (tool !== 'select') {
-      const pos = toCanvas(e.clientX, e.clientY)
+    const currentTool = toolRef.current
+    const pos = toCanvas(e.clientX, e.clientY)
+
+    if (currentTool === 'pen') {
+      isDrawing.current = true
+      livePointsRef.current = [pos]
+      setLivePoints([pos])
+      return
+    }
+
+    if (currentTool !== 'select') {
       createItem(pos.x, pos.y)
       return
     }
+
     setActiveId(null)
     isPanning.current = true
     panStart.current = { mx: e.clientX, my: e.clientY, px: panRef.current.x, py: panRef.current.y }
   }
 
   function onBgMove(e: React.MouseEvent) {
+    if (isDrawing.current) {
+      const pos = toCanvas(e.clientX, e.clientY)
+      livePointsRef.current = [...livePointsRef.current, pos]
+      setLivePoints([...livePointsRef.current])
+      return
+    }
+
     if (isPanning.current) {
       setPan({
         x: panStart.current.px + (e.clientX - panStart.current.mx),
@@ -214,6 +338,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
       })
       return
     }
+
     if (dragging.current) {
       const { id, sx, sy, ox, oy } = dragging.current
       const dx = (e.clientX - sx) / zoomRef.current
@@ -223,6 +348,31 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   }
 
   function onBgUp(e: React.MouseEvent) {
+    if (isDrawing.current) {
+      isDrawing.current = false
+      const pts = livePointsRef.current
+      setLivePoints([])
+      livePointsRef.current = []
+      if (pts.length < 2) return
+
+      const d = pointsToPath(pts)
+      const xs = pts.map(p => p.x)
+      const ys = pts.map(p => p.y)
+      const minX = Math.min(...xs), maxX = Math.max(...xs)
+      const minY = Math.min(...ys), maxY = Math.max(...ys)
+
+      const newItem: FreehandItem = {
+        id: uid(), type: 'freehand',
+        x: minX, y: minY,
+        width: Math.max(maxX - minX, 1),
+        height: Math.max(maxY - minY, 1),
+        tags: [],
+        content: { d, color: penColorRef.current, strokeWidth: penWidthRef.current },
+      }
+      commit([...itemsRef.current, newItem])
+      return
+    }
+
     if (dragging.current) {
       const { id, sx, sy, ox, oy } = dragging.current
       const dx = (e.clientX - sx) / zoomRef.current
@@ -247,9 +397,12 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
       newItem = { id, type: 'mindmap', x, y, width: 160, height: 72,
         content: { text: '', color: rndColor(MINDMAP_COLORS) }, tags: [] }
     } else if (tool === 'pdf') {
-      // Abre file picker; posição guardada para usar após seleção
       pendingPdfPos.current = { x, y }
       fileInputRef.current?.click()
+      return
+    } else if (tool === 'image') {
+      pendingImgPos.current = { x, y }
+      imgInputRef.current?.click()
       return
     } else {
       return
@@ -268,14 +421,12 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
 
   function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    e.target.value = ''  // reset so same file can be selected again
+    e.target.value = ''
     if (!file || !pendingPdfPos.current) return
-
     const pos  = pendingPdfPos.current
     pendingPdfPos.current = null
     const name = file.name
     const id   = uid()
-
     const reader = new FileReader()
     reader.onload = () => {
       const dataUrl = String(reader.result)
@@ -283,8 +434,30 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         id, type: 'pdf', x: pos.x, y: pos.y, width: 480, height: 340,
         content: { name, url: dataUrl }, tags: [],
       }
-      const next = [...itemsRef.current, newItem]
-      commit(next)
+      commit([...itemsRef.current, newItem])
+      setActiveId(id)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // ── Handle Image file selection ───────────────────────────────────────────
+
+  function onImageSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !pendingImgPos.current) return
+    const pos  = pendingImgPos.current
+    pendingImgPos.current = null
+    const name = file.name
+    const id   = uid()
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result)
+      const newItem: ImageItem = {
+        id, type: 'image', x: pos.x, y: pos.y, width: 300, height: 200,
+        content: { name, url: dataUrl }, tags: [],
+      }
+      commit([...itemsRef.current, newItem])
       setActiveId(id)
     }
     reader.readAsDataURL(file)
@@ -294,7 +467,6 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
 
   async function deleteItem(id: string) {
     const bid = boardIdRef.current
-    // IDs to remove: the item + any connectors referencing it
     const toRemove = new Set([id])
     itemsRef.current.forEach(it => {
       if (it.type === 'connector') {
@@ -309,7 +481,6 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
       const supabase = createClient()
       await supabase.from('board_items').delete().in('id', [...toRemove])
     }
-    // Cancel pending save since we deleted manually
     if (saveTimer.current) clearTimeout(saveTimer.current)
     if (next.length > 0) scheduleSave(next)
   }
@@ -340,7 +511,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
 
   function finishEdit(id: string, text: string) {
     setEditingId(null)
-    const tags    = parseTags(text)
+    const tags     = parseTags(text)
     const assigned = parseAssigned(text)
     commit(itemsRef.current.map(it => {
       if (it.id !== id) return it
@@ -351,7 +522,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
     }))
   }
 
-  // ── Connector positions ────────────────────────────────────────────────────
+  // ── Connector center ───────────────────────────────────────────────────────
 
   function center(id: string) {
     const it = items.find(i => i.id === id)
@@ -388,25 +559,31 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
 
   // ── Filter ─────────────────────────────────────────────────────────────────
 
-  const filterTag   = tagFilter.trim().toLowerCase()
+  const filterTag    = tagFilter.trim().toLowerCase()
   const visibleItems = items.filter(it => {
-    if (it.type === 'connector') return true
+    if (it.type === 'connector' || it.type === 'freehand' || it.type === 'image') return true
     if (!filterTag) return true
     return it.tags.some(t => t.includes(filterTag))
   })
+
+  // Cursor for current tool
+  const viewCursor = tool === 'pen'
+    ? 'crosshair'
+    : isPanning.current
+      ? 'grabbing'
+      : tool === 'select'
+        ? 'grab'
+        : 'crosshair'
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'min(680px, calc(100vh - 260px))', minHeight: 480 }}>
 
-      {/* Hidden file input for PDF import */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".pdf,application/pdf"
-        style={{ display: 'none' }}
-        onChange={onFileSelected}
-      />
+      {/* Hidden file inputs */}
+      <input ref={fileInputRef} type="file" accept=".pdf,application/pdf"
+        style={{ display: 'none' }} onChange={onFileSelected} />
+      <input ref={imgInputRef} type="file" accept="image/*"
+        style={{ display: 'none' }} onChange={onImageSelected} />
 
       {/* ── Toolbar ─────────────────────────────────────────────────────── */}
       <div style={{
@@ -418,7 +595,9 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
           { key: 'select',  Icon: MousePointer2, label: 'Selecionar' },
           { key: 'sticky',  Icon: MessageSquare,  label: 'Nota'       },
           { key: 'mindmap', Icon: Network,         label: 'Nó'         },
-          { key: 'pdf',     Icon: FileText,        label: 'PDF'        },   // clique no canvas → abre seletor de arquivo
+          { key: 'pdf',     Icon: FileText,        label: 'PDF'        },
+          { key: 'image',   Icon: ImagePlus,       label: 'Imagem'     },
+          { key: 'pen',     Icon: Pen,             label: 'Caneta'     },
           { key: 'connect', Icon: Link2,           label: 'Conectar'   },
         ] as const).map(({ key, Icon, label }) => (
           <button
@@ -438,6 +617,45 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
           </button>
         ))}
 
+        {/* Pen color swatches — only visible when pen tool is active */}
+        {tool === 'pen' && (
+          <>
+            <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 2px' }} />
+            {PEN_COLORS.map(c => (
+              <button
+                key={c}
+                title={c}
+                onClick={() => setPenColor(c)}
+                style={{
+                  width: 20, height: 20, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                  background: c,
+                  boxShadow: penColor === c ? `0 0 0 2px white, 0 0 0 4px ${c}` : 'none',
+                  flexShrink: 0,
+                }}
+              />
+            ))}
+            <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 2px' }} />
+            {[2, 4, 7].map(w => (
+              <button
+                key={w}
+                title={`Espessura ${w}`}
+                onClick={() => setPenWidth(w)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 28, height: 28, borderRadius: 6, border: 'none', cursor: 'pointer',
+                  background: penWidth === w ? 'var(--accent)' : 'var(--bg-secondary)',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{
+                  width: w * 2.5, height: w, borderRadius: w,
+                  background: penWidth === w ? 'white' : 'var(--text-secondary)',
+                }} />
+              </button>
+            ))}
+          </>
+        )}
+
         <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 2px' }} />
 
         <button onClick={() => zoomBy(1.2)}
@@ -454,7 +672,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
 
         <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 2px' }} />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 80 }}>
           <Tag size={12} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
           <input
             placeholder="filtrar #tag"
@@ -486,7 +704,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
         data-bg="1"
         style={{
           flex: 1, overflow: 'hidden', position: 'relative',
-          cursor: isPanning.current ? 'grabbing' : tool === 'select' ? 'grab' : 'crosshair',
+          cursor: viewCursor,
           backgroundImage: 'radial-gradient(circle, var(--border) 1px, transparent 1px)',
           backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
           backgroundPosition: `${pan.x}px ${pan.y}px`,
@@ -505,7 +723,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
           width: 0, height: 0,
         }}>
 
-          {/* SVG connectors */}
+          {/* SVG layer — connectors + freehand paths + live path */}
           <svg style={{ position: 'absolute', overflow: 'visible', width: 0, height: 0, pointerEvents: 'none' }}>
             <defs>
               <marker id="arrowhead" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
@@ -515,6 +733,41 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
                 <path d="M0,0 L7,3.5 L0,7 z" fill="var(--accent)" />
               </marker>
             </defs>
+
+            {/* Saved freehand paths */}
+            {visibleItems
+              .filter(it => it.type === 'freehand')
+              .map(it => {
+                const f = it.content as { d: string; color: string; strokeWidth: number }
+                const isAct = it.id === activeId
+                return (
+                  <path
+                    key={it.id}
+                    d={f.d}
+                    stroke={isAct ? 'var(--accent)' : f.color}
+                    strokeWidth={f.strokeWidth}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                    onClick={() => setActiveId(it.id)}
+                  />
+                )
+              })}
+
+            {/* Live drawing path */}
+            {livePoints.length > 1 && (
+              <path
+                d={pointsToPath(livePoints)}
+                stroke={penColor}
+                strokeWidth={penWidth}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+
+            {/* Connector arrows */}
             {visibleItems
               .filter(it => it.type === 'connector')
               .map(it => {
@@ -538,9 +791,67 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
               })}
           </svg>
 
-          {/* Item cards */}
+          {/* Image items */}
           {visibleItems
-            .filter(it => it.type !== 'connector')
+            .filter(it => it.type === 'image')
+            .map(item => {
+              const img = item.content as { url: string; name: string }
+              const isAct = item.id === activeId
+              return (
+                <div
+                  key={item.id}
+                  onMouseDown={e => {
+                    e.stopPropagation()
+                    if (tool !== 'select') return
+                    setActiveId(item.id)
+                    dragging.current = { id: item.id, sx: e.clientX, sy: e.clientY, ox: item.x, oy: item.y }
+                  }}
+                  style={{
+                    position: 'absolute',
+                    left: item.x, top: item.y,
+                    width: item.width,
+                    cursor: 'grab',
+                    borderRadius: 8,
+                    overflow: 'hidden',
+                    boxShadow: isAct
+                      ? '0 0 0 2px var(--accent), 0 4px 16px rgba(0,0,0,0.2)'
+                      : '0 2px 12px rgba(0,0,0,0.18)',
+                    border: isAct ? '2px solid var(--accent)' : '1.5px solid rgba(0,0,0,0.12)',
+                    userSelect: 'none',
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img.url}
+                    alt={img.name}
+                    draggable={false}
+                    style={{ display: 'block', width: '100%', pointerEvents: 'none' }}
+                  />
+                </div>
+              )
+            })}
+
+          {/* PDF cards */}
+          {visibleItems
+            .filter(it => it.type === 'pdf')
+            .map(item => (
+              <PdfBoardCard
+                key={item.id}
+                item={item as PdfItem}
+                isActive={item.id === activeId}
+                onMouseDown={e => {
+                  e.stopPropagation()
+                  if (tool === 'connect') { handleConnectClick(item.id); return }
+                  if (tool !== 'select') return
+                  setActiveId(item.id)
+                  dragging.current = { id: item.id, sx: e.clientX, sy: e.clientY, ox: item.x, oy: item.y }
+                }}
+              />
+            ))}
+
+          {/* Sticky / mindmap cards */}
+          {visibleItems
+            .filter(it => it.type === 'sticky' || it.type === 'mindmap')
             .map(item => {
               const itemMouseDown = (e: React.MouseEvent) => {
                 e.stopPropagation()
@@ -549,19 +860,6 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
                 setActiveId(item.id)
                 dragging.current = { id: item.id, sx: e.clientX, sy: e.clientY, ox: item.x, oy: item.y }
               }
-
-              if (item.type === 'pdf') {
-                return (
-                  <PdfBoardCard
-                    key={item.id}
-                    item={item as PdfItem}
-                    projectId={projectId}
-                    isActive={item.id === activeId}
-                    onMouseDown={itemMouseDown}
-                  />
-                )
-              }
-
               return (
                 <ItemCard
                   key={item.id}
@@ -597,6 +895,17 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
           </div>
         )}
 
+        {/* Pen hint */}
+        {tool === 'pen' && !isDrawing.current && livePoints.length === 0 && (
+          <div style={{
+            position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,0.6)', color: 'white', padding: '5px 14px',
+            borderRadius: 20, fontSize: 12, pointerEvents: 'none', whiteSpace: 'nowrap',
+          }}>
+            Clique e arraste para desenhar
+          </div>
+        )}
+
         {/* Empty state */}
         {items.length === 0 && (
           <div style={{
@@ -607,7 +916,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
               Escolha uma ferramenta e clique no canvas para criar
             </p>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)', opacity: 0.4 }}>
-              Nota · Nó · PDF (importa arquivo) · Conectar — Ctrl+scroll para zoom · #tag e @nome para rastrear
+              Nota · Nó · PDF · Imagem · Caneta · Conectar — Ctrl+scroll para zoom · #tag e @nome para rastrear
             </p>
           </div>
         )}
@@ -615,122 +924,4 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
 
     </div>
   )
-}
-
-// ─── Item card ────────────────────────────────────────────────────────────────
-
-function ItemCard({ item, isActive, isEditing, editText, setEditText, connectFrom, tool, onMouseDown, onDoubleClick, onFinishEdit }: {
-  item: BoardItem
-  isActive: boolean
-  isEditing: boolean
-  editText: string
-  setEditText: (t: string) => void
-  connectFrom: string | null
-  tool: Tool
-  onMouseDown: (e: React.MouseEvent) => void
-  onDoubleClick: (e: React.MouseEvent) => void
-  onFinishEdit: (text: string) => void
-}) {
-  const borderColor  = isActive ? 'var(--accent)' : connectFrom && tool === 'connect' ? 'var(--accent)' : 'rgba(0,0,0,0.12)'
-  const borderWidth  = isActive || (connectFrom && tool === 'connect') ? 2 : 1.5
-  const borderStyle2 = connectFrom && tool === 'connect' ? 'dashed' : 'solid'
-  const shadow       = isActive ? '0 0 0 3px rgba(59,123,248,0.2)' : '0 2px 8px rgba(0,0,0,0.1)'
-
-  if (item.type === 'sticky') {
-    const c = item.content
-    return (
-      <div
-        onMouseDown={onMouseDown}
-        onDoubleClick={onDoubleClick}
-        style={{
-          position: 'absolute', left: item.x, top: item.y,
-          width: item.width, height: item.height,
-          background: c.color, borderRadius: 10, cursor: 'grab', overflow: 'hidden',
-          display: 'flex', flexDirection: 'column',
-          border: `${borderWidth}px ${borderStyle2} ${borderColor}`,
-          boxShadow: shadow,
-        }}
-      >
-        <div style={{ height: 26, background: 'rgba(0,0,0,0.09)', flexShrink: 0, display: 'flex', alignItems: 'center', padding: '0 8px', gap: 4 }}>
-          <span style={{ fontSize: 11, color: 'rgba(0,0,0,0.45)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {item.tags.join(' ')}
-          </span>
-          {item.assignedToName && (
-            <span style={{ fontSize: 11, color: 'rgba(0,0,0,0.55)', flexShrink: 0 }}>@{item.assignedToName}</span>
-          )}
-        </div>
-        <div style={{ flex: 1, padding: '8px 10px', position: 'relative', overflow: 'hidden' }}>
-          {isEditing ? (
-            <textarea
-              autoFocus
-              value={editText}
-              onChange={e => setEditText(e.target.value)}
-              onBlur={() => onFinishEdit(editText)}
-              onKeyDown={e => { if (e.key === 'Escape') onFinishEdit(editText) }}
-              onClick={e => e.stopPropagation()}
-              onMouseDown={e => e.stopPropagation()}
-              style={{
-                width: '100%', height: '100%', border: 'none', outline: 'none',
-                resize: 'none', background: 'transparent', fontSize: 13,
-                color: 'rgba(0,0,0,0.75)', fontFamily: 'inherit', lineHeight: 1.5,
-              }}
-            />
-          ) : (
-            <p style={{ margin: 0, fontSize: 13, color: 'rgba(0,0,0,0.72)', lineHeight: 1.5, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-              {c.text || <span style={{ opacity: 0.35 }}>Duplo-clique para editar…</span>}
-            </p>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  if (item.type === 'mindmap') {
-    const c = item.content
-    return (
-      <div
-        onMouseDown={onMouseDown}
-        onDoubleClick={onDoubleClick}
-        style={{
-          position: 'absolute', left: item.x, top: item.y,
-          width: item.width, height: item.height,
-          background: c.color, borderRadius: 36, cursor: 'grab', overflow: 'hidden',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          border: `${borderWidth}px ${borderStyle2} ${borderColor}`,
-          boxShadow: shadow,
-        }}
-      >
-        {isEditing ? (
-          <textarea
-            autoFocus
-            value={editText}
-            onChange={e => setEditText(e.target.value)}
-            onBlur={() => onFinishEdit(editText)}
-            onKeyDown={e => { if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); onFinishEdit(editText) } }}
-            onClick={e => e.stopPropagation()}
-            onMouseDown={e => e.stopPropagation()}
-            style={{
-              width: '86%', height: '70%', border: 'none', outline: 'none',
-              resize: 'none', background: 'transparent', fontSize: 13, fontWeight: 600,
-              color: 'white', fontFamily: 'inherit', lineHeight: 1.4, textAlign: 'center',
-            }}
-          />
-        ) : (
-          <div style={{ padding: '8px 14px', textAlign: 'center' }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'white', wordBreak: 'break-word' }}>
-              {c.text || <span style={{ opacity: 0.55 }}>Nó</span>}
-            </p>
-            {item.assignedToName && (
-              <p style={{ margin: '3px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>@{item.assignedToName}</p>
-            )}
-            {item.tags.length > 0 && (
-              <p style={{ margin: '2px 0 0', fontSize: 10, color: 'rgba(255,255,255,0.55)' }}>{item.tags.join(' ')}</p>
-            )}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  return null
 }

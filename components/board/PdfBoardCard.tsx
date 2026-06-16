@@ -1,8 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { FileText, ChevronLeft, ChevronRight, PenLine } from 'lucide-react'
+import { FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 
 interface PdfBoardCardProps {
   item: {
@@ -12,13 +11,11 @@ interface PdfBoardCardProps {
     width: number
     content: { name: string; url: string }
   }
-  projectId: string
   isActive: boolean
   onMouseDown: (e: React.MouseEvent) => void
 }
 
-export function PdfBoardCard({ item, projectId, isActive, onMouseDown }: PdfBoardCardProps) {
-  const router     = useRouter()
+export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps) {
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const pdfRef     = useRef<any>(null)
   const renderTask = useRef<any>(null)
@@ -125,25 +122,6 @@ export function PdfBoardCard({ item, projectId, isActive, onMouseDown }: PdfBoar
         }}>
           {item.content.name}
         </span>
-
-        {/* Anotar button — stopPropagation so drag doesn't trigger */}
-        <button
-          title="Abrir para anotar"
-          onMouseDown={e => e.stopPropagation()}
-          onClick={e => {
-            e.stopPropagation()
-            router.push(`/projetos/${projectId}/pdf/${item.id}`)
-          }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 4,
-            background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 5,
-            padding: '3px 7px', cursor: 'pointer', color: 'white', fontSize: 11, fontWeight: 600,
-            flexShrink: 0,
-          }}
-        >
-          <PenLine size={11} />
-          Anotar
-        </button>
       </div>
 
       {/* ── PDF canvas ──────────────────────────────────────────────────── */}
