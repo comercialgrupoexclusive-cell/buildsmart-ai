@@ -289,7 +289,28 @@ export function ExcalidrawBoard({ projectId }: Props) {
     }
 
     api.addFiles(newFiles)
-    api.updateScene({ elements: [...existingEls, ...newEls] })
+    const allElements = [...existingEls, ...newEls]
+    api.updateScene({ elements: allElements })
+
+    // Salva imediatamente — não espera o debounce de 1500ms
+    if (debouncer.current) {
+      clearTimeout(debouncer.current)
+      debouncer.current = null
+    }
+    const supabase = createClient()
+    const appState = api.getAppState()
+    await supabase
+      .from('projetos')
+      .update({ board_data: { elements: allElements, appState: sanitiseAppState(appState) } })
+      .eq('id', projectId)
+    const fileRows = newFiles.map((f: Any) => ({
+      id: f.id, projeto_id: projectId,
+      mime_type: f.mimeType, data_url: f.dataURL, created: f.created,
+    }))
+    const { error: fe } = await supabase
+      .from('board_files')
+      .upsert(fileRows, { onConflict: 'id,projeto_id' })
+    if (!fe) newFiles.forEach((f: Any) => persistedFilesRef.current.add(f.id))
   }
 
   // ── Loading ───────────────────────────────────────────────────────────────
