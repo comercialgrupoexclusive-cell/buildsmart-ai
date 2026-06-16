@@ -58,19 +58,24 @@ export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps)
       const canvas = canvasRef.current
       if (!canvas) return
 
-      const pdfPage  = await pdfRef.current.getPage(page)
+      const pdfPage = await pdfRef.current.getPage(page)
       if (cancelled) return
 
-      // Scale so the PDF fills the card width
-      const desired  = item.width - 2  // subtract border
-      const raw      = pdfPage.getViewport({ scale: 1 })
-      const scale    = desired / raw.width
+      // Render at physical pixels so it stays sharp on retina / high-DPR screens
+      const dpr     = window.devicePixelRatio || 1
+      const desired = item.width - 4          // logical CSS width to fill
+      const raw     = pdfPage.getViewport({ scale: 1 })
+      const scale   = (desired / raw.width) * dpr
       const viewport = pdfPage.getViewport({ scale })
 
-      canvas.width  = viewport.width
-      canvas.height = viewport.height
+      // Canvas pixel buffer = physical pixels
+      canvas.width  = Math.floor(viewport.width)
+      canvas.height = Math.floor(viewport.height)
 
-      // Cancel any in-flight render
+      // CSS display size = logical pixels (sharp on any DPR)
+      canvas.style.width  = `${desired}px`
+      canvas.style.height = `${Math.floor(viewport.height / dpr)}px`
+
       if (renderTask.current) {
         try { renderTask.current.cancel() } catch { /* ignore */ }
       }
@@ -139,7 +144,7 @@ export function PdfBoardCard({ item, isActive, onMouseDown }: PdfBoardCardProps)
       ) : (
         <canvas
           ref={canvasRef}
-          style={{ display: 'block', width: '100%' }}
+          style={{ display: 'block' }}
         />
       )}
 
