@@ -67,25 +67,34 @@ export default function ProjetosPage() {
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    const [{ data: p }, { data: t }, { data: profs }, { data: statsData }] = await Promise.all([
+    // Carregar projetos, templates e profiles em paralelo
+    // Os stats de itens são carregados separadamente para não bloquear o render inicial
+    const [{ data: p }, { data: t }, { data: profs }] = await Promise.all([
       supabase.from('projetos').select('*').order('created_at', { ascending: false }),
-      supabase.from('projeto_templates').select('*').order('nome'),
+      supabase.from('projeto_templates').select('id, nome, descricao, itens').order('nome'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
-      supabase.from('projeto_itens').select('projeto_id, concluido'),
     ])
     setProjetos(p ?? [])
     setTemplates((t ?? []) as Template[])
     setProfiles((profs ?? []) as Profile[])
-
-    const statsMap: Record<string, { total: number; done: number }> = {}
-    for (const item of statsData ?? []) {
-      const pid = (item as { projeto_id: string; concluido: boolean }).projeto_id
-      if (!statsMap[pid]) statsMap[pid] = { total: 0, done: 0 }
-      statsMap[pid].total++
-      if ((item as { projeto_id: string; concluido: boolean }).concluido) statsMap[pid].done++
-    }
-    setProjetoStats(statsMap)
     setLoading(false)
+
+    // Stats em background — não bloqueia a exibição dos cards
+    if (p && p.length > 0) {
+      const ids = p.map((proj: { id: string }) => proj.id)
+      const { data: statsData } = await supabase
+        .from('projeto_itens')
+        .select('projeto_id, concluido')
+        .in('projeto_id', ids)
+      const statsMap: Record<string, { total: number; done: number }> = {}
+      for (const item of statsData ?? []) {
+        const { projeto_id, concluido } = item as { projeto_id: string; concluido: boolean }
+        if (!statsMap[projeto_id]) statsMap[projeto_id] = { total: 0, done: 0 }
+        statsMap[projeto_id].total++
+        if (concluido) statsMap[projeto_id].done++
+      }
+      setProjetoStats(statsMap)
+    }
   }
 
   async function handleSave() {

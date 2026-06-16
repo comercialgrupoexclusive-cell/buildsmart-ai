@@ -167,14 +167,16 @@ export function ExcalidrawBoard({ projectId }: Props) {
         setSelectedId(newId)
       }
 
-      // Atualizar viewState para RemoteCursors (throttle 100ms)
+      // Atualizar viewState para RemoteCursors — só quando os valores mudam (throttle 200ms)
       const now = Date.now()
-      if (now - viewThrottle.current > 100) {
+      if (now - viewThrottle.current > 200) {
         viewThrottle.current = now
-        setViewState({
-          zoom:    zoomValue(appState.zoom),
-          scrollX: appState.scrollX ?? 0,
-          scrollY: appState.scrollY ?? 0,
+        const z = zoomValue(appState.zoom)
+        const sx = appState.scrollX ?? 0
+        const sy = appState.scrollY ?? 0
+        setViewState(prev => {
+          if (prev.zoom === z && prev.scrollX === sx && prev.scrollY === sy) return prev
+          return { zoom: z, scrollX: sx, scrollY: sy }
         })
       }
 

@@ -37,7 +37,8 @@ function safeRows(result: any) {
 
 export function LuiziaFloatingChat() {
   const { currentProfile } = useProfile()
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
+  const supabase = supabaseRef.current
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
