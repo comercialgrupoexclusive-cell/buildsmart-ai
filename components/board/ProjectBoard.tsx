@@ -63,6 +63,8 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const panStart    = useRef({ mx: 0, my: 0, px: 0, py: 0 })
   const saveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const pendingPdfPos = useRef<{ x: number; y: number } | null>(null)
 
   panRef.current   = pan
   zoomRef.current  = zoom
@@ -240,11 +242,10 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
       newItem = { id, type: 'mindmap', x, y, width: 160, height: 72,
         content: { text: '', color: rndColor(MINDMAP_COLORS) }, tags: [] }
     } else if (tool === 'pdf') {
-      const url = window.prompt('Cole a URL do PDF:')
-      if (!url?.trim()) return
-      const name = decodeURIComponent(url.split('/').pop()?.split('?')[0] ?? 'Documento.pdf')
-      newItem = { id, type: 'pdf', x, y, width: 220, height: 110,
-        content: { name, url }, tags: [] }
+      // Abre file picker; posição guardada para usar após seleção
+      pendingPdfPos.current = { x, y }
+      fileInputRef.current?.click()
+      return
     } else {
       return
     }
@@ -256,6 +257,32 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
       setEditingId(id)
       setEditText('')
     }
+  }
+
+  // ── Handle PDF file selection ─────────────────────────────────────────────
+
+  function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''  // reset so same file can be selected again
+    if (!file || !pendingPdfPos.current) return
+
+    const pos  = pendingPdfPos.current
+    pendingPdfPos.current = null
+    const name = file.name
+    const id   = uid()
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result)
+      const newItem: PdfItem = {
+        id, type: 'pdf', x: pos.x, y: pos.y, width: 220, height: 110,
+        content: { name, url: dataUrl }, tags: [],
+      }
+      const next = [...itemsRef.current, newItem]
+      commit(next)
+      setActiveId(id)
+    }
+    reader.readAsDataURL(file)
   }
 
   // ── Delete ─────────────────────────────────────────────────────────────────
@@ -367,6 +394,15 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'min(680px, calc(100vh - 260px))', minHeight: 480 }}>
 
+      {/* Hidden file input for PDF import */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: 'none' }}
+        onChange={onFileSelected}
+      />
+
       {/* ── Toolbar ─────────────────────────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', flexWrap: 'wrap',
@@ -377,7 +413,7 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
           { key: 'select',  Icon: MousePointer2, label: 'Selecionar' },
           { key: 'sticky',  Icon: MessageSquare,  label: 'Nota'       },
           { key: 'mindmap', Icon: Network,         label: 'Nó'         },
-          { key: 'pdf',     Icon: FileText,        label: 'PDF'        },
+          { key: 'pdf',     Icon: FileText,        label: 'PDF'        },   // clique no canvas → abre seletor de arquivo
           { key: 'connect', Icon: Link2,           label: 'Conectar'   },
         ] as const).map(({ key, Icon, label }) => (
           <button
@@ -549,10 +585,10 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
             alignItems: 'center', justifyContent: 'center', gap: 8, pointerEvents: 'none',
           }}>
             <p style={{ margin: 0, fontSize: 14, color: 'var(--text-secondary)', opacity: 0.6 }}>
-              Selecione uma ferramenta na barra e clique no canvas para criar
+              Escolha uma ferramenta e clique no canvas para criar
             </p>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)', opacity: 0.4 }}>
-              Ctrl+scroll para zoom · arraste o fundo para mover · use #tag e @nome para rastrear
+              Nota · Nó · PDF (importa arquivo) · Conectar — Ctrl+scroll para zoom · #tag e @nome para rastrear
             </p>
           </div>
         )}
