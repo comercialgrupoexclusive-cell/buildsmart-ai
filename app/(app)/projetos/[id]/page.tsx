@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, use } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
@@ -30,10 +31,13 @@ const STATUS_OPTIONS = [
 export default function ProjetoDetalhe({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { isCliente, canDelete } = usePermission()
+  const searchParams = useSearchParams()
   const [projeto, setProjeto] = useState<Projeto | null>(null)
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'board'>('estrutura')
+  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'board'>(
+    (searchParams.get('tab') as 'estrutura' | 'dados' | 'cronograma' | 'board') ?? 'estrutura'
+  )
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [editingDados, setEditingDados] = useState(false)
