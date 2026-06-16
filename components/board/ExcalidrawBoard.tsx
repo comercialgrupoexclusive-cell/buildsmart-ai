@@ -194,10 +194,11 @@ export function ExcalidrawBoard({ projectId }: Props) {
       if (debouncer.current) clearTimeout(debouncer.current)
       debouncer.current = setTimeout(async () => {
         const supabase = createClient()
-        await supabase
+        const { error } = await supabase
           .from('projetos')
-          .update({ board_data: { elements, appState: sanitiseAppState(appState), files } })
+          .update({ board_data: { elements, appState: sanitiseAppState(appState) } })
           .eq('id', projectId)
+        if (error) console.error('[Board] Falha ao salvar:', error.message, error.code)
       }, 1500)
     },
     [projectId],
