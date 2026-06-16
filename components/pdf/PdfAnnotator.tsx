@@ -112,6 +112,28 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     }
   }, [color, tool, width])
 
+  // Delete key removes selected objects
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      const target = e.target as HTMLElement
+      // Ignore if user is typing inside a textbox
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+      const canvas = fabricCanvasRef.current
+      if (!canvas) return
+      const active = canvas.getActiveObjects()
+      if (!active.length) return
+      // Don't delete while editing text inline
+      if ((canvas as any).isEditing) return
+      active.forEach((obj: any) => canvas.remove(obj))
+      canvas.discardActiveObject()
+      canvas.requestRenderAll()
+      pageJsonRef.current[page] = JSON.stringify(canvas.toJSON())
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [page])
+
   const renderPage = useCallback(async (pageNumber: number) => {
     const pdf = pdfDocRef.current
     const pdfCanvas = pdfCanvasRef.current
@@ -219,6 +241,9 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     const fabric = await import('fabric')
     const canvas = fabricCanvasRef.current
     if (!canvas) return
+    // Disable drawing mode before adding text
+    canvas.isDrawingMode = false
+    canvas.selection = true
     const text = new fabric.Textbox('Texto', {
       left: 80,
       top: 80,
@@ -226,9 +251,14 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
       fill: color,
       fontSize: 18,
       fontFamily: 'DM Sans, Arial',
+      editable: true,
     })
     canvas.add(text)
     canvas.setActiveObject(text)
+    canvas.requestRenderAll()
+    // Enter edit mode so user can type immediately
+    text.enterEditing()
+    text.selectAll()
     canvas.requestRenderAll()
     setTool('text')
   }
