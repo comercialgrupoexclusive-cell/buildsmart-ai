@@ -29,13 +29,15 @@ async function dataUrlToBytes(dataUrl: string) {
 export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType, contextId, itemId = null, onClose }: PdfAnnotatorProps) {
   const supabase = createClient()
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null)
-  const overlayRef = useRef<HTMLCanvasElement>(null)
+  // Container div where Fabric.js creates its own canvases — keeps absolute overlay correct
+  const fabricContainerRef = useRef<HTMLDivElement>(null)
   const fabricCanvasRef = useRef<any>(null)
   const pdfDocRef = useRef<any>(null)
   const pageJsonRef = useRef<Record<number, string>>({})
   const undoStackRef = useRef<string[]>([])
 
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [page, setPage] = useState(1)
@@ -113,10 +115,11 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
   const renderPage = useCallback(async (pageNumber: number) => {
     const pdf = pdfDocRef.current
     const pdfCanvas = pdfCanvasRef.current
-    const overlayCanvas = overlayRef.current
-    if (!pdf || !pdfCanvas || !overlayCanvas) return
+    const container = fabricContainerRef.current
+    if (!pdf || !pdfCanvas || !container) return
 
     snapshotCurrentPage()
+
     const fabric = await import('fabric')
     const pdfPage = await pdf.getPage(pageNumber)
     const viewport = pdfPage.getViewport({ scale })
@@ -125,36 +128,44 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
 
     pdfCanvas.width = viewport.width
     pdfCanvas.height = viewport.height
-    overlayCanvas.width = viewport.width
-    overlayCanvas.height = viewport.height
 
     await pdfPage.render({ canvasContext: ctx, viewport }).promise
 
-    if (fabricCanvasRef.current) fabricCanvasRef.current.dispose()
-    const canvas = new fabric.Canvas(overlayCanvas, {
+    // Dispose previous Fabric canvas and clear container
+    if (fabricCanvasRef.current) {
+      fabricCanvasRef.current.dispose()
+      fabricCanvasRef.current = null
+    }
+    container.innerHTML = ''
+
+    // Create a fresh canvas element inside the container div
+    const freshCanvas = document.createElement('canvas')
+    container.appendChild(freshCanvas)
+
+    const fabricCanvas = new fabric.Canvas(freshCanvas, {
       width: viewport.width,
       height: viewport.height,
       backgroundColor: 'transparent',
       preserveObjectStacking: true,
     })
-    fabricCanvasRef.current = canvas
+    fabricCanvasRef.current = fabricCanvas
 
     const json = pageJsonRef.current[pageNumber]
     if (json) {
-      await canvas.loadFromJSON(json)
-      canvas.requestRenderAll()
+      await fabricCanvas.loadFromJSON(json)
+      fabricCanvas.requestRenderAll()
     }
 
-    canvas.on('object:added', () => {
-      undoStackRef.current.push(JSON.stringify(canvas.toJSON()))
-      pageJsonRef.current[pageNumber] = JSON.stringify(canvas.toJSON())
+    fabricCanvas.on('object:added', () => {
+      undoStackRef.current.push(JSON.stringify(fabricCanvas.toJSON()))
+      pageJsonRef.current[pageNumber] = JSON.stringify(fabricCanvas.toJSON())
     })
-    canvas.on('object:modified', () => {
-      undoStackRef.current.push(JSON.stringify(canvas.toJSON()))
-      pageJsonRef.current[pageNumber] = JSON.stringify(canvas.toJSON())
+    fabricCanvas.on('object:modified', () => {
+      undoStackRef.current.push(JSON.stringify(fabricCanvas.toJSON()))
+      pageJsonRef.current[pageNumber] = JSON.stringify(fabricCanvas.toJSON())
     })
-    canvas.on('object:removed', () => {
-      pageJsonRef.current[pageNumber] = JSON.stringify(canvas.toJSON())
+    fabricCanvas.on('object:removed', () => {
+      pageJsonRef.current[pageNumber] = JSON.stringify(fabricCanvas.toJSON())
     })
 
     await configureTool()
@@ -164,33 +175,41 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
     let mounted = true
     async function init() {
       setLoading(true)
-      const pdfjs = await import('pdfjs-dist')
-      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
-      await loadAnnotations()
-      const source = fileUrl.startsWith('data:')
-        ? { data: await dataUrlToBytes(fileUrl) }
-        : { url: fileUrl }
-      const pdf = await pdfjs.getDocument(source as any).promise
-      if (!mounted) return
-      pdfDocRef.current = pdf
-      setPageCount(pdf.numPages)
-      setPage(1)
-      setLoading(false)
+      setError(null)
+      try {
+        const pdfjs = await import('pdfjs-dist')
+        // Worker local (copiado para /public/ no build)
+        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+        await loadAnnotations()
+        const source = fileUrl.startsWith('data:')
+          ? { data: await dataUrlToBytes(fileUrl) }
+          : { url: fileUrl }
+        const pdf = await pdfjs.getDocument(source as any).promise
+        if (!mounted) return
+        pdfDocRef.current = pdf
+        setPageCount(pdf.numPages)
+        setPage(1)
+      } catch (err: any) {
+        console.error('Erro ao abrir PDF:', err)
+        setError('Não foi possível abrir o PDF. Verifique se o arquivo é válido.')
+      } finally {
+        if (mounted) setLoading(false)
+      }
     }
-    init().catch(err => {
-      console.error('Erro ao abrir PDF:', err)
-      setLoading(false)
-    })
+    init()
     return () => {
       mounted = false
-      if (fabricCanvasRef.current) fabricCanvasRef.current.dispose()
+      if (fabricCanvasRef.current) {
+        fabricCanvasRef.current.dispose()
+        fabricCanvasRef.current = null
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileUrl])
 
   useEffect(() => {
-    if (!loading) renderPage(page)
-  }, [loading, page, renderPage])
+    if (!loading && !error) renderPage(page)
+  }, [loading, page, renderPage, error])
 
   useEffect(() => {
     configureTool()
@@ -254,9 +273,12 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
         const pageNumber = Number(pageNumberRaw)
         if (!json || !pages[pageNumber - 1]) continue
         await renderPage(pageNumber)
-        const overlay = overlayRef.current
-        if (!overlay) continue
-        const png = await output.embedPng(overlay.toDataURL('image/png'))
+        // Get PNG data URL from Fabric canvas
+        const fabricCanvas = fabricCanvasRef.current
+        if (!fabricCanvas) continue
+        const pngDataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 1 })
+        const pngBytes = await dataUrlToBytes(pngDataUrl)
+        const png = await output.embedPng(pngBytes)
         const pdfPage = pages[pageNumber - 1]
         const { width: pageWidth, height: pageHeight } = pdfPage.getSize()
         pdfPage.drawImage(png, { x: 0, y: 0, width: pageWidth, height: pageHeight })
@@ -283,7 +305,8 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
 
   return (
     <div className="fixed inset-0 z-[100] flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
         <button onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]" title="Fechar">
           <X size={18} style={{ color: 'var(--text-secondary)' }} />
         </button>
@@ -320,15 +343,29 @@ export function PdfAnnotator({ fileUrl, fileName = 'documento.pdf', contextType,
         </button>
       </div>
 
+      {/* Canvas area */}
       <div className="flex-1 overflow-auto p-4">
-        {loading ? (
+        {loading && (
           <div className="flex justify-center py-20">
             <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
           </div>
-        ) : (
-          <div className="relative mx-auto w-fit shadow-2xl" style={{ background: 'white' }}>
+        )}
+        {error && (
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <p className="text-sm text-center" style={{ color: 'var(--danger)' }}>{error}</p>
+            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>Fechar</button>
+          </div>
+        )}
+        {!loading && !error && (
+          /* O div externo tem position:relative para o container do Fabric ficar sobreposto ao pdfCanvas */
+          <div className="relative mx-auto shadow-2xl" style={{ background: 'white', width: 'fit-content' }}>
             <canvas ref={pdfCanvasRef} className="block" />
-            <canvas ref={overlayRef} className="absolute inset-0" />
+            {/* Container div com absolute inset-0 — Fabric.js cria seus canvases aqui sem quebrar o posicionamento */}
+            <div
+              ref={fabricContainerRef}
+              className="absolute inset-0"
+              style={{ pointerEvents: 'auto' }}
+            />
           </div>
         )}
       </div>
