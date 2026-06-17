@@ -10,6 +10,7 @@ import { Obra, Etapa, Material } from '@/lib/types'
 import { formatCurrency, diasAteData, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
 import { useProfile } from '@/lib/profile-context'
 import { ClimaWidgets } from '@/components/dashboard/ClimaWidgets'
+import { MinhasTarefasWidget } from '@/components/dashboard/MinhasTarefasWidget'
 import Link from 'next/link'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -567,6 +568,8 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      <MinhasTarefasWidget />
 
     </div>
   )

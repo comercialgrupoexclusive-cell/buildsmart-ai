@@ -61,3 +61,13 @@ export const STATUS_MATERIAL_COLOR: Record<string, string> = {
   parcial: 'text-yellow-400',
   comprado: 'text-green-400',
 }
+
+export const FORMA_PAGAMENTO_LABEL: Record<string, string> = {
+  pix: 'PIX',
+  cartao: 'Cartão',
+  boleto: 'Boleto',
+  dinheiro: 'Dinheiro',
+  reembolso: 'Reembolso',
+  pix_cartao: 'PIX + Cartão',
+  cartao_reembolso: 'Cartão + Reembolso',
+}

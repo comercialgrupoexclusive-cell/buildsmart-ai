@@ -17,8 +17,10 @@ import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { ObraArquivos } from '@/components/obra/ObraArquivos'
+import { ObraCompras } from '@/components/obra/ObraCompras'
+import { ObraTarefas } from '@/components/obra/ObraTarefas'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'compras' | 'tarefas'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
@@ -26,6 +28,8 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'materiais', label: 'Materiais' },
   { id: 'medicoes', label: 'Diário / Medições' },
+  { id: 'compras', label: 'Compras' },
+  { id: 'tarefas', label: 'Tarefas' },
 ]
 
 export default function ObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -377,6 +381,8 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'cronograma' && <ObraCronograma obraId={id} />}
         {tab === 'materiais' && <ObraMateriais obraId={id} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} />}
+        {tab === 'compras' && <ObraCompras obraId={id} />}
+        {tab === 'tarefas' && <ObraTarefas obraId={id} />}
       </div>
 
       {/* Modal editar obra */}

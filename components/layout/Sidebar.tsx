@@ -4,14 +4,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, HardHat, FileText, CalendarDays,
-  ShoppingCart, ClipboardList, BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, Briefcase,
+  ShoppingCart, ClipboardList, BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/cadastro', label: 'Cadastro', icon: Briefcase },
   { href: '/projetos', label: 'Projetos', icon: FolderOpen },
   { href: '/obras', label: 'Obras', icon: HardHat },
   { href: '/orcamentos', label: 'Orçamentos', icon: FileText },

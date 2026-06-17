@@ -243,6 +243,7 @@ export type Fornecedor = {
   nome: string
   apelido: string | null
   categoria: 'MATERIAL' | 'MAO_DE_OBRA' | 'EQUIPAMENTO' | 'SERVICO' | 'MISTO'
+  tipo: 'material' | 'servico' | 'locacao' | 'ambos'
   contato: string | null
   telefone: string | null
   email: string | null
@@ -261,6 +262,49 @@ export type ObraFornecedor = {
   grupo: 'mao_de_obra' | 'demais'
   created_at: string
   fornecedor?: Fornecedor | null
+}
+
+// ─── Compras — Item de Compra (financeiro, por obra/etapa) ──────────────────
+export type CompraItem = {
+  id: string
+  obra_id: string
+  etapa_id: string | null
+  lista_id: string | null
+  descricao: string
+  fornecedor_id: string | null
+  fornecedor_nome: string | null
+  quantidade: number | null
+  unidade: string | null
+  valor_unitario: number | null
+  valor_total: number
+  status_valor: 'confirmado' | 'estimado'
+  forma_pagamento: 'pix' | 'cartao' | 'boleto' | 'dinheiro' | 'reembolso' | 'pix_cartao' | 'cartao_reembolso' | null
+  data_limite_pagamento: string | null
+  status_pagamento: 'pendente' | 'pago'
+  observacao: string | null
+  created_at: string
+  updated_at: string
+  etapa?: Etapa | null
+  fornecedor?: Fornecedor | null
+}
+
+// ─── Tarefa ───────────────────────────────────────────────────────────────────
+export type Tarefa = {
+  id: string
+  titulo: string
+  descricao: string | null
+  obra_id: string | null
+  projeto_id: string | null
+  responsavel_id: string | null
+  responsavel_nome: string | null
+  status: 'pendente' | 'em_andamento' | 'concluida' | 'cancelada'
+  prioridade: 'baixa' | 'normal' | 'alta' | 'urgente'
+  data_prazo: string | null
+  concluida: boolean
+  concluida_em: string | null
+  created_at: string
+  updated_at: string
+  obra?: { nome: string } | null
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
