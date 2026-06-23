@@ -38,12 +38,12 @@ export function Modal({ open, onClose, title, children, size = 'md', className }
         onClick={onClose}
       />
       <div className={cn(
-        'card relative w-full animate-enter overflow-hidden max-h-[calc(100vh-2rem)] overflow-y-auto',
+        'card relative w-full animate-enter max-h-[calc(100vh-2rem)] flex flex-col',
         sizes[size],
         className
       )}>
         {title && (
-          <div className="flex items-center justify-between p-6 border-b border-[var(--border)]">
+          <div className="flex items-center justify-between p-6 border-b border-[var(--border)] flex-shrink-0">
             <h2 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h2>
             <button
               onClick={onClose}
@@ -53,7 +53,7 @@ export function Modal({ open, onClose, title, children, size = 'md', className }
             </button>
           </div>
         )}
-        <div className="p-6">{children}</div>
+        <div className="p-6 overflow-y-auto">{children}</div>
       </div>
     </div>
   )
