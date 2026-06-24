@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { Sparkles, CalendarRange, Send, Loader2, Check, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Sparkles, CalendarRange, Send, Loader2, Check, X, Settings2, RotateCcw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { insertItensArvore, type ItemArvore } from '@/lib/projeto-itens'
+import { DEFAULT_PROMPT_ESTRUTURA, DEFAULT_PROMPT_CRONOGRAMA } from '@/lib/projeto-ai-prompts'
+import { useProfile } from '@/lib/profile-context'
 import type { ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 
 type ProjetoBasico = {
@@ -44,6 +46,47 @@ export function ProjetoAssistenteIA({ projeto, itens, onReload }: {
   itens: ProjetoItemNode[]
   onReload: () => void
 }) {
+  const { currentProfile } = useProfile()
+  const isAdmin = currentProfile?.tipo === 'admin'
+
+  // Configuração dos prompts (somente ADM)
+  const [promptEstrutura, setPromptEstrutura] = useState(DEFAULT_PROMPT_ESTRUTURA)
+  const [promptCronograma, setPromptCronograma] = useState(DEFAULT_PROMPT_CRONOGRAMA)
+  const [carregandoPrompts, setCarregandoPrompts] = useState(isAdmin)
+  const [salvandoPrompts, setSalvandoPrompts] = useState(false)
+  const [promptsSalvos, setPromptsSalvos] = useState(false)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    let ativo = true
+    async function carregar() {
+      const supabase = createClient()
+      const { data } = await supabase.from('projeto_ia_config').select('key, value').in('key', ['prompt_estrutura', 'prompt_cronograma'])
+      if (!ativo) return
+      const porKey = new Map((data || []).map((d: { key: string; value: string }) => [d.key, d.value]))
+      if (porKey.get('prompt_estrutura')) setPromptEstrutura(porKey.get('prompt_estrutura') as string)
+      if (porKey.get('prompt_cronograma')) setPromptCronograma(porKey.get('prompt_cronograma') as string)
+      setCarregandoPrompts(false)
+    }
+    carregar()
+    return () => { ativo = false }
+  }, [isAdmin])
+
+  async function handleSalvarPrompts() {
+    setSalvandoPrompts(true)
+    setPromptsSalvos(false)
+    try {
+      const supabase = createClient()
+      await Promise.all([
+        supabase.from('projeto_ia_config').upsert({ key: 'prompt_estrutura', value: promptEstrutura, updated_at: new Date().toISOString() }),
+        supabase.from('projeto_ia_config').upsert({ key: 'prompt_cronograma', value: promptCronograma, updated_at: new Date().toISOString() }),
+      ])
+      setPromptsSalvos(true)
+    } finally {
+      setSalvandoPrompts(false)
+    }
+  }
+
   // Estrutura
   const [descricao, setDescricao] = useState('')
   const [gerandoEstrutura, setGerandoEstrutura] = useState(false)
@@ -184,6 +227,81 @@ export function ProjetoAssistenteIA({ projeto, itens, onReload }: {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Configuração do prompt da IA — somente ADM */}
+      {isAdmin && (
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-2">
+            <Settings2 size={16} style={{ color: 'var(--accent)' }} />
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Configuração do prompt da IA</h2>
+          </div>
+          <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+            Ajuste como a IA gera a estrutura e o cronograma. Visível apenas para administradores.
+          </p>
+
+          {carregandoPrompts ? (
+            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+              <Loader2 size={14} className="animate-spin" /> Carregando configuração…
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Prompt — Gerar estrutura</label>
+                  <button
+                    onClick={() => setPromptEstrutura(DEFAULT_PROMPT_ESTRUTURA)}
+                    className="inline-flex items-center gap-1 text-xs font-medium"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <RotateCcw size={11} /> Restaurar padrão
+                  </button>
+                </div>
+                <textarea
+                  value={promptEstrutura}
+                  onChange={e => setPromptEstrutura(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg text-xs font-mono border outline-none resize-y"
+                  style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  rows={10}
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Prompt — Sugerir cronograma</label>
+                  <button
+                    onClick={() => setPromptCronograma(DEFAULT_PROMPT_CRONOGRAMA)}
+                    className="inline-flex items-center gap-1 text-xs font-medium"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    <RotateCcw size={11} /> Restaurar padrão
+                  </button>
+                </div>
+                <textarea
+                  value={promptCronograma}
+                  onChange={e => setPromptCronograma(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg text-xs font-mono border outline-none resize-y"
+                  style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  rows={10}
+                />
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleSalvarPrompts}
+                  disabled={salvandoPrompts}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-60"
+                  style={{ background: 'var(--accent)' }}
+                >
+                  <Check size={13} /> {salvandoPrompts ? 'Salvando…' : 'Salvar prompts'}
+                </button>
+                {promptsSalvos && (
+                  <span className="text-xs" style={{ color: 'var(--accent)' }}>Configuração salva!</span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Gerar estrutura */}
       <div className="card p-5">
         <div className="flex items-center gap-2 mb-2">

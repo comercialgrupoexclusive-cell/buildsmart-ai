@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sugerirCronogramaProjeto, type ItemParaCronograma } from '@/lib/projeto-ai'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,7 +13,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Lista de itens vazia' }, { status: 400 })
     }
 
-    return NextResponse.json(await sugerirCronogramaProjeto({ itens, dataInicioObra: dataInicioObra ?? null }))
+    const supabase = await createClient()
+    const { data } = await supabase.from('projeto_ia_config').select('value').eq('key', 'prompt_cronograma').maybeSingle()
+
+    return NextResponse.json(await sugerirCronogramaProjeto({ itens, dataInicioObra: dataInicioObra ?? null, promptPersonalizado: data?.value }))
   } catch (error: unknown) {
     console.error('Cronograma IA error:', error)
     const message = error instanceof Error ? error.message : 'Erro ao sugerir cronograma'

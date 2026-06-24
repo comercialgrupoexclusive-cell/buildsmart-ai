@@ -4,10 +4,11 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, HardHat, FileText, CalendarDays,
-  ShoppingCart, ClipboardList, BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer,
+  ShoppingCart, ClipboardList, BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, MessageCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
+import { useProfile } from '@/lib/profile-context'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -21,14 +22,21 @@ const NAV_ITEMS = [
   { href: '/buildassist', label: 'BuildAssistente IA', icon: BotMessageSquare, featured: true },
 ]
 
-// Painel da Luiza WhatsApp fica oculto do menu — acesso direto via /admin-luiza
-const NAV_BOTTOM = [
+const NAV_BOTTOM_BASE = [
   { href: '/relatorios', label: 'Relatórios', icon: BarChart3 },
   { href: '/configuracoes', label: 'Configurações', icon: Settings },
 ]
 
+// Painel da Luiza WhatsApp só aparece no menu para o perfil ADM — acesso direto via /admin-luiza para os demais
+const ADMIN_LUIZA_ITEM = { href: '/admin-luiza', label: 'Luiza WhatsApp', icon: MessageCircle }
+
 export function Sidebar() {
   const pathname = usePathname()
+  const { currentProfile } = useProfile()
+  const isAdmin = currentProfile?.tipo === 'admin'
+  const navBottom = isAdmin
+    ? [NAV_BOTTOM_BASE[0], ADMIN_LUIZA_ITEM, NAV_BOTTOM_BASE[1]]
+    : NAV_BOTTOM_BASE
 
   function isActive(href: string) {
     return pathname === href || pathname.startsWith(href + '/')
@@ -90,7 +98,7 @@ export function Sidebar() {
       </nav>
 
       <div className="py-3 border-t flex flex-col gap-0.5 overflow-hidden" style={{ borderColor: 'var(--border)' }}>
-        {NAV_BOTTOM.map(({ href, label, icon: Icon }) => {
+        {navBottom.map(({ href, label, icon: Icon }) => {
           const active = isActive(href)
           return (
             <Link
