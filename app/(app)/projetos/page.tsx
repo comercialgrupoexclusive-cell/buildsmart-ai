@@ -5,6 +5,7 @@ import { Plus, FolderOpen, Search, MoreVertical, Calendar, Link2, AlertTriangle 
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import type { Profile, Proprietario, Responsavel } from '@/lib/types'
+import { insertItensArvore } from '@/lib/projeto-itens'
 
 type Projeto = {
   id: string
@@ -123,35 +124,13 @@ export default function ProjetosPage() {
     if (!error && data) {
       if (form.template_id) {
         const tmpl = templates.find(t => t.id === form.template_id)
-        if (tmpl) await insertTemplateItens(supabase, data.id, tmpl.itens, null)
+        if (tmpl) await insertItensArvore(supabase, data.id, tmpl.itens, null)
       }
       await loadData()
       setShowModal(false)
       setForm(EMPTY_FORM)
     }
     setSaving(false)
-  }
-
-  async function insertTemplateItens(
-    supabase: ReturnType<typeof createClient>,
-    projetoId: string,
-    itens: TemplateItem[],
-    parentId: string | null,
-    ordem = 0
-  ) {
-    for (let i = 0; i < itens.length; i++) {
-      const it = itens[i]
-      const { data } = await supabase.from('projeto_itens').insert({
-        projeto_id: projetoId,
-        parent_id: parentId,
-        nome: it.nome,
-        nivel: it.nivel,
-        ordem: ordem + i,
-      }).select('id').single()
-      if (data?.id && it.children?.length) {
-        await insertTemplateItens(supabase, projetoId, it.children, data.id, 0)
-      }
-    }
   }
 
   async function handleDelete(id: string) {

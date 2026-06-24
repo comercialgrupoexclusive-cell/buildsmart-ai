@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useEffect, use, useRef } from 'react'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, FolderOpen, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, FolderOpen, ExternalLink, Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import type { Responsavel, ProjectItemFile } from '@/lib/types'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
 import { ProjetoDriveFiles } from '@/components/projeto/ProjetoDriveFiles'
+import { ProjetoAssistenteIA } from '@/components/projeto/ProjetoAssistenteIA'
 import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
 
 type Projeto = {
@@ -44,7 +45,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [projeto, setProjeto] = useState<Projeto | null>(null)
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'arquivos'>('estrutura')
+  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'arquivos' | 'ia'>('estrutura')
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [responsaveisTecnicos, setResponsaveisTecnicos] = useState<Responsavel[]>([])
   const [loading, setLoading] = useState(true)
@@ -278,6 +279,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           { key: 'cronograma', label: 'Cronograma',   icon: CalendarDays },
           { key: 'arquivos',   label: 'Arquivos',     icon: FolderOpen },
           { key: 'dados',      label: 'Dados Gerais', icon: Info },
+          { key: 'ia',         label: 'Assistente IA', icon: Sparkles },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -331,6 +333,14 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           folderId={projeto.drive_folder_id}
           folderUrl={projeto.drive_folder_url}
           projectId={projeto.id}
+        />
+      )}
+
+      {tab === 'ia' && (
+        <ProjetoAssistenteIA
+          projeto={{ id: projeto.id, nome: projeto.nome, data_inicio: projeto.data_inicio }}
+          itens={itens}
+          onReload={loadData}
         />
       )}
 
