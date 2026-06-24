@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { hasOpenAiKey, modelFor } from '@/lib/luizia-core'
 import type { ItemArvore } from '@/lib/projeto-itens'
+import { DEFAULT_PROMPT_ESTRUTURA, DEFAULT_PROMPT_CRONOGRAMA } from '@/lib/projeto-ai-prompts'
 
 function isItemArvore(value: unknown): value is ItemArvore {
   if (!value || typeof value !== 'object') return false
@@ -14,9 +15,10 @@ function isItemArvore(value: unknown): value is ItemArvore {
   return true
 }
 
-export async function gerarEstruturaProjeto({ nomeProjeto, descricao }: {
+export async function gerarEstruturaProjeto({ nomeProjeto, descricao, promptPersonalizado }: {
   nomeProjeto: string
   descricao?: string
+  promptPersonalizado?: string | null
 }): Promise<{ itens: ItemArvore[] }> {
   if (!hasOpenAiKey()) {
     throw new Error('Configure OPENAI_API_KEY para gerar estrutura com IA.')
@@ -25,20 +27,7 @@ export async function gerarEstruturaProjeto({ nomeProjeto, descricao }: {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const model = modelFor(false)
 
-  const systemPrompt = `Voce ajuda a montar a estrutura de um projeto tecnico de obra residencial (40 a 200m2), organizada em arvore com 3 niveis:
-- nivel 1 = Disciplina (ex: Arquitetura, Estrutural, Eletrico, Hidrossanitario, Acabamento)
-- nivel 2 = Item (etapa dentro da disciplina)
-- nivel 3 = Subitem (detalhe dentro do item, opcional)
-
-Responda SOMENTE com um JSON no formato exato:
-{"itens": [{"nome": "Fundacao", "nivel": 1, "children": [{"nome": "Escavacao", "nivel": 2, "children": [{"nome": "Locacao da obra", "nivel": 3}]}]}]}
-
-Regras:
-- Gere entre 3 e 8 disciplinas (nivel 1) plausiveis para o projeto descrito.
-- Cada disciplina deve ter de 2 a 6 itens (nivel 2).
-- Use subitens (nivel 3) apenas quando agregarem clareza, nao e obrigatorio em todo item.
-- Nomes curtos, em portugues brasileiro, sem numeracao.
-- Nao inclua nenhum texto fora do JSON.`
+  const systemPrompt = promptPersonalizado?.trim() || DEFAULT_PROMPT_ESTRUTURA
 
   const userPrompt = `Projeto: ${nomeProjeto}${descricao ? `\nDescricao/tipo de obra: ${descricao}` : ''}`
 
@@ -87,9 +76,10 @@ function isSugestaoData(value: unknown): value is SugestaoData {
   return typeof v.id === 'string' && typeof v.data_inicio === 'string' && typeof v.data_prazo === 'string'
 }
 
-export async function sugerirCronogramaProjeto({ itens, dataInicioObra }: {
+export async function sugerirCronogramaProjeto({ itens, dataInicioObra, promptPersonalizado }: {
   itens: ItemParaCronograma[]
   dataInicioObra: string | null
+  promptPersonalizado?: string | null
 }): Promise<{ datas: SugestaoData[] }> {
   if (!hasOpenAiKey()) {
     throw new Error('Configure OPENAI_API_KEY para sugerir cronograma com IA.')
@@ -103,17 +93,7 @@ export async function sugerirCronogramaProjeto({ itens, dataInicioObra }: {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const model = modelFor(false)
 
-  const systemPrompt = `Voce sugere datas de cronograma (data_inicio e data_prazo, formato YYYY-MM-DD) para itens de um projeto de obra residencial organizados em arvore (nivel 1=Disciplina, 2=Item, 3=Subitem, relacionados por parent_id).
-
-Regras:
-- O intervalo de datas de um item pai deve cobrir o intervalo de seus filhos.
-- Itens do mesmo nivel sem dependencia clara podem ser sequenciais (um comeca quando o anterior termina) ou paralelos quando fizer sentido (ex: disciplinas independentes).
-- Duracao tipica: disciplinas (nivel 1) somam semanas/meses; itens (nivel 2) de poucos dias a poucas semanas; subitens (nivel 3) de 1 a 5 dias.
-- So sugira datas para os itens que estao na lista recebida (eles ja nao tem data_inicio ou data_prazo).
-- Use a data de inicio da obra como ponto de partida quando fornecida; senao, use uma data proxima razoavel.
-- Responda SOMENTE com um JSON no formato exato:
-{"datas": [{"id": "<id do item>", "data_inicio": "YYYY-MM-DD", "data_prazo": "YYYY-MM-DD"}]}
-- Inclua um objeto para cada item recebido, usando o mesmo "id".`
+  const systemPrompt = promptPersonalizado?.trim() || DEFAULT_PROMPT_CRONOGRAMA
 
   const userPrompt = `Data de inicio da obra: ${dataInicioObra || 'não informada'}\n\nItens (arvore plana, JSON):\n${JSON.stringify(pendentes, null, 2)}`
 
