@@ -1,9 +1,10 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
-import { Moon, Sun, LogOut, Pencil, ChevronDown } from 'lucide-react'
+import { Moon, Sun, LogOut, Pencil, ChevronDown, Menu } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { useState, useRef, useEffect } from 'react'
+import { cn } from '@/lib/utils'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -24,7 +25,7 @@ function getTitle(pathname: string): string {
   return PAGE_TITLES[pathname] || 'BuildSmart AI'
 }
 
-export function Header() {
+export function Header({ hasSidebar = false, onOpenMobileNav }: { hasSidebar?: boolean; onOpenMobileNav?: () => void }) {
   const pathname = usePathname()
   const router = useRouter()
   const { currentProfile, setCurrentProfile, theme, toggleTheme } = useProfile()
@@ -57,16 +58,27 @@ export function Header() {
   return (
     <>
       <header
-        className="fixed top-0 right-0 h-16 flex items-center justify-between px-6 z-30"
+        className={cn('fixed top-0 right-0 left-0 h-16 flex items-center justify-between px-4 sm:px-6 z-30', hasSidebar && 'md:left-14')}
         style={{
-          left: '56px',
           background: 'var(--bg-primary)',
           borderBottom: '1px solid var(--border)',
         }}
       >
-        <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-          {getTitle(pathname)}
-        </h1>
+        <div className="flex items-center gap-2">
+          {hasSidebar && (
+            <button
+              onClick={onOpenMobileNav}
+              className="md:hidden p-2 -ml-2 rounded-lg hover:bg-[var(--bg-secondary)]"
+              style={{ color: 'var(--text-secondary)' }}
+              aria-label="Abrir menu"
+            >
+              <Menu size={20} />
+            </button>
+          )}
+          <h1 className="text-lg font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+            {getTitle(pathname)}
+          </h1>
+        </div>
 
         <div className="flex items-center gap-2">
           <button
