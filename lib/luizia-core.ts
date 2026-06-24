@@ -33,12 +33,12 @@ export type LuiziaResult = {
   model?: string
 }
 
-function hasOpenAiKey() {
+export function hasOpenAiKey() {
   const key = process.env.OPENAI_API_KEY || ''
   return key.startsWith('sk-') && !key.includes('placeholder') && !key.includes('your_')
 }
 
-function modelFor(complex: boolean) {
+export function modelFor(complex: boolean) {
   const requested = complex ? process.env.OPENAI_COMPLEX_MODEL : process.env.OPENAI_SIMPLE_MODEL
   const allowed = new Set(['gpt-4o-mini', 'gpt-4o'])
   if (requested && allowed.has(requested)) return requested

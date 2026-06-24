@@ -2,11 +2,12 @@
 
 import { useState, useEffect, use } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
+import { ProjetoAssistenteIA } from '@/components/projeto/ProjetoAssistenteIA'
 import dynamic from 'next/dynamic'
 
 const ExcalidrawBoard = dynamic(
@@ -44,8 +45,8 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [projeto, setProjeto] = useState<Projeto | null>(null)
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'board'>(
-    (searchParams.get('tab') as 'estrutura' | 'dados' | 'cronograma' | 'board') ?? 'estrutura'
+  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'board' | 'ia'>(
+    (searchParams.get('tab') as 'estrutura' | 'dados' | 'cronograma' | 'board' | 'ia') ?? 'estrutura'
   )
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
@@ -209,6 +210,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           { key: 'cronograma', label: 'Cronograma',   icon: CalendarDays },
           { key: 'board',      label: 'Board',        icon: LayoutDashboard },
           { key: 'dados',      label: 'Dados Gerais', icon: Info },
+          { key: 'ia',         label: 'Assistente IA', icon: Sparkles },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -259,6 +261,10 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
         <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', height: 'calc(100vh - 200px)', minHeight: 520 }}>
           <ExcalidrawBoard projectId={projeto.id} />
         </div>
+      )}
+
+      {tab === 'ia' && (
+        <ProjetoAssistenteIA projeto={projeto} itens={itens} onReload={loadData} />
       )}
 
       {tab === 'dados' && (
