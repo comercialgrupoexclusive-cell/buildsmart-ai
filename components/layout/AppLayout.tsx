@@ -15,8 +15,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const [mounted, setMounted] = useState(false)
   const [checkedProfileId, setCheckedProfileId] = useState<string | null>(null)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => { setMobileNavOpen(false) }, [pathname])
 
   useEffect(() => {
     if (mounted && !currentProfile) router.replace('/')
@@ -125,10 +128,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg-primary)' }}>
-      <Sidebar />
-      <Header />
+      <Sidebar mobileOpen={mobileNavOpen} onCloseMobile={() => setMobileNavOpen(false)} />
+      <Header hasSidebar onOpenMobileNav={() => setMobileNavOpen(true)} />
       <WelcomeGuide />
-      <main className="ml-14 pt-16 min-h-screen">
+      <main className="md:ml-14 pt-16 min-h-screen">
         <div className="p-3 sm:p-6 max-w-full overflow-x-hidden">
           {children}
         </div>

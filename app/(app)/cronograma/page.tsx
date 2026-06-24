@@ -41,7 +41,7 @@ export default function CronogramaPage() {
       <div className="flex flex-col lg:flex-row gap-3 lg:items-end justify-between">
         <div>
           <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Obra</label>
-          <select value={obraId} onChange={e => setObraId(e.target.value)} className="input-base min-w-72">
+          <select value={obraId} onChange={e => setObraId(e.target.value)} className="input-base w-full sm:min-w-72">
             {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
           </select>
         </div>
