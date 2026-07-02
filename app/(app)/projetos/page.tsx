@@ -57,6 +57,7 @@ export default function ProjetosPage() {
   const [projetoStats, setProjetoStats] = useState<Record<string, { total: number; done: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'todos' | Projeto['status']>('todos')
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -153,10 +154,15 @@ export default function ProjetosPage() {
     setMenuId(null)
   }
 
-  const filtered = projetos.filter(p =>
-    p.nome.toLowerCase().includes(search.toLowerCase()) ||
-    (p.cliente ?? '').toLowerCase().includes(search.toLowerCase())
-  )
+  const STATUS_ORDER: Record<Projeto['status'], number> = { em_andamento: 0, concluido: 1, suspenso: 2 }
+  const filtered = projetos
+    .filter(p => {
+      const matchesSearch = p.nome.toLowerCase().includes(search.toLowerCase()) ||
+        (p.cliente ?? '').toLowerCase().includes(search.toLowerCase())
+      const matchesStatus = statusFilter === 'todos' || p.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+    .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
 
   // verifica se nome digitado no campo responsável existe nos profiles
   function responsavelWarning(nome: string): boolean {
@@ -197,16 +203,32 @@ export default function ProjetosPage() {
         </div>
       </div>
 
-      {/* Busca */}
-      <div className="relative max-w-sm">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
-        <input
-          className="w-full pl-9 pr-3 py-2 rounded-lg text-sm border outline-none"
-          style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-          placeholder="Buscar projetos..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      {/* Busca + filtros */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative max-w-sm w-full">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
+          <input
+            className="w-full pl-9 pr-3 py-2 rounded-lg text-sm border outline-none"
+            style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            placeholder="Buscar projetos..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="flex gap-1 p-1 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          {(['todos', 'em_andamento', 'concluido', 'suspenso'] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className="px-3 py-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap"
+              style={statusFilter === s
+                ? { background: s === 'todos' ? 'var(--accent)' : STATUS_META[s as Projeto['status']]?.color, color: 'white' }
+                : { color: 'var(--text-secondary)' }}
+            >
+              {s === 'todos' ? 'Todos' : STATUS_META[s as Projeto['status']]?.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Grid de projetos */}

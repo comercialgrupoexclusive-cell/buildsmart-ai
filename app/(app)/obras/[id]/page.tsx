@@ -255,7 +255,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between flex-wrap gap-3">
                 <div>
-                  <h1 className="text-2xl font-bold mb-1" style={{ fontFamily: 'DM Serif Display, serif', color: 'var(--text-primary)' }}>
+                  <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
                     {obra.nome}
                   </h1>
                   <div className="flex flex-wrap items-center gap-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -347,30 +347,32 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-        {TABS.map(({ id: tabId, label }) => (
+      <div className="overflow-x-auto pb-1 -mx-3 sm:mx-0 px-3 sm:px-0">
+        <div className="flex gap-1 p-1 rounded-xl w-max" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          {TABS.map(({ id: tabId, label }) => (
+            <button
+              key={tabId}
+              onClick={() => setTab(tabId)}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
+              style={tab === tabId
+                ? { background: 'var(--accent)', color: 'white' }
+                : { color: 'var(--text-secondary)' }
+              }
+            >
+              {label}
+            </button>
+          ))}
           <button
-            key={tabId}
-            onClick={() => setTab(tabId)}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
-            style={tab === tabId
+            onClick={() => setTab('arquivos')}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
+            style={tab === 'arquivos'
               ? { background: 'var(--accent)', color: 'white' }
               : { color: 'var(--text-secondary)' }
             }
           >
-            {label}
+            Arquivos
           </button>
-        ))}
-        <button
-          onClick={() => setTab('arquivos')}
-          className="px-4 py-2 rounded-lg text-sm font-medium transition-all"
-          style={tab === 'arquivos'
-            ? { background: 'var(--accent)', color: 'white' }
-            : { color: 'var(--text-secondary)' }
-          }
-        >
-          Arquivos
-        </button>
+        </div>
       </div>
 
       {/* ConteÃºdo da tab */}
