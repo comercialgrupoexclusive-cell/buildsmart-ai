@@ -25,7 +25,7 @@ const STEPS = [
   {
     icon: Monitor,
     title: 'Melhor no desktop',
-    description: 'No celular dá para consultar e testar, mas orçamento, Gantt e tabelas ficam melhores em notebook ou computador.',
+    description: 'O menu já funciona em celular e tablet (botão ☰ no topo). Para orçamentos, Gantt e tabelas grandes, o notebook ainda fica mais confortável.',
   },
   {
     icon: Sun,
