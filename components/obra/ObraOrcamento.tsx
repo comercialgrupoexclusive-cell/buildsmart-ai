@@ -189,8 +189,14 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   const [novaEtapaNome, setNovaEtapaNome] = useState('')
   const [criandoEtapa, setCriandoEtapa] = useState(false)
 
-  // Grupos colapsados (nível etapa)
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  // Grupos colapsados (nível etapa) — persistido no localStorage por obra
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    if (typeof window === 'undefined') return {}
+    try {
+      const stored = localStorage.getItem(`bs_collapsed_${obraId}`)
+      return stored ? JSON.parse(stored) : {}
+    } catch { return {} }
+  })
 
   // Menu de etapa (excluir etapa)
   const [etapaMenuAberto, setEtapaMenuAberto] = useState<string | null>(null)
@@ -224,6 +230,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     if (!orcamento?.id) return
     localStorage.setItem(`bs_overrides_${orcamento.id}`, JSON.stringify(insumoOverrides))
   }, [insumoOverrides, orcamento?.id])
+
+  useEffect(() => {
+    localStorage.setItem(`bs_collapsed_${obraId}`, JSON.stringify(collapsed))
+  }, [collapsed, obraId])
 
   // ─── Etapas padrão ───────────────────────────────────────────────────────
   useEffect(() => {

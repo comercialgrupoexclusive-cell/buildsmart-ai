@@ -56,7 +56,7 @@ export function ObraCompras({ obraId }: { obraId: string }) {
   const [cotacaoLinhas, setCotacaoLinhas] = useState<CotacaoLinha[]>([])
 
   useEffect(() => {
-    loadDados()
+    Promise.resolve().then(() => loadDados())
   }, [obraId])
 
   async function loadDados() {

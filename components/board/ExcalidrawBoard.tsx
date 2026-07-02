@@ -97,10 +97,15 @@ export function ExcalidrawBoard({ projectId }: Props) {
           persistedFilesRef.current.add(row.id)
         }
 
+        const handTool = { type: 'hand', locked: false, lastActiveTool: null, customType: null }
         if (proj?.board_data) {
-          setInitialData({ ...proj.board_data, files: filesMap })
-        } else if (Object.keys(filesMap).length > 0) {
-          setInitialData({ files: filesMap })
+          setInitialData({
+            ...proj.board_data,
+            files: filesMap,
+            appState: { ...(proj.board_data.appState ?? {}), activeTool: handTool },
+          })
+        } else {
+          setInitialData({ files: filesMap, appState: { activeTool: handTool } })
         }
       } finally {
         setLoaded(true)
