@@ -355,3 +355,127 @@ export const SINAPI_UFS = [
 ] as const
 
 export type SINAPI_UF = typeof SINAPI_UFS[number]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Módulo Imóveis (investimento imobiliário — Fase 1: sistema interno)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type ImovelFase = 'prospeccao' | 'analise' | 'aquisicao' | 'reforma' | 'venda' | 'concluido' | 'descartado'
+
+export type Imovel = {
+  id: string
+  codigo: string
+
+  // 1. Prospecção
+  titulo: string
+  origem: 'anuncio' | 'leilao' | 'corretor' | 'indicacao' | 'outro'
+  link_anuncio: string | null
+  endereco: string | null
+  bairro: string | null
+  cidade: string | null
+  uf: string | null
+  tipo_imovel: 'casa' | 'apartamento' | 'terreno' | 'comercial' | 'outro'
+  area_m2: number | null
+  quartos: number | null
+  banheiros: number | null
+  vagas: number | null
+  caracteristicas: string | null
+  foto_url: string | null
+  responsavel_id: string | null
+
+  fase: ImovelFase
+  motivo_descarte: string | null
+
+  // 2. Análise
+  valor_compra_estimado: number | null
+  custo_documentacao_estimado: number | null
+  custo_reforma_estimado: number | null
+  preco_venda_estimado: number | null
+  prazo_estimado_meses: number | null
+  decisao_analise: 'descartar' | 'acompanhar' | 'comprar' | null
+  observacoes_analise: string | null
+
+  // 3. Aquisição
+  valor_proposta: number | null
+  valor_lance: number | null
+  valor_compra_final: number | null
+  data_proposta: string | null
+  data_aquisicao: string | null
+  status_documentacao: 'pendente' | 'em_andamento' | 'concluida' | null
+  status_posse: 'ocupado' | 'desocupacao_andamento' | 'desocupado' | 'nao_se_aplica' | null
+  custo_documentacao_real: number | null
+  custos_aquisicao_extra: number | null
+  observacoes_aquisicao: string | null
+
+  // 4. Reforma
+  orcamento_reforma: number | null
+  data_inicio_reforma: string | null
+  data_fim_reforma_prevista: string | null
+  data_fim_reforma_real: string | null
+  observacoes_reforma: string | null
+
+  // 5. Venda
+  preco_anuncio: number | null
+  data_anuncio: string | null
+  financiamento_mcmv: boolean
+  comissao_percentual: number | null
+  comissao_valor: number | null
+  comprador_nome: string | null
+  status_documentacao_venda: 'pendente' | 'em_andamento' | 'concluida' | null
+  preco_venda_final: number | null
+  data_venda: string | null
+  observacoes_venda: string | null
+
+  created_at: string
+  updated_at: string
+
+  responsavel?: { id: string; name: string } | null
+}
+
+export type ImovelReformaItem = {
+  id: string
+  imovel_id: string
+  categoria: 'servico' | 'material' | 'mao_de_obra' | 'outro'
+  descricao: string
+  fornecedor: string | null
+  valor_previsto: number
+  valor_realizado: number | null
+  status: 'pendente' | 'em_andamento' | 'concluido'
+  data_prevista: string | null
+  data_conclusao: string | null
+  ordem: number
+  created_at: string
+}
+
+export type ImovelReformaEtapa = {
+  id: string
+  imovel_id: string
+  nome: string
+  data_inicio: string | null
+  data_fim: string | null
+  percentual_executado: number
+  ordem: number
+  created_at: string
+}
+
+export type ImovelFoto = {
+  id: string
+  imovel_id: string
+  url: string
+  categoria: 'antes' | 'durante' | 'depois' | 'documento'
+  descricao: string | null
+  created_at: string
+}
+
+export type ImovelProposta = {
+  id: string
+  imovel_id: string
+  nome_interessado: string
+  contato: string | null
+  valor_proposta: number | null
+  financiamento: 'a_vista' | 'mcmv' | 'financiamento_bancario' | 'outro'
+  status: 'em_analise' | 'aceita' | 'recusada'
+  data: string | null
+  observacoes: string | null
+  created_at: string
+}

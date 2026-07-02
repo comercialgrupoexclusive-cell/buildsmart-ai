@@ -71,3 +71,54 @@ export const FORMA_PAGAMENTO_LABEL: Record<string, string> = {
   pix_cartao: 'PIX + Cartão',
   cartao_reembolso: 'Cartão + Reembolso',
 }
+
+// ─── Módulo Imóveis ─────────────────────────────────────────────────────────
+export const FASE_IMOVEL_LABEL: Record<string, string> = {
+  prospeccao: 'Prospecção',
+  analise: 'Análise',
+  aquisicao: 'Aquisição',
+  reforma: 'Reforma',
+  venda: 'Venda',
+  concluido: 'Concluído',
+  descartado: 'Descartado',
+}
+
+export const FASE_IMOVEL_COLOR: Record<string, string> = {
+  prospeccao: '#8B5CF6',
+  analise: '#3B7BF8',
+  aquisicao: '#F59E0B',
+  reforma: '#06B6D4',
+  venda: '#10B981',
+  concluido: '#22C55E',
+  descartado: '#EF4444',
+}
+
+export const ORIGEM_IMOVEL_LABEL: Record<string, string> = {
+  anuncio: 'Anúncio',
+  leilao: 'Leilão',
+  corretor: 'Corretor',
+  indicacao: 'Indicação',
+  outro: 'Outro',
+}
+
+export const TIPO_IMOVEL_LABEL: Record<string, string> = {
+  casa: 'Casa',
+  apartamento: 'Apartamento',
+  terreno: 'Terreno',
+  comercial: 'Comercial',
+  outro: 'Outro',
+}
+
+export const STATUS_POSSE_LABEL: Record<string, string> = {
+  ocupado: 'Ocupado',
+  desocupacao_andamento: 'Desocupação em andamento',
+  desocupado: 'Desocupado',
+  nao_se_aplica: 'Não se aplica',
+}
+
+export const FINANCIAMENTO_LABEL: Record<string, string> = {
+  a_vista: 'À vista',
+  mcmv: 'Minha Casa Minha Vida',
+  financiamento_bancario: 'Financiamento bancário',
+  outro: 'Outro',
+}
