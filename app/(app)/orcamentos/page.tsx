@@ -32,6 +32,11 @@ export default function OrcamentosPage() {
   const [obras, setObras] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<string>('todos')
+  const STATUS_ORC_BTN_COLOR: Record<string, string> = {
+    rascunho: '#3B82F6',
+    ativo: '#10B981',
+    finalizado: '#6B7280',
+  }
   const [aba, setAba] = useState<'orcamentos' | 'composicoes' | 'insumos' | 'base'>('orcamentos')
   const [showNovoModal, setShowNovoModal] = useState(false)
 
@@ -110,11 +115,20 @@ export default function OrcamentosPage() {
       {aba === 'orcamentos' && (
       <>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <select value={filtro} onChange={e => setFiltro(e.target.value)} className="input-base w-full sm:w-52">
-          {['todos', 'rascunho', 'ativo', 'finalizado'].map(s => (
-            <option key={s} value={s}>{s === 'todos' ? 'Todos os status' : STATUS_ORC_LABEL[s]}</option>
+        <div className="flex gap-1 p-1 rounded-lg flex-wrap" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          {(['todos', 'rascunho', 'ativo', 'finalizado'] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => setFiltro(s)}
+              className="px-3 py-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap"
+              style={filtro === s
+                ? { background: s === 'todos' ? 'var(--accent)' : STATUS_ORC_BTN_COLOR[s], color: 'white' }
+                : { color: 'var(--text-secondary)' }}
+            >
+              {s === 'todos' ? 'Todos' : STATUS_ORC_LABEL[s]}
+            </button>
           ))}
-        </select>
+        </div>
         <Button onClick={() => setShowNovoModal(true)} icon={<Plus size={16} />}>
           Novo Orçamento
         </Button>

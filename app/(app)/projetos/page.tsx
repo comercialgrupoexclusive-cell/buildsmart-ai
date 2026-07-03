@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import { Plus, FolderOpen, Search, MoreVertical, Calendar, Link2, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
-import type { Profile } from '@/lib/types'
+import type { Profile, Proprietario, Responsavel } from '@/lib/types'
+import { insertItensArvore } from '@/lib/projeto-itens'
 
 type Projeto = {
   id: string
@@ -47,6 +48,14 @@ const EMPTY_FORM = {
   status: 'em_andamento' as Projeto['status'],
   responsavel: '',
   template_id: '',
+  responsavel_tecnico_id: '',
+  drive_folder_url: '',
+}
+
+function extractDriveFolderId(url: string): string | null {
+  if (!url) return null
+  const match = url.match(/\/folders\/([a-zA-Z0-9_-]+)/)
+  return match ? match[1] : null
 }
 
 export default function ProjetosPage() {
@@ -54,10 +63,12 @@ export default function ProjetosPage() {
   const [projetos, setProjetos] = useState<Projeto[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [proprietarios, setProprietarios] = useState<Proprietario[]>([])
+  const [responsaveisTecnicos, setResponsaveisTecnicos] = useState<Responsavel[]>([])
   const [projetoStats, setProjetoStats] = useState<Record<string, { total: number; done: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'todos' | Projeto['status']>('todos')
+  const [statusFilter, setStatusFilter] = useState<'todos' | Projeto['status']>('em_andamento')
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -68,40 +79,36 @@ export default function ProjetosPage() {
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    // Carregar projetos, templates e profiles em paralelo
-    // Os stats de itens são carregados separadamente para não bloquear o render inicial
-    const [{ data: p }, { data: t }, { data: profs }] = await Promise.all([
+    const [{ data: p }, { data: t }, { data: profs }, { data: statsData }, { data: props }, { data: resps }] = await Promise.all([
       supabase.from('projetos').select('*').order('created_at', { ascending: false }),
-      supabase.from('projeto_templates').select('id, nome, descricao, itens').order('nome'),
+      supabase.from('projeto_templates').select('*').order('nome'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
+      supabase.from('projeto_itens').select('projeto_id, concluido'),
+      supabase.from('proprietarios').select('id, name, phone').order('name'),
+      supabase.from('responsaveis').select('id, name, drive_folder_url').order('name'),
     ])
     setProjetos(p ?? [])
     setTemplates((t ?? []) as Template[])
     setProfiles((profs ?? []) as Profile[])
-    setLoading(false)
+    setProprietarios((props ?? []) as Proprietario[])
+    setResponsaveisTecnicos((resps ?? []) as Responsavel[])
 
-    // Stats em background — não bloqueia a exibição dos cards
-    if (p && p.length > 0) {
-      const ids = p.map((proj: { id: string }) => proj.id)
-      const { data: statsData } = await supabase
-        .from('projeto_itens')
-        .select('projeto_id, concluido')
-        .in('projeto_id', ids)
-      const statsMap: Record<string, { total: number; done: number }> = {}
-      for (const item of statsData ?? []) {
-        const { projeto_id, concluido } = item as { projeto_id: string; concluido: boolean }
-        if (!statsMap[projeto_id]) statsMap[projeto_id] = { total: 0, done: 0 }
-        statsMap[projeto_id].total++
-        if (concluido) statsMap[projeto_id].done++
-      }
-      setProjetoStats(statsMap)
+    const statsMap: Record<string, { total: number; done: number }> = {}
+    for (const item of statsData ?? []) {
+      const pid = (item as { projeto_id: string; concluido: boolean }).projeto_id
+      if (!statsMap[pid]) statsMap[pid] = { total: 0, done: 0 }
+      statsMap[pid].total++
+      if ((item as { projeto_id: string; concluido: boolean }).concluido) statsMap[pid].done++
     }
+    setProjetoStats(statsMap)
+    setLoading(false)
   }
 
   async function handleSave() {
     if (!form.nome.trim()) return
     setSaving(true)
     const supabase = createClient()
+    const driveUrl = form.drive_folder_url.trim()
     const payload = {
       nome: form.nome.trim(),
       cliente: form.cliente || null,
@@ -110,40 +117,21 @@ export default function ProjetosPage() {
       data_previsao: form.data_previsao || null,
       status: form.status,
       responsavel: form.responsavel || null,
+      responsavel_tecnico_id: form.responsavel_tecnico_id || null,
+      drive_folder_url: driveUrl || null,
+      drive_folder_id: extractDriveFolderId(driveUrl),
     }
     const { data, error } = await supabase.from('projetos').insert(payload).select().single()
     if (!error && data) {
       if (form.template_id) {
         const tmpl = templates.find(t => t.id === form.template_id)
-        if (tmpl) await insertTemplateItens(supabase, data.id, tmpl.itens, null)
+        if (tmpl) await insertItensArvore(supabase, data.id, tmpl.itens, null)
       }
       await loadData()
       setShowModal(false)
       setForm(EMPTY_FORM)
     }
     setSaving(false)
-  }
-
-  async function insertTemplateItens(
-    supabase: ReturnType<typeof createClient>,
-    projetoId: string,
-    itens: TemplateItem[],
-    parentId: string | null,
-    ordem = 0
-  ) {
-    for (let i = 0; i < itens.length; i++) {
-      const it = itens[i]
-      const { data } = await supabase.from('projeto_itens').insert({
-        projeto_id: projetoId,
-        parent_id: parentId,
-        nome: it.nome,
-        nivel: it.nivel,
-        ordem: ordem + i,
-      }).select('id').single()
-      if (data?.id && it.children?.length) {
-        await insertTemplateItens(supabase, projetoId, it.children, data.id, 0)
-      }
-    }
   }
 
   async function handleDelete(id: string) {
@@ -385,8 +373,22 @@ export default function ProjetosPage() {
                   onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
                 />
               </Field>
-              <Field label="Cliente">
-                <input className="input-base" placeholder="Nome do cliente" value={form.cliente} onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))} />
+              <Field label="Proprietário">
+                <select
+                  className="input-base"
+                  value={form.cliente}
+                  onChange={e => setForm(f => ({ ...f, cliente: e.target.value }))}
+                >
+                  <option value="">— Selecionar ou deixar em branco —</option>
+                  {proprietarios.map(p => (
+                    <option key={p.id} value={p.name}>{p.name}{p.phone ? ` · ${p.phone}` : ''}</option>
+                  ))}
+                </select>
+                {proprietarios.length === 0 && (
+                  <p className="text-xs mt-1 opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                    Cadastre proprietários em Contatos para usar esta lista.
+                  </p>
+                )}
               </Field>
               <Field label="Endereço">
                 <input className="input-base" placeholder="Rua, cidade..." value={form.endereco} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} />
@@ -424,6 +426,51 @@ export default function ProjetosPage() {
                     </div>
                   )}
                 </div>
+              </Field>
+
+              {/* Responsável Técnico */}
+              <Field label="Responsável Técnico (Drive)">
+                <select
+                  className="input-base"
+                  value={form.responsavel_tecnico_id}
+                  onChange={e => {
+                    const id = e.target.value
+                    const resp = responsaveisTecnicos.find(r => r.id === id)
+                    setForm(f => ({
+                      ...f,
+                      responsavel_tecnico_id: id,
+                      drive_folder_url: resp?.drive_folder_url ?? f.drive_folder_url,
+                    }))
+                  }}
+                >
+                  <option value="">— Selecionar responsável técnico —</option>
+                  {responsaveisTecnicos.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+                {responsaveisTecnicos.length === 0 && (
+                  <p className="text-xs mt-1 opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                    Cadastre responsáveis técnicos em Contatos para usar esta lista.
+                  </p>
+                )}
+              </Field>
+
+              {/* Pasta Drive do projeto */}
+              <Field label="Pasta do Drive (projeto)">
+                <input
+                  type="url"
+                  className="input-base"
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  value={form.drive_folder_url}
+                  onChange={e => setForm(f => ({ ...f, drive_folder_url: e.target.value }))}
+                />
+                {form.drive_folder_url && (
+                  <p className="text-xs mt-1" style={{ color: extractDriveFolderId(form.drive_folder_url) ? '#10b981' : '#f59e0b' }}>
+                    {extractDriveFolderId(form.drive_folder_url)
+                      ? `✓ ID: ${extractDriveFolderId(form.drive_folder_url)}`
+                      : '⚠ URL não reconhecida — use o formato drive.google.com/drive/folders/...'}
+                  </p>
+                )}
               </Field>
 
               {/* Template */}

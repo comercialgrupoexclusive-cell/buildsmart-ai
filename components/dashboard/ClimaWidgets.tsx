@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   CloudSun, CloudRain, Cloud, Sun, CloudLightning, CloudFog, CloudSnow,
-  AlertTriangle, CalendarClock, MapPin, CheckCircle2,
+  AlertTriangle, CalendarClock, MapPin, CheckCircle2, RefreshCw, WifiOff,
 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { Etapa } from '@/lib/types'
@@ -69,6 +69,8 @@ export function ClimaWidgets({ etapasProximas, alertasInternos }: ClimaWidgetsPr
   const [settings, setSettings] = useState(() => readClimaSettings())
   const [weather, setWeather] = useState<WeatherResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     function syncSettings() { setSettings(readClimaSettings()) }
@@ -83,24 +85,26 @@ export function ClimaWidgets({ etapasProximas, alertasInternos }: ClimaWidgetsPr
 
   useEffect(() => {
     if (!settings.ativo) { setLoading(false); return }
+    if (!currentProfile?.cidade) { setLoading(false); return }
     let active = true
     setLoading(true)
+    setFetchError(false)
 
     fetch('/api/weather', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        cidade: currentProfile?.cidade || null,
-        estado: currentProfile?.estado || null,
+        cidade: currentProfile.cidade,
+        estado: currentProfile.estado || null,
       }),
     })
       .then(res => res.json())
       .then(json => { if (active) setWeather(json) })
-      .catch(() => { if (active) setWeather(null) })
+      .catch(() => { if (active) { setWeather(null); setFetchError(true) } })
       .finally(() => { if (active) setLoading(false) })
 
     return () => { active = false }
-  }, [settings.ativo, currentProfile?.cidade, currentProfile?.estado])
+  }, [settings.ativo, currentProfile?.cidade, currentProfile?.estado, retryKey])
 
   if (!settings.ativo) return null
 
@@ -141,8 +145,38 @@ export function ClimaWidgets({ etapasProximas, alertasInternos }: ClimaWidgetsPr
           </div>
         ) : !currentProfile?.cidade ? (
           <p className="text-sm py-6 text-center" style={{ color: 'var(--text-secondary)' }}>
-            Cadastre cidade e estado em Configurações para ver a previsão do tempo.
+            Cadastre cidade e estado em{' '}
+            <a href="/configuracoes" className="underline" style={{ color: 'var(--accent)' }}>Configurações</a>{' '}
+            para ver a previsão do tempo.
           </p>
+        ) : fetchError || !weather ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <WifiOff size={28} style={{ color: 'var(--text-secondary)' }} />
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Não foi possível carregar a previsão do tempo.
+            </p>
+            <button
+              onClick={() => setRetryKey(k => k + 1)}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg"
+              style={{ background: 'var(--bg-secondary)', color: 'var(--accent)', border: '1px solid var(--border)' }}
+            >
+              <RefreshCw size={12} /> Tentar novamente
+            </button>
+          </div>
+        ) : weather.mode === 'offline' ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <WifiOff size={28} style={{ color: 'var(--text-secondary)' }} />
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Serviço de previsão temporariamente indisponível.
+            </p>
+            <button
+              onClick={() => setRetryKey(k => k + 1)}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg"
+              style={{ background: 'var(--bg-secondary)', color: 'var(--accent)', border: '1px solid var(--border)' }}
+            >
+              <RefreshCw size={12} /> Tentar novamente
+            </button>
+          </div>
         ) : (
           <div className="flex flex-col gap-1.5">
             {previsao.map(dia => {
@@ -169,11 +203,6 @@ export function ClimaWidgets({ etapasProximas, alertasInternos }: ClimaWidgetsPr
                 </div>
               )
             })}
-            {weather?.mode === 'offline' && (
-              <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                Previsão estimada — não foi possível consultar o serviço de clima agora.
-              </p>
-            )}
           </div>
         )}
       </div>

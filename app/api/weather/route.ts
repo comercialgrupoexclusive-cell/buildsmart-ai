@@ -45,7 +45,10 @@ async function geocode(cidade: string, estado?: string | null) {
   const estadoNome = nomeEstadoPorUf(estado) || estado || null
   const query = cidade
   const url = `${GEOCODING_URL}?name=${encodeURIComponent(query)}&count=5&language=pt&format=json&country=BR`
-  const res = await fetch(url, { next: { revalidate: 3600 * 24 } })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8000)
+  const res = await fetch(url, { cache: 'no-store', signal: controller.signal })
+    .finally(() => clearTimeout(timer))
   if (!res.ok) throw new Error('Falha no geocoding')
 
   const json = await res.json()
@@ -72,7 +75,10 @@ async function forecast(lat: number, lon: number) {
     timezone: 'America/Sao_Paulo',
     forecast_days: '7',
   })
-  const res = await fetch(`${FORECAST_URL}?${params.toString()}`, { next: { revalidate: 3600 * 3 } })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8000)
+  const res = await fetch(`${FORECAST_URL}?${params.toString()}`, { cache: 'no-store', signal: controller.signal })
+    .finally(() => clearTimeout(timer))
   if (!res.ok) throw new Error('Falha na previsão')
 
   const json = await res.json()
