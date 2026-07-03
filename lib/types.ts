@@ -355,3 +355,18 @@ export const SINAPI_UFS = [
 ] as const
 
 export type SINAPI_UF = typeof SINAPI_UFS[number]
+
+// ─── Proprietário ─────────────────────────────────────────────────────────────
+export type Proprietario = {
+  id: string
+  name: string
+  phone: string | null
+  email: string | null
+}
+
+// ─── Responsável Técnico ──────────────────────────────────────────────────────
+export type Responsavel = {
+  id: string
+  name: string
+  drive_folder_url: string | null
+}
