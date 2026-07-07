@@ -176,6 +176,7 @@ export type Etapa = {
   status: 'planejada' | 'em_andamento' | 'concluida' | 'atrasada'
   percentual_executado: number
   ordem: number
+  is_marco: boolean
 }
 
 // ─── Subetapa de Cronograma (nível 2) ────────────────────────────────────────
@@ -190,6 +191,7 @@ export type SubetapaCronograma = {
   responsavel: string | null
   ordem: number
   created_at: string
+  is_marco: boolean
   servicos?: ServicoCronograma[]
 }
 
@@ -203,6 +205,20 @@ export type ServicoCronograma = {
   percentual_executado: number
   responsavel: string | null
   ordem: number
+  created_at: string
+  is_marco: boolean
+}
+
+// ─── Dependência de Cronograma (predecessora, Fim→Início) ────────────────────
+export type CronogramaItemTipo = 'etapa' | 'subetapa' | 'servico'
+
+export type CronogramaDependencia = {
+  id: string
+  obra_id: string
+  item_tipo: CronogramaItemTipo
+  item_id: string
+  predecessor_tipo: CronogramaItemTipo
+  predecessor_id: string
   created_at: string
 }
 
@@ -281,6 +297,8 @@ export type CompraItem = {
   id: string
   obra_id: string
   etapa_id: string | null
+  subetapa_id: string | null          // detalhamento fino opcional (nível 2)
+  servico_id: string | null           // detalhamento fino opcional (nível 3)
   lista_id: string | null
   descricao: string
   fornecedor_id: string | null

@@ -3,27 +3,28 @@
 import { Fragment, useEffect, useState } from 'react'
 import {
   Plus, Calendar, Pencil, Trash2, ChevronDown, ChevronRight,
-  LayoutList, BarChart2, KanbanSquare, Check, AlertTriangle, Clock, CheckCircle2,
+  LayoutList, BarChart2, KanbanSquare, Check, AlertTriangle, Clock, CheckCircle2, Flag, Wallet,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { Etapa, SubetapaCronograma, ServicoCronograma } from '@/lib/types'
-import { STATUS_ETAPA_COLOR, STATUS_ETAPA_LABEL } from '@/lib/utils'
+import { Etapa, SubetapaCronograma, ServicoCronograma, CronogramaDependencia, CronogramaItemTipo } from '@/lib/types'
+import { STATUS_ETAPA_COLOR, STATUS_ETAPA_LABEL, formatCurrency } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { PredecessorPicker, PredecessoraRef } from '@/components/obra/PredecessorPicker'
 
 type Tab = 'kanban' | 'cascata' | 'gantt'
 
-type EtapaForm = { nome: string; data_inicio: string; data_fim: string; status: Etapa['status']; percentual_executado: number }
-type SubForm   = { nome: string; data_inicio: string; data_fim: string; status: SubetapaCronograma['status']; percentual_executado: number; responsavel: string }
-type SvcForm   = { nome: string; data_inicio: string; data_fim: string; percentual_executado: number; responsavel: string }
+type EtapaForm = { nome: string; data_inicio: string; data_fim: string; status: Etapa['status']; percentual_executado: number; is_marco: boolean }
+type SubForm   = { nome: string; data_inicio: string; data_fim: string; status: SubetapaCronograma['status']; percentual_executado: number; responsavel: string; is_marco: boolean }
+type SvcForm   = { nome: string; data_inicio: string; data_fim: string; percentual_executado: number; responsavel: string; is_marco: boolean }
 
 type EditField = { id: string; table: 'etapas' | 'subetapas_cronograma' | 'servicos_cronograma'; field: 'data_inicio' | 'data_fim' } | null
 
-const EMPTY_ETAPA: EtapaForm = { nome: '', data_inicio: '', data_fim: '', status: 'planejada', percentual_executado: 0 }
-const EMPTY_SUB   = (responsavel = ''): SubForm => ({ nome: '', data_inicio: '', data_fim: '', status: 'planejada', percentual_executado: 0, responsavel })
-const EMPTY_SVC   = (responsavel = ''): SvcForm => ({ nome: '', data_inicio: '', data_fim: '', percentual_executado: 0, responsavel })
+const EMPTY_ETAPA: EtapaForm = { nome: '', data_inicio: '', data_fim: '', status: 'planejada', percentual_executado: 0, is_marco: false }
+const EMPTY_SUB   = (responsavel = ''): SubForm => ({ nome: '', data_inicio: '', data_fim: '', status: 'planejada', percentual_executado: 0, responsavel, is_marco: false })
+const EMPTY_SVC   = (responsavel = ''): SvcForm => ({ nome: '', data_inicio: '', data_fim: '', percentual_executado: 0, responsavel, is_marco: false })
 
 const fmtBR = (v: string | null | undefined) => {
   if (!v) return null
@@ -51,6 +52,20 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   const [svcForm,   setSvcForm]   = useState<SvcForm>(EMPTY_SVC())
   const [saving, setSaving] = useState(false)
 
+  // ── Dependências (predecessoras Fim→Início) ───────────────────────────────────
+  const [dependencias, setDependencias] = useState<CronogramaDependencia[]>([])
+  const [etapaPreds, setEtapaPreds] = useState<PredecessoraRef[]>([])
+  const [subPreds,   setSubPreds]   = useState<PredecessoraRef[]>([])
+  const [svcPreds,   setSvcPreds]   = useState<PredecessoraRef[]>([])
+  const [pickerAberto, setPickerAberto] = useState<'etapa' | 'sub' | 'svc' | null>(null)
+
+  // ── Financeiro (orçado × realizado) ───────────────────────────────────────────
+  const [mostrarFinanceiro, setMostrarFinanceiro] = useState(false)
+  const [orcadoPorEtapa, setOrcadoPorEtapa] = useState<Map<string, number>>(new Map())
+  const [realizadoPorEtapa, setRealizadoPorEtapa] = useState<Map<string, number>>(new Map())
+  const [realizadoPorSubetapa, setRealizadoPorSubetapa] = useState<Map<string, number>>(new Map())
+  const [realizadoPorServico, setRealizadoPorServico] = useState<Map<string, number>>(new Map())
+
   useEffect(() => { loadData() }, [obraId, projetoId])
 
   useEffect(() => {
@@ -58,6 +73,43 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     supabase.from('obras').select('responsavel').eq('id', obraId).single()
       .then(({ data }: { data: { responsavel: string | null } | null }) => { if (data?.responsavel) setEmpreiteiro(data.responsavel) })
   }, [obraId])
+
+  // Carrega dados financeiros só quando o toggle é ligado (lazy).
+  useEffect(() => {
+    if (!mostrarFinanceiro || !obraId) return
+    loadFinanceiro()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mostrarFinanceiro, obraId])
+
+  async function loadFinanceiro() {
+    const [orcRes, compRes] = await Promise.all([
+      supabase.from('orcamentos')
+        .select('bdi_percentual, orcamento_itens(etapa_id, quantidade, preco_unitario_snapshot)')
+        .eq('obra_id', obraId).order('versao', { ascending: false }).limit(1),
+      supabase.from('compra_itens').select('etapa_id, subetapa_id, servico_id, valor_total').eq('obra_id', obraId),
+    ])
+    const orc = (orcRes.data || [])[0] as { bdi_percentual: number; orcamento_itens: { etapa_id: string | null; quantidade: number; preco_unitario_snapshot: number }[] } | undefined
+    const bdi = orc?.bdi_percentual ?? 25
+    const orcMap = new Map<string, number>()
+    ;(orc?.orcamento_itens ?? []).forEach(i => {
+      if (!i.etapa_id) return
+      const subtotal = (i.quantidade || 0) * (i.preco_unitario_snapshot || 0)
+      orcMap.set(i.etapa_id, (orcMap.get(i.etapa_id) || 0) + subtotal * (1 + bdi / 100))
+    })
+
+    const etapaMap = new Map<string, number>()
+    const subMap = new Map<string, number>()
+    const svcMap = new Map<string, number>()
+    ;((compRes.data ?? []) as { etapa_id: string | null; subetapa_id: string | null; servico_id: string | null; valor_total: number }[]).forEach(c => {
+      if (c.etapa_id) etapaMap.set(c.etapa_id, (etapaMap.get(c.etapa_id) || 0) + (c.valor_total || 0))
+      if (c.subetapa_id) subMap.set(c.subetapa_id, (subMap.get(c.subetapa_id) || 0) + (c.valor_total || 0))
+      if (c.servico_id) svcMap.set(c.servico_id, (svcMap.get(c.servico_id) || 0) + (c.valor_total || 0))
+    })
+    setOrcadoPorEtapa(orcMap)
+    setRealizadoPorEtapa(etapaMap)
+    setRealizadoPorSubetapa(subMap)
+    setRealizadoPorServico(svcMap)
+  }
 
   async function loadData() {
     setLoading(true)
@@ -85,6 +137,11 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     setEtapas(etapasData)
     setSubetapas(subsData)
     setServicos(svcsData)
+
+    if (obraId) {
+      const { data: deps } = await supabase.from('cronograma_dependencias').select('*').eq('obra_id', obraId)
+      setDependencias((deps ?? []) as CronogramaDependencia[])
+    }
     setLoading(false)
   }
 
@@ -106,6 +163,98 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     const subs = subsDaEtapa(etapaId)
     if (subs.length === 0) return etapas.find(e => e.id === etapaId)?.percentual_executado ?? 0
     return Math.round(subs.reduce((acc, s) => acc + s.percentual_executado, 0) / subs.length)
+  }
+
+  // ── Predecessoras — helpers ────────────────────────────────────────────────────
+
+  function nomeDoItem(tipo: CronogramaItemTipo, id: string): string {
+    if (tipo === 'etapa') return etapas.find(e => e.id === id)?.nome ?? '?'
+    if (tipo === 'subetapa') return subetapas.find(s => s.id === id)?.nome ?? '?'
+    return servicos.find(s => s.id === id)?.nome ?? '?'
+  }
+
+  function dataDoItem(tipo: CronogramaItemTipo, id: string) {
+    if (tipo === 'etapa') { const e = etapas.find(x => x.id === id); return { inicio: e?.data_inicio ?? null, fim: e?.data_fim ?? null } }
+    if (tipo === 'subetapa') { const s = subetapas.find(x => x.id === id); return { inicio: s?.data_inicio ?? null, fim: s?.data_fim ?? null } }
+    const s = servicos.find(x => x.id === id); return { inicio: s?.data_inicio ?? null, fim: s?.data_fim ?? null }
+  }
+
+  // Próprio item + descendentes (pra excluir do picker — evita ciclo trivial).
+  function descendentesDe(tipo: CronogramaItemTipo, id: string): Set<string> {
+    const ids = new Set<string>([id])
+    if (tipo === 'etapa') {
+      subsDaEtapa(id).forEach(s => { ids.add(s.id); svcsDaSub(s.id).forEach(v => ids.add(v.id)) })
+    } else if (tipo === 'subetapa') {
+      svcsDaSub(id).forEach(v => ids.add(v.id))
+    }
+    return ids
+  }
+
+  function predecessorasDeItem(tipo: CronogramaItemTipo, id: string): CronogramaDependencia[] {
+    return dependencias.filter(d => d.item_tipo === tipo && d.item_id === id)
+  }
+
+  // BFS: partindo da predecessora escolhida, percorre as predecessoras DELA —
+  // se alcançar o próprio item, formaria um ciclo (A depende de B que depende de A).
+  function criariCiclo(predecessorTipo: CronogramaItemTipo, predecessorId: string, itemTipo: CronogramaItemTipo, itemId: string): boolean {
+    if (predecessorTipo === itemTipo && predecessorId === itemId) return true
+    const visitados = new Set<string>()
+    const fila: { tipo: CronogramaItemTipo; id: string }[] = [{ tipo: predecessorTipo, id: predecessorId }]
+    while (fila.length > 0) {
+      const atual = fila.shift()!
+      const chave = `${atual.tipo}:${atual.id}`
+      if (visitados.has(chave)) continue
+      visitados.add(chave)
+      const preds = predecessorasDeItem(atual.tipo, atual.id)
+      for (const p of preds) {
+        if (p.predecessor_tipo === itemTipo && p.predecessor_id === itemId) return true
+        fila.push({ tipo: p.predecessor_tipo, id: p.predecessor_id })
+      }
+    }
+    return false
+  }
+
+  function addOneDay(dateStr: string): string {
+    const d = new Date(`${dateStr}T12:00:00`)
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().slice(0, 10)
+  }
+
+  // Diferença entre a lista nova (escolhida no picker) e a persistida — insere o
+  // que faltava, remove o que foi tirado.
+  async function salvarPredecessoras(itemTipo: CronogramaItemTipo, itemId: string, novaLista: PredecessoraRef[]) {
+    if (!obraId) return
+    const atuais = predecessorasDeItem(itemTipo, itemId)
+    const novosIds = new Set(novaLista.map(p => `${p.tipo}:${p.id}`))
+    const atuaisIds = new Set(atuais.map(d => `${d.predecessor_tipo}:${d.predecessor_id}`))
+
+    const paraRemover = atuais.filter(d => !novosIds.has(`${d.predecessor_tipo}:${d.predecessor_id}`))
+    const paraAdicionar = novaLista.filter(p => !atuaisIds.has(`${p.tipo}:${p.id}`))
+
+    if (paraRemover.length > 0) {
+      await Promise.all(paraRemover.map(d => supabase.from('cronograma_dependencias').delete().eq('id', d.id)))
+    }
+    if (paraAdicionar.length > 0) {
+      const { data } = await supabase.from('cronograma_dependencias').insert(
+        paraAdicionar.map(p => ({ obra_id: obraId, item_tipo: itemTipo, item_id: itemId, predecessor_tipo: p.tipo, predecessor_id: p.id }))
+      ).select()
+      if (data) setDependencias(prev => [...prev.filter(d => !paraRemover.some(r => r.id === d.id)), ...(data as CronogramaDependencia[])])
+      return
+    }
+    if (paraRemover.length > 0) {
+      setDependencias(prev => prev.filter(d => !paraRemover.some(r => r.id === d.id)))
+    }
+  }
+
+  // Aviso de conflito: alguma predecessora termina depois do início do item?
+  function conflitoDePredecessoras(tipo: CronogramaItemTipo, id: string, dataInicio: string | null): string | null {
+    if (!dataInicio) return null
+    const preds = predecessorasDeItem(tipo, id)
+    for (const p of preds) {
+      const { fim } = dataDoItem(p.predecessor_tipo, p.predecessor_id)
+      if (fim && fim > dataInicio) return nomeDoItem(p.predecessor_tipo, p.predecessor_id)
+    }
+    return null
   }
 
   // ── Atualização inline de datas ───────────────────────────────────────────────
@@ -138,6 +287,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
 
   function openNewEtapa() {
     setEtapaForm(EMPTY_ETAPA)
+    setEtapaPreds([])
     setEtapaModal({ open: true, editando: null })
   }
 
@@ -146,7 +296,11 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       nome: etapa.nome, data_inicio: etapa.data_inicio ?? '',
       data_fim: etapa.data_fim ?? '', status: etapa.status,
       percentual_executado: etapa.percentual_executado ?? 0,
+      is_marco: etapa.is_marco ?? false,
     })
+    setEtapaPreds(predecessorasDeItem('etapa', etapa.id).map(d => ({
+      tipo: d.predecessor_tipo, id: d.predecessor_id, nome: nomeDoItem(d.predecessor_tipo, d.predecessor_id), data_fim: dataDoItem(d.predecessor_tipo, d.predecessor_id).fim,
+    })))
     setEtapaModal({ open: true, editando: etapa })
   }
 
@@ -160,7 +314,9 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       data_fim: etapaForm.data_fim || null,
       status: etapaForm.status,
       percentual_executado: etapaForm.percentual_executado,
+      is_marco: etapaForm.is_marco,
     }
+    let etapaId = editando?.id
     if (editando) {
       await supabase.from('etapas').update(payload).eq('id', editando.id)
       setEtapas(prev => prev.map(e => e.id === editando.id ? { ...e, ...payload } : e))
@@ -168,8 +324,9 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       const maxOrdem = etapas.reduce((m, e) => Math.max(m, e.ordem), 0)
       const fk = obraId ? { obra_id: obraId } : { projeto_id: projetoId }
       const { data } = await supabase.from('etapas').insert({ ...fk, ...payload, ordem: maxOrdem + 1 }).select().single()
-      if (data) setEtapas(prev => [...prev, data as Etapa])
+      if (data) { setEtapas(prev => [...prev, data as Etapa]); etapaId = (data as Etapa).id }
     }
+    if (etapaId) await salvarPredecessoras('etapa', etapaId, etapaPreds)
     setSaving(false)
     setEtapaModal({ open: false, editando: null })
   }
@@ -187,6 +344,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
 
   function openNewSub(etapaId: string) {
     setSubForm(EMPTY_SUB(empreiteiro))
+    setSubPreds([])
     setSubModal({ open: true, etapaId, editando: null })
   }
 
@@ -195,7 +353,11 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       nome: sub.nome, data_inicio: sub.data_inicio ?? '',
       data_fim: sub.data_fim ?? '', status: sub.status,
       percentual_executado: sub.percentual_executado, responsavel: sub.responsavel ?? '',
+      is_marco: sub.is_marco ?? false,
     })
+    setSubPreds(predecessorasDeItem('subetapa', sub.id).map(d => ({
+      tipo: d.predecessor_tipo, id: d.predecessor_id, nome: nomeDoItem(d.predecessor_tipo, d.predecessor_id), data_fim: dataDoItem(d.predecessor_tipo, d.predecessor_id).fim,
+    })))
     setSubModal({ open: true, etapaId: sub.etapa_id, editando: sub })
   }
 
@@ -210,15 +372,18 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       status: subForm.status,
       percentual_executado: subForm.percentual_executado,
       responsavel: subForm.responsavel || null,
+      is_marco: subForm.is_marco,
     }
+    let novoSubId = editando?.id
     if (editando) {
       await supabase.from('subetapas_cronograma').update(payload).eq('id', editando.id)
       setSubetapas(prev => prev.map(s => s.id === editando.id ? { ...s, ...payload } : s))
     } else {
       const maxOrdem = subsDaEtapa(etapaId!).reduce((m, s) => Math.max(m, s.ordem), 0)
       const { data } = await supabase.from('subetapas_cronograma').insert({ etapa_id: etapaId, ...payload, ordem: maxOrdem + 1 }).select().single()
-      if (data) setSubetapas(prev => [...prev, data as SubetapaCronograma])
+      if (data) { setSubetapas(prev => [...prev, data as SubetapaCronograma]); novoSubId = (data as SubetapaCronograma).id }
     }
+    if (novoSubId) await salvarPredecessoras('subetapa', novoSubId, subPreds)
     setSaving(false)
     setSubModal({ open: false, etapaId: null, editando: null })
   }
@@ -235,6 +400,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
 
   function openNewSvc(subetapaId: string) {
     setSvcForm(EMPTY_SVC(empreiteiro))
+    setSvcPreds([])
     setSvcModal({ open: true, subetapaId, editando: null })
   }
 
@@ -243,7 +409,11 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       nome: svc.nome, data_inicio: svc.data_inicio ?? '',
       data_fim: svc.data_fim ?? '',
       percentual_executado: svc.percentual_executado, responsavel: svc.responsavel ?? '',
+      is_marco: svc.is_marco ?? false,
     })
+    setSvcPreds(predecessorasDeItem('servico', svc.id).map(d => ({
+      tipo: d.predecessor_tipo, id: d.predecessor_id, nome: nomeDoItem(d.predecessor_tipo, d.predecessor_id), data_fim: dataDoItem(d.predecessor_tipo, d.predecessor_id).fim,
+    })))
     setSvcModal({ open: true, subetapaId: svc.subetapa_id, editando: svc })
   }
 
@@ -257,15 +427,18 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       data_fim: svcForm.data_fim || null,
       percentual_executado: svcForm.percentual_executado,
       responsavel: svcForm.responsavel || null,
+      is_marco: svcForm.is_marco,
     }
+    let novoSvcId = editando?.id
     if (editando) {
       await supabase.from('servicos_cronograma').update(payload).eq('id', editando.id)
       setServicos(prev => prev.map(s => s.id === editando.id ? { ...s, ...payload } : s))
     } else {
       const maxOrdem = svcsDaSub(subetapaId!).reduce((m, s) => Math.max(m, s.ordem), 0)
       const { data } = await supabase.from('servicos_cronograma').insert({ subetapa_id: subetapaId, ...payload, ordem: maxOrdem + 1 }).select().single()
-      if (data) setServicos(prev => [...prev, data as ServicoCronograma])
+      if (data) { setServicos(prev => [...prev, data as ServicoCronograma]); novoSvcId = (data as ServicoCronograma).id }
     }
+    if (novoSvcId) await salvarPredecessoras('servico', novoSvcId, svcPreds)
     setSaving(false)
     setSvcModal({ open: false, subetapaId: null, editando: null })
   }
@@ -285,6 +458,49 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     if (table === 'etapas') setEtapas(prev => prev.map(e => e.id === id ? { ...e, percentual_executado: pct } : e))
     if (table === 'subetapas_cronograma') setSubetapas(prev => prev.map(s => s.id === id ? { ...s, percentual_executado: pct } : s))
     if (table === 'servicos_cronograma') setServicos(prev => prev.map(s => s.id === id ? { ...s, percentual_executado: pct } : s))
+  }
+
+  // ── Picker de predecessoras — compartilhado pelos 3 modais ────────────────────
+
+  function excluirIdsAtual(): Set<string> {
+    if (pickerAberto === 'etapa') return etapaModal.editando ? descendentesDe('etapa', etapaModal.editando.id) : new Set()
+    if (pickerAberto === 'sub') return subModal.editando ? descendentesDe('subetapa', subModal.editando.id) : new Set()
+    if (pickerAberto === 'svc') return svcModal.editando ? descendentesDe('servico', svcModal.editando.id) : new Set()
+    return new Set()
+  }
+
+  function jaSelecionadosAtual(): Set<string> {
+    if (pickerAberto === 'etapa') return new Set(etapaPreds.map(p => p.id))
+    if (pickerAberto === 'sub') return new Set(subPreds.map(p => p.id))
+    if (pickerAberto === 'svc') return new Set(svcPreds.map(p => p.id))
+    return new Set()
+  }
+
+  function confirmarPicker(refs: PredecessoraRef[]) {
+    const itemTipo: CronogramaItemTipo | null = pickerAberto === 'etapa' ? 'etapa' : pickerAberto === 'sub' ? 'subetapa' : pickerAberto === 'svc' ? 'servico' : null
+    const editandoId = pickerAberto === 'etapa' ? etapaModal.editando?.id : pickerAberto === 'sub' ? subModal.editando?.id : pickerAberto === 'svc' ? svcModal.editando?.id : undefined
+
+    let refsValidos = refs
+    if (itemTipo && editandoId) {
+      const bloqueados = refs.filter(r => criariCiclo(r.tipo, r.id, itemTipo, editandoId))
+      if (bloqueados.length > 0) {
+        alert(`Não é possível usar como predecessora: ${bloqueados.map(b => b.nome).join(', ')} — geraria uma dependência circular.`)
+        refsValidos = refs.filter(r => !bloqueados.includes(r))
+      }
+    }
+
+    const maiorFim = refsValidos.map(r => r.data_fim).filter((v): v is string => !!v).sort().pop()
+
+    if (pickerAberto === 'etapa') {
+      setEtapaPreds(refsValidos)
+      if (maiorFim && !etapaForm.data_inicio) setEtapaForm(f => ({ ...f, data_inicio: addOneDay(maiorFim) }))
+    } else if (pickerAberto === 'sub') {
+      setSubPreds(refsValidos)
+      if (maiorFim && !subForm.data_inicio) setSubForm(f => ({ ...f, data_inicio: addOneDay(maiorFim) }))
+    } else if (pickerAberto === 'svc') {
+      setSvcPreds(refsValidos)
+      if (maiorFim && !svcForm.data_inicio) setSvcForm(f => ({ ...f, data_inicio: addOneDay(maiorFim) }))
+    }
   }
 
   if (loading) {
@@ -317,7 +533,19 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
             </button>
           ))}
         </div>
-        <Button icon={<Plus size={16} />} onClick={openNewEtapa}>Nova Etapa</Button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setMostrarFinanceiro(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border"
+            style={mostrarFinanceiro
+              ? { background: 'rgba(16,185,129,0.12)', color: 'var(--success)', borderColor: 'var(--success)' }
+              : { color: 'var(--text-secondary)', borderColor: 'var(--border)' }}
+            title="Alternar entre cronograma físico e físico-financeiro"
+          >
+            <Wallet size={15} /> Financeiro
+          </button>
+          <Button icon={<Plus size={16} />} onClick={openNewEtapa}>Nova Etapa</Button>
+        </div>
       </div>
 
       {etapas.length === 0 ? (
@@ -340,6 +568,10 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
           editField={editField}
           onSetEditField={setEditField}
           onUpdateDate={updateDateInline}
+          mostrarFinanceiro={mostrarFinanceiro}
+          orcadoPorEtapa={orcadoPorEtapa}
+          realizadoPorEtapa={realizadoPorEtapa}
+          realizadoPorSubetapa={realizadoPorSubetapa}
         />
       ) : tab === 'cascata' ? (
         /* ── CASCATA ── */
@@ -367,6 +599,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
+                      {etapa.is_marco && <Flag size={12} style={{ color: '#8B5CF6' }} />}
                       <span className={`text-[10px] px-2 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[etapa.status]}`}>
                         {STATUS_ETAPA_LABEL[etapa.status]}
                       </span>
@@ -386,6 +619,17 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                         onCommit={v => updateDateInline('etapas', etapa.id, 'data_fim', v)}
                       />
                     </div>
+                    {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio) && (
+                      <p className="text-[10px] mt-1" style={{ color: 'var(--danger)' }}>
+                        ⚠ Conflita com predecessora: {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio)}
+                      </p>
+                    )}
+                    {mostrarFinanceiro && (
+                      <p className="text-[10px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                        💰 Orçado {formatCurrency(orcadoPorEtapa.get(etapa.id) ?? 0)} · Realizado {formatCurrency(realizadoPorEtapa.get(etapa.id) ?? 0)}
+                        {(orcadoPorEtapa.get(etapa.id) ?? 0) > 0 && ` · ${Math.round(((realizadoPorEtapa.get(etapa.id) ?? 0) / (orcadoPorEtapa.get(etapa.id) ?? 1)) * 100)}%`}
+                      </p>
+                    )}
                   </div>
 
                   <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
@@ -425,6 +669,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{sub.nome}</span>
+                            {sub.is_marco && <Flag size={11} style={{ color: '#8B5CF6' }} />}
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[sub.status]}`}>
                               {STATUS_ETAPA_LABEL[sub.status]}
                             </span>
@@ -447,6 +692,16 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                               <span className="text-[10px] ml-2 opacity-60" style={{ color: 'var(--text-secondary)' }}>· {sub.responsavel}</span>
                             )}
                           </div>
+                          {conflitoDePredecessoras('subetapa', sub.id, sub.data_inicio) && (
+                            <p className="text-[10px] mt-1" style={{ color: 'var(--danger)' }}>
+                              ⚠ Conflita com predecessora: {conflitoDePredecessoras('subetapa', sub.id, sub.data_inicio)}
+                            </p>
+                          )}
+                          {mostrarFinanceiro && (
+                            <p className="text-[10px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                              💰 Realizado {formatCurrency(realizadoPorSubetapa.get(sub.id) ?? 0)}
+                            </p>
+                          )}
                         </div>
 
                         <PctInput value={sub.percentual_executado} onChange={v => updatePct('subetapas_cronograma', sub.id, v)} />
@@ -474,6 +729,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                           <Check size={12} className="flex-shrink-0" style={{ color: svc.percentual_executado >= 100 ? '#10b981' : 'var(--border)' }} />
                           <div className="flex-1 min-w-0">
                             <span className="text-xs" style={{ color: 'var(--text-primary)' }}>{svc.nome}</span>
+                            {svc.is_marco && <Flag size={10} className="inline ml-1" style={{ color: '#8B5CF6' }} />}
                             <div className="flex flex-wrap items-center gap-2 mt-2">
                               <DateCell
                                 value={svc.data_inicio}
@@ -492,6 +748,16 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                                 <span className="text-[10px] ml-1 opacity-60" style={{ color: 'var(--text-secondary)' }}>· {svc.responsavel}</span>
                               )}
                             </div>
+                            {conflitoDePredecessoras('servico', svc.id, svc.data_inicio) && (
+                              <p className="text-[10px] mt-1" style={{ color: 'var(--danger)' }}>
+                                ⚠ Conflita com predecessora: {conflitoDePredecessoras('servico', svc.id, svc.data_inicio)}
+                              </p>
+                            )}
+                            {mostrarFinanceiro && (
+                              <p className="text-[10px] mt-1" style={{ color: 'var(--text-secondary)' }}>
+                                💰 Realizado {formatCurrency(realizadoPorServico.get(svc.id) ?? 0)}
+                              </p>
+                            )}
                           </div>
 
                           <PctInput value={svc.percentual_executado} onChange={v => updatePct('servicos_cronograma', svc.id, v)} small />
@@ -535,8 +801,14 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
           etapas={etapas}
           subetapas={subetapas}
           servicos={servicos}
+          dependencias={dependencias}
           onUpdateDate={updateDateInline}
           onUpdatePct={updatePct}
+          mostrarFinanceiro={mostrarFinanceiro}
+          orcadoPorEtapa={orcadoPorEtapa}
+          realizadoPorEtapa={realizadoPorEtapa}
+          realizadoPorSubetapa={realizadoPorSubetapa}
+          realizadoPorServico={realizadoPorServico}
         />
       )}
 
@@ -558,6 +830,24 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
             <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>% Executado</label>
             <input type="number" min={0} max={100} className="input-base" value={etapaForm.percentual_executado}
               onChange={e => setEtapaForm(f => ({ ...f, percentual_executado: Math.min(100, Math.max(0, Number(e.target.value))) }))} />
+          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-primary)' }}>
+            <input type="checkbox" checked={etapaForm.is_marco} onChange={e => setEtapaForm(f => ({ ...f, is_marco: e.target.checked }))} />
+            É um marco de projeto
+          </label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Predecessoras (Fim → Início)</label>
+            <div className="flex flex-wrap gap-1.5">
+              {etapaPreds.map(p => (
+                <span key={`${p.tipo}:${p.id}`} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                  {p.nome}
+                  <button onClick={() => setEtapaPreds(prev => prev.filter(x => x.id !== p.id))} className="opacity-60 hover:opacity-100">×</button>
+                </span>
+              ))}
+              <button onClick={() => setPickerAberto('etapa')} className="text-xs px-2 py-1 rounded-full border" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+                + Adicionar predecessora
+              </button>
+            </div>
           </div>
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" className="flex-1" onClick={() => setEtapaModal({ open: false, editando: null })}>Cancelar</Button>
@@ -588,6 +878,24 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
             </div>
             <Input label="Responsável" value={subForm.responsavel} onChange={e => setSubForm(f => ({ ...f, responsavel: e.target.value }))} placeholder="Empreiteiro ou equipe" />
           </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-primary)' }}>
+            <input type="checkbox" checked={subForm.is_marco} onChange={e => setSubForm(f => ({ ...f, is_marco: e.target.checked }))} />
+            É um marco de projeto
+          </label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Predecessoras (Fim → Início)</label>
+            <div className="flex flex-wrap gap-1.5">
+              {subPreds.map(p => (
+                <span key={`${p.tipo}:${p.id}`} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                  {p.nome}
+                  <button onClick={() => setSubPreds(prev => prev.filter(x => x.id !== p.id))} className="opacity-60 hover:opacity-100">×</button>
+                </span>
+              ))}
+              <button onClick={() => setPickerAberto('sub')} className="text-xs px-2 py-1 rounded-full border" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+                + Adicionar predecessora
+              </button>
+            </div>
+          </div>
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" className="flex-1" onClick={() => setSubModal({ open: false, etapaId: null, editando: null })}>Cancelar</Button>
             <Button className="flex-1" loading={saving} disabled={!subForm.nome} onClick={saveSub}>{subModal.editando ? 'Salvar' : 'Adicionar'}</Button>
@@ -611,12 +919,42 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
             </div>
             <Input label="Responsável" value={svcForm.responsavel} onChange={e => setSvcForm(f => ({ ...f, responsavel: e.target.value }))} placeholder="Empreiteiro ou equipe" />
           </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-primary)' }}>
+            <input type="checkbox" checked={svcForm.is_marco} onChange={e => setSvcForm(f => ({ ...f, is_marco: e.target.checked }))} />
+            É um marco de projeto
+          </label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Predecessoras (Fim → Início)</label>
+            <div className="flex flex-wrap gap-1.5">
+              {svcPreds.map(p => (
+                <span key={`${p.tipo}:${p.id}`} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                  {p.nome}
+                  <button onClick={() => setSvcPreds(prev => prev.filter(x => x.id !== p.id))} className="opacity-60 hover:opacity-100">×</button>
+                </span>
+              ))}
+              <button onClick={() => setPickerAberto('svc')} className="text-xs px-2 py-1 rounded-full border" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+                + Adicionar predecessora
+              </button>
+            </div>
+          </div>
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" className="flex-1" onClick={() => setSvcModal({ open: false, subetapaId: null, editando: null })}>Cancelar</Button>
             <Button className="flex-1" loading={saving} disabled={!svcForm.nome} onClick={saveSvc}>{svcModal.editando ? 'Salvar' : 'Adicionar'}</Button>
           </div>
         </div>
       </Modal>
+
+      {/* ── Picker de predecessoras (compartilhado pelos 3 modais) ── */}
+      <PredecessorPicker
+        open={pickerAberto !== null}
+        onClose={() => setPickerAberto(null)}
+        etapas={etapas}
+        subetapas={subetapas}
+        servicos={servicos}
+        excluirIds={excluirIdsAtual()}
+        jaSelecionadosIds={jaSelecionadosAtual()}
+        onConfirmar={confirmarPicker}
+      />
     </div>
   )
 }
@@ -680,7 +1018,7 @@ const KANBAN_COLS = [
 
 type KStatus = typeof KANBAN_COLS[number]['key']
 
-function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdatePct, onEditSub, onEditEtapa, onNewSub, editField, onSetEditField, onUpdateDate }: {
+function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdatePct, onEditSub, onEditEtapa, onNewSub, editField, onSetEditField, onUpdateDate, mostrarFinanceiro, orcadoPorEtapa, realizadoPorEtapa, realizadoPorSubetapa }: {
   etapas: Etapa[]
   subetapas: SubetapaCronograma[]
   servicos: ServicoCronograma[]
@@ -692,6 +1030,10 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
   editField: EditField
   onSetEditField: (f: EditField) => void
   onUpdateDate: (table: 'etapas' | 'subetapas_cronograma' | 'servicos_cronograma', id: string, field: 'data_inicio' | 'data_fim', value: string) => void
+  mostrarFinanceiro: boolean
+  orcadoPorEtapa: Map<string, number>
+  realizadoPorEtapa: Map<string, number>
+  realizadoPorSubetapa: Map<string, number>
 }) {
   // Agrupar subetapas por status; etapas sem subetapas também aparecem
   const byStatus: Record<KStatus, { type: 'etapa'; item: Etapa; subsCount: number }[] | { type: 'sub'; item: SubetapaCronograma; etapaNome: string }[]> = {
@@ -747,7 +1089,10 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
                 return (
                   <div key={etapa.id} className="card p-3 flex flex-col gap-2 hover:shadow-md transition-shadow">
                     <span className="text-[10px] px-1.5 py-0.5 rounded w-fit font-medium" style={{ background: 'rgba(59,123,248,0.12)', color: 'var(--accent)' }}>Etapa</span>
-                    <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
+                    <span className="text-sm font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                      {etapa.nome}
+                      {etapa.is_marco && <Flag size={12} style={{ color: '#8B5CF6' }} />}
+                    </span>
                     <div className="flex items-center gap-1">
                       <DateCell
                         value={etapa.data_inicio}
@@ -769,6 +1114,11 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
                       </div>
                       <PctInput value={prog} onChange={v => onUpdatePct('etapas', etapa.id, v)} small />
                     </div>
+                    {mostrarFinanceiro && (
+                      <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                        💰 {formatCurrency(realizadoPorEtapa.get(etapa.id) ?? 0)} / {formatCurrency(orcadoPorEtapa.get(etapa.id) ?? 0)}
+                      </p>
+                    )}
                     <StatusButtons current={etapa.status as KStatus} onMove={s => onUpdateStatus('etapas', etapa.id, s)} />
                     <div className="flex gap-1 pt-0.5 border-t" style={{ borderColor: 'var(--border)' }}>
                       <button onClick={() => onEditEtapa(etapa)} className="text-[10px] opacity-50 hover:opacity-100 flex items-center gap-0.5" style={{ color: 'var(--text-secondary)' }}>
@@ -792,7 +1142,10 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
                       {c.etapaNome}
                     </span>
                   )}
-                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{sub.nome}</span>
+                  <span className="text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                    {sub.nome}
+                    {sub.is_marco && <Flag size={12} style={{ color: '#8B5CF6' }} />}
+                  </span>
                   <div className="flex items-center gap-1">
                     <DateCell
                       value={sub.data_inicio}
@@ -810,6 +1163,9 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
                   </div>
                   {sub.responsavel && (
                     <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>👷 {sub.responsavel}</p>
+                  )}
+                  {mostrarFinanceiro && (
+                    <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>💰 Realizado {formatCurrency(realizadoPorSubetapa.get(sub.id) ?? 0)}</p>
                   )}
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
@@ -867,6 +1223,7 @@ type ObraGanttNode = {
   percentual_executado: number
   status?: Etapa['status'] | SubetapaCronograma['status']
   responsavel?: string | null
+  is_marco: boolean
   children: ObraGanttNode[]
 }
 
@@ -899,6 +1256,7 @@ function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], se
         percentual_executado: sub.percentual_executado ?? 0,
         status: sub.status,
         responsavel: sub.responsavel,
+        is_marco: sub.is_marco ?? false,
         children: servicos
           .filter(svc => svc.subetapa_id === sub.id)
           .sort((a, b) => a.ordem - b.ordem)
@@ -911,6 +1269,7 @@ function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], se
             data_fim: svc.data_fim,
             percentual_executado: svc.percentual_executado ?? 0,
             responsavel: svc.responsavel,
+            is_marco: svc.is_marco ?? false,
             children: [],
           })),
       }))
@@ -924,6 +1283,7 @@ function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], se
       data_fim: etapa.data_fim,
       percentual_executado: etapa.percentual_executado ?? 0,
       status: etapa.status,
+      is_marco: etapa.is_marco ?? false,
       children: subs,
     }
   })
@@ -955,14 +1315,26 @@ function ObraGanttView({
   etapas,
   subetapas,
   servicos,
+  dependencias,
   onUpdateDate,
   onUpdatePct,
+  mostrarFinanceiro,
+  orcadoPorEtapa,
+  realizadoPorEtapa,
+  realizadoPorSubetapa,
+  realizadoPorServico,
 }: {
   etapas: Etapa[]
   subetapas: SubetapaCronograma[]
   servicos: ServicoCronograma[]
+  dependencias: CronogramaDependencia[]
   onUpdateDate: (table: ObraGanttTable, id: string, field: 'data_inicio' | 'data_fim', value: string) => void
   onUpdatePct: (table: ObraGanttTable, id: string, pct: number) => void
+  mostrarFinanceiro: boolean
+  orcadoPorEtapa: Map<string, number>
+  realizadoPorEtapa: Map<string, number>
+  realizadoPorSubetapa: Map<string, number>
+  realizadoPorServico: Map<string, number>
 }) {
   const tree = buildObraGanttTree(etapas, subetapas, servicos)
   const [collapsed, setCollapsed] = useState<Set<string>>(
@@ -1137,6 +1509,13 @@ function ObraGanttView({
                       <PctInput value={node.percentual_executado ?? 0} onChange={v => onUpdatePct(node.table, node.id, v)} small />
                     )}
                   </div>
+                  {mostrarFinanceiro && !row.isTotal && node && (
+                    <p className="text-[9px] pl-5 mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                      💰 {node.nivel === 1
+                        ? `${formatCurrency(realizadoPorEtapa.get(node.id) ?? 0)} / ${formatCurrency(orcadoPorEtapa.get(node.id) ?? 0)}`
+                        : `Realizado ${formatCurrency((node.nivel === 2 ? realizadoPorSubetapa : realizadoPorServico).get(node.id) ?? 0)}`}
+                    </p>
+                  )}
                 </div>
               )
             })}
@@ -1187,6 +1566,26 @@ function ObraGanttView({
                 const color = pct >= 100 ? '#10B981' : atrasado ? '#EF4444' : baseColor
                 const opacity = row.isTotal || row.node?.nivel === 1 ? 1 : row.node?.nivel === 2 ? 0.75 : 0.55
 
+                // Marco: renderiza como losango na data de referência, em vez de barra.
+                if (!row.isTotal && row.node?.is_marco) {
+                  const cx = row.fim ? x2 : x1
+                  const cy = barY + barH / 2
+                  const s = 7
+                  return (
+                    <g key={row.id} opacity={opacity}>
+                      <polygon
+                        points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
+                        fill={color}
+                        stroke="#8B5CF6"
+                        strokeWidth={1.5}
+                      />
+                      <text x={cx + s + 5} y={cy + 3.5} fontSize={8} fill={atrasado ? '#EF4444' : 'var(--text-secondary)'} fontFamily="var(--font-sans)">
+                        {fmtGanttDate(row.fim ?? row.inicio)}
+                      </text>
+                    </g>
+                  )
+                }
+
                 return (
                   <g key={row.id} opacity={opacity}>
                     <rect x={x1} y={barY} width={barW} height={barH} rx={row.isTotal ? 3 : barH / 2} fill={color} />
@@ -1205,6 +1604,38 @@ function ObraGanttView({
                   </g>
                 )
               })}
+
+              {/* ── Setas de dependência (predecessora → item) ── */}
+              {(() => {
+                const rowIndexById = new Map(rows.map((row, idx) => [row.id, idx]))
+                return dependencias.map(dep => {
+                  const predIdx = rowIndexById.get(dep.predecessor_id)
+                  const itemIdx = rowIndexById.get(dep.item_id)
+                  if (predIdx === undefined || itemIdx === undefined || predIdx === itemIdx) return null
+                  const predRow = rows[predIdx]
+                  const itemRow = rows[itemIdx]
+                  if (!predRow.fim && !predRow.inicio) return null
+                  if (!itemRow.inicio && !itemRow.fim) return null
+
+                  const predY = GANTT_HDR_H + predIdx * GANTT_ROW_H + GANTT_ROW_H / 2
+                  const itemY = GANTT_HDR_H + itemIdx * GANTT_ROW_H + GANTT_ROW_H / 2
+                  const predX = xOf(predRow.fim, predRow.inicio ? addDaysCrono(new Date(`${predRow.inicio}T12:00:00`), 1) : today)
+                  const itemX = xOf(itemRow.inicio, itemRow.fim ? addDaysCrono(new Date(`${itemRow.fim}T12:00:00`), -1) : today)
+
+                  const conflito = !!(predRow.fim && itemRow.inicio && predRow.fim > itemRow.inicio)
+                  const strokeColor = conflito ? '#EF4444' : 'var(--text-secondary)'
+                  const midX = predX + 10
+                  const arrowX = itemX - 5
+                  const path = `M ${predX} ${predY} L ${midX} ${predY} L ${midX} ${itemY} L ${arrowX} ${itemY}`
+
+                  return (
+                    <g key={dep.id} opacity={0.85}>
+                      <path d={path} fill="none" stroke={strokeColor} strokeWidth={1.25} strokeDasharray={conflito ? '3 2' : undefined} />
+                      <polygon points={`${itemX},${itemY} ${arrowX},${itemY - 3} ${arrowX},${itemY + 3}`} fill={strokeColor} />
+                    </g>
+                  )
+                })
+              })()}
             </svg>
           </div>
         </div>

@@ -356,12 +356,12 @@ export function createLocalSeed(): LocalDatabase {
       },
     ],
     etapas: [
-      { id: 'etapa-servicos', obra_id: obraId, nome: 'Servicos preliminares', data_inicio: '2026-06-10', data_fim: '2026-06-14', status: 'planejada', percentual_executado: 0, ordem: 1 },
-      { id: 'etapa-fundacoes', obra_id: obraId, nome: 'Fundacoes', data_inicio: '2026-06-15', data_fim: '2026-06-30', status: 'planejada', percentual_executado: 0, ordem: 2 },
-      { id: 'etapa-acabamento', obra_id: obraId, nome: 'Acabamento', data_inicio: '2026-08-15', data_fim: '2026-09-20', status: 'planejada', percentual_executado: 0, ordem: 3 },
-      { id: 'etapa-demolicao-2', obra_id: obraId2, nome: 'Demolicao e remocao', data_inicio: '2026-06-15', data_fim: '2026-06-19', status: 'planejada', percentual_executado: 0, ordem: 1 },
-      { id: 'etapa-instalacoes-2', obra_id: obraId2, nome: 'Instalacoes eletricas e hidraulicas', data_inicio: '2026-06-22', data_fim: '2026-07-10', status: 'planejada', percentual_executado: 0, ordem: 2 },
-      { id: 'etapa-acabamentos-2', obra_id: obraId2, nome: 'Acabamentos e pisos', data_inicio: '2026-07-13', data_fim: '2026-08-15', status: 'planejada', percentual_executado: 0, ordem: 3 },
+      { id: 'etapa-servicos', obra_id: obraId, nome: 'Servicos preliminares', data_inicio: '2026-06-10', data_fim: '2026-06-14', status: 'planejada', percentual_executado: 0, ordem: 1, is_marco: false },
+      { id: 'etapa-fundacoes', obra_id: obraId, nome: 'Fundacoes', data_inicio: '2026-06-15', data_fim: '2026-06-30', status: 'planejada', percentual_executado: 0, ordem: 2, is_marco: false },
+      { id: 'etapa-acabamento', obra_id: obraId, nome: 'Acabamento', data_inicio: '2026-08-15', data_fim: '2026-09-20', status: 'planejada', percentual_executado: 0, ordem: 3, is_marco: false },
+      { id: 'etapa-demolicao-2', obra_id: obraId2, nome: 'Demolicao e remocao', data_inicio: '2026-06-15', data_fim: '2026-06-19', status: 'planejada', percentual_executado: 0, ordem: 1, is_marco: false },
+      { id: 'etapa-instalacoes-2', obra_id: obraId2, nome: 'Instalacoes eletricas e hidraulicas', data_inicio: '2026-06-22', data_fim: '2026-07-10', status: 'planejada', percentual_executado: 0, ordem: 2, is_marco: false },
+      { id: 'etapa-acabamentos-2', obra_id: obraId2, nome: 'Acabamentos e pisos', data_inicio: '2026-07-13', data_fim: '2026-08-15', status: 'planejada', percentual_executado: 0, ordem: 3, is_marco: false },
     ],
     materiais: [
       { id: 'mat-cimento', obra_id: obraId, etapa_id: 'etapa-fundacoes', subetapa: 'Sapatas', sinapi_codigo: '00001379', descricao: 'Cimento Portland composto CP II-32, saco 50 kg', unidade: 'SC', quantidade_total: 38.4, quantidade_comprada: 0, status_compra: 'nao_comprado', data_necessidade: '2026-06-12', data_recebimento: null },
