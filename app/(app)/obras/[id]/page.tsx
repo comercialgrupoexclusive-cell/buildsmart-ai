@@ -28,7 +28,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'materiais', label: 'Materiais' },
   { id: 'medicoes', label: 'Diário / Medições' },
-  { id: 'compras', label: 'Compras' },
+  { id: 'compras', label: 'Materiais' },
   { id: 'tarefas', label: 'Tarefas' },
 ]
 

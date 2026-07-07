@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ShoppingCart, Plus, Pencil, Trash2, ChevronDown, ChevronRight,
-  CheckSquare, Square, Scale, FileText, X, Building2, Zap,
+  CheckSquare, Square, Scale, FileText, X, Building2, Zap, List,
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -13,7 +13,6 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
-import { LancamentoRapidoModal } from '@/components/obra/LancamentoRapidoModal'
 
 const STATUS_VALOR_LABEL: Record<CompraItem['status_valor'], string> = {
   confirmado: 'Confirmado',
@@ -28,9 +27,11 @@ const STATUS_VALOR_COLOR: Record<CompraItem['status_valor'], string> = {
 const SEM_ETAPA = 'sem_etapa'
 
 type CotacaoLinha = { id: string; fornecedorNome: string; valor: string }
+type SubTab = 'lancamento' | 'itens'
 
 export function ObraCompras({ obraId }: { obraId: string }) {
   const supabase = createClient()
+  const [subTab, setSubTab] = useState<SubTab>('lancamento')
   const [itens, setItens] = useState<CompraItem[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
@@ -39,7 +40,6 @@ export function ObraCompras({ obraId }: { obraId: string }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const [showModal, setShowModal] = useState(false)
-  const [showLancamento, setShowLancamento] = useState(false)
   const [editando, setEditando] = useState<CompraItem | null>(null)
   const [saving, setSaving] = useState(false)
   const [fornecedorManual, setFornecedorManual] = useState(false)
@@ -227,65 +227,96 @@ export function ObraCompras({ obraId }: { obraId: string }) {
         </div>
       </div>
 
-      {/* Barra de ações */}
-      <div className="flex flex-wrap items-center gap-2 justify-between">
-        {etapas.length > 0 ? (
-          <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)} className="input-base w-full sm:w-64">
-            <option value="todas">Todas etapas</option>
-            <option value={SEM_ETAPA}>Sem etapa</option>
-            {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-          </select>
-        ) : <div />}
-        <div className="flex items-center gap-2">
-          <Link href={`/obras/${obraId}/compras/relatorio`}>
-            <Button size="sm" variant="secondary" icon={<FileText size={14} />}>Gerar relatório</Button>
-          </Link>
-          <Button size="sm" variant="secondary" icon={<Zap size={14} />} onClick={() => setShowLancamento(true)}>Lançamento rápido</Button>
-          <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar item</Button>
-        </div>
+      {/* Sub-abas */}
+      <div className="flex gap-1 p-1 rounded-xl w-max" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+        <button
+          onClick={() => setSubTab('lancamento')}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
+          style={subTab === 'lancamento' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+        >
+          <Zap size={14} /> Lançamento Rápido
+        </button>
+        <button
+          onClick={() => setSubTab('itens')}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
+          style={subTab === 'itens' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+        >
+          <List size={14} /> Itens {itens.length > 0 && `(${itens.length})`}
+        </button>
       </div>
 
-      {itensFiltrados.length === 0 ? (
-        <EmptyState
-          icon={ShoppingCart}
-          title="Nenhum item de compra"
-          description="Cadastre os itens previstos ou já confirmados desta obra, com valor, fornecedor e forma de pagamento."
-          action={<Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar item</Button>}
+      {subTab === 'lancamento' && (
+        <LancamentoRapidoInline
+          obraId={obraId}
+          etapas={etapas}
+          fornecedores={fornecedores}
+          onSaved={item => setItens(prev => [item, ...prev])}
+          onVerItens={() => setSubTab('itens')}
         />
-      ) : (
-        <div className="flex flex-col gap-3 pb-8">
-          {itensPorEtapa[SEM_ETAPA].length > 0 && (
-            <GrupoEtapaCompra
-              chave={SEM_ETAPA}
-              nome="Sem etapa"
-              itens={itensPorEtapa[SEM_ETAPA]}
-              collapsed={collapsed[SEM_ETAPA]}
-              onToggle={() => setCollapsed(c => ({ ...c, [SEM_ETAPA]: !c[SEM_ETAPA] }))}
-              onEdit={openEdit}
-              onDelete={handleDelete}
-              onTogglePago={alternarPago}
-              onCotacao={abrirCotacao}
+      )}
+
+      {subTab === 'itens' && (
+        <>
+          {/* Barra de ações */}
+          <div className="flex flex-wrap items-center gap-2 justify-between">
+            {etapas.length > 0 ? (
+              <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)} className="input-base w-full sm:w-64">
+                <option value="todas">Todas etapas</option>
+                <option value={SEM_ETAPA}>Sem etapa</option>
+                {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+              </select>
+            ) : <div />}
+            <div className="flex items-center gap-2">
+              <Link href={`/obras/${obraId}/compras/relatorio`}>
+                <Button size="sm" variant="secondary" icon={<FileText size={14} />}>Gerar relatório</Button>
+              </Link>
+              <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar item</Button>
+            </div>
+          </div>
+
+          {itensFiltrados.length === 0 ? (
+            <EmptyState
+              icon={ShoppingCart}
+              title="Nenhum item de compra"
+              description="Cadastre os itens previstos ou já confirmados desta obra, com valor, fornecedor e forma de pagamento."
+              action={<Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar item</Button>}
             />
+          ) : (
+            <div className="flex flex-col gap-3 pb-8">
+              {itensPorEtapa[SEM_ETAPA].length > 0 && (
+                <GrupoEtapaCompra
+                  chave={SEM_ETAPA}
+                  nome="Sem etapa"
+                  itens={itensPorEtapa[SEM_ETAPA]}
+                  collapsed={collapsed[SEM_ETAPA]}
+                  onToggle={() => setCollapsed(c => ({ ...c, [SEM_ETAPA]: !c[SEM_ETAPA] }))}
+                  onEdit={openEdit}
+                  onDelete={handleDelete}
+                  onTogglePago={alternarPago}
+                  onCotacao={abrirCotacao}
+                />
+              )}
+              {etapas.map(etapa => {
+                const itensDaEtapa = itensPorEtapa[etapa.id] || []
+                if (itensDaEtapa.length === 0) return null
+                return (
+                  <GrupoEtapaCompra
+                    key={etapa.id}
+                    chave={etapa.id}
+                    nome={etapa.nome}
+                    itens={itensDaEtapa}
+                    collapsed={collapsed[etapa.id]}
+                    onToggle={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
+                    onEdit={openEdit}
+                    onDelete={handleDelete}
+                    onTogglePago={alternarPago}
+                    onCotacao={abrirCotacao}
+                  />
+                )
+              })}
+            </div>
           )}
-          {etapas.map(etapa => {
-            const itensDaEtapa = itensPorEtapa[etapa.id] || []
-            if (itensDaEtapa.length === 0) return null
-            return (
-              <GrupoEtapaCompra
-                key={etapa.id}
-                chave={etapa.id}
-                nome={etapa.nome}
-                itens={itensDaEtapa}
-                collapsed={collapsed[etapa.id]}
-                onToggle={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
-                onEdit={openEdit}
-                onDelete={handleDelete}
-                onTogglePago={alternarPago}
-                onCotacao={abrirCotacao}
-              />
-            )
-          })}
-        </div>
+        </>
       )}
 
       {/* Modal Adicionar/Editar item */}
@@ -462,14 +493,175 @@ export function ObraCompras({ obraId }: { obraId: string }) {
           </Button>
         </div>
       </Modal>
+    </div>
+  )
+}
 
-      {/* Lançamento rápido de nota */}
-      <LancamentoRapidoModal
-        open={showLancamento}
-        onClose={() => setShowLancamento(false)}
-        obraId={obraId}
-        onSaved={item => setItens(prev => [item, ...prev])}
-      />
+// ─── Lançamento Rápido (inline, 1ª sub-aba) ──────────────────────────────────
+// Registro rápido de nota: valor total + centro de custo + tipo. Reaproveita
+// etapas/fornecedores já carregados pelo componente pai. Grava direto em
+// compra_itens como confirmado; após salvar, limpa valor/descrição/vencimento
+// e mantém etapa/tipo/fornecedor para lançar a próxima nota em sequência.
+function hoje() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function LancamentoRapidoInline({
+  obraId, etapas, fornecedores, onSaved, onVerItens,
+}: {
+  obraId: string
+  etapas: Etapa[]
+  fornecedores: Fornecedor[]
+  onSaved: (item: CompraItem) => void
+  onVerItens: () => void
+}) {
+  const supabase = createClient()
+  const [fornecedorManual, setFornecedorManual] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    valor_total: '',
+    etapa_id: '',
+    tipo_custo: '' as TipoCusto | '',
+    fornecedor_id: '',
+    fornecedor_nome: '',
+    data_compra: hoje(),
+    vencimento: '',
+    descricao: '',
+  })
+
+  async function salvar() {
+    if (!form.valor_total) return
+    setSaving(true)
+    const nomeFornecedor = fornecedorManual
+      ? form.fornecedor_nome.trim()
+      : fornecedores.find(f => f.id === form.fornecedor_id)?.nome
+    const payload = {
+      obra_id: obraId,
+      etapa_id: form.etapa_id || null,
+      descricao: form.descricao.trim() || `Nota — ${nomeFornecedor || 'lançamento rápido'}`,
+      fornecedor_id: fornecedorManual ? null : form.fornecedor_id || null,
+      fornecedor_nome: fornecedorManual ? form.fornecedor_nome.trim() || null : null,
+      valor_total: parseFloat(String(form.valor_total).replace(',', '.')),
+      tipo_custo: form.tipo_custo || null,
+      data_compra: form.data_compra || hoje(),
+      data_limite_pagamento: form.vencimento || null,
+      status_valor: 'confirmado' as const,
+      updated_at: new Date().toISOString(),
+    }
+    const { data, error } = await supabase
+      .from('compra_itens')
+      .insert(payload)
+      .select('*, etapa:etapas(*), fornecedor:fornecedores(*)')
+      .single()
+    setSaving(false)
+    if (error) {
+      alert(`Não foi possível salvar o lançamento.\n\nErro: ${error.message}`)
+      return
+    }
+    if (data) onSaved(data as CompraItem)
+    setForm(f => ({ ...f, valor_total: '', descricao: '', vencimento: '' }))
+  }
+
+  const podeSalvar = !!form.valor_total && !saving
+
+  return (
+    <div className="card p-5 flex flex-col gap-4">
+      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+        Registre uma nota em poucos campos: valor total, centro de custo (etapa) e tipo. O detalhamento
+        por item pode ser feito na aba Itens.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Input
+          label="Valor total da nota (R$) *"
+          type="number"
+          min="0"
+          step="0.01"
+          value={form.valor_total}
+          onChange={e => setForm(f => ({ ...f, valor_total: e.target.value }))}
+          placeholder="0,00"
+          autoFocus
+        />
+        <Input
+          label="Data da compra"
+          type="date"
+          value={form.data_compra}
+          onChange={e => setForm(f => ({ ...f, data_compra: e.target.value }))}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Select
+          label="Centro de custo (etapa)"
+          value={form.etapa_id}
+          onChange={e => setForm(f => ({ ...f, etapa_id: e.target.value }))}
+        >
+          <option value="">Sem etapa</option>
+          {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+        </Select>
+        <Select
+          label="Tipo de custo"
+          value={form.tipo_custo}
+          onChange={e => setForm(f => ({ ...f, tipo_custo: e.target.value as TipoCusto }))}
+        >
+          <option value="">Não classificado</option>
+          {Object.entries(TIPO_CUSTO_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </Select>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Fornecedor</label>
+          <button
+            type="button"
+            onClick={() => setFornecedorManual(v => !v)}
+            className="text-xs font-medium"
+            style={{ color: 'var(--accent)' }}
+          >
+            {fornecedorManual ? 'Selecionar cadastrado' : 'Digitar manualmente'}
+          </button>
+        </div>
+        {fornecedorManual ? (
+          <Input
+            value={form.fornecedor_nome}
+            onChange={e => setForm(f => ({ ...f, fornecedor_nome: e.target.value }))}
+            placeholder="Nome do fornecedor"
+          />
+        ) : (
+          <select
+            value={form.fornecedor_id}
+            onChange={e => setForm(f => ({ ...f, fornecedor_id: e.target.value }))}
+            className="input-base"
+          >
+            <option value="">Sem fornecedor definido</option>
+            {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+          </select>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Input
+          label="Vencimento"
+          type="date"
+          value={form.vencimento}
+          onChange={e => setForm(f => ({ ...f, vencimento: e.target.value }))}
+        />
+        <Input
+          label="Descrição (opcional)"
+          value={form.descricao}
+          onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
+          placeholder="Ex: Aço infraestrutura"
+        />
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 pt-1">
+        <Button icon={<Zap size={14} />} loading={saving} disabled={!podeSalvar} onClick={salvar}>
+          Salvar lançamento
+        </Button>
+        <Button variant="secondary" onClick={onVerItens}>Ver itens lançados</Button>
+      </div>
     </div>
   )
 }
