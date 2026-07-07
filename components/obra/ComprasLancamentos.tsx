@@ -8,7 +8,7 @@ import {
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, FORMA_PAGAMENTO_LABEL, TIPO_CUSTO_LABEL, TIPO_CUSTO_COLOR } from '@/lib/utils'
-import { CompraItem, Etapa, Fornecedor, TipoCusto } from '@/lib/types'
+import { CompraItem, Etapa, Fornecedor, TipoCusto, SubetapaCronograma, ServicoCronograma } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -49,6 +49,8 @@ export function ComprasLancamentos({
   const supabase = createClient()
   const [itens, setItens] = useState<CompraItem[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
+  const [subetapas, setSubetapas] = useState<SubetapaCronograma[]>([])
+  const [servicos, setServicos] = useState<ServicoCronograma[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroEtapa, setFiltroEtapa] = useState('todas')
@@ -61,6 +63,8 @@ export function ComprasLancamentos({
   const [form, setForm] = useState({
     descricao: '',
     etapa_id: '',
+    subetapa_id: '',
+    servico_id: '',
     fornecedor_id: '',
     fornecedor_nome: '',
     valor_total: '',
@@ -85,14 +89,32 @@ export function ComprasLancamentos({
       supabase.from('fornecedores').select('*').or(`obra_id.is.null,obra_id.eq.${obraId}`).order('nome'),
     ])
     setItens((itensRes.data || []) as CompraItem[])
-    setEtapas((etapasRes.data || []) as Etapa[])
+    const etapasData = (etapasRes.data || []) as Etapa[]
+    setEtapas(etapasData)
     setFornecedores((fornecedoresRes.data || []) as Fornecedor[])
+
+    // Subetapa/Serviço: usados só como refinamento opcional do centro de custo.
+    const etapaIds = etapasData.map(e => e.id)
+    if (etapaIds.length > 0) {
+      const { data: subs } = await supabase.from('subetapas_cronograma').select('*').in('etapa_id', etapaIds).order('ordem')
+      setSubetapas((subs || []) as SubetapaCronograma[])
+      const subIds = (subs || []).map((s: SubetapaCronograma) => s.id)
+      if (subIds.length > 0) {
+        const { data: svcs } = await supabase.from('servicos_cronograma').select('*').in('subetapa_id', subIds).order('ordem')
+        setServicos((svcs || []) as ServicoCronograma[])
+      } else {
+        setServicos([])
+      }
+    } else {
+      setSubetapas([])
+      setServicos([])
+    }
     setLoading(false)
   }
 
   function resetForm() {
     setForm({
-      descricao: '', etapa_id: '', fornecedor_id: '', fornecedor_nome: '',
+      descricao: '', etapa_id: '', subetapa_id: '', servico_id: '', fornecedor_id: '', fornecedor_nome: '',
       valor_total: '', tipo_custo: '', status_valor: 'estimado', forma_pagamento: '', data_limite_pagamento: '',
     })
     setFornecedorManual(false)
@@ -109,6 +131,8 @@ export function ComprasLancamentos({
     setForm({
       descricao: item.descricao,
       etapa_id: item.etapa_id || '',
+      subetapa_id: item.subetapa_id || '',
+      servico_id: item.servico_id || '',
       fornecedor_id: item.fornecedor_id || '',
       fornecedor_nome: item.fornecedor_nome || '',
       valor_total: String(item.valor_total ?? ''),
@@ -127,6 +151,8 @@ export function ComprasLancamentos({
     const payload = {
       obra_id: obraId,
       etapa_id: form.etapa_id || null,
+      subetapa_id: form.subetapa_id || null,
+      servico_id: form.servico_id || null,
       descricao: form.descricao.trim(),
       fornecedor_id: fornecedorManual ? null : (form.fornecedor_id || null),
       fornecedor_nome: fornecedorManual ? (form.fornecedor_nome.trim() || null) : null,
@@ -246,6 +272,8 @@ export function ComprasLancamentos({
       <LancamentoRapidoForm
         obraId={obraId}
         etapas={etapas}
+        subetapas={subetapas}
+        servicos={servicos}
         fornecedores={fornecedores}
         prefill={prefill}
         onPrefillConsumed={onPrefillConsumed}
@@ -331,11 +359,34 @@ export function ComprasLancamentos({
           <Select
             label="Etapa"
             value={form.etapa_id}
-            onChange={e => setForm(f => ({ ...f, etapa_id: e.target.value }))}
+            onChange={e => setForm(f => ({ ...f, etapa_id: e.target.value, subetapa_id: '', servico_id: '' }))}
           >
             <option value="">Sem etapa</option>
             {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
           </Select>
+
+          {form.etapa_id && subetapas.some(s => s.etapa_id === form.etapa_id) && (
+            <div className="grid grid-cols-2 gap-3">
+              <Select
+                label="Subetapa (opcional)"
+                value={form.subetapa_id}
+                onChange={e => setForm(f => ({ ...f, subetapa_id: e.target.value, servico_id: '' }))}
+              >
+                <option value="">Não especificar</option>
+                {subetapas.filter(s => s.etapa_id === form.etapa_id).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+              </Select>
+              {form.subetapa_id && servicos.some(s => s.subetapa_id === form.subetapa_id) && (
+                <Select
+                  label="Serviço (opcional)"
+                  value={form.servico_id}
+                  onChange={e => setForm(f => ({ ...f, servico_id: e.target.value }))}
+                >
+                  <option value="">Não especificar</option>
+                  {servicos.filter(s => s.subetapa_id === form.subetapa_id).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </Select>
+              )}
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -499,6 +550,8 @@ function formInicial() {
   return {
     valor_total: '',
     etapa_id: '',
+    subetapa_id: '',
+    servico_id: '',
     tipo_custo: '' as TipoCusto | '',
     fornecedor_id: '',
     fornecedor_nome: '',
@@ -509,10 +562,12 @@ function formInicial() {
 }
 
 function LancamentoRapidoForm({
-  obraId, etapas, fornecedores, prefill, onPrefillConsumed, onSaved,
+  obraId, etapas, subetapas, servicos, fornecedores, prefill, onPrefillConsumed, onSaved,
 }: {
   obraId: string
   etapas: Etapa[]
+  subetapas: SubetapaCronograma[]
+  servicos: ServicoCronograma[]
   fornecedores: Fornecedor[]
   prefill?: PrefillLancamento
   onPrefillConsumed?: () => void
@@ -550,6 +605,8 @@ function LancamentoRapidoForm({
     const payload = {
       obra_id: obraId,
       etapa_id: form.etapa_id || null,
+      subetapa_id: form.subetapa_id || null,
+      servico_id: form.servico_id || null,
       descricao: form.descricao.trim() || `Nota — ${nomeFornecedor || 'lançamento rápido'}`,
       fornecedor_id: fornecedorManual ? null : form.fornecedor_id || null,
       fornecedor_nome: fornecedorManual ? form.fornecedor_nome.trim() || null : null,
@@ -609,7 +666,7 @@ function LancamentoRapidoForm({
         <Select
           label="Centro de custo (etapa)"
           value={form.etapa_id}
-          onChange={e => setForm(f => ({ ...f, etapa_id: e.target.value }))}
+          onChange={e => setForm(f => ({ ...f, etapa_id: e.target.value, subetapa_id: '', servico_id: '' }))}
         >
           <option value="">Sem etapa</option>
           {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
@@ -625,6 +682,29 @@ function LancamentoRapidoForm({
           ))}
         </Select>
       </div>
+
+      {form.etapa_id && subetapas.some(s => s.etapa_id === form.etapa_id) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Select
+            label="Subetapa (opcional)"
+            value={form.subetapa_id}
+            onChange={e => setForm(f => ({ ...f, subetapa_id: e.target.value, servico_id: '' }))}
+          >
+            <option value="">Não especificar</option>
+            {subetapas.filter(s => s.etapa_id === form.etapa_id).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </Select>
+          {form.subetapa_id && servicos.some(s => s.subetapa_id === form.subetapa_id) && (
+            <Select
+              label="Serviço (opcional)"
+              value={form.servico_id}
+              onChange={e => setForm(f => ({ ...f, servico_id: e.target.value }))}
+            >
+              <option value="">Não especificar</option>
+              {servicos.filter(s => s.subetapa_id === form.subetapa_id).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </Select>
+          )}
+        </div>
+      )}
 
       <div>
         <div className="flex items-center justify-between mb-1.5">
