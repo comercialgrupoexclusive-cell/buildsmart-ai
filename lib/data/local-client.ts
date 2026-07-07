@@ -67,8 +67,8 @@ function writeDb(data: LocalDatabase, message: string) {
   localLog(message)
 }
 
-function getField(row: Row, field: string) {
-  return field.split('.').reduce((acc, key) => acc?.[key], row)
+function getField(row: Row, field: string): any {
+  return field.split('.').reduce((acc: any, key) => acc?.[key], row)
 }
 
 function applyFilters(rows: Row[], filters: Filter[]) {
@@ -342,11 +342,21 @@ class LocalQuery {
     if (!this.orExpression) return rows
     const clauses = this.orExpression.split(',').map(clause => {
       const [field, op, rawValue] = clause.split('.')
-      return { field, op, value: rawValue?.replace(/%/g, '').toLowerCase() || '' }
+      return { field, op, rawValue: rawValue ?? '' }
     })
     return rows.filter(row => clauses.some(clause => {
-      if (clause.op !== 'ilike') return false
-      return String(getField(row, clause.field) || '').toLowerCase().includes(clause.value)
+      const actual = getField(row, clause.field)
+      if (clause.op === 'is') {
+        return clause.rawValue === 'null' ? actual === null || actual === undefined : actual === clause.rawValue
+      }
+      if (clause.op === 'eq') {
+        return String(actual) === clause.rawValue
+      }
+      if (clause.op === 'ilike') {
+        const needle = clause.rawValue.replace(/%/g, '').toLowerCase()
+        return String(actual || '').toLowerCase().includes(needle)
+      }
+      return false
     }))
   }
 }

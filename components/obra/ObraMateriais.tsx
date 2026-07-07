@@ -5,7 +5,7 @@ import {
   Package, AlertTriangle,
   Plus, Pencil, Trash2, ChevronDown, ChevronRight,
   Square, CheckSquare, ShoppingCart, Copy, X,
-  Building2, Send, PackageCheck, ClipboardList, FileText,
+  Building2, Send, PackageCheck, ClipboardList, FileText, Zap,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { diasAteData } from '@/lib/utils'
@@ -15,6 +15,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { ObraFornecedores } from '@/components/obra/ObraFornecedores'
 import { ObraRequisicoes } from '@/components/obra/ObraRequisicoes'
+import { ComprasLancamentos, PrefillLancamento } from '@/components/obra/ComprasLancamentos'
 
 const STATUS_LABEL: Record<string, string> = {
   nao_comprado: 'Não comprado',
@@ -43,6 +44,7 @@ type MaterialRow = {
   quantidade_comprada: number
   status_compra: 'nao_comprado' | 'solicitado' | 'parcial' | 'comprado'
   data_necessidade: string | null
+  data_recebimento: string | null
   etapas?: { nome: string } | null
 }
 
@@ -58,6 +60,7 @@ type MaterialBancoInsumoId = {
   quantidade_comprada: number
   status_compra: MaterialRow['status_compra']
   data_necessidade: string | null
+  data_recebimento?: string | null
   etapas?: { nome: string } | null
   insumo?: { codigo: string; descricao: string; unidade: string } | null
   sinapi_insumos?: { codigo: string; descricao: string; unidade: string } | null
@@ -133,8 +136,9 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   const [fornecedorLista, setFornecedorLista] = useState('')
   const [importando, setImportando] = useState(false)
 
-  // ── Sub-aba: Materiais x Listas de compra ──
-  const [subView, setSubView] = useState<'materiais' | 'compras' | 'fornecedores' | 'requisicoes'>('materiais')
+  // ── Sub-abas: Lançamentos → Lista de Compras (materiais/listas) → Requisições → Fornecedores ──
+  const [subView, setSubView] = useState<'lancamentos' | 'materiais' | 'compras' | 'fornecedores' | 'requisicoes'>('lancamentos')
+  const [prefillLancamento, setPrefillLancamento] = useState<PrefillLancamento>(null)
   const [listas, setListas] = useState<ListaCompra[]>([])
   const [listasCarregadas, setListasCarregadas] = useState(false)
 
@@ -174,6 +178,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       quantidade_comprada: Number(row.quantidade_comprada) || 0,
       status_compra: row.status_compra,
       data_necessidade: row.data_necessidade,
+      data_recebimento: row.data_recebimento ?? null,
       etapas: row.etapas,
     }
   }
@@ -194,7 +199,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         .order('data_necessidade', { ascending: true, nullsFirst: false })
       : supabase
         .from('materiais')
-        .select('id, obra_id, etapa_id, subetapa, insumo_id, quantidade_total, quantidade_comprada, status_compra, data_necessidade, etapas(nome), insumo:sinapi_insumos(codigo,descricao,unidade)')
+        .select('id, obra_id, etapa_id, subetapa, insumo_id, quantidade_total, quantidade_comprada, status_compra, data_necessidade, data_recebimento, etapas(nome), insumo:sinapi_insumos(codigo,descricao,unidade)')
         .eq('obra_id', obraId)
         .order('data_necessidade', { ascending: true, nullsFirst: false })
     const [matsRes, etapasRes, fornecedoresRes] = await Promise.all([
@@ -551,6 +556,16 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       : mat))
   }
 
+  // "Recebido no canteiro" — estoque leve: só marca se o material já chegou
+  // fisicamente na obra, independente do status de compra. Não é uma ficha de
+  // estoque (sem movimentação/saldo), só fecha a pergunta "isso já chegou?".
+  async function alternarRecebido(m: MaterialRow) {
+    const recebido = !!m.data_recebimento
+    const novaData = recebido ? null : new Date().toISOString().slice(0, 10)
+    await supabase.from('materiais').update({ data_recebimento: novaData }).eq('id', m.id)
+    setMateriais(prev => prev.map(mat => mat.id === m.id ? { ...mat, data_recebimento: novaData } : mat))
+  }
+
   function openEdit(m: MaterialRow) {
     setEditando(m)
     setForm({
@@ -812,41 +827,42 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* ── Sub-abas: Materiais x Listas de compra ── */}
+      {/* ── Sub-abas: Lançamentos → Lista de Compras → Requisições → Fornecedores ── */}
       <div className="flex gap-1 p-1 rounded-lg w-full max-w-full overflow-x-auto sm:w-fit" style={{ background: 'var(--bg-secondary)' }}>
         {[
-          { id: 'materiais' as const, label: 'Materiais', mobileLabel: 'Itens', icon: Package },
-          { id: 'compras' as const, label: 'Listas de compra', mobileLabel: 'Listas', icon: ShoppingCart, badge: listas.length },
+          { id: 'lancamentos' as const, label: 'Lançamentos', mobileLabel: 'Lanç.', icon: Zap },
+          { id: 'materiais' as const, label: 'Lista de Compras', mobileLabel: 'Lista', icon: ShoppingCart, active: subView === 'materiais' || subView === 'compras' },
           { id: 'requisicoes' as const, label: 'Requisições', mobileLabel: 'Req.', icon: FileText },
           { id: 'fornecedores' as const, label: 'Fornecedores', mobileLabel: 'Forn.', icon: Building2 },
-        ].map(({ id, label, mobileLabel, icon: Icon, badge }) => (
+        ].map(({ id, label, mobileLabel, icon: Icon, active }) => (
           <button
             key={id}
             onClick={() => setSubView(id)}
             className="flex flex-shrink-0 items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
-            style={subView === id
+            style={(active ?? subView === id)
               ? { background: 'var(--accent)', color: 'white' }
               : { color: 'var(--text-secondary)' }}
           >
             <Icon size={15} />
             <span className="hidden sm:inline">{label}</span>
             <span className="sm:hidden">{mobileLabel}</span>
-            {!!badge && (
-              <span
-                className="text-xs font-semibold px-1.5 py-0.5 rounded-full leading-none"
-                style={{ background: 'var(--accent)', color: 'white' }}
-              >
-                {badge}
-              </span>
-            )}
           </button>
         ))}
       </div>
 
-      {subView === 'fornecedores' ? (
+      {subView === 'lancamentos' ? (
+        <ComprasLancamentos
+          obraId={obraId}
+          prefill={prefillLancamento}
+          onPrefillConsumed={() => setPrefillLancamento(null)}
+        />
+      ) : subView === 'fornecedores' ? (
         <ObraFornecedores obraId={obraId} />
       ) : subView === 'requisicoes' ? (
-        <ObraRequisicoes obraId={obraId} />
+        <ObraRequisicoes
+          obraId={obraId}
+          onLancarComoCompra={dados => { setPrefillLancamento(dados); setSubView('lancamentos') }}
+        />
       ) : subView === 'compras' ? (
         <ListasDeComprasView
           listas={listas}
@@ -898,6 +914,9 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           <option value="todos">Todos</option>
         </select>
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={() => setSubView('compras')}>
+            Listas salvas{listas.length > 0 ? ` (${listas.length})` : ''}
+          </Button>
           <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>
             Adicionar
           </Button>
@@ -954,6 +973,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
               onToggleGrupoSelecao={() => toggleSelecionarGrupo(materiaisPorEtapa.sem_etapa)}
               onToggleSubGrupoSelecao={toggleSelecionarGrupo}
               onComprado={alternarComprado}
+              onRecebido={alternarRecebido}
               onEdit={openEdit}
               onDelete={handleDelete}
             />
@@ -976,6 +996,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
                 onToggleGrupoSelecao={() => toggleSelecionarGrupo(itensDaEtapa)}
                 onToggleSubGrupoSelecao={toggleSelecionarGrupo}
                 onComprado={alternarComprado}
+                onRecebido={alternarRecebido}
                 onEdit={openEdit}
                 onDelete={handleDelete}
               />
@@ -1205,7 +1226,7 @@ function GrupoCompra({
   chaveEtapa, nome, itens, collapsed, onToggleGrupo,
   collapsedSub, onToggleSubGrupo,
   selecionados, onToggleItem, onToggleGrupoSelecao, onToggleSubGrupoSelecao,
-  onComprado, onEdit, onDelete,
+  onComprado, onRecebido, onEdit, onDelete,
 }: {
   chaveEtapa: string
   nome: string
@@ -1219,6 +1240,7 @@ function GrupoCompra({
   onToggleGrupoSelecao: () => void
   onToggleSubGrupoSelecao: (itensDoGrupo: MaterialRow[]) => void
   onComprado: (m: MaterialRow) => void
+  onRecebido: (m: MaterialRow) => void
   onEdit: (m: MaterialRow) => void
   onDelete: (id: string) => void
 }) {
@@ -1265,7 +1287,7 @@ function GrupoCompra({
                 <LinhaMaterial
                   key={m.id} material={m}
                   selecionado={selecionados.has(m.id)}
-                  onToggleItem={onToggleItem} onComprado={onComprado} onEdit={onEdit} onDelete={onDelete}
+                  onToggleItem={onToggleItem} onComprado={onComprado} onRecebido={onRecebido} onEdit={onEdit} onDelete={onDelete}
                 />
               ))
             }
@@ -1281,6 +1303,7 @@ function GrupoCompra({
                 onToggleItem={onToggleItem}
                 onToggleGrupoSelecao={() => onToggleSubGrupoSelecao(grupo.itens)}
                 onComprado={onComprado}
+                onRecebido={onRecebido}
                 onEdit={onEdit}
                 onDelete={onDelete}
               />
@@ -1296,7 +1319,7 @@ function GrupoCompra({
 function GrupoSubetapaCompra({
   nome, itens, collapsed, onToggleGrupo,
   selecionados, onToggleItem, onToggleGrupoSelecao,
-  onComprado, onEdit, onDelete,
+  onComprado, onRecebido, onEdit, onDelete,
 }: {
   nome: string
   itens: MaterialRow[]
@@ -1306,6 +1329,7 @@ function GrupoSubetapaCompra({
   onToggleItem: (id: string) => void
   onToggleGrupoSelecao: () => void
   onComprado: (m: MaterialRow) => void
+  onRecebido: (m: MaterialRow) => void
   onEdit: (m: MaterialRow) => void
   onDelete: (id: string) => void
 }) {
@@ -1347,7 +1371,7 @@ function GrupoSubetapaCompra({
             <LinhaMaterial
               key={m.id} material={m} recuado
               selecionado={selecionados.has(m.id)}
-              onToggleItem={onToggleItem} onComprado={onComprado} onEdit={onEdit} onDelete={onDelete}
+              onToggleItem={onToggleItem} onComprado={onComprado} onRecebido={onRecebido} onEdit={onEdit} onDelete={onDelete}
             />
           ))}
         </div>
@@ -1359,13 +1383,14 @@ function GrupoSubetapaCompra({
 // ─── Linha de insumo selecionável (folha da cascata) ──────────────────────────
 function LinhaMaterial({
   material: m, selecionado, recuado,
-  onToggleItem, onComprado, onEdit, onDelete,
+  onToggleItem, onComprado, onRecebido, onEdit, onDelete,
 }: {
   material: MaterialRow
   selecionado: boolean
   recuado?: boolean
   onToggleItem: (id: string) => void
   onComprado: (m: MaterialRow) => void
+  onRecebido: (m: MaterialRow) => void
   onEdit: (m: MaterialRow) => void
   onDelete: (id: string) => void
 }) {
@@ -1373,6 +1398,7 @@ function LinhaMaterial({
   const diasParaNecessidade = m.data_necessidade ? diasAteData(m.data_necessidade) : null
   const urgente = diasParaNecessidade !== null && diasParaNecessidade <= 7 && m.status_compra !== 'comprado'
   const comprado = m.status_compra === 'comprado'
+  const recebido = !!m.data_recebimento
 
   return (
     <div
@@ -1423,6 +1449,17 @@ function LinhaMaterial({
         >
           {comprado ? <CheckSquare size={14} /> : <Square size={14} />}
           <span className="hidden sm:inline">{comprado ? 'Comprado' : 'Comprar'}</span>
+        </button>
+        <button
+          onClick={() => onRecebido(m)}
+          title={recebido ? `Recebido em ${new Date(m.data_recebimento! + 'T12:00').toLocaleDateString('pt-BR')} — clique para desfazer` : 'Marcar como recebido no canteiro'}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+          style={recebido
+            ? { background: 'rgba(59,123,248,0.16)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.35)' }
+            : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+        >
+          <PackageCheck size={14} />
+          <span className="hidden sm:inline">{recebido ? 'Recebido' : 'Marcar recebido'}</span>
         </button>
         <button onClick={() => onEdit(m)} title="Editar" className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
           <Pencil size={14} style={{ color: 'var(--text-secondary)' }} />

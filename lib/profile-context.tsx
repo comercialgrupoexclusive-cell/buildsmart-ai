@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react'
 import { Profile } from './types'
 
 type ProfileContextType = {
@@ -77,8 +77,17 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // Memoizado: sem isso, todo render de ProfileProvider cria um objeto novo e
+  // força re-render em cascata de toda a árvore que consome useProfile() —
+  // inclusive páginas que não mudaram nada, alguns segundos depois do mount
+  // (quando o AppLayout termina de sincronizar o perfil com o Supabase).
+  const value = useMemo(
+    () => ({ currentProfile, setCurrentProfile, theme, toggleTheme }),
+    [currentProfile, theme]
+  )
+
   return (
-    <ProfileContext.Provider value={{ currentProfile, setCurrentProfile, theme, toggleTheme }}>
+    <ProfileContext.Provider value={value}>
       {children}
     </ProfileContext.Provider>
   )

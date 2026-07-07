@@ -58,7 +58,12 @@ const EMPTY_REQ: { numero: string; data_solicitacao: string; status: Requisicao[
 const EMPTY_ITEM = { descricao: '', quantidade: '', unidade: '', urgente: false, observacao: '' }
 const EMPTY_COT = { fornecedor_id: '', fornecedor_nome: '', data_cotacao: new Date().toISOString().slice(0, 10), validade: '', valor_total: '', observacao: '' }
 
-export function ObraRequisicoes({ obraId }: { obraId: string }) {
+export function ObraRequisicoes({
+  obraId, onLancarComoCompra,
+}: {
+  obraId: string
+  onLancarComoCompra?: (dados: { fornecedorNome?: string; valorTotal?: number; descricao?: string }) => void
+}) {
   const supabase = createClient()
   const [requisicoes, setRequisicoes] = useState<Requisicao[]>([])
   const [itens, setItens] = useState<ReqItem[]>([])
@@ -352,6 +357,20 @@ export function ObraRequisicoes({ obraId }: { obraId: string }) {
                             >
                               <Check size={13} />
                             </button>
+                            {cot.vencedora && onLancarComoCompra && (
+                              <button
+                                onClick={() => onLancarComoCompra({
+                                  fornecedorNome: cot.fornecedor_nome || undefined,
+                                  valorTotal: cot.valor_total || undefined,
+                                  descricao: `Requisição ${req.numero || ''}`.trim(),
+                                })}
+                                className="p-1 rounded text-xs hover:bg-[var(--bg-secondary)]"
+                                title="Lançar como compra"
+                                style={{ color: 'var(--accent)' }}
+                              >
+                                <ShoppingCart size={13} />
+                              </button>
+                            )}
                             <button onClick={() => deleteCot(cot.id)} className="p-1 rounded hover:bg-red-500/10">
                               <Trash2 size={13} style={{ color: 'var(--danger)' }} />
                             </button>
