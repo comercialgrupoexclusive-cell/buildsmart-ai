@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import {
   Plus, Calendar, Pencil, Trash2, ChevronDown, ChevronRight,
-  LayoutList, BarChart2, KanbanSquare, Check, AlertTriangle, Clock, CheckCircle2, Flag, Wallet,
+  LayoutList, BarChart2, KanbanSquare, Check, AlertTriangle, Clock, CheckCircle2, Flag, Wallet, Link2, X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Etapa, SubetapaCronograma, ServicoCronograma, CronogramaDependencia, CronogramaItemTipo } from '@/lib/types'
@@ -58,6 +58,8 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   const [subPreds,   setSubPreds]   = useState<PredecessoraRef[]>([])
   const [svcPreds,   setSvcPreds]   = useState<PredecessoraRef[]>([])
   const [pickerAberto, setPickerAberto] = useState<'etapa' | 'sub' | 'svc' | null>(null)
+  // Atalho de predecessora direto no card (fora do modal): salva na hora, sem precisar abrir/salvar o formulário completo.
+  const [pickerQuickAlvo, setPickerQuickAlvo] = useState<{ tipo: CronogramaItemTipo; id: string } | null>(null)
 
   // ── Financeiro (orçado × realizado) ───────────────────────────────────────────
   const [mostrarFinanceiro, setMostrarFinanceiro] = useState(false)
@@ -463,6 +465,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   // ── Picker de predecessoras — compartilhado pelos 3 modais ────────────────────
 
   function excluirIdsAtual(): Set<string> {
+    if (pickerQuickAlvo) return descendentesDe(pickerQuickAlvo.tipo, pickerQuickAlvo.id)
     if (pickerAberto === 'etapa') return etapaModal.editando ? descendentesDe('etapa', etapaModal.editando.id) : new Set()
     if (pickerAberto === 'sub') return subModal.editando ? descendentesDe('subetapa', subModal.editando.id) : new Set()
     if (pickerAberto === 'svc') return svcModal.editando ? descendentesDe('servico', svcModal.editando.id) : new Set()
@@ -470,6 +473,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   }
 
   function jaSelecionadosAtual(): Set<string> {
+    if (pickerQuickAlvo) return new Set(predecessorasDeItem(pickerQuickAlvo.tipo, pickerQuickAlvo.id).map(d => d.predecessor_id))
     if (pickerAberto === 'etapa') return new Set(etapaPreds.map(p => p.id))
     if (pickerAberto === 'sub') return new Set(subPreds.map(p => p.id))
     if (pickerAberto === 'svc') return new Set(svcPreds.map(p => p.id))
@@ -477,6 +481,21 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   }
 
   function confirmarPicker(refs: PredecessoraRef[]) {
+    // Atalho direto do card: salva na hora (o item já existe, não precisa do form).
+    if (pickerQuickAlvo) {
+      const { tipo, id } = pickerQuickAlvo
+      const bloqueados = refs.filter(r => criariCiclo(r.tipo, r.id, tipo, id))
+      const refsValidos = bloqueados.length > 0
+        ? refs.filter(r => !bloqueados.includes(r))
+        : refs
+      if (bloqueados.length > 0) {
+        alert(`Não é possível usar como predecessora: ${bloqueados.map(b => b.nome).join(', ')} — geraria uma dependência circular.`)
+      }
+      salvarPredecessoras(tipo, id, refsValidos)
+      setPickerQuickAlvo(null)
+      return
+    }
+
     const itemTipo: CronogramaItemTipo | null = pickerAberto === 'etapa' ? 'etapa' : pickerAberto === 'sub' ? 'subetapa' : pickerAberto === 'svc' ? 'servico' : null
     const editandoId = pickerAberto === 'etapa' ? etapaModal.editando?.id : pickerAberto === 'sub' ? subModal.editando?.id : pickerAberto === 'svc' ? svcModal.editando?.id : undefined
 
@@ -503,6 +522,14 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     }
   }
 
+  async function toggleMarco(table: 'etapas' | 'subetapas_cronograma' | 'servicos_cronograma', id: string, atual: boolean) {
+    const novo = !atual
+    await supabase.from(table).update({ is_marco: novo }).eq('id', id)
+    if (table === 'etapas') setEtapas(prev => prev.map(e => e.id === id ? { ...e, is_marco: novo } : e))
+    if (table === 'subetapas_cronograma') setSubetapas(prev => prev.map(s => s.id === id ? { ...s, is_marco: novo } : s))
+    if (table === 'servicos_cronograma') setServicos(prev => prev.map(s => s.id === id ? { ...s, is_marco: novo } : s))
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -518,7 +545,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
         <div className="flex items-center gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
           {([
             { key: 'kanban',  label: 'Kanban',  icon: KanbanSquare },
-            { key: 'cascata', label: 'Cascata', icon: LayoutList },
+            { key: 'cascata', label: 'Estrutura', icon: LayoutList },
             { key: 'gantt',   label: 'Gantt',   icon: BarChart2 },
           ] as const).map(({ key, label, icon: Icon }) => (
             <button
@@ -599,7 +626,13 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
-                      {etapa.is_marco && <Flag size={12} style={{ color: '#8B5CF6' }} />}
+                      <button
+                        onClick={() => toggleMarco('etapas', etapa.id, etapa.is_marco)}
+                        className="p-0.5 rounded hover:bg-[var(--bg-card)] transition-colors"
+                        title={etapa.is_marco ? 'Marco de projeto — clique para remover' : 'Marcar como marco de projeto'}
+                      >
+                        <Flag size={12} style={{ color: etapa.is_marco ? '#8B5CF6' : 'var(--border)' }} fill={etapa.is_marco ? '#8B5CF6' : 'none'} />
+                      </button>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[etapa.status]}`}>
                         {STATUS_ETAPA_LABEL[etapa.status]}
                       </span>
@@ -619,17 +652,53 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                         onCommit={v => updateDateInline('etapas', etapa.id, 'data_fim', v)}
                       />
                     </div>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      {predecessorasDeItem('etapa', etapa.id).map(p => (
+                        <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                          <Link2 size={9} />
+                          {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
+                          <button onClick={() => salvarPredecessoras('etapa', etapa.id, predecessorasDeItem('etapa', etapa.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100">
+                            <X size={9} />
+                          </button>
+                        </span>
+                      ))}
+                      <button
+                        onClick={() => setPickerQuickAlvo({ tipo: 'etapa', id: etapa.id })}
+                        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-secondary)] transition-colors"
+                        style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}
+                      >
+                        <Plus size={9} /> Predecessora
+                      </button>
+                    </div>
                     {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio) && (
                       <p className="text-[10px] mt-1" style={{ color: 'var(--danger)' }}>
                         ⚠ Conflita com predecessora: {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio)}
                       </p>
                     )}
                     {mostrarFinanceiro && (
-                      <p className="text-[10px] mt-1" style={{ color: 'var(--text-secondary)' }}>
-                        💰 Orçado {formatCurrency(orcadoPorEtapa.get(etapa.id) ?? 0)} · Realizado {formatCurrency(realizadoPorEtapa.get(etapa.id) ?? 0)}
-                        {(orcadoPorEtapa.get(etapa.id) ?? 0) > 0 && ` · ${Math.round(((realizadoPorEtapa.get(etapa.id) ?? 0) / (orcadoPorEtapa.get(etapa.id) ?? 1)) * 100)}%`}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2 mt-2 px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
+                        <Wallet size={12} style={{ color: '#10b981' }} />
+                        <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(realizadoPorEtapa.get(etapa.id) ?? 0)}</span>
+                        <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>realizado de {formatCurrency(orcadoPorEtapa.get(etapa.id) ?? 0)} orçado</span>
+                        {(orcadoPorEtapa.get(etapa.id) ?? 0) > 0 && (
+                          <span
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-auto"
+                            style={{
+                              color: (realizadoPorEtapa.get(etapa.id) ?? 0) > (orcadoPorEtapa.get(etapa.id) ?? 0) ? '#EF4444' : '#10b981',
+                              background: (realizadoPorEtapa.get(etapa.id) ?? 0) > (orcadoPorEtapa.get(etapa.id) ?? 0) ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
+                            }}
+                          >
+                            {Math.round(((realizadoPorEtapa.get(etapa.id) ?? 0) / (orcadoPorEtapa.get(etapa.id) ?? 1)) * 100)}%
+                          </span>
+                        )}
+                      </div>
                     )}
+                    <div className="sm:hidden flex items-center gap-2 mt-1.5">
+                      <div className="flex-1 h-1.5 rounded-full overflow-hidden max-w-[100px]" style={{ background: 'var(--border)' }}>
+                        <div className="h-full rounded-full" style={{ width: `${prog}%`, background: prog >= 100 ? '#10b981' : 'var(--accent)' }} />
+                      </div>
+                      <PctInput value={prog} onChange={v => updatePct('etapas', etapa.id, v)} small />
+                    </div>
                   </div>
 
                   <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
@@ -639,7 +708,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                     <PctInput value={prog} onChange={v => updatePct('etapas', etapa.id, v)} />
                   </div>
 
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button onClick={() => openNewSub(etapa.id)} className="p-1.5 rounded text-xs hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }} title="Adicionar subetapa">
                       <Plus size={13} />
                     </button>
@@ -669,7 +738,13 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{sub.nome}</span>
-                            {sub.is_marco && <Flag size={11} style={{ color: '#8B5CF6' }} />}
+                            <button
+                              onClick={() => toggleMarco('subetapas_cronograma', sub.id, sub.is_marco)}
+                              className="p-0.5 rounded hover:bg-[var(--bg-card)] transition-colors"
+                              title={sub.is_marco ? 'Marco de projeto — clique para remover' : 'Marcar como marco de projeto'}
+                            >
+                              <Flag size={11} style={{ color: sub.is_marco ? '#8B5CF6' : 'var(--border)' }} fill={sub.is_marco ? '#8B5CF6' : 'none'} />
+                            </button>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[sub.status]}`}>
                               {STATUS_ETAPA_LABEL[sub.status]}
                             </span>
@@ -692,21 +767,41 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                               <span className="text-[10px] ml-2 opacity-60" style={{ color: 'var(--text-secondary)' }}>· {sub.responsavel}</span>
                             )}
                           </div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                            {predecessorasDeItem('subetapa', sub.id).map(p => (
+                              <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                                <Link2 size={9} />
+                                {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
+                                <button onClick={() => salvarPredecessoras('subetapa', sub.id, predecessorasDeItem('subetapa', sub.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100">
+                                  <X size={9} />
+                                </button>
+                              </span>
+                            ))}
+                            <button
+                              onClick={() => setPickerQuickAlvo({ tipo: 'subetapa', id: sub.id })}
+                              className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-card)] transition-colors"
+                              style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}
+                            >
+                              <Plus size={9} /> Predecessora
+                            </button>
+                          </div>
                           {conflitoDePredecessoras('subetapa', sub.id, sub.data_inicio) && (
                             <p className="text-[10px] mt-1" style={{ color: 'var(--danger)' }}>
                               ⚠ Conflita com predecessora: {conflitoDePredecessoras('subetapa', sub.id, sub.data_inicio)}
                             </p>
                           )}
                           {mostrarFinanceiro && (
-                            <p className="text-[10px] mt-1" style={{ color: 'var(--text-secondary)' }}>
-                              💰 Realizado {formatCurrency(realizadoPorSubetapa.get(sub.id) ?? 0)}
-                            </p>
+                            <div className="flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-md w-fit" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
+                              <Wallet size={10} style={{ color: '#10b981' }} />
+                              <span className="text-[11px] font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(realizadoPorSubetapa.get(sub.id) ?? 0)}</span>
+                              <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>realizado</span>
+                            </div>
                           )}
                         </div>
 
                         <PctInput value={sub.percentual_executado} onChange={v => updatePct('subetapas_cronograma', sub.id, v)} />
 
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                           <button onClick={() => openNewSvc(sub.id)} className="p-1.5 rounded" style={{ color: 'var(--accent)' }}>
                             <Plus size={12} />
                           </button>
@@ -762,7 +857,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
 
                           <PctInput value={svc.percentual_executado} onChange={v => updatePct('servicos_cronograma', svc.id, v)} small />
 
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                             <button onClick={() => openEditSvc(svc)} className="p-1 rounded">
                               <Pencil size={11} style={{ color: 'var(--text-secondary)' }} />
                             </button>
@@ -944,10 +1039,10 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
         </div>
       </Modal>
 
-      {/* ── Picker de predecessoras (compartilhado pelos 3 modais) ── */}
+      {/* ── Picker de predecessoras (compartilhado pelos 3 modais + atalho rápido do card) ── */}
       <PredecessorPicker
-        open={pickerAberto !== null}
-        onClose={() => setPickerAberto(null)}
+        open={pickerAberto !== null || pickerQuickAlvo !== null}
+        onClose={() => { setPickerAberto(null); setPickerQuickAlvo(null) }}
         etapas={etapas}
         subetapas={subetapas}
         servicos={servicos}
@@ -1340,7 +1435,15 @@ function ObraGanttView({
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(tree.flatMap(etapa => [etapa.id, ...etapa.children.map(sub => sub.id)]))
   )
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
   const today = new Date()
+  const leftW = isMobile ? 168 : GANTT_LEFT_W
 
   const effMap = new Map<string, GanttEff>()
   tree.forEach(node => rollupObraGantt(node, effMap))
@@ -1371,9 +1474,9 @@ function ObraGanttView({
   const minDate = addDaysCrono(new Date(Math.min(...dates.map(d => d.getTime()))), -GANTT_PAD_DAYS)
   const maxDate = addDaysCrono(new Date(Math.max(...dates.map(d => d.getTime()))), GANTT_PAD_DAYS)
   const totalDays = Math.max(1, daysBetweenCrono(maxDate, minDate))
-  const pxPerDay = 18
-  const timelineW = Math.max(totalDays * pxPerDay, 460)
-  const ganttW = GANTT_LEFT_W + timelineW
+  const pxPerDay = isMobile ? 13 : 18
+  const timelineW = Math.max(totalDays * pxPerDay, isMobile ? 320 : 460)
+  const ganttW = leftW + timelineW
   const todayX = daysBetweenCrono(today, minDate) * pxPerDay
 
   const nodeColorMap = new Map<string, string>()
@@ -1436,7 +1539,7 @@ function ObraGanttView({
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
       <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
         <div className="flex" style={{ width: ganttW, minWidth: ganttW }}>
-          <div style={{ width: GANTT_LEFT_W, minWidth: GANTT_LEFT_W, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
+          <div style={{ width: leftW, minWidth: leftW, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
             <div className="flex items-end px-3 pb-2 text-xs font-semibold" style={{ height: GANTT_HDR_H, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>
               Item
             </div>
@@ -1481,25 +1584,31 @@ function ObraGanttView({
                     {atrasado && <span className="text-[9px] flex-shrink-0" style={{ color: '#EF4444' }}>!</span>}
                   </div>
 
-                  <div className="flex items-center gap-1 pl-5">
+                  <div className="flex items-center gap-1 pl-5 flex-wrap">
                     {!row.isTotal && node ? (
-                      <>
-                        <input
-                          type="date"
-                          value={node.data_inicio ?? ''}
-                          className="min-h-8 w-[8.25rem] rounded-lg border px-2 text-[10px] outline-none"
-                          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                          onChange={e => onUpdateDate(node.table, node.id, 'data_inicio', e.target.value)}
-                        />
-                        <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>-&gt;</span>
-                        <input
-                          type="date"
-                          value={node.data_fim ?? ''}
-                          className="min-h-8 w-[8.25rem] rounded-lg border px-2 text-[10px] outline-none"
-                          style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                          onChange={e => onUpdateDate(node.table, node.id, 'data_fim', e.target.value)}
-                        />
-                      </>
+                      isMobile ? (
+                        <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                          {fmtGanttDate(node.data_inicio)} -&gt; {fmtGanttDate(node.data_fim)}
+                        </span>
+                      ) : (
+                        <>
+                          <input
+                            type="date"
+                            value={node.data_inicio ?? ''}
+                            className="min-h-8 w-[8.25rem] rounded-lg border px-2 text-[10px] outline-none"
+                            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                            onChange={e => onUpdateDate(node.table, node.id, 'data_inicio', e.target.value)}
+                          />
+                          <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>-&gt;</span>
+                          <input
+                            type="date"
+                            value={node.data_fim ?? ''}
+                            className="min-h-8 w-[8.25rem] rounded-lg border px-2 text-[10px] outline-none"
+                            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                            onChange={e => onUpdateDate(node.table, node.id, 'data_fim', e.target.value)}
+                          />
+                        </>
+                      )
                     ) : (
                       <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
                         {fmtGanttDate(row.inicio)} -&gt; {fmtGanttDate(row.fim)}
@@ -1510,11 +1619,16 @@ function ObraGanttView({
                     )}
                   </div>
                   {mostrarFinanceiro && !row.isTotal && node && (
-                    <p className="text-[9px] pl-5 mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                      💰 {node.nivel === 1
-                        ? `${formatCurrency(realizadoPorEtapa.get(node.id) ?? 0)} / ${formatCurrency(orcadoPorEtapa.get(node.id) ?? 0)}`
-                        : `Realizado ${formatCurrency((node.nivel === 2 ? realizadoPorSubetapa : realizadoPorServico).get(node.id) ?? 0)}`}
-                    </p>
+                    <div className="flex items-center gap-1 pl-5 mt-1 flex-wrap">
+                      <span
+                        className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-md"
+                        style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }}
+                      >
+                        {node.nivel === 1
+                          ? `${formatCurrency(realizadoPorEtapa.get(node.id) ?? 0)} / ${formatCurrency(orcadoPorEtapa.get(node.id) ?? 0)}`
+                          : `${formatCurrency((node.nivel === 2 ? realizadoPorSubetapa : realizadoPorServico).get(node.id) ?? 0)}`}
+                      </span>
+                    </div>
                   )}
                 </div>
               )
@@ -1586,19 +1700,30 @@ function ObraGanttView({
                   )
                 }
 
+                const financeiroValor = mostrarFinanceiro && row.node
+                  ? (row.node.nivel === 1 ? realizadoPorEtapa.get(row.node.id) : row.node.nivel === 2 ? realizadoPorSubetapa.get(row.node.id) : realizadoPorServico.get(row.node.id)) ?? 0
+                  : null
+                const insideLabel = row.isTotal
+                  ? `${fmtGanttDate(row.inicio)} - ${fmtGanttDate(row.fim)}`
+                  : financeiroValor !== null
+                    ? formatCurrency(financeiroValor)
+                    : pct > 0 ? `${Math.round(pct)}%` : null
+                const minWFor = (text: string) => text.length * (row.isTotal ? 6 : 5.2) + 10
+                const fitsInside = !!insideLabel && barW >= minWFor(insideLabel)
+
                 return (
                   <g key={row.id} opacity={opacity}>
                     <rect x={x1} y={barY} width={barW} height={barH} rx={row.isTotal ? 3 : barH / 2} fill={color} />
                     {pct > 0 && pct < 100 && (
                       <rect x={x1} y={barY} width={Math.max(2, barW * pct / 100)} height={barH} rx={row.isTotal ? 3 : barH / 2} fill="rgba(0,0,0,0.25)" />
                     )}
-                    {row.isTotal && barW > 90 ? (
-                      <text x={x1 + barW / 2} y={barY + barH / 2 + 3.5} textAnchor="middle" fontSize={9} fill="white" fontFamily="var(--font-sans)" style={{ pointerEvents: 'none' }}>
-                        {fmtGanttDate(row.inicio)} - {fmtGanttDate(row.fim)}
+                    {fitsInside ? (
+                      <text x={x1 + barW / 2} y={barY + barH / 2 + 3.5} textAnchor="middle" fontSize={row.isTotal ? 9 : 8} fontWeight={row.isTotal ? 400 : 700} fill="white" fontFamily="var(--font-sans)" style={{ pointerEvents: 'none' }}>
+                        {insideLabel}
                       </text>
                     ) : row.fim && (
-                      <text x={x2 + 4} y={barY + barH / 2 + 3.5} fontSize={8} fill={atrasado ? '#EF4444' : 'var(--text-secondary)'} fontFamily="var(--font-sans)">
-                        {fmtGanttDate(row.fim)}
+                      <text x={x2 + 4} y={barY + barH / 2 + 3.5} fontSize={8} fontWeight={insideLabel ? 700 : 400} fill={atrasado ? '#EF4444' : insideLabel ? 'var(--text-primary)' : 'var(--text-secondary)'} fontFamily="var(--font-sans)">
+                        {insideLabel && !row.isTotal ? insideLabel : fmtGanttDate(row.fim)}
                       </text>
                     )}
                   </g>
