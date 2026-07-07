@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ShoppingCart, Plus, Pencil, Trash2, ChevronDown, ChevronRight,
-  CheckSquare, Square, Scale, FileText, X, Building2, Zap, List,
+  CheckSquare, Square, Scale, FileText, X, Building2, Zap,
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -27,11 +27,26 @@ const STATUS_VALOR_COLOR: Record<CompraItem['status_valor'], string> = {
 const SEM_ETAPA = 'sem_etapa'
 
 type CotacaoLinha = { id: string; fornecedorNome: string; valor: string }
-type SubTab = 'lancamento' | 'itens'
 
-export function ObraCompras({ obraId }: { obraId: string }) {
+export type PrefillLancamento = {
+  fornecedorNome?: string
+  valorTotal?: number
+  descricao?: string
+} | null
+
+/**
+ * Sub-aba "Lançamentos" (1ª sub-aba de Materiais): formulário de lançamento
+ * rápido sempre visível no topo + lista dos itens já lançados logo abaixo,
+ * na mesma tela — sem sub-abas escondendo uma coisa atrás da outra.
+ */
+export function ComprasLancamentos({
+  obraId, prefill, onPrefillConsumed,
+}: {
+  obraId: string
+  prefill?: PrefillLancamento
+  onPrefillConsumed?: () => void
+}) {
   const supabase = createClient()
-  const [subTab, setSubTab] = useState<SubTab>('lancamento')
   const [itens, setItens] = useState<CompraItem[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
@@ -227,99 +242,77 @@ export function ObraCompras({ obraId }: { obraId: string }) {
         </div>
       </div>
 
-      {/* Sub-abas */}
-      <div className="flex gap-1 p-1 rounded-xl w-max" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-        <button
-          onClick={() => setSubTab('lancamento')}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
-          style={subTab === 'lancamento' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
-        >
-          <Zap size={14} /> Lançamento Rápido
-        </button>
-        <button
-          onClick={() => setSubTab('itens')}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
-          style={subTab === 'itens' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
-        >
-          <List size={14} /> Itens {itens.length > 0 && `(${itens.length})`}
-        </button>
+      {/* Formulário de lançamento rápido — sempre visível */}
+      <LancamentoRapidoForm
+        obraId={obraId}
+        etapas={etapas}
+        fornecedores={fornecedores}
+        prefill={prefill}
+        onPrefillConsumed={onPrefillConsumed}
+        onSaved={item => setItens(prev => [item, ...prev])}
+      />
+
+      {/* Barra de ações da lista */}
+      <div className="flex flex-wrap items-center gap-2 justify-between pt-2">
+        <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Itens lançados</p>
+        <div className="flex items-center gap-2">
+          {etapas.length > 0 && (
+            <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)} className="input-base w-full sm:w-56">
+              <option value="todas">Todas etapas</option>
+              <option value={SEM_ETAPA}>Sem etapa</option>
+              {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+            </select>
+          )}
+          <Link href={`/obras/${obraId}/compras/relatorio`}>
+            <Button size="sm" variant="secondary" icon={<FileText size={14} />}>Relatório</Button>
+          </Link>
+          <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={openNew}>Item detalhado</Button>
+        </div>
       </div>
 
-      {subTab === 'lancamento' && (
-        <LancamentoRapidoInline
-          obraId={obraId}
-          etapas={etapas}
-          fornecedores={fornecedores}
-          onSaved={item => setItens(prev => [item, ...prev])}
-          onVerItens={() => setSubTab('itens')}
+      {itensFiltrados.length === 0 ? (
+        <EmptyState
+          icon={ShoppingCart}
+          title="Nenhum item lançado"
+          description="Use o formulário acima para lançar rapidamente, ou adicione um item detalhado com fornecedor, forma de pagamento e status."
         />
-      )}
-
-      {subTab === 'itens' && (
-        <>
-          {/* Barra de ações */}
-          <div className="flex flex-wrap items-center gap-2 justify-between">
-            {etapas.length > 0 ? (
-              <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)} className="input-base w-full sm:w-64">
-                <option value="todas">Todas etapas</option>
-                <option value={SEM_ETAPA}>Sem etapa</option>
-                {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-              </select>
-            ) : <div />}
-            <div className="flex items-center gap-2">
-              <Link href={`/obras/${obraId}/compras/relatorio`}>
-                <Button size="sm" variant="secondary" icon={<FileText size={14} />}>Gerar relatório</Button>
-              </Link>
-              <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar item</Button>
-            </div>
-          </div>
-
-          {itensFiltrados.length === 0 ? (
-            <EmptyState
-              icon={ShoppingCart}
-              title="Nenhum item de compra"
-              description="Cadastre os itens previstos ou já confirmados desta obra, com valor, fornecedor e forma de pagamento."
-              action={<Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar item</Button>}
+      ) : (
+        <div className="flex flex-col gap-3 pb-8">
+          {itensPorEtapa[SEM_ETAPA].length > 0 && (
+            <GrupoEtapaCompra
+              chave={SEM_ETAPA}
+              nome="Sem etapa"
+              itens={itensPorEtapa[SEM_ETAPA]}
+              collapsed={collapsed[SEM_ETAPA]}
+              onToggle={() => setCollapsed(c => ({ ...c, [SEM_ETAPA]: !c[SEM_ETAPA] }))}
+              onEdit={openEdit}
+              onDelete={handleDelete}
+              onTogglePago={alternarPago}
+              onCotacao={abrirCotacao}
             />
-          ) : (
-            <div className="flex flex-col gap-3 pb-8">
-              {itensPorEtapa[SEM_ETAPA].length > 0 && (
-                <GrupoEtapaCompra
-                  chave={SEM_ETAPA}
-                  nome="Sem etapa"
-                  itens={itensPorEtapa[SEM_ETAPA]}
-                  collapsed={collapsed[SEM_ETAPA]}
-                  onToggle={() => setCollapsed(c => ({ ...c, [SEM_ETAPA]: !c[SEM_ETAPA] }))}
-                  onEdit={openEdit}
-                  onDelete={handleDelete}
-                  onTogglePago={alternarPago}
-                  onCotacao={abrirCotacao}
-                />
-              )}
-              {etapas.map(etapa => {
-                const itensDaEtapa = itensPorEtapa[etapa.id] || []
-                if (itensDaEtapa.length === 0) return null
-                return (
-                  <GrupoEtapaCompra
-                    key={etapa.id}
-                    chave={etapa.id}
-                    nome={etapa.nome}
-                    itens={itensDaEtapa}
-                    collapsed={collapsed[etapa.id]}
-                    onToggle={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
-                    onEdit={openEdit}
-                    onDelete={handleDelete}
-                    onTogglePago={alternarPago}
-                    onCotacao={abrirCotacao}
-                  />
-                )
-              })}
-            </div>
           )}
-        </>
+          {etapas.map(etapa => {
+            const itensDaEtapa = itensPorEtapa[etapa.id] || []
+            if (itensDaEtapa.length === 0) return null
+            return (
+              <GrupoEtapaCompra
+                key={etapa.id}
+                chave={etapa.id}
+                nome={etapa.nome}
+                itens={itensDaEtapa}
+                collapsed={collapsed[etapa.id]}
+                onToggle={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
+                onEdit={openEdit}
+                onDelete={handleDelete}
+                onTogglePago={alternarPago}
+                onCotacao={abrirCotacao}
+              />
+            )
+          })}
+        </div>
       )}
 
-      {/* Modal Adicionar/Editar item */}
+      {/* Modal Adicionar/Editar item detalhado */}
       <Modal
         open={showModal}
         onClose={() => { setShowModal(false); setEditando(null); resetForm() }}
@@ -497,28 +490,13 @@ export function ObraCompras({ obraId }: { obraId: string }) {
   )
 }
 
-// ─── Lançamento Rápido (inline, 1ª sub-aba) ──────────────────────────────────
-// Registro rápido de nota: valor total + centro de custo + tipo. Reaproveita
-// etapas/fornecedores já carregados pelo componente pai. Grava direto em
-// compra_itens como confirmado; após salvar, limpa valor/descrição/vencimento
-// e mantém etapa/tipo/fornecedor para lançar a próxima nota em sequência.
+// ─── Formulário de lançamento rápido ──────────────────────────────────────────
 function hoje() {
   return new Date().toISOString().slice(0, 10)
 }
 
-function LancamentoRapidoInline({
-  obraId, etapas, fornecedores, onSaved, onVerItens,
-}: {
-  obraId: string
-  etapas: Etapa[]
-  fornecedores: Fornecedor[]
-  onSaved: (item: CompraItem) => void
-  onVerItens: () => void
-}) {
-  const supabase = createClient()
-  const [fornecedorManual, setFornecedorManual] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
+function formInicial() {
+  return {
     valor_total: '',
     etapa_id: '',
     tipo_custo: '' as TipoCusto | '',
@@ -527,7 +505,41 @@ function LancamentoRapidoInline({
     data_compra: hoje(),
     vencimento: '',
     descricao: '',
-  })
+  }
+}
+
+function LancamentoRapidoForm({
+  obraId, etapas, fornecedores, prefill, onPrefillConsumed, onSaved,
+}: {
+  obraId: string
+  etapas: Etapa[]
+  fornecedores: Fornecedor[]
+  prefill?: PrefillLancamento
+  onPrefillConsumed?: () => void
+  onSaved: (item: CompraItem) => void
+}) {
+  const supabase = createClient()
+  const [fornecedorManual, setFornecedorManual] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState(formInicial)
+
+  // Pré-preenche o formulário quando chega uma cotação vencedora de Requisições.
+  useEffect(() => {
+    if (!prefill) return
+    const fornecedorCadastrado = prefill.fornecedorNome
+      ? fornecedores.find(f => f.nome.toLowerCase() === prefill.fornecedorNome!.toLowerCase())
+      : undefined
+    setForm(f => ({
+      ...f,
+      valor_total: prefill.valorTotal != null ? String(prefill.valorTotal) : f.valor_total,
+      descricao: prefill.descricao || f.descricao,
+      fornecedor_id: fornecedorCadastrado?.id || '',
+      fornecedor_nome: !fornecedorCadastrado ? (prefill.fornecedorNome || '') : '',
+    }))
+    setFornecedorManual(!fornecedorCadastrado && !!prefill.fornecedorNome)
+    onPrefillConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill])
 
   async function salvar() {
     if (!form.valor_total) return
@@ -566,9 +578,12 @@ function LancamentoRapidoInline({
 
   return (
     <div className="card p-5 flex flex-col gap-4">
-      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-        Registre uma nota em poucos campos: valor total, centro de custo (etapa) e tipo. O detalhamento
-        por item pode ser feito na aba Itens.
+      <div className="flex items-center gap-2">
+        <Zap size={16} style={{ color: 'var(--accent)' }} />
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Lançamento rápido</h2>
+      </div>
+      <p className="text-xs -mt-2" style={{ color: 'var(--text-secondary)' }}>
+        Valor total, centro de custo (etapa) e tipo. O detalhamento por item pode ser feito com "Item detalhado" abaixo.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -656,11 +671,10 @@ function LancamentoRapidoInline({
         />
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 pt-1">
+      <div>
         <Button icon={<Zap size={14} />} loading={saving} disabled={!podeSalvar} onClick={salvar}>
           Salvar lançamento
         </Button>
-        <Button variant="secondary" onClick={onVerItens}>Ver itens lançados</Button>
       </div>
     </div>
   )

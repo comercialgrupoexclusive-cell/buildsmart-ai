@@ -70,7 +70,7 @@ export default function RelatorioComprasPage({ params }: { params: Promise<{ id:
     <div className="flex flex-col gap-6 pb-10">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Link href={`/obras/${id}?tab=compras`} className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
+          <Link href={`/obras/${id}?tab=materiais`} className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
             <ChevronLeft size={18} style={{ color: 'var(--text-secondary)' }} />
           </Link>
           <div>

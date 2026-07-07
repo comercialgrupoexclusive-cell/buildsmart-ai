@@ -217,8 +217,9 @@ export type Material = {
   unidade: string
   quantidade_total: number
   quantidade_comprada: number
-  status_compra: 'nao_comprado' | 'parcial' | 'comprado'
+  status_compra: 'nao_comprado' | 'solicitado' | 'parcial' | 'comprado'
   data_necessidade: string | null
+  data_recebimento: string | null   // preenchido = chegou fisicamente no canteiro
   etapa?: Etapa
 }
 
