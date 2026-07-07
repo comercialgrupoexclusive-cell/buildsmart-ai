@@ -36,6 +36,7 @@ export type Obra = {
   data_previsao: string | null
   responsavel: string | null
   area_m2: number | null
+  valor_contrato: number | null  // VALOR DA OBRA (contrato); null = usar total do orçamento c/ BDI
   uf: string                   // CHAR(2): AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA, PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO
   created_at: string
 }
@@ -264,6 +265,16 @@ export type ObraFornecedor = {
   fornecedor?: Fornecedor | null
 }
 
+// ─── Tipo de Custo (coluna TIPO da planilha de controle de custos) ───────────
+export type TipoCusto =
+  | 'material'        // 01 - MATERIAL
+  | 'mao_de_obra'     // 02 - MÃO DE OBRA
+  | 'equipamento'     // 03 - EQUIPAMENTO
+  | 'custo_indireto'  // 04 - CUSTO INDIRETO
+  | 'taxa'            // 05 - TAXA
+  | 'servico'         // 06 - SERVIÇO
+  | 'outros'          // OUTROS
+
 // ─── Compras — Item de Compra (financeiro, por obra/etapa) ──────────────────
 export type CompraItem = {
   id: string
@@ -277,6 +288,8 @@ export type CompraItem = {
   unidade: string | null
   valor_unitario: number | null
   valor_total: number
+  tipo_custo: TipoCusto | null
+  data_compra: string | null          // DATA do lançamento (data_limite_pagamento = VENCIMENTO)
   status_valor: 'confirmado' | 'estimado'
   forma_pagamento: 'pix' | 'cartao' | 'boleto' | 'dinheiro' | 'reembolso' | 'pix_cartao' | 'cartao_reembolso' | null
   data_limite_pagamento: string | null
@@ -286,6 +299,19 @@ export type CompraItem = {
   updated_at: string
   etapa?: Etapa | null
   fornecedor?: Fornecedor | null
+}
+
+// ─── Caixa por Etapa (teto de reembolso — aba "Orçamento x Reembolso Caixa") ──
+export type EtapaCaixa = {
+  id: string
+  obra_id: string
+  etapa_id: string
+  valor_caixa: number
+  valor_caixa_mao_obra: number | null
+  observacao: string | null
+  created_at: string
+  updated_at: string
+  etapa?: Etapa | null
 }
 
 // ─── Tarefa ───────────────────────────────────────────────────────────────────

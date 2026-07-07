@@ -71,3 +71,35 @@ export const FORMA_PAGAMENTO_LABEL: Record<string, string> = {
   pix_cartao: 'PIX + Cartão',
   cartao_reembolso: 'Cartão + Reembolso',
 }
+
+// Tipo de custo (coluna TIPO da planilha de controle de custos).
+// Rótulo completo (com código) para selects/badges; curto para gráficos e PDF.
+export const TIPO_CUSTO_LABEL: Record<string, string> = {
+  material: '01 · Material',
+  mao_de_obra: '02 · Mão de obra',
+  equipamento: '03 · Equipamento',
+  custo_indireto: '04 · Custo indireto',
+  taxa: '05 · Taxa',
+  servico: '06 · Serviço',
+  outros: 'Outros',
+}
+
+export const TIPO_CUSTO_LABEL_CURTO: Record<string, string> = {
+  material: 'Material',
+  mao_de_obra: 'Mão de obra',
+  equipamento: 'Equipamento',
+  custo_indireto: 'Custo indireto',
+  taxa: 'Taxa',
+  servico: 'Serviço',
+  outros: 'Outros',
+}
+
+export const TIPO_CUSTO_COLOR: Record<string, string> = {
+  material: '#3B7BF8',
+  mao_de_obra: '#10B981',
+  equipamento: '#8B5CF6',
+  custo_indireto: '#F59E0B',
+  taxa: '#EF4444',
+  servico: '#06B6D4',
+  outros: '#64748B',
+}
