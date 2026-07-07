@@ -3,16 +3,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ShoppingCart, Plus, Pencil, Trash2, ChevronDown, ChevronRight,
-  CheckSquare, Square, Scale, FileText, X, Building2,
+  CheckSquare, Square, Scale, FileText, X, Building2, Zap,
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { formatCurrency, FORMA_PAGAMENTO_LABEL } from '@/lib/utils'
-import { CompraItem, Etapa, Fornecedor } from '@/lib/types'
+import { formatCurrency, FORMA_PAGAMENTO_LABEL, TIPO_CUSTO_LABEL, TIPO_CUSTO_COLOR } from '@/lib/utils'
+import { CompraItem, Etapa, Fornecedor, TipoCusto } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
+import { LancamentoRapidoModal } from '@/components/obra/LancamentoRapidoModal'
 
 const STATUS_VALOR_LABEL: Record<CompraItem['status_valor'], string> = {
   confirmado: 'Confirmado',
@@ -38,6 +39,7 @@ export function ObraCompras({ obraId }: { obraId: string }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const [showModal, setShowModal] = useState(false)
+  const [showLancamento, setShowLancamento] = useState(false)
   const [editando, setEditando] = useState<CompraItem | null>(null)
   const [saving, setSaving] = useState(false)
   const [fornecedorManual, setFornecedorManual] = useState(false)
@@ -47,6 +49,7 @@ export function ObraCompras({ obraId }: { obraId: string }) {
     fornecedor_id: '',
     fornecedor_nome: '',
     valor_total: '',
+    tipo_custo: '' as TipoCusto | '',
     status_valor: 'estimado' as CompraItem['status_valor'],
     forma_pagamento: '' as CompraItem['forma_pagamento'] | '',
     data_limite_pagamento: '',
@@ -75,7 +78,7 @@ export function ObraCompras({ obraId }: { obraId: string }) {
   function resetForm() {
     setForm({
       descricao: '', etapa_id: '', fornecedor_id: '', fornecedor_nome: '',
-      valor_total: '', status_valor: 'estimado', forma_pagamento: '', data_limite_pagamento: '',
+      valor_total: '', tipo_custo: '', status_valor: 'estimado', forma_pagamento: '', data_limite_pagamento: '',
     })
     setFornecedorManual(false)
   }
@@ -94,6 +97,7 @@ export function ObraCompras({ obraId }: { obraId: string }) {
       fornecedor_id: item.fornecedor_id || '',
       fornecedor_nome: item.fornecedor_nome || '',
       valor_total: String(item.valor_total ?? ''),
+      tipo_custo: item.tipo_custo || '',
       status_valor: item.status_valor,
       forma_pagamento: item.forma_pagamento || '',
       data_limite_pagamento: item.data_limite_pagamento || '',
@@ -112,6 +116,7 @@ export function ObraCompras({ obraId }: { obraId: string }) {
       fornecedor_id: fornecedorManual ? null : (form.fornecedor_id || null),
       fornecedor_nome: fornecedorManual ? (form.fornecedor_nome.trim() || null) : null,
       valor_total: parseFloat(form.valor_total),
+      tipo_custo: form.tipo_custo || null,
       status_valor: form.status_valor,
       forma_pagamento: form.forma_pagamento || null,
       data_limite_pagamento: form.data_limite_pagamento || null,
@@ -235,6 +240,7 @@ export function ObraCompras({ obraId }: { obraId: string }) {
           <Link href={`/obras/${obraId}/compras/relatorio`}>
             <Button size="sm" variant="secondary" icon={<FileText size={14} />}>Gerar relatório</Button>
           </Link>
+          <Button size="sm" variant="secondary" icon={<Zap size={14} />} onClick={() => setShowLancamento(true)}>Lançamento rápido</Button>
           <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar item</Button>
         </div>
       </div>
@@ -369,6 +375,16 @@ export function ObraCompras({ obraId }: { obraId: string }) {
 
           <div className="grid grid-cols-2 gap-3">
             <Select
+              label="Tipo de custo"
+              value={form.tipo_custo}
+              onChange={e => setForm(f => ({ ...f, tipo_custo: e.target.value as TipoCusto }))}
+            >
+              <option value="">Não classificado</option>
+              {Object.entries(TIPO_CUSTO_LABEL).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </Select>
+            <Select
               label="Forma de pagamento"
               value={form.forma_pagamento || ''}
               onChange={e => setForm(f => ({ ...f, forma_pagamento: e.target.value as CompraItem['forma_pagamento'] }))}
@@ -378,13 +394,14 @@ export function ObraCompras({ obraId }: { obraId: string }) {
                 <option key={value} value={value}>{label}</option>
               ))}
             </Select>
-            <Input
-              label="Data limite de pagamento"
-              type="date"
-              value={form.data_limite_pagamento}
-              onChange={e => setForm(f => ({ ...f, data_limite_pagamento: e.target.value }))}
-            />
           </div>
+
+          <Input
+            label="Data limite de pagamento"
+            type="date"
+            value={form.data_limite_pagamento}
+            onChange={e => setForm(f => ({ ...f, data_limite_pagamento: e.target.value }))}
+          />
 
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" className="flex-1" onClick={() => { setShowModal(false); setEditando(null); resetForm() }}>
@@ -445,6 +462,14 @@ export function ObraCompras({ obraId }: { obraId: string }) {
           </Button>
         </div>
       </Modal>
+
+      {/* Lançamento rápido de nota */}
+      <LancamentoRapidoModal
+        open={showLancamento}
+        onClose={() => setShowLancamento(false)}
+        obraId={obraId}
+        onSaved={item => setItens(prev => [item, ...prev])}
+      />
     </div>
   )
 }
@@ -512,6 +537,14 @@ function LinhaCompra({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
         <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          {item.tipo_custo && (
+            <span
+              className="inline-flex items-center px-1.5 py-0.5 rounded font-medium"
+              style={{ color: TIPO_CUSTO_COLOR[item.tipo_custo], background: `${TIPO_CUSTO_COLOR[item.tipo_custo]}22` }}
+            >
+              {TIPO_CUSTO_LABEL[item.tipo_custo]}
+            </span>
+          )}
           {fornecedorNome && (
             <span className="inline-flex items-center gap-1"><Building2 size={11} /> {fornecedorNome}</span>
           )}

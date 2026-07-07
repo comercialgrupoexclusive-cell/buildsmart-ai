@@ -54,7 +54,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   const [deleting, setDeleting] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const [editForm, setEditForm] = useState({
-    nome: '', endereco: '', responsavel: '', data_inicio: '', data_previsao: '', foto_url: '', area_m2: '', uf: 'SP',
+    nome: '', endereco: '', responsavel: '', data_inicio: '', data_previsao: '', foto_url: '', area_m2: '', valor_contrato: '', uf: 'SP',
   })
   const [uploadingFoto, setUploadingFoto] = useState(false)
   const [usuarios, setUsuarios] = useState<{ id: string; name: string }[]>([])
@@ -134,6 +134,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       data_previsao: obra.data_previsao || '',
       foto_url: obra.foto_url || '',
       area_m2: obra.area_m2 != null ? String(obra.area_m2) : '',
+      valor_contrato: obra.valor_contrato != null ? String(obra.valor_contrato) : '',
       uf: obra.uf || 'SP',
     })
     setMenuOpen(false)
@@ -153,6 +154,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         data_previsao: editForm.data_previsao || null,
         foto_url: editForm.foto_url || null,
         area_m2: editForm.area_m2 ? parseFloat(editForm.area_m2) : null,
+        valor_contrato: editForm.valor_contrato ? parseFloat(String(editForm.valor_contrato).replace(',', '.')) : null,
         uf: editForm.uf,
       })
       .eq('id', id)
@@ -430,6 +432,16 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
               placeholder="Ex: 120"
             />
           </div>
+
+          <Input
+            label="Valor da obra (contrato) — R$"
+            type="number"
+            step="0.01"
+            value={editForm.valor_contrato}
+            onChange={e => setEditForm(f => ({ ...f, valor_contrato: e.target.value }))}
+            placeholder="Ex: 635000"
+            hint="Usado no Controle Financeiro. Se vazio, usa o total do orçamento."
+          />
 
           <div>
             <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>

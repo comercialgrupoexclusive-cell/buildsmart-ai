@@ -11,6 +11,10 @@ import { formatCurrency, diasAteData, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } fro
 import { useProfile } from '@/lib/profile-context'
 import { ClimaWidgets } from '@/components/dashboard/ClimaWidgets'
 import { MinhasTarefasWidget } from '@/components/dashboard/MinhasTarefasWidget'
+import { FinanceiroObrasWidget } from '@/components/dashboard/FinanceiroObrasWidget'
+import { ProjetosWidget } from '@/components/dashboard/ProjetosWidget'
+import { Button } from '@/components/ui/Button'
+import { LancamentoRapidoModal } from '@/components/obra/LancamentoRapidoModal'
 import Link from 'next/link'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -38,6 +42,7 @@ export default function DashboardPage() {
   const { currentProfile } = useProfile()
   const isAdmin = currentProfile?.tipo === 'admin'
   const [mode, setMode] = useState<'geral' | 'meu'>(() => isAdmin ? 'geral' : 'meu')
+  const [showLancamento, setShowLancamento] = useState(false)
   const [minhasObraIds, setMinhasObraIds] = useState<Set<string>>(new Set())
   const [data, setData] = useState<DashboardData>({
     obras: [],
@@ -295,6 +300,11 @@ export default function DashboardPage() {
           <p className="text-sm mt-2 max-w-2xl" style={{ color: 'var(--text-secondary)' }}>
             Próximas etapas, materiais a comprar, clima e pontos de decisão em um só lugar.
           </p>
+          <div className="mt-4">
+            <Button size="sm" icon={<Zap size={14} />} onClick={() => setShowLancamento(true)}>
+              Lançamento rápido
+            </Button>
+          </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6 relative">
           {[
@@ -311,7 +321,15 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <LancamentoRapidoModal
+        open={showLancamento}
+        onClose={() => setShowLancamento(false)}
+        obraId={null}
+      />
+
       <ClimaWidgets etapasProximas={data.etapasProximas} alertasInternos={data.alertas} />
+
+      <FinanceiroObrasWidget obras={data.obras} />
 
       {/* Curva S do portfólio: avanço físico previsto x realizado */}
       <div className="card p-6">
@@ -569,7 +587,10 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <MinhasTarefasWidget />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <MinhasTarefasWidget />
+        <ProjetosWidget />
+      </div>
 
     </div>
   )

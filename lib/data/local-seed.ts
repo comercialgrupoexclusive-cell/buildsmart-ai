@@ -255,6 +255,7 @@ export function createLocalSeed(): LocalDatabase {
       data_previsao: '2026-09-30',
       responsavel: 'Eng. Teste Local',
       area_m2: 84,
+      valor_contrato: null,
       uf: 'SP',
       created_at: now,
     }, {
@@ -267,6 +268,7 @@ export function createLocalSeed(): LocalDatabase {
       data_previsao: '2026-08-20',
       responsavel: 'Eng. Teste Local 2',
       area_m2: 60,
+      valor_contrato: null,
       uf: 'SP',
       created_at: now,
     }],
