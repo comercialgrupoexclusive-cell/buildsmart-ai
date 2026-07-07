@@ -56,7 +56,6 @@ export function LancamentoRapidoModal({
   const [fornecedorManual, setFornecedorManual] = useState(false)
   const [form, setForm] = useState(formInicial)
   const [saving, setSaving] = useState(false)
-  const [okFlash, setOkFlash] = useState(false)
 
   const obraAtiva = obraId || obraSelecionada
 
@@ -136,8 +135,6 @@ export function LancamentoRapidoModal({
     if (continuar) {
       // Mantém obra/etapa/tipo/fornecedor; limpa valor e descrição para a próxima nota.
       setForm(f => ({ ...f, valor_total: '', descricao: '', vencimento: '' }))
-      setOkFlash(true)
-      setTimeout(() => setOkFlash(false), 1200)
     } else {
       fechar()
     }
@@ -259,12 +256,6 @@ export function LancamentoRapidoModal({
             placeholder="Ex: Aço infraestrutura"
           />
         </div>
-
-        {okFlash && (
-          <p className="text-xs font-medium" style={{ color: 'var(--success)' }}>
-            ✓ Lançamento salvo. Digite a próxima nota.
-          </p>
-        )}
 
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
           <Button variant="secondary" className="flex-1" onClick={fechar}>
