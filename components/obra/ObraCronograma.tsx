@@ -338,8 +338,9 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   }
 
   async function deleteEtapa(id: string) {
-    if (!confirm('Remover etapa e todas as subetapas?')) return
-    await supabase.from('etapas').delete().eq('id', id)
+    if (!confirm('Remover etapa e todas as subetapas? Itens de orçamento e materiais vinculados ficarão sem etapa.')) return
+    const { error } = await supabase.from('etapas').delete().eq('id', id)
+    if (error) { alert('Erro ao remover etapa: ' + error.message); return }
     const subIds = subsDaEtapa(id).map(s => s.id)
     setEtapas(prev => prev.filter(e => e.id !== id))
     setSubetapas(prev => prev.filter(s => s.etapa_id !== id))
