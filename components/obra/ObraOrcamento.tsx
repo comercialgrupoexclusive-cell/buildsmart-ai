@@ -20,19 +20,10 @@ import { exportOrcamentoXLSX, ItemExportRow } from '@/lib/export-orcamento'
 import { InsumoOrcamentoAntigo, LinhaOrcamentoTabular } from '@/lib/import-export-orcamento'
 import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
-import { ETAPAS_PADRAO_CHANGED_EVENT, readEtapasPadrao } from '@/lib/settings/etapas-padrao'
+import { readEtapasPadrao } from '@/lib/settings/etapas-padrao'
 
 type FonteBusca = 'proprias' | 'sinapi'
 
-const ETAPAS_PADRAO_KEY = 'buildsmart-etapas-padrao'
-const ETAPAS_PADRAO_FALLBACK = [
-  'Serviços preliminares', 'Administração local', 'Mobilização e desmobilização',
-  'Canteiro de obras', 'Movimento de terra', 'Fundações', 'Estrutura',
-  'Alvenaria e vedação', 'Cobertura', 'Impermeabilização',
-  'Instalações hidrossanitárias', 'Instalações elétricas', 'Instalações especiais',
-  'Esquadrias', 'Revestimentos internos', 'Revestimentos externos',
-  'Pisos', 'Pintura', 'Louças e metais', 'Serviços complementares',
-]
 
 // schema real (tabela composicao_insumos): FKs normalizadas para sinapi_insumos
 // ou insumos_proprios — descrição/unidade/preço vêm sempre do embed (sem snapshot)
@@ -159,7 +150,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   // Modal adicionar item
   const [showAddItem, setShowAddItem] = useState(false)
   const [showImportExportTabular, setShowImportExportTabular] = useState(false)
-  const [etapasPadrao, setEtapasPadrao] = useState<string[]>([])
   const [selectedEtapaNome, setSelectedEtapaNome] = useState('')
   const [subetapaLivre, setSubetapaLivre] = useState('')
   const [fonte, setFonte] = useState<FonteBusca>('proprias')
@@ -235,21 +225,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     localStorage.setItem(`bs_collapsed_${obraId}`, JSON.stringify(collapsed))
   }, [collapsed, obraId])
 
-  // ─── Etapas padrão ───────────────────────────────────────────────────────
-  useEffect(() => {
-    function syncEtapasPadrao() {
-      setEtapasPadrao(readEtapasPadrao())
-    }
-
-    syncEtapasPadrao()
-    window.addEventListener(ETAPAS_PADRAO_CHANGED_EVENT, syncEtapasPadrao)
-    window.addEventListener('storage', syncEtapasPadrao)
-
-    return () => {
-      window.removeEventListener(ETAPAS_PADRAO_CHANGED_EVENT, syncEtapasPadrao)
-      window.removeEventListener('storage', syncEtapasPadrao)
-    }
-  }, [])
 
   // ─── Fechar menu ao clicar fora ──────────────────────────────────────────
   useEffect(() => {
@@ -419,32 +394,26 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       .from('etapas')
       .insert({ obra_id: obraId, nome: novaEtapaNome.trim(), status: 'planejada', ordem: maxOrdem + 1 })
       .select().single()
-    if (data) { setEtapas(prev => [...prev, data]); setShowAddItem(true) }
+    if (data) {
+      setEtapas(prev => [...prev, data])
+      setSelectedEtapaNome(data.nome)
+      setShowAddItem(true)
+    }
     setCriandoEtapa(false); setShowNovaEtapa(false); setNovaEtapaNome('')
   }
 
   function openItemModal(etapaId: string | null = null) {
-    const etapasConfig = readEtapasPadrao()
-    setEtapasPadrao(etapasConfig)
     const etapa = etapaId ? etapas.find(e => e.id === etapaId) : null
-    setSelectedEtapaNome(etapa?.nome || etapasConfig[0] || '')
+    setSelectedEtapaNome(etapa?.nome || etapas[0]?.nome || '')
     setSubetapaLivre('')
     setShowAddItem(true)
   }
 
-  async function ensureEtapaSelecionada() {
+  function ensureEtapaSelecionada(): string | null {
     const nome = selectedEtapaNome.trim()
     if (!nome) return null
     const existente = etapas.find(e => e.nome.toLowerCase() === nome.toLowerCase())
-    if (existente) return existente.id
-    const maxOrdem = etapas.reduce((m, e) => Math.max(m, e.ordem), 0)
-    const { data } = await supabase
-      .from('etapas')
-      .insert({ obra_id: obraId, nome, status: 'planejada', ordem: maxOrdem + 1 })
-      .select().single()
-    if (!data) return null
-    setEtapas(prev => [...prev, data])
-    return data.id
+    return existente?.id ?? null
   }
 
   // ─── Adicionar item ───────────────────────────────────────────────────────
@@ -455,7 +424,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       const isSinapi = fonte === 'sinapi'
       const qtd = parseFloat(quantidade)
       const custoUnitario = getItemCost(selectedItem)
-      const etapaId = await ensureEtapaSelecionada()
+      const etapaId = ensureEtapaSelecionada()
       const subetapaFinal = subetapaLivre.trim() || null
 
       const { error } = await supabase.from('orcamento_itens').insert({
@@ -1043,7 +1012,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     ? (fonte === 'proprias' ? composicoesProprias : sinapiComps).filter(c =>
         c.descricao.toLowerCase().includes(termoBusca) || c.codigo.toLowerCase().includes(termoBusca))
     : []
-  const etapaOptions = Array.from(new Set([...etapasPadrao, ...etapas.map(e => e.nome)])).filter(Boolean)
+  const etapaOptions = etapas.map(e => e.nome)
   const isReadonly = orcamento?.status === 'finalizado'
 
   // Itens atuais no layout tabular (Etapa, Subetapa, Código, Quantidade) —
@@ -1287,6 +1256,25 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
             placeholder="Ex: Fundação, Estrutura, Cobertura..."
             autoFocus
           />
+          {(() => {
+            const nomesExistentes = new Set(etapas.map(e => e.nome.toLowerCase()))
+            const sugestoes = readEtapasPadrao().filter(n => !nomesExistentes.has(n.toLowerCase()))
+            if (sugestoes.length === 0) return null
+            return (
+              <div>
+                <p className="text-[10px] mb-1.5" style={{ color: 'var(--text-secondary)' }}>Sugestões:</p>
+                <div className="flex flex-wrap gap-1">
+                  {sugestoes.map(s => (
+                    <button key={s} type="button" onClick={() => setNovaEtapaNome(s)}
+                      className="text-[10px] px-2 py-0.5 rounded-full transition-colors"
+                      style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
           <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
             Datas são definidas depois no Cronograma.
           </p>
@@ -1310,9 +1298,16 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Etapa</label>
-              <select value={selectedEtapaNome} onChange={e => setSelectedEtapaNome(e.target.value)} className="input-base">
-                {etapaOptions.map(etapa => <option key={etapa} value={etapa}>{etapa}</option>)}
-              </select>
+              <div className="flex gap-1.5">
+                <select value={selectedEtapaNome} onChange={e => setSelectedEtapaNome(e.target.value)} className="input-base flex-1">
+                  {etapaOptions.map(etapa => <option key={etapa} value={etapa}>{etapa}</option>)}
+                </select>
+                <button type="button" onClick={() => { setShowAddItem(false); setShowNovaEtapa(true) }}
+                  className="px-2 rounded-lg text-xs font-medium flex-shrink-0"
+                  style={{ background: 'var(--accent)', color: 'white' }} title="Criar nova etapa">
+                  <Plus size={14} />
+                </button>
+              </div>
             </div>
             <Input
               label="Subetapa / complemento"
