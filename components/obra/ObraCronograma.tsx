@@ -34,7 +34,7 @@ const fmtBR = (v: string | null | undefined) => {
 
 export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projetoId?: string }) {
   const supabase = createClient()
-  const [tab, setTab] = useState<Tab>('kanban')
+  const [tab, setTab] = useState<Tab>('cascata')
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [subetapas, setSubetapas] = useState<SubetapaCronograma[]>([])
   const [servicos, setServicos] = useState<ServicoCronograma[]>([])
@@ -194,6 +194,10 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
 
   function predecessorasDeItem(tipo: CronogramaItemTipo, id: string): CronogramaDependencia[] {
     return dependencias.filter(d => d.item_tipo === tipo && d.item_id === id)
+  }
+
+  function antecessorasDeItem(tipo: CronogramaItemTipo, id: string): CronogramaDependencia[] {
+    return dependencias.filter(d => d.predecessor_tipo === tipo && d.predecessor_id === id)
   }
 
   // BFS: partindo da predecessora escolhida, percorre as predecessoras DELA —
@@ -544,9 +548,9 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
           {([
-            { key: 'kanban',  label: 'Kanban',  icon: KanbanSquare },
             { key: 'cascata', label: 'Estrutura', icon: LayoutList },
             { key: 'gantt',   label: 'Gantt',   icon: BarChart2 },
+            { key: 'kanban',  label: 'Kanban',  icon: KanbanSquare },
           ] as const).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -626,13 +630,6 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
-                      <button
-                        onClick={() => toggleMarco('etapas', etapa.id, etapa.is_marco)}
-                        className="p-0.5 rounded hover:bg-[var(--bg-card)] transition-colors"
-                        title={etapa.is_marco ? 'Marco de projeto — clique para remover' : 'Marcar como marco de projeto'}
-                      >
-                        <Flag size={12} style={{ color: etapa.is_marco ? '#8B5CF6' : 'var(--border)' }} fill={etapa.is_marco ? '#8B5CF6' : 'none'} />
-                      </button>
                       <span className={`text-[10px] px-2 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[etapa.status]}`}>
                         {STATUS_ETAPA_LABEL[etapa.status]}
                       </span>
@@ -652,29 +649,6 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                         onCommit={v => updateDateInline('etapas', etapa.id, 'data_fim', v)}
                       />
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                      {predecessorasDeItem('etapa', etapa.id).map(p => (
-                        <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-                          <Link2 size={9} />
-                          {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
-                          <button onClick={() => salvarPredecessoras('etapa', etapa.id, predecessorasDeItem('etapa', etapa.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100">
-                            <X size={9} />
-                          </button>
-                        </span>
-                      ))}
-                      <button
-                        onClick={() => setPickerQuickAlvo({ tipo: 'etapa', id: etapa.id })}
-                        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-secondary)] transition-colors"
-                        style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}
-                      >
-                        <Plus size={9} /> Predecessora
-                      </button>
-                    </div>
-                    {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio) && (
-                      <p className="text-[10px] mt-1" style={{ color: 'var(--danger)' }}>
-                        ⚠ Conflita com predecessora: {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio)}
-                      </p>
-                    )}
                     {mostrarFinanceiro && (
                       <div className="flex flex-wrap items-center gap-2 mt-2 px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
                         <Wallet size={12} style={{ color: '#10b981' }} />
@@ -743,7 +717,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                               className="p-0.5 rounded hover:bg-[var(--bg-card)] transition-colors"
                               title={sub.is_marco ? 'Marco de projeto — clique para remover' : 'Marcar como marco de projeto'}
                             >
-                              <Flag size={11} style={{ color: sub.is_marco ? '#8B5CF6' : 'var(--border)' }} fill={sub.is_marco ? '#8B5CF6' : 'none'} />
+                              <Flag size={14} style={{ color: sub.is_marco ? '#F59E0B' : 'var(--text-secondary)' }} fill={sub.is_marco ? '#F59E0B' : 'none'} strokeWidth={sub.is_marco ? 2.5 : 1.5} />
                             </button>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[sub.status]}`}>
                               {STATUS_ETAPA_LABEL[sub.status]}
@@ -769,12 +743,18 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                           </div>
                           <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                             {predecessorasDeItem('subetapa', sub.id).map(p => (
-                              <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                              <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
                                 <Link2 size={9} />
-                                {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
+                                <span className="font-medium">Dep:</span> {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
                                 <button onClick={() => salvarPredecessoras('subetapa', sub.id, predecessorasDeItem('subetapa', sub.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100">
                                   <X size={9} />
                                 </button>
+                              </span>
+                            ))}
+                            {antecessorasDeItem('subetapa', sub.id).map(a => (
+                              <span key={a.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(139,92,246,0.08)', color: '#8B5CF6', border: '1px solid rgba(139,92,246,0.25)' }}>
+                                <Link2 size={9} />
+                                <span className="font-medium">Lib:</span> {nomeDoItem(a.item_tipo, a.item_id)}
                               </span>
                             ))}
                             <button
@@ -824,7 +804,6 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                           <Check size={12} className="flex-shrink-0" style={{ color: svc.percentual_executado >= 100 ? '#10b981' : 'var(--border)' }} />
                           <div className="flex-1 min-w-0">
                             <span className="text-xs" style={{ color: 'var(--text-primary)' }}>{svc.nome}</span>
-                            {svc.is_marco && <Flag size={10} className="inline ml-1" style={{ color: '#8B5CF6' }} />}
                             <div className="flex flex-wrap items-center gap-2 mt-2">
                               <DateCell
                                 value={svc.data_inicio}
@@ -926,10 +905,6 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
             <input type="number" min={0} max={100} className="input-base" value={etapaForm.percentual_executado}
               onChange={e => setEtapaForm(f => ({ ...f, percentual_executado: Math.min(100, Math.max(0, Number(e.target.value))) }))} />
           </div>
-          <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-primary)' }}>
-            <input type="checkbox" checked={etapaForm.is_marco} onChange={e => setEtapaForm(f => ({ ...f, is_marco: e.target.checked }))} />
-            É um marco de projeto
-          </label>
           <div className="space-y-1.5">
             <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Predecessoras (Fim → Início)</label>
             <div className="flex flex-wrap gap-1.5">
@@ -1014,10 +989,6 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
             </div>
             <Input label="Responsável" value={svcForm.responsavel} onChange={e => setSvcForm(f => ({ ...f, responsavel: e.target.value }))} placeholder="Empreiteiro ou equipe" />
           </div>
-          <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-primary)' }}>
-            <input type="checkbox" checked={svcForm.is_marco} onChange={e => setSvcForm(f => ({ ...f, is_marco: e.target.checked }))} />
-            É um marco de projeto
-          </label>
           <div className="space-y-1.5">
             <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Predecessoras (Fim → Início)</label>
             <div className="flex flex-wrap gap-1.5">
@@ -1186,7 +1157,6 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
                     <span className="text-[10px] px-1.5 py-0.5 rounded w-fit font-medium" style={{ background: 'rgba(59,123,248,0.12)', color: 'var(--accent)' }}>Etapa</span>
                     <span className="text-sm font-semibold flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
                       {etapa.nome}
-                      {etapa.is_marco && <Flag size={12} style={{ color: '#8B5CF6' }} />}
                     </span>
                     <div className="flex items-center gap-1">
                       <DateCell
@@ -1239,7 +1209,7 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
                   )}
                   <span className="text-sm font-medium flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
                     {sub.nome}
-                    {sub.is_marco && <Flag size={12} style={{ color: '#8B5CF6' }} />}
+                    {sub.is_marco && <Flag size={14} style={{ color: '#F59E0B' }} fill="#F59E0B" />}
                   </span>
                   <div className="flex items-center gap-1">
                     <DateCell
@@ -1324,9 +1294,9 @@ type ObraGanttNode = {
 
 type GanttEff = { inicio: string | null; fim: string | null; pct: number }
 
-const GANTT_ROW_H = 52
-const GANTT_HDR_H = 48
-const GANTT_LEFT_W = 330
+const GANTT_ROW_H = 40
+const GANTT_HDR_H = 36
+const GANTT_LEFT_W = 260
 const GANTT_PAD_DAYS = 10
 const GANTT_MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const GANTT_COLORS = ['#3B7BF8', '#8B5CF6', '#10B981', '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#F97316']
@@ -1571,8 +1541,11 @@ function ObraGanttView({
                     ) : (
                       <span className="w-4 flex-shrink-0" />
                     )}
+                    {!row.isTotal && node?.nivel === 2 && node.is_marco && (
+                      <Flag size={11} style={{ color: '#F59E0B' }} fill="#F59E0B" className="flex-shrink-0" />
+                    )}
                     <span
-                      className="text-xs truncate flex-1"
+                      className="text-[11px] truncate flex-1"
                       style={{
                         color: row.isTotal || node?.nivel === 1 ? 'var(--accent)' : 'var(--text-primary)',
                         fontWeight: row.isTotal ? 700 : node?.nivel === 1 ? 600 : 400,
@@ -1582,54 +1555,10 @@ function ObraGanttView({
                       {row.nome}
                     </span>
                     {atrasado && <span className="text-[9px] flex-shrink-0" style={{ color: '#EF4444' }}>!</span>}
-                  </div>
-
-                  <div className="flex items-center gap-1 pl-5 flex-wrap">
-                    {!row.isTotal && node ? (
-                      isMobile ? (
-                        <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-                          {fmtGanttDate(node.data_inicio)} -&gt; {fmtGanttDate(node.data_fim)}
-                        </span>
-                      ) : (
-                        <>
-                          <input
-                            type="date"
-                            value={node.data_inicio ?? ''}
-                            className="min-h-8 w-[8.25rem] rounded-lg border px-2 text-[10px] outline-none"
-                            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                            onChange={e => onUpdateDate(node.table, node.id, 'data_inicio', e.target.value)}
-                          />
-                          <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>-&gt;</span>
-                          <input
-                            type="date"
-                            value={node.data_fim ?? ''}
-                            className="min-h-8 w-[8.25rem] rounded-lg border px-2 text-[10px] outline-none"
-                            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                            onChange={e => onUpdateDate(node.table, node.id, 'data_fim', e.target.value)}
-                          />
-                        </>
-                      )
-                    ) : (
-                      <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>
-                        {fmtGanttDate(row.inicio)} -&gt; {fmtGanttDate(row.fim)}
-                      </span>
-                    )}
                     {!row.isTotal && node && (
-                      <PctInput value={node.percentual_executado ?? 0} onChange={v => onUpdatePct(node.table, node.id, v)} small />
+                      <span className="text-[9px] flex-shrink-0" style={{ color: (row.pct ?? 0) >= 100 ? '#10b981' : 'var(--text-secondary)' }}>{Math.round(row.pct ?? 0)}%</span>
                     )}
                   </div>
-                  {mostrarFinanceiro && !row.isTotal && node && (
-                    <div className="flex items-center gap-1 pl-5 mt-1 flex-wrap">
-                      <span
-                        className="inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-md"
-                        style={{ background: 'rgba(16,185,129,0.12)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }}
-                      >
-                        {node.nivel === 1
-                          ? `${formatCurrency(realizadoPorEtapa.get(node.id) ?? 0)} / ${formatCurrency(orcadoPorEtapa.get(node.id) ?? 0)}`
-                          : `${formatCurrency((node.nivel === 2 ? realizadoPorSubetapa : realizadoPorServico).get(node.id) ?? 0)}`}
-                      </span>
-                    </div>
-                  )}
                 </div>
               )
             })}
@@ -1680,20 +1609,20 @@ function ObraGanttView({
                 const color = pct >= 100 ? '#10B981' : atrasado ? '#EF4444' : baseColor
                 const opacity = row.isTotal || row.node?.nivel === 1 ? 1 : row.node?.nivel === 2 ? 0.75 : 0.55
 
-                // Marco: renderiza como losango na data de referência, em vez de barra.
-                if (!row.isTotal && row.node?.is_marco) {
+                // Marco (só subetapas): renderiza como losango dourado na data de referência.
+                if (!row.isTotal && row.node?.nivel === 2 && row.node?.is_marco) {
                   const cx = row.fim ? x2 : x1
                   const cy = barY + barH / 2
                   const s = 7
                   return (
-                    <g key={row.id} opacity={opacity}>
+                    <g key={row.id} opacity={1}>
                       <polygon
                         points={`${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}`}
-                        fill={color}
-                        stroke="#8B5CF6"
+                        fill="#F59E0B"
+                        stroke="#D97706"
                         strokeWidth={1.5}
                       />
-                      <text x={cx + s + 5} y={cy + 3.5} fontSize={8} fill={atrasado ? '#EF4444' : 'var(--text-secondary)'} fontFamily="var(--font-sans)">
+                      <text x={cx + s + 5} y={cy + 3.5} fontSize={8} fill={atrasado ? '#EF4444' : '#F59E0B'} fontFamily="var(--font-sans)" fontWeight={600}>
                         {fmtGanttDate(row.fim ?? row.inicio)}
                       </text>
                     </g>
