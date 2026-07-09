@@ -78,7 +78,7 @@ export function ComprasLancamentos({
   const [cotacaoLinhas, setCotacaoLinhas] = useState<CotacaoLinha[]>([])
 
   useEffect(() => {
-    Promise.resolve().then(() => loadDados())
+    void loadDados()
   }, [obraId])
 
   async function loadDados() {
@@ -92,8 +92,10 @@ export function ComprasLancamentos({
     const etapasData = (etapasRes.data || []) as Etapa[]
     setEtapas(etapasData)
     setFornecedores((fornecedoresRes.data || []) as Fornecedor[])
+    setLoading(false)
 
     // Subetapa/Serviço: usados só como refinamento opcional do centro de custo.
+    // Carrega em segundo plano para não travar a abertura do menu Compras.
     const etapaIds = etapasData.map(e => e.id)
     if (etapaIds.length > 0) {
       const { data: subs } = await supabase.from('subetapas_cronograma').select('*').in('etapa_id', etapaIds).order('ordem')
@@ -109,7 +111,6 @@ export function ComprasLancamentos({
       setSubetapas([])
       setServicos([])
     }
-    setLoading(false)
   }
 
   function resetForm() {

@@ -16,15 +16,15 @@ export default function MateriaisPage() {
 
   async function loadObras() {
     setLoadingObras(true)
-    const { data } = await supabase.from('obras').select('*').order('created_at', { ascending: false })
-    const list = data || []
+    const { data } = await supabase.from('obras').select('id, nome, created_at').order('created_at', { ascending: false })
+    const list = (data || []) as Obra[]
     setObras(list)
     if (list.length > 0) setObraId(list[0].id)
     setLoadingObras(false)
   }
 
   useEffect(() => {
-    Promise.resolve().then(() => loadObras())
+    void loadObras()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

@@ -231,6 +231,23 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     setSubetapasOrcamento(subMap)
     setLoading(false)
   }
+
+  async function loadListas() {
+    const { data } = await supabase
+      .from('listas_compra')
+      .select('id, nome, fornecedor_id, itens, status, criado_em')
+      .eq('obra_id', obraId)
+      .order('criado_em', { ascending: false })
+    setListas(((data ?? []) as { id: string; nome: string; fornecedor_id: string | null; itens: ListaCompraItem[]; status: StatusLista; criado_em: string }[]).map((r) => ({
+      id: r.id,
+      nome: r.nome,
+      fornecedorId: r.fornecedor_id,
+      itens: r.itens ?? [],
+      status: r.status,
+      criadoEm: r.criado_em,
+    })))
+    setListasCarregadas(true)
+  }
   // --- Importar do orçamento ────────────────────────────────────────────────
   // Pergunta do usuário: "como faço pra puxar os insumos do orçamento pra
   // materiais? / faça um botão de importar os dados do orçamento em materiais".
@@ -476,24 +493,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   }
 
   useEffect(() => {
-    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
-    Promise.resolve().then(async () => {
-      await loadMateriais()
-      await importarDoOrcamento(true)
-    })
-  }, [obraId])
-
-  // ── Listas de compra — carrega do Supabase ──
-  useEffect(() => {
-    if (!obraId) return
-    supabase.from('listas_compra').select('*').eq('obra_id', obraId).order('criado_em', { ascending: false })
-      .then(({ data }: { data: { id: string; nome: string; fornecedor_id: string | null; itens: ListaCompraItem[]; status: StatusLista; criado_em: string }[] | null }) => {
-        setListas((data ?? []).map((r) => ({
-          id: r.id, nome: r.nome, fornecedorId: r.fornecedor_id,
-          itens: r.itens ?? [], status: r.status, criadoEm: r.criado_em,
-        })))
-        setListasCarregadas(true)
-      })
+    void Promise.all([loadMateriais(), loadListas()])
   }, [obraId])
 
   async function handleSave() {
@@ -927,6 +927,9 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           <option value="todos">Todos</option>
         </select>
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" icon={<Zap size={14} />} loading={importando} onClick={() => importarDoOrcamento(false)}>
+            Sincronizar orçamento
+          </Button>
           <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={() => setSubView('compras')}>
             Listas salvas{listas.length > 0 ? ` (${listas.length})` : ''}
           </Button>
@@ -938,7 +941,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
       {importando && (
         <div className="card px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          Sincronizando automaticamente os insumos do orçamento...
+          Sincronizando os insumos do orçamento...
         </div>
       )}
 
@@ -957,9 +960,10 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         <EmptyState
           icon={Package}
           title="Nenhum material"
-          description={'Os materiais são gerados automaticamente pelas composições do orçamento. Se o orçamento já tem itens e ainda não apareceu nada, aguarde a sincronização ou confira se os itens possuem composição/insumos vinculados.'}
+          description={'Os materiais vêm das composições do orçamento. Se o orçamento já tem itens e ainda não apareceu nada, sincronize uma vez ou confira se os itens possuem composição/insumos vinculados.'}
           action={
             <div className="flex items-center gap-2">
+              <Button size="sm" variant="secondary" icon={<Zap size={14} />} loading={importando} onClick={() => importarDoOrcamento(false)}>Sincronizar orçamento</Button>
               <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar material</Button>
             </div>
           }
