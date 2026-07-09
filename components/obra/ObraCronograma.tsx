@@ -32,6 +32,17 @@ const fmtBR = (v: string | null | undefined) => {
   return `${d}/${m}/${String(y).slice(2)}`
 }
 
+type OrcamentoCronogramaItem = {
+  etapa_id: string | null
+  subetapa: string | null
+  descricao_snapshot: string | null
+  composicoes_proprias?: { descricao: string | null } | null
+  sinapi_composicoes?: { descricao: string | null } | null
+}
+
+const normalizarChaveCrono = (valor: string | null | undefined) =>
+  (valor || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
 export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projetoId?: string }) {
   const supabase = createClient()
   const [tab, setTab] = useState<Tab>('cascata')
@@ -135,6 +146,12 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
           .from('servicos_cronograma').select('*').in('subetapa_id', subIds).order('ordem')
         svcsData = (svcs ?? []) as ServicoCronograma[]
       }
+
+      if (obraId) {
+        const sincronizado = await sincronizarCronogramaComOrcamento(etapasData, subsData, svcsData)
+        subsData = sincronizado.subetapas
+        svcsData = sincronizado.servicos
+      }
     }
     setEtapas(etapasData)
     setSubetapas(subsData)
@@ -145,6 +162,114 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       setDependencias((deps ?? []) as CronogramaDependencia[])
     }
     setLoading(false)
+  }
+
+  async function sincronizarCronogramaComOrcamento(
+    etapasData: Etapa[],
+    subsAtuais: SubetapaCronograma[],
+    svcsAtuais: ServicoCronograma[]
+  ) {
+    if (!obraId) return { subetapas: subsAtuais, servicos: svcsAtuais }
+
+    const { data: orc } = await supabase
+      .from('orcamentos')
+      .select('id')
+      .eq('obra_id', obraId)
+      .order('versao', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!orc?.id) return { subetapas: subsAtuais, servicos: svcsAtuais }
+
+    const { data: itensOrcamento } = await supabase
+      .from('orcamento_itens')
+      .select('etapa_id, subetapa, descricao_snapshot, composicoes_proprias(descricao), sinapi_composicoes(descricao)')
+      .eq('orcamento_id', orc.id)
+
+    const itensValidos = ((itensOrcamento ?? []) as OrcamentoCronogramaItem[])
+      .filter(item => item.etapa_id && item.subetapa?.trim())
+
+    if (itensValidos.length === 0) return { subetapas: subsAtuais, servicos: svcsAtuais }
+
+    const etapaIdsValidos = new Set(etapasData.map(etapa => etapa.id))
+    const subPorChave = new Map<string, SubetapaCronograma>()
+    subsAtuais.forEach(sub => {
+      subPorChave.set(`${sub.etapa_id}|${normalizarChaveCrono(sub.nome)}`, sub)
+    })
+
+    const novasSubsPayload: Array<Partial<SubetapaCronograma> & { etapa_id: string; nome: string; ordem: number }> = []
+    const ordemPorEtapa = new Map<string, number>()
+    subsAtuais.forEach(sub => {
+      ordemPorEtapa.set(sub.etapa_id, Math.max(ordemPorEtapa.get(sub.etapa_id) ?? 0, sub.ordem ?? 0))
+    })
+
+    for (const item of itensValidos) {
+      if (!item.etapa_id || !etapaIdsValidos.has(item.etapa_id) || !item.subetapa?.trim()) continue
+      const nomeSub = item.subetapa.trim()
+      const chave = `${item.etapa_id}|${normalizarChaveCrono(nomeSub)}`
+      if (subPorChave.has(chave) || novasSubsPayload.some(sub => `${sub.etapa_id}|${normalizarChaveCrono(sub.nome)}` === chave)) continue
+      const proxOrdem = (ordemPorEtapa.get(item.etapa_id) ?? 0) + 1
+      ordemPorEtapa.set(item.etapa_id, proxOrdem)
+      novasSubsPayload.push({
+        etapa_id: item.etapa_id,
+        nome: nomeSub,
+        status: 'planejada',
+        percentual_executado: 0,
+        ordem: proxOrdem,
+      })
+    }
+
+    let subsSincronizadas = subsAtuais
+    if (novasSubsPayload.length > 0) {
+      const { data: novasSubs, error } = await supabase
+        .from('subetapas_cronograma')
+        .insert(novasSubsPayload)
+        .select('*')
+      if (!error && novasSubs) {
+        subsSincronizadas = [...subsAtuais, ...(novasSubs as SubetapaCronograma[])]
+        ;(novasSubs as SubetapaCronograma[]).forEach(sub => {
+          subPorChave.set(`${sub.etapa_id}|${normalizarChaveCrono(sub.nome)}`, sub)
+        })
+      }
+    }
+
+    const servicoPorChave = new Set(svcsAtuais.map(svc => `${svc.subetapa_id}|${normalizarChaveCrono(svc.nome)}`))
+    const ordemPorSub = new Map<string, number>()
+    svcsAtuais.forEach(svc => {
+      ordemPorSub.set(svc.subetapa_id, Math.max(ordemPorSub.get(svc.subetapa_id) ?? 0, svc.ordem ?? 0))
+    })
+
+    const novosServicosPayload: Array<Partial<ServicoCronograma> & { subetapa_id: string; nome: string; ordem: number }> = []
+    for (const item of itensValidos) {
+      if (!item.etapa_id || !item.subetapa?.trim()) continue
+      const sub = subPorChave.get(`${item.etapa_id}|${normalizarChaveCrono(item.subetapa)}`)
+      if (!sub) continue
+      const nomeServico = (item.descricao_snapshot || item.composicoes_proprias?.descricao || item.sinapi_composicoes?.descricao || '').trim()
+      if (!nomeServico) continue
+      const chaveServico = `${sub.id}|${normalizarChaveCrono(nomeServico)}`
+      if (servicoPorChave.has(chaveServico) || novosServicosPayload.some(svc => `${svc.subetapa_id}|${normalizarChaveCrono(svc.nome)}` === chaveServico)) continue
+      const proxOrdem = (ordemPorSub.get(sub.id) ?? 0) + 1
+      ordemPorSub.set(sub.id, proxOrdem)
+      novosServicosPayload.push({
+        subetapa_id: sub.id,
+        nome: nomeServico,
+        percentual_executado: 0,
+        ordem: proxOrdem,
+      })
+    }
+
+    let svcsSincronizados = svcsAtuais
+    if (novosServicosPayload.length > 0) {
+      const { data: novosServicos, error } = await supabase
+        .from('servicos_cronograma')
+        .insert(novosServicosPayload)
+        .select('*')
+      if (!error && novosServicos) {
+        svcsSincronizados = [...svcsAtuais, ...(novosServicos as ServicoCronograma[])]
+      }
+    }
+
+    return { subetapas: subsSincronizadas, servicos: svcsSincronizados }
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────

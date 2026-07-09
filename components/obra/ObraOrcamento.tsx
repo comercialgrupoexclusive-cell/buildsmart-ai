@@ -405,13 +405,17 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     setCriandoEtapa(false); setShowNovaEtapa(false); setNovaEtapaNome('')
   }
 
-  function openItemModal(etapaId: string | null = null) {
+  function openItemModal(etapaId: string | null = null, subetapa: string | null = null, usarItemLivre = false) {
     const etapa = etapaId ? etapas.find(e => e.id === etapaId) : null
     setSelectedEtapaNome(etapa?.nome || etapas[0]?.nome || '')
-    setSubetapaLivre('')
+    setSubetapaLivre(subetapa && subetapa !== 'Sem subetapa' ? subetapa : '')
+    setFonte(usarItemLivre ? 'livre' : 'proprias')
+    setSelectedItem(null)
+    setBusca('')
     setLivreDescricao('')
     setLivreUnidade('UN')
     setLivrePreco('')
+    setQuantidade('')
     setShowAddItem(true)
   }
 
@@ -572,6 +576,34 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     setItens(prev => prev.map(item => item.etapa_id === etapaId && (item.subetapa || 'Sem subetapa') === subetapaAtual
       ? { ...item, subetapa: novoValor }
       : item))
+  }
+
+  async function handleRemoveSubetapa(etapaId: string | null, subetapaNome: string) {
+    const itensDaSubetapa = itens.filter(item =>
+      item.etapa_id === etapaId && (item.subetapa || 'Sem subetapa') === subetapaNome
+    )
+    if (itensDaSubetapa.length === 0) return
+    const aviso = `Excluir a subetapa "${subetapaNome}" e suas ${itensDaSubetapa.length} composições/itens? Esta ação não pode ser desfeita.`
+    if (!confirm(aviso)) return
+
+    for (const item of itensDaSubetapa) {
+      if (item.composicao_id) {
+        await abaterMateriaisDaComposicao(item.composicao_itens || [], item.quantidade, item.etapa_id, item.subetapa, item.codigo)
+      } else if (item.sinapi_composicao_id && item.codigo && item.codigo !== '—') {
+        await abaterMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, item.quantidade, item.etapa_id, item.subetapa)
+      } else if (item.codigo && item.codigo !== '—') {
+        await abaterMaterialQtd(item.codigo, item.quantidade, item.etapa_id, item.subetapa)
+      }
+      setInsumoOverrides(prev => {
+        const next = { ...prev }
+        Object.keys(next).filter(k => k.startsWith(item.id)).forEach(k => delete next[k])
+        return next
+      })
+    }
+
+    const ids = itensDaSubetapa.map(item => item.id)
+    await supabase.from('orcamento_itens').delete().in('id', ids)
+    setItens(prev => prev.filter(item => !ids.includes(item.id)))
   }
 
   async function handleUpdateBdi() {
@@ -1300,7 +1332,10 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                 getItemTotal={getItemTotal}
                 obraUf={obraUf}
                 subtotalDireto={subtotal}
+                onAddItemToSubetapa={(nomeSub) => openItemModal(null, nomeSub)}
+                onAddInsumoToItem={(item) => openItemModal(item.etapa_id, item.subetapa, true)}
                 onRenameSubetapa={(nomeSub) => handleRenameSubetapa(null, nomeSub)}
+                onDeleteSubetapa={(nomeSub) => handleRemoveSubetapa(null, nomeSub)}
               />
             )}
             {etapas.map(etapa => {
@@ -1327,9 +1362,12 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                   icon={icon}
                   iconCor={cor}
                   subtotalDireto={subtotal}
+                  onAddItemToSubetapa={(nomeSub) => openItemModal(etapa.id, nomeSub)}
+                  onAddInsumoToItem={(item) => openItemModal(item.etapa_id, item.subetapa, true)}
                   onDeleteEtapa={!isReadonly ? () => handleRemoveEtapa(etapa.id, etapa.nome) : undefined}
                   onRenameEtapa={!isReadonly ? () => handleRenameEtapa(etapa.id, etapa.nome) : undefined}
                   onRenameSubetapa={!isReadonly ? (nomeSub) => handleRenameSubetapa(etapa.id, nomeSub) : undefined}
+                  onDeleteSubetapa={!isReadonly ? (nomeSub) => handleRemoveSubetapa(etapa.id, nomeSub) : undefined}
                   menuAberto={etapaMenuAberto === etapa.id}
                   onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
                   menuRef={etapaMenuAberto === etapa.id ? etapaMenuRef : undefined}
@@ -1643,7 +1681,7 @@ function GrupoEtapa({
   nome, itens, isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   onUpdateQuantidade, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
   obraUf, icon: Icon, iconCor, subtotalDireto,
-  onDeleteEtapa, onRenameEtapa, onRenameSubetapa, menuAberto, onToggleMenu, menuRef,
+  onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, menuAberto, onToggleMenu, menuRef,
 }: {
   nome: string
   itens: ItemEnriquecido[]
@@ -1665,12 +1703,17 @@ function GrupoEtapa({
   subtotalDireto?: number
   onDeleteEtapa?: () => void
   onRenameEtapa?: () => void
+  onAddItemToSubetapa?: (nome: string) => void
+  onAddInsumoToItem?: (item: ItemEnriquecido) => void
   onRenameSubetapa?: (nome: string) => void
+  onDeleteSubetapa?: (nome: string) => void
   menuAberto?: boolean
   onToggleMenu?: () => void
   menuRef?: React.RefObject<HTMLDivElement | null>
 }) {
   const [subetapasFechadas, setSubetapasFechadas] = useState<Record<string, boolean>>({})
+  const [subMenuAberto, setSubMenuAberto] = useState<string | null>(null)
+  const [itemMenuAberto, setItemMenuAberto] = useState<string | null>(null)
   const subtotalGrupo = itens.reduce((a, i) => a + getItemTotal(i), 0)
   const totalGrupo = subtotalGrupo * (1 + bdi / 100)
   const pctDoDireto = subtotalDireto && subtotalDireto > 0 ? (subtotalGrupo / subtotalDireto) * 100 : null
@@ -1807,6 +1850,16 @@ function GrupoEtapa({
                           <td className="px-3 py-2 font-semibold" colSpan={3} style={{ color: 'var(--text-primary)' }}>
                             <div className="flex items-center gap-2">
                               <span>{grupo.nome}</span>
+                              {onAddItemToSubetapa && !isReadonly && (
+                                <button
+                                  type="button"
+                                  onClick={e => { e.stopPropagation(); onAddItemToSubetapa(grupo.nome) }}
+                                  className="p-1 rounded hover:bg-[var(--bg-card)]"
+                                  title="Adicionar composição nesta subetapa"
+                                >
+                                  <Plus size={13} style={{ color: 'var(--accent)' }} />
+                                </button>
+                              )}
                               {onRenameSubetapa && !isReadonly && (
                                 <button type="button" onClick={e => { e.stopPropagation(); onRenameSubetapa(grupo.nome) }} className="p-1 rounded hover:bg-[var(--bg-card)]" title="Renomear subetapa">
                                   <Pencil size={12} style={{ color: 'var(--text-secondary)' }} />
@@ -1820,7 +1873,47 @@ function GrupoEtapa({
                           <td className="px-3 py-2 text-right font-semibold" style={{ color: 'var(--accent)' }}>
                             {formatCurrency(subtotalSubetapa)}
                           </td>
-                          <td />
+                          <td className="px-3 py-2 text-right">
+                            {!isReadonly && (onDeleteSubetapa || onRenameSubetapa || onAddItemToSubetapa) && (
+                              <div className="relative inline-flex" onClick={e => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() => setSubMenuAberto(v => v === grupo.key ? null : grupo.key)}
+                                  className="p-1.5 rounded-lg hover:bg-[var(--bg-card)]"
+                                  style={{ color: 'var(--text-secondary)' }}
+                                  title="Ações da subetapa"
+                                >
+                                  <MoreHorizontal size={14} />
+                                </button>
+                                {subMenuAberto === grupo.key && (
+                                  <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+                                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                                    {onAddItemToSubetapa && (
+                                      <button onClick={() => { setSubMenuAberto(null); onAddItemToSubetapa(grupo.nome) }}
+                                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                        style={{ color: 'var(--text-primary)' }}>
+                                        <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar composição
+                                      </button>
+                                    )}
+                                    {onRenameSubetapa && (
+                                      <button onClick={() => { setSubMenuAberto(null); onRenameSubetapa(grupo.nome) }}
+                                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                        style={{ color: 'var(--text-primary)' }}>
+                                        <Pencil size={13} /> Renomear subetapa
+                                      </button>
+                                    )}
+                                    {onDeleteSubetapa && (
+                                      <button onClick={() => { setSubMenuAberto(null); onDeleteSubetapa(grupo.nome) }}
+                                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                        style={{ color: 'var(--danger)' }}>
+                                        <Trash2 size={13} /> Excluir subetapa
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
                         </tr>
 
                         {!subFechada && grupo.itens.map(item => {
@@ -1884,13 +1977,45 @@ function GrupoEtapa({
                                 </td>
                                 <td className="px-3 py-2 align-top text-right">
                                   {!isReadonly && (
-                                    <button
-                                      onClick={e => { e.stopPropagation(); onRemove(item.id) }}
-                                      className="p-1.5 rounded hover:bg-red-500/20 transition-colors"
-                                      aria-label="Remover composição"
-                                    >
-                                      <Trash2 size={13} style={{ color: 'var(--danger)' }} />
-                                    </button>
+                                    <div className="relative inline-flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                      {onAddInsumoToItem && (
+                                        <button
+                                          type="button"
+                                          onClick={() => onAddInsumoToItem(item)}
+                                          className="p-1.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                                          aria-label="Adicionar insumo nesta composição"
+                                          title="Adicionar insumo nesta composição"
+                                        >
+                                          <Plus size={13} style={{ color: 'var(--accent)' }} />
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => setItemMenuAberto(v => v === item.id ? null : item.id)}
+                                        className="p-1.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                                        aria-label="Ações da composição"
+                                        title="Ações da composição"
+                                      >
+                                        <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
+                                      </button>
+                                      {itemMenuAberto === item.id && (
+                                        <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+                                          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                                          {onAddInsumoToItem && (
+                                            <button onClick={() => { setItemMenuAberto(null); onAddInsumoToItem(item) }}
+                                              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                              style={{ color: 'var(--text-primary)' }}>
+                                              <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar insumo
+                                            </button>
+                                          )}
+                                          <button onClick={() => { setItemMenuAberto(null); onRemove(item.id) }}
+                                            className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                            style={{ color: 'var(--danger)' }}>
+                                            <Trash2 size={13} /> Excluir composição
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
                                   )}
                                 </td>
                               </tr>
@@ -2012,7 +2137,57 @@ function GrupoEtapa({
                           <Pencil size={12} style={{ color: 'var(--text-secondary)' }} />
                         </span>
                       )}
+                      {onAddItemToSubetapa && !isReadonly && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={e => { e.stopPropagation(); onAddItemToSubetapa(grupo.nome) }}
+                          className="p-1 rounded hover:bg-[var(--bg-card)]"
+                          title="Adicionar composição"
+                        >
+                          <Plus size={13} style={{ color: 'var(--accent)' }} />
+                        </span>
+                      )}
                       <span className="text-sm font-semibold flex-shrink-0" style={{ color: 'var(--accent)' }}>{formatCurrency(subtotalSubetapa)}</span>
+                      {!isReadonly && (onDeleteSubetapa || onAddItemToSubetapa || onRenameSubetapa) && (
+                        <span className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setSubMenuAberto(v => v === grupo.key ? null : grupo.key)}
+                            className="flex p-1 rounded hover:bg-[var(--bg-card)]"
+                            title="Ações da subetapa"
+                          >
+                            <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
+                          </span>
+                          {subMenuAberto === grupo.key && (
+                            <span className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter text-left"
+                              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                              {onAddItemToSubetapa && (
+                                <span role="button" tabIndex={0} onClick={() => { setSubMenuAberto(null); onAddItemToSubetapa(grupo.nome) }}
+                                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                  style={{ color: 'var(--text-primary)' }}>
+                                  <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar composição
+                                </span>
+                              )}
+                              {onRenameSubetapa && (
+                                <span role="button" tabIndex={0} onClick={() => { setSubMenuAberto(null); onRenameSubetapa(grupo.nome) }}
+                                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                  style={{ color: 'var(--text-primary)' }}>
+                                  <Pencil size={13} /> Renomear subetapa
+                                </span>
+                              )}
+                              {onDeleteSubetapa && (
+                                <span role="button" tabIndex={0} onClick={() => { setSubMenuAberto(null); onDeleteSubetapa(grupo.nome) }}
+                                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                  style={{ color: 'var(--danger)' }}>
+                                  <Trash2 size={13} /> Excluir subetapa
+                                </span>
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </button>
 
                     {!subFechada && (
@@ -2088,13 +2263,45 @@ function GrupoEtapa({
                                         {hasOverride && <span className="ml-1 text-xs opacity-60">(ajust.)</span>}
                                       </span>
                                       {!isReadonly && (
-                                        <button
-                                          onClick={e => { e.stopPropagation(); onRemove(item.id) }}
-                                          className="p-1.5 rounded hover:bg-red-500/20 transition-colors"
-                                          aria-label="Remover composicao"
-                                        >
-                                          <Trash2 size={13} style={{ color: 'var(--danger)' }} />
-                                        </button>
+                                        <span className="relative inline-flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                          {onAddInsumoToItem && (
+                                            <button
+                                              type="button"
+                                              onClick={() => onAddInsumoToItem(item)}
+                                              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                                              aria-label="Adicionar insumo"
+                                              title="Adicionar insumo"
+                                            >
+                                              <Plus size={13} style={{ color: 'var(--accent)' }} />
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => setItemMenuAberto(v => v === item.id ? null : item.id)}
+                                            className="p-1.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                                            aria-label="Ações da composição"
+                                            title="Ações da composição"
+                                          >
+                                            <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
+                                          </button>
+                                          {itemMenuAberto === item.id && (
+                                            <span className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter text-left"
+                                              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                                              {onAddInsumoToItem && (
+                                                <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onAddInsumoToItem(item) }}
+                                                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                                  style={{ color: 'var(--text-primary)' }}>
+                                                  <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar insumo
+                                                </span>
+                                              )}
+                                              <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onRemove(item.id) }}
+                                                className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                                style={{ color: 'var(--danger)' }}>
+                                                <Trash2 size={13} /> Excluir composição
+                                              </span>
+                                            </span>
+                                          )}
+                                        </span>
                                       )}
                                     </div>
                                   </div>
