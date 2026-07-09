@@ -72,6 +72,16 @@ function normalizarCabecalho(chave: string) {
   return chave.trim().toLowerCase()
 }
 
+function slugCodigo(valor: string) {
+  return valor
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toUpperCase()
+    .slice(0, 24)
+}
+
 export async function lerPlanilhaOrcamentoAntigo(file: File): Promise<ResultadoLeitura> {
   const buffer = await file.arrayBuffer()
   const wb = XLSX.read(buffer, { type: 'buffer' })
@@ -101,7 +111,53 @@ export async function lerPlanilhaOrcamentoAntigo(file: File): Promise<ResultadoL
   const primeira = registros[0] || {}
   const faltantes = obrigatorias.filter(c => !(c in primeira))
   if (faltantes.length) {
-    return { linhas: [], erros: [`Formato do sistema antigo nao reconhecido. Colunas faltando: ${faltantes.join(', ')}`] }
+    const temModeloResumido = 'etapa' in primeira
+      && 'subetapa' in primeira
+      && ('serviços' in primeira || 'servicos' in primeira)
+      && 'valor' in primeira
+
+    if (!temModeloResumido) {
+      return { linhas: [], erros: [`Formato do sistema antigo nao reconhecido. Colunas faltando: ${faltantes.join(', ')}`] }
+    }
+
+    const erros: string[] = []
+    const linhas = registros.map((r, idx) => {
+      const numero = idx + 2
+      const etapa = texto(r.etapa)
+      const subetapa = texto(r.subetapa) || null
+      const descricao = texto(r['serviços'] ?? r.servicos)
+      const valor = numeroFlex(r.valor)
+      const codigoEtapa = slugCodigo(etapa || 'ETAPA')
+      const codigoServico = slugCodigo(descricao || `ITEM-${numero}`)
+      const codigo = `LEG-${String(idx + 1).padStart(3, '0')}-${codigoServico}`.slice(0, 36)
+
+      if (!etapa || !descricao || !valor) {
+        erros.push(`Linha ${numero}: etapa, servico ou valor vazio.`)
+      }
+
+      return {
+        numero,
+        valores: {
+          origem: 'planilha_resumida',
+          itemIdAntigo: `RES-${String(idx + 1).padStart(3, '0')}`,
+          etapaCodigo: codigoEtapa,
+          etapa,
+          subetapa,
+          codigo,
+          descricao,
+          unidade: 'UN',
+          quantidade: 1,
+          custoUnitario: valor,
+          custoTotal: valor,
+          custoTotalEtapa: 0,
+          statusExecucao: texto(r['status execução'] ?? r.status_execucao),
+          statusMaterial: texto(r['status material'] ?? r.status_material),
+          insumos: [],
+        },
+      } as LinhaImportada & { valores: Record<string, unknown> & { insumos: InsumoOrcamentoAntigo[] } }
+    }).filter(linha => linha.valores.etapa && linha.valores.descricao && linha.valores.custoTotal)
+
+    return { linhas, erros }
   }
 
   const erros: string[] = []

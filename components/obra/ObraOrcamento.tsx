@@ -635,8 +635,38 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         setEtapas(prev => [...prev, data])
       }
 
-      const propria = mapaProprias.get(codigo)
+      let propria = mapaProprias.get(codigo)
       const sinapi = !propria ? mapaSinapi.get(codigo) : undefined
+      const origemLegada = String(linha.valores.origem ?? '')
+      if (!propria && !sinapi && (origemLegada === 'sistema_antigo' || origemLegada === 'planilha_resumida')) {
+        const descricaoLegada = String(linha.valores.descricao ?? codigo)
+        const unidadeLegada = String(linha.valores.unidade ?? 'UN') || 'UN'
+        const { data: novaComposicao, error: erroComposicao } = await supabase
+          .from('composicoes_proprias')
+          .insert({
+            codigo,
+            descricao: descricaoLegada,
+            unidade: unidadeLegada,
+            grupo: etapaNome || 'Importado',
+            ativo: true,
+          })
+          .select(`*, ${COMPOSICAO_INSUMOS_EMBED}`)
+          .single()
+
+        if (erroComposicao || !novaComposicao) {
+          ignorados++
+          erros.push(`Linha ${linha.numero}: nao foi possivel criar a composicao resumida "${codigo}".`)
+          continue
+        }
+
+        propria = {
+          ...novaComposicao,
+          composicao_itens: novaComposicao.composicao_insumos || [],
+          custo_calculado: 0,
+        } as ComposicaoComCusto
+        mapaProprias.set(codigo, propria)
+        setComposicoesProprias(prev => [...prev, propria!])
+      }
       const composicao = propria || sinapi
       if (!composicao) {
         ignorados++
