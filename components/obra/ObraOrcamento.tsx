@@ -612,6 +612,8 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       const insumosAntigos = Array.isArray(linha.valores.insumos)
         ? linha.valores.insumos as InsumoOrcamentoAntigo[]
         : []
+      const insumosResumoLegado = insumosAntigos.length > 0
+        && insumosAntigos.every(insumo => insumo.tipo === 'LEGADO_RESUMIDO' || insumo.codigo.startsWith(`${codigo}-`))
 
       if (!etapaNome || !codigo || !quantidade) {
         ignorados++
@@ -698,7 +700,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         continue
       }
 
-      if (insumosAntigos.length && itemInserido?.id && !isSinapi && 'composicao_itens' in composicao) {
+      if (insumosAntigos.length && !insumosResumoLegado && itemInserido?.id && !isSinapi && 'composicao_itens' in composicao) {
         const overridesImportados: Record<string, number> = {}
         const itensComposicao = (composicao as ComposicaoComCusto).composicao_itens || []
         for (const insumoImportado of insumosAntigos) {
