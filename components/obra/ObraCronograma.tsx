@@ -21,6 +21,14 @@ type SubForm   = { nome: string; data_inicio: string; data_fim: string; status: 
 type SvcForm   = { nome: string; data_inicio: string; data_fim: string; percentual_executado: number; responsavel: string; is_marco: boolean }
 
 type EditField = { id: string; table: 'etapas' | 'subetapas_cronograma' | 'servicos_cronograma'; field: 'data_inicio' | 'data_fim' } | null
+type CronogramaStatus = Etapa['status']
+
+const STATUS_FILTRO: { key: CronogramaStatus; label: string }[] = [
+  { key: 'planejada', label: 'A executar' },
+  { key: 'em_andamento', label: 'Em execução' },
+  { key: 'atrasada', label: 'Atenção' },
+  { key: 'concluida', label: 'Concluídas' },
+]
 
 const EMPTY_ETAPA: EtapaForm = { nome: '', data_inicio: '', data_fim: '', status: 'planejada', percentual_executado: 0, is_marco: false }
 const EMPTY_SUB   = (responsavel = ''): SubForm => ({ nome: '', data_inicio: '', data_fim: '', status: 'planejada', percentual_executado: 0, responsavel, is_marco: false })
@@ -53,6 +61,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [editField, setEditField] = useState<EditField>(null)
   const [empreiteiro, setEmpreiteiro] = useState('')
+  const [statusFiltro, setStatusFiltro] = useState<CronogramaStatus[]>(['planejada', 'em_andamento', 'atrasada'])
 
   const [etapaModal, setEtapaModal] = useState<{ open: boolean; editando: Etapa | null }>({ open: false, editando: null })
   const [subModal,   setSubModal]   = useState<{ open: boolean; etapaId: string | null; editando: SubetapaCronograma | null }>({ open: false, etapaId: null, editando: null })
@@ -284,6 +293,21 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
 
   function svcsDaSub(subId: string) {
     return servicos.filter(s => s.subetapa_id === subId).sort((a, b) => a.ordem - b.ordem)
+  }
+
+  function statusDoServico(svc: ServicoCronograma): CronogramaStatus {
+    if ((svc.percentual_executado ?? 0) >= 100) return 'concluida'
+    if ((svc.percentual_executado ?? 0) > 0) return 'em_andamento'
+    return 'planejada'
+  }
+
+  const statusPermitido = (status: CronogramaStatus) => statusFiltro.includes(status)
+  const servicoVisivel = (svc: ServicoCronograma) => statusPermitido(statusDoServico(svc))
+  const subetapaVisivel = (sub: SubetapaCronograma) =>
+    statusPermitido(sub.status) || svcsDaSub(sub.id).some(servicoVisivel)
+  const etapaVisivel = (etapa: Etapa) => {
+    const subs = subsDaEtapa(etapa.id)
+    return statusPermitido(etapa.status) || subs.some(subetapaVisivel)
   }
 
   function progressoEtapa(etapaId: string): number {
@@ -705,6 +729,51 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
         </div>
       </div>
 
+      <div className="card p-3 flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+            Filtro de status
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setStatusFiltro(['planejada', 'em_andamento', 'atrasada'])}
+              className="text-xs px-2.5 py-1 rounded-lg border transition-colors"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+            >
+              Pendentes
+            </button>
+            <button
+              onClick={() => setStatusFiltro(STATUS_FILTRO.map(s => s.key))}
+              className="text-xs px-2.5 py-1 rounded-lg border transition-colors"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+            >
+              Mostrar tudo
+            </button>
+          </div>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+          {STATUS_FILTRO.map(status => {
+            const ativo = statusFiltro.includes(status.key)
+            return (
+              <button
+                key={status.key}
+                onClick={() => setStatusFiltro(prev => {
+                  if (ativo && prev.length > 1) return prev.filter(s => s !== status.key)
+                  if (ativo) return prev
+                  return [...prev, status.key]
+                })}
+                className="shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+                style={ativo
+                  ? { background: 'var(--accent)', borderColor: 'var(--accent)', color: '#fff' }
+                  : { borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+              >
+                {status.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       {etapas.length === 0 ? (
         <EmptyState
           icon={Calendar}
@@ -729,12 +798,13 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
           orcadoPorEtapa={orcadoPorEtapa}
           realizadoPorEtapa={realizadoPorEtapa}
           realizadoPorSubetapa={realizadoPorSubetapa}
+          statusFiltro={statusFiltro}
         />
       ) : tab === 'cascata' ? (
         /* ── CASCATA ── */
         <div className="card overflow-hidden">
-          {etapas.map((etapa, eIdx) => {
-            const subs = subsDaEtapa(etapa.id)
+          {etapas.filter(etapaVisivel).map((etapa, eIdx) => {
+            const subs = subsDaEtapa(etapa.id).filter(subetapaVisivel)
             const isCollapsedEtapa = collapsed[etapa.id] ?? false
             const prog = progressoEtapa(etapa.id)
 
@@ -823,7 +893,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
 
                 {/* ── Subetapas (nível 2) ── */}
                 {!isCollapsedEtapa && subs.map(sub => {
-                  const svcs = svcsDaSub(sub.id)
+                  const svcs = svcsDaSub(sub.id).filter(servicoVisivel)
                   const isCollapsedSub = collapsed[sub.id] ?? false
                   return (
                     <Fragment key={sub.id}>
@@ -1009,6 +1079,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
           realizadoPorEtapa={realizadoPorEtapa}
           realizadoPorSubetapa={realizadoPorSubetapa}
           realizadoPorServico={realizadoPorServico}
+          statusFiltro={statusFiltro}
         />
       )}
 
@@ -1210,7 +1281,7 @@ const KANBAN_COLS = [
 
 type KStatus = typeof KANBAN_COLS[number]['key']
 
-function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdatePct, onEditSub, onEditEtapa, onNewSub, editField, onSetEditField, onUpdateDate, mostrarFinanceiro, orcadoPorEtapa, realizadoPorEtapa, realizadoPorSubetapa }: {
+function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdatePct, onEditSub, onEditEtapa, onNewSub, editField, onSetEditField, onUpdateDate, mostrarFinanceiro, orcadoPorEtapa, realizadoPorEtapa, realizadoPorSubetapa, statusFiltro }: {
   etapas: Etapa[]
   subetapas: SubetapaCronograma[]
   servicos: ServicoCronograma[]
@@ -1226,6 +1297,7 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
   orcadoPorEtapa: Map<string, number>
   realizadoPorEtapa: Map<string, number>
   realizadoPorSubetapa: Map<string, number>
+  statusFiltro: CronogramaStatus[]
 }) {
   // Agrupar subetapas por status; etapas sem subetapas também aparecem
   const byStatus: Record<KStatus, { type: 'etapa'; item: Etapa; subsCount: number }[] | { type: 'sub'; item: SubetapaCronograma; etapaNome: string }[]> = {
@@ -1239,6 +1311,7 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
   // Subetapas como cards principais
   subetapas.forEach(sub => {
     const st = (sub.status as KStatus) ?? 'planejada'
+    if (!statusFiltro.includes(st)) return
     ;(byStatus[st] as { type: 'sub'; item: SubetapaCronograma; etapaNome: string }[]).push({
       type: 'sub', item: sub, etapaNome: etapaNome[sub.etapa_id] ?? '',
     })
@@ -1249,6 +1322,7 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
     const hasSubs = subetapas.some(s => s.etapa_id === etapa.id)
     if (!hasSubs) {
       const st = (etapa.status as KStatus) ?? 'planejada'
+      if (!statusFiltro.includes(st)) return
       const subsCount = subetapas.filter(s => s.etapa_id === etapa.id).length
       ;(byStatus[st] as { type: 'etapa'; item: Etapa; subsCount: number }[]).push({
         type: 'etapa', item: etapa, subsCount,
@@ -1258,7 +1332,7 @@ function KanbanObraView({ etapas, subetapas, servicos, onUpdateStatus, onUpdateP
 
   return (
     <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:overflow-visible sm:pb-0">
-      {KANBAN_COLS.map(col => {
+      {KANBAN_COLS.filter(col => statusFiltro.includes(col.key)).map(col => {
         const cards = byStatus[col.key] as ({ type: 'etapa'; item: Etapa; subsCount: number } | { type: 'sub'; item: SubetapaCronograma; etapaNome: string })[]
         return (
           <div key={col.key} className="flex flex-col gap-2 min-h-[120px] min-w-[78vw] max-w-[78vw] snap-start sm:min-w-0 sm:max-w-none">
@@ -1514,6 +1588,7 @@ function ObraGanttView({
   realizadoPorEtapa,
   realizadoPorSubetapa,
   realizadoPorServico,
+  statusFiltro,
 }: {
   etapas: Etapa[]
   subetapas: SubetapaCronograma[]
@@ -1526,8 +1601,20 @@ function ObraGanttView({
   realizadoPorEtapa: Map<string, number>
   realizadoPorSubetapa: Map<string, number>
   realizadoPorServico: Map<string, number>
+  statusFiltro: CronogramaStatus[]
 }) {
-  const tree = buildObraGanttTree(etapas, subetapas, servicos)
+  const rawTree = buildObraGanttTree(etapas, subetapas, servicos)
+  const statusDoNode = (node: ObraGanttNode): CronogramaStatus => {
+    if (node.status) return node.status
+    if ((node.percentual_executado ?? 0) >= 100) return 'concluida'
+    if ((node.percentual_executado ?? 0) > 0) return 'em_andamento'
+    return 'planejada'
+  }
+  const filtrarTree = (nodes: ObraGanttNode[]): ObraGanttNode[] =>
+    nodes
+      .map(node => ({ ...node, children: filtrarTree(node.children) }))
+      .filter(node => statusFiltro.includes(statusDoNode(node)) || node.children.length > 0)
+  const tree = filtrarTree(rawTree)
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(tree.flatMap(etapa => [etapa.id, ...etapa.children.map(sub => sub.id)]))
   )
@@ -1551,17 +1638,19 @@ function ObraGanttView({
   const totalFim = totalFims.reduce<string | null>((acc, v) => !acc || v > acc ? v : acc, null)
   const totalPct = rootEffs.length ? Math.round(rootEffs.reduce((sum, e) => sum + e.pct, 0) / rootEffs.length) : 0
 
-  const allDates = [
-    ...etapas.flatMap(e => [e.data_inicio, e.data_fim]),
-    ...subetapas.flatMap(s => [s.data_inicio, s.data_fim]),
-    ...servicos.flatMap(s => [s.data_inicio, s.data_fim]),
-  ].filter(Boolean) as string[]
+  const collectDates = (nodes: ObraGanttNode[]): string[] =>
+    nodes.flatMap(node => [
+      node.data_inicio,
+      node.data_fim,
+      ...collectDates(node.children),
+    ]).filter(Boolean) as string[]
+  const allDates = collectDates(tree)
 
   if (allDates.length === 0) {
     return (
       <div className="text-center py-16 rounded-xl border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-        <p className="text-sm font-medium">Nenhum periodo definido</p>
-        <p className="text-xs mt-1 opacity-60">Defina inicio e fim nas etapas para visualizar o Gantt.</p>
+        <p className="text-sm font-medium">Nenhum item para exibir</p>
+        <p className="text-xs mt-1 opacity-60">Ajuste o filtro de status ou defina datas para visualizar o Gantt.</p>
       </div>
     )
   }

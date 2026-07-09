@@ -141,6 +141,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [loading, setLoading] = useState(true)
   const [bdi, setBdi] = useState(25)
+  const [filtroEtapaId, setFiltroEtapaId] = useState('todas')
 
   // Cascata + overrides
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
@@ -1148,6 +1149,15 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     : []
   const etapaOptions = etapas.map(e => e.nome)
   const isReadonly = orcamento?.status === 'finalizado'
+  const etapasVisiveis = filtroEtapaId === 'todas'
+    ? etapas
+    : etapas.filter(etapa => etapa.id === filtroEtapaId)
+  const mostrarSemEtapa = filtroEtapaId === 'todas' || filtroEtapaId === 'sem_etapa'
+  const itensFiltradosCount = filtroEtapaId === 'todas'
+    ? itens.length
+    : filtroEtapaId === 'sem_etapa'
+      ? itensPorEtapa.sem_etapa.length
+      : (itensPorEtapa[filtroEtapaId] || []).length
 
   // Itens atuais no layout tabular (Etapa, Subetapa, Código, Quantidade) —
   // para exportação/round-trip com a planilha de importação
@@ -1302,19 +1312,38 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       ) : (() => {
         return (
           <div className="flex flex-col gap-3">
-            {/* Cabeçalho — contagem + ação */}
+            {/* Cabeçalho — filtro + ação */}
             <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-              <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
-                {etapas.length} {etapas.length === 1 ? 'etapa' : 'etapas'} · {itens.length} {itens.length === 1 ? 'composição' : 'composições'}
-              </span>
-              {!isReadonly && (
-                <Button size="sm" icon={<FolderPlus size={14} />} onClick={() => openItemModal()}>
-                  Adicionar item
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
+                  {etapasVisiveis.length} {etapasVisiveis.length === 1 ? 'etapa' : 'etapas'} · {itensFiltradosCount} {itensFiltradosCount === 1 ? 'composição' : 'composições'}
+                </span>
+                <select
+                  value={filtroEtapaId}
+                  onChange={e => setFiltroEtapaId(e.target.value)}
+                  className="input-base min-w-[190px] py-1.5 text-xs"
+                  title="Filtrar orçamento por etapa"
+                >
+                  <option value="todas">Todas as etapas</option>
+                  {itensPorEtapa.sem_etapa.length > 0 && <option value="sem_etapa">Sem etapa</option>}
+                  {etapas.map(etapa => <option key={etapa.id} value={etapa.id}>{etapa.nome}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                {filtroEtapaId !== 'todas' && (
+                  <Button size="sm" variant="secondary" onClick={() => setFiltroEtapaId('todas')}>
+                    Limpar filtro
+                  </Button>
+                )}
+                {!isReadonly && (
+                  <Button size="sm" icon={<FolderPlus size={14} />} onClick={() => openItemModal(filtroEtapaId !== 'todas' && filtroEtapaId !== 'sem_etapa' ? filtroEtapaId : null)}>
+                    Adicionar item
+                  </Button>
+                )}
+              </div>
             </div>
 
-            {itensPorEtapa.sem_etapa.length > 0 && (
+            {mostrarSemEtapa && itensPorEtapa.sem_etapa.length > 0 && (
               <GrupoEtapa
                 nome="Sem etapa"
                 itens={itensPorEtapa.sem_etapa}
@@ -1338,7 +1367,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                 onDeleteSubetapa={(nomeSub) => handleRemoveSubetapa(null, nomeSub)}
               />
             )}
-            {etapas.map(etapa => {
+            {etapasVisiveis.map(etapa => {
               const itensDaEtapa = itensPorEtapa[etapa.id] || []
               const { icon, cor } = getEtapaIcone(etapa.nome)
               return (
@@ -1374,6 +1403,12 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                 />
               )
             })}
+
+            {itensFiltradosCount === 0 && (
+              <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Nenhuma composição encontrada neste filtro de etapa.
+              </div>
+            )}
 
             {!isReadonly && (
               <button
