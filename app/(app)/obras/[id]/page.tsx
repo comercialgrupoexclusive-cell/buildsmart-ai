@@ -18,8 +18,9 @@ import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { ObraArquivos } from '@/components/obra/ObraArquivos'
 import { ObraTarefas } from '@/components/obra/ObraTarefas'
+import { ObraAssistenteIA } from '@/components/obra/ObraAssistenteIA'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'tarefas'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'tarefas' | 'ia'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
@@ -28,6 +29,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'materiais', label: 'Materiais' },
   { id: 'medicoes', label: 'Diário / Medições' },
   { id: 'tarefas', label: 'Tarefas' },
+  { id: 'ia', label: 'IA' },
 ]
 
 export default function ObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -384,6 +386,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'materiais' && <ObraMateriais obraId={id} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} />}
         {tab === 'tarefas' && <ObraTarefas obraId={id} />}
+        {tab === 'ia' && <ObraAssistenteIA obraId={id} obraNome={obra.nome} obraUf={obra.uf || 'SP'} />}
       </div>
 
       {/* Modal editar obra */}
