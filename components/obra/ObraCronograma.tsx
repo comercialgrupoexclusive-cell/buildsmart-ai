@@ -91,6 +91,12 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   useEffect(() => { loadData() }, [obraId, projetoId])
 
   useEffect(() => {
+    function onDataChanged() { loadData() }
+    window.addEventListener('buildsmart:obra-data-changed', onDataChanged)
+    return () => window.removeEventListener('buildsmart:obra-data-changed', onDataChanged)
+  }, [obraId, projetoId])
+
+  useEffect(() => {
     if (!obraId) return
     supabase.from('obras').select('responsavel').eq('id', obraId).single()
       .then(({ data }: { data: { responsavel: string | null } | null }) => { if (data?.responsavel) setEmpreiteiro(data.responsavel) })

@@ -323,8 +323,13 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }
 
   useEffect(() => {
-    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
     Promise.resolve().then(() => loadAll())
+  }, [obraId])
+
+  useEffect(() => {
+    function onDataChanged() { loadAll() }
+    window.addEventListener('buildsmart:obra-data-changed', onDataChanged)
+    return () => window.removeEventListener('buildsmart:obra-data-changed', onDataChanged)
   }, [obraId])
 
   // ─── Totais com override ─────────────────────────────────────────────────
