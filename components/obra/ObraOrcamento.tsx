@@ -7,7 +7,7 @@ import {
   Boxes, Users, FileText, Percent, Wallet, ArrowLeftRight,
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
   Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
-  type LucideIcon,
+  Pencil, type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Orcamento, ComposicaoPropria, SinapiComposicao, Etapa } from '@/lib/types'
@@ -22,7 +22,7 @@ import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
 import { readEtapasPadrao } from '@/lib/settings/etapas-padrao'
 
-type FonteBusca = 'proprias' | 'sinapi'
+type FonteBusca = 'proprias' | 'sinapi' | 'livre'
 
 
 // schema real (tabela composicao_insumos): FKs normalizadas para sinapi_insumos
@@ -158,6 +158,9 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   const [busca, setBusca] = useState('')
   const [selectedItem, setSelectedItem] = useState<(ComposicaoComCusto | SinapiComposicao) | null>(null)
   const [quantidade, setQuantidade] = useState('')
+  const [livreDescricao, setLivreDescricao] = useState('')
+  const [livreUnidade, setLivreUnidade] = useState('UN')
+  const [livrePreco, setLivrePreco] = useState('')
   const [saving, setSaving] = useState(false)
   const qtdInputRef = useRef<HTMLInputElement>(null)
   // Cache (por sessão de componente) de se a coluna materiais.subetapa existe —
@@ -406,6 +409,9 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     const etapa = etapaId ? etapas.find(e => e.id === etapaId) : null
     setSelectedEtapaNome(etapa?.nome || etapas[0]?.nome || '')
     setSubetapaLivre('')
+    setLivreDescricao('')
+    setLivreUnidade('UN')
+    setLivrePreco('')
     setShowAddItem(true)
   }
 
@@ -418,12 +424,17 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
   // ─── Adicionar item ───────────────────────────────────────────────────────
   async function handleAddItem(fecharDepois = false) {
-    if (!orcamento || !selectedItem || !quantidade) return
+    if (!orcamento || !quantidade) return
+    if (fonte !== 'livre' && !selectedItem) return
+    if (fonte === 'livre' && !livreDescricao.trim()) return
     setSaving(true)
     try {
       const isSinapi = fonte === 'sinapi'
       const qtd = parseFloat(quantidade)
-      const custoUnitario = getItemCost(selectedItem)
+      const codigoLivre = `LIV-${Date.now().toString(36).toUpperCase()}`
+      const descricaoFinal = fonte === 'livre' ? livreDescricao.trim() : selectedItem!.descricao
+      const unidadeFinal = fonte === 'livre' ? (livreUnidade.trim() || 'UN') : selectedItem!.unidade
+      const custoUnitario = fonte === 'livre' ? (parseFloat(livrePreco.replace(',', '.')) || 0) : getItemCost(selectedItem!)
       const etapaId = ensureEtapaSelecionada()
       const subetapaFinal = subetapaLivre.trim() || null
 
@@ -431,24 +442,26 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         orcamento_id: orcamento.id,
         etapa_id: etapaId,
         subetapa: subetapaFinal,
-        composicao_id: isSinapi ? null : selectedItem.id,
-        sinapi_composicao_id: isSinapi ? selectedItem.id : null,
+        composicao_id: fonte === 'proprias' ? selectedItem!.id : null,
+        sinapi_composicao_id: isSinapi ? selectedItem!.id : null,
         quantidade: qtd,
         preco_unitario_snapshot: custoUnitario,
-        descricao_snapshot: selectedItem.descricao,
-        codigo_snapshot: selectedItem.codigo,
-        unidade_snapshot: selectedItem.unidade,
+        descricao_snapshot: descricaoFinal,
+        codigo_snapshot: fonte === 'livre' ? codigoLivre : selectedItem!.codigo,
+        unidade_snapshot: unidadeFinal,
       })
 
       if (error) throw error
 
-      if (!isSinapi && 'composicao_itens' in selectedItem) {
+      if (fonte === 'livre') {
+        await upsertMaterialSoma(codigoLivre, descricaoFinal, unidadeFinal, qtd, etapaId, subetapaFinal)
+      } else if (!isSinapi && selectedItem && 'composicao_itens' in selectedItem) {
         await gerarMateriaisDaComposicao(selectedItem.composicao_itens || [], qtd, etapaId, subetapaFinal, selectedItem.codigo, selectedItem.descricao, selectedItem.unidade)
       } else if (isSinapi) {
-        await gerarMateriaisDaComposicaoSinapi(selectedItem.codigo, (selectedItem as SinapiComposicao).mes_referencia, qtd, etapaId, subetapaFinal, selectedItem.descricao, selectedItem.unidade)
+        await gerarMateriaisDaComposicaoSinapi(selectedItem!.codigo, (selectedItem as SinapiComposicao).mes_referencia, qtd, etapaId, subetapaFinal, selectedItem!.descricao, selectedItem!.unidade)
       }
 
-      setSelectedItem(null); setQuantidade(''); setBusca('')
+      setSelectedItem(null); setQuantidade(''); setBusca(''); setLivreDescricao(''); setLivrePreco('')
       if (fecharDepois) { setShowAddItem(false); setSubetapaLivre('') }
       await loadItens(orcamento.id)
     } catch (error) {
@@ -532,6 +545,35 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     setEtapas(prev => prev.filter(e => e.id !== etapaId))
   }
 
+  async function handleRenameEtapa(etapaId: string, nomeAtual: string) {
+    const nome = prompt('Novo nome da etapa', nomeAtual)?.trim()
+    if (!nome || nome === nomeAtual) return
+    const { error } = await supabase.from('etapas').update({ nome }).eq('id', etapaId)
+    if (error) {
+      alert(`Nao foi possivel renomear a etapa: ${error.message}`)
+      return
+    }
+    setEtapas(prev => prev.map(e => e.id === etapaId ? { ...e, nome } : e))
+  }
+
+  async function handleRenameSubetapa(etapaId: string | null, subetapaAtual: string) {
+    const atual = subetapaAtual === 'Sem subetapa' ? '' : subetapaAtual
+    const nome = prompt('Novo nome da subetapa', atual)?.trim()
+    if (nome === undefined || nome === atual) return
+    const novoValor = nome || null
+    let query = supabase.from('orcamento_itens').update({ subetapa: novoValor })
+    query = atual ? query.eq('subetapa', atual) : query.is('subetapa', null)
+    query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
+    const { error } = await query
+    if (error) {
+      alert(`Nao foi possivel renomear a subetapa: ${error.message}`)
+      return
+    }
+    setItens(prev => prev.map(item => item.etapa_id === etapaId && (item.subetapa || 'Sem subetapa') === subetapaAtual
+      ? { ...item, subetapa: novoValor }
+      : item))
+  }
+
   async function handleUpdateBdi() {
     if (!orcamento) return
     await supabase.from('orcamentos').update({ bdi_percentual: bdi }).eq('id', orcamento.id)
@@ -609,6 +651,8 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       const subetapa = (linha.valores.subetapa as string | null) ?? null
       const codigo = String(linha.valores.codigo ?? '').trim().toUpperCase()
       const quantidade = Number(linha.valores.quantidade ?? 0)
+      const statusExecucaoImportado = mapStatusExecucao(linha.valores.statusExecucao)
+      const statusCompraImportado = mapStatusCompra(linha.valores.statusMaterial)
       const insumosAntigos = Array.isArray(linha.valores.insumos)
         ? linha.valores.insumos as InsumoOrcamentoAntigo[]
         : []
@@ -625,7 +669,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       if (!etapaId) {
         const { data, error } = await supabase
           .from('etapas')
-          .insert({ obra_id: obraId, nome: etapaNome, status: 'planejada', ordem: ++maxOrdem })
+          .insert({ obra_id: obraId, nome: etapaNome, status: statusExecucaoImportado, ordem: ++maxOrdem })
           .select().single()
         if (error || !data) {
           ignorados++
@@ -635,6 +679,9 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         etapaId = data.id
         etapaCache.set(etapaNome.toLowerCase(), data.id)
         setEtapas(prev => [...prev, data])
+      } else if (statusExecucaoImportado !== 'planejada') {
+        await supabase.from('etapas').update({ status: statusExecucaoImportado }).eq('id', etapaId)
+        setEtapas(prev => prev.map(e => e.id === etapaId ? { ...e, status: statusExecucaoImportado } : e))
       }
 
       let propria = mapaProprias.get(codigo)
@@ -717,7 +764,9 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         }
       }
 
-      if (!insumosAntigos.length && !isSinapi && 'composicao_itens' in composicao) {
+      if (insumosResumoLegado) {
+        await upsertMaterialSoma(composicao.codigo, descricaoSnapshot, unidadeSnapshot, quantidade, etapaId, subetapa, statusCompraImportado)
+      } else if (!insumosAntigos.length && !isSinapi && 'composicao_itens' in composicao) {
         await gerarMateriaisDaComposicao((composicao as ComposicaoComCusto).composicao_itens || [], quantidade, etapaId, subetapa, composicao.codigo, composicao.descricao, composicao.unidade)
       } else if (!insumosAntigos.length && isSinapi) {
         await gerarMateriaisDaComposicaoSinapi(composicao.codigo, (composicao as SinapiComposicao).mes_referencia, quantidade, etapaId, subetapa, composicao.descricao, composicao.unidade)
@@ -820,8 +869,24 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     return (data || []) as { item_codigo: string; item_descricao: string; item_unidade: string; coeficiente: number; tipo: string }[]
   }
 
+  function mapStatusExecucao(valor: unknown): Etapa['status'] {
+    const texto = String(valor ?? '').toLowerCase()
+    if (texto.includes('execut')) return 'concluida'
+    if (texto.includes('andamento') || texto.includes('execu')) return 'em_andamento'
+    if (texto.includes('atras')) return 'atrasada'
+    return 'planejada'
+  }
+
+  function mapStatusCompra(valor: unknown): 'nao_comprado' | 'solicitado' | 'parcial' | 'comprado' {
+    const texto = String(valor ?? '').toLowerCase()
+    if (texto.includes('comprado')) return 'comprado'
+    if (texto.includes('parcial')) return 'parcial'
+    if (texto.includes('solicit')) return 'solicitado'
+    return 'nao_comprado'
+  }
+
   // ─── Upsert/abate genérico de uma linha de material (soma/subtrai quantidade) ──
-  async function upsertMaterialSoma(codigo: string, descricao: string, unidade: string, qtdSomar: number, etapaId: string | null, subetapa: string | null) {
+  async function upsertMaterialSoma(codigo: string, descricao: string, unidade: string, qtdSomar: number, etapaId: string | null, subetapa: string | null, statusCompra: 'nao_comprado' | 'solicitado' | 'parcial' | 'comprado' = 'nao_comprado') {
     if (!codigo || codigo === '—' || qtdSomar <= 0) return
     const temSubetapa = await materiaisTemSubetapa()
     let query = supabase.from('materiais').select('id, quantidade_total')
@@ -831,13 +896,18 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     const { data: existente, error: erroSel } = await query.maybeSingle()
     if (erroSel) { console.error('Erro ao consultar material existente:', erroSel); return }
     if (existente) {
-      const { error } = await supabase.from('materiais').update({ quantidade_total: Number(existente.quantidade_total) + qtdSomar }).eq('id', existente.id)
+      const updatePayload: Record<string, unknown> = { quantidade_total: Number(existente.quantidade_total) + qtdSomar }
+      if (statusCompra !== 'nao_comprado') {
+        updatePayload.status_compra = statusCompra
+        if (statusCompra === 'comprado') updatePayload.quantidade_comprada = Number(existente.quantidade_total) + qtdSomar
+      }
+      const { error } = await supabase.from('materiais').update(updatePayload).eq('id', existente.id)
       if (error) console.error('Erro ao somar quantidade do material:', error)
     } else {
       const novoMaterial: Record<string, unknown> = {
         obra_id: obraId, etapa_id: etapaId,
         sinapi_codigo: codigo, descricao: descricao || codigo, unidade: unidade || 'UN',
-        quantidade_total: qtdSomar, quantidade_comprada: 0, status_compra: 'nao_comprado',
+        quantidade_total: qtdSomar, quantidade_comprada: statusCompra === 'comprado' ? qtdSomar : 0, status_compra: statusCompra,
       }
       if (temSubetapa) novoMaterial.subetapa = subetapa
       const { error } = await supabase.from('materiais').insert(novoMaterial)
@@ -1230,6 +1300,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                 getItemTotal={getItemTotal}
                 obraUf={obraUf}
                 subtotalDireto={subtotal}
+                onRenameSubetapa={(nomeSub) => handleRenameSubetapa(null, nomeSub)}
               />
             )}
             {etapas.map(etapa => {
@@ -1257,6 +1328,8 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                   iconCor={cor}
                   subtotalDireto={subtotal}
                   onDeleteEtapa={!isReadonly ? () => handleRemoveEtapa(etapa.id, etapa.nome) : undefined}
+                  onRenameEtapa={!isReadonly ? () => handleRenameEtapa(etapa.id, etapa.nome) : undefined}
+                  onRenameSubetapa={!isReadonly ? (nomeSub) => handleRenameSubetapa(etapa.id, nomeSub) : undefined}
                   menuAberto={etapaMenuAberto === etapa.id}
                   onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
                   menuRef={etapaMenuAberto === etapa.id ? etapaMenuRef : undefined}
@@ -1322,7 +1395,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       {/* ── Modal adicionar composição ── */}
       <Modal
         open={showAddItem}
-        onClose={() => { setShowAddItem(false); setSelectedItem(null); setQuantidade(''); setBusca(''); setSubetapaLivre('') }}
+        onClose={() => { setShowAddItem(false); setSelectedItem(null); setQuantidade(''); setBusca(''); setSubetapaLivre(''); setLivreDescricao(''); setLivrePreco('') }}
         title="Adicionar item"
         size="lg"
       >
@@ -1349,32 +1422,46 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
             />
           </div>
 
-          <div className="flex gap-1 p-1 rounded-xl w-fit" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-            {([['proprias', 'Composições Próprias'], ['sinapi', 'Referência SINAPI']] as [FonteBusca, string][]).map(([id, label]) => (
+          <div className="flex gap-1 p-1 rounded-xl w-fit max-w-full overflow-x-auto" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+            {([['proprias', 'Composições Próprias'], ['sinapi', 'Referência SINAPI'], ['livre', 'Item livre']] as [FonteBusca, string][]).map(([id, label]) => (
               <button key={id} onClick={() => { setFonte(id); setSelectedItem(null); setBusca('') }}
-                className="px-4 py-2 rounded-lg text-xs font-medium transition-all"
+                className="px-4 py-2 rounded-lg text-xs font-medium transition-all whitespace-nowrap"
                 style={fonte === id ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}>
                 {label}
               </button>
             ))}
           </div>
 
-          <div className="relative">
+          {fonte !== 'livre' && <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
             <input
               value={busca} onChange={e => setBusca(e.target.value)}
-              placeholder={fonte === 'proprias' ? 'Buscar por código ou descrição...' : 'Buscar na tabela SINAPI...'}
+              placeholder={fonte === 'proprias' ? 'Buscar por descrição...' : 'Buscar na tabela SINAPI...'}
               className="input-base input-search" autoFocus
             />
-          </div>
+          </div>}
 
-          {selectedItem ? (
+          {fonte === 'livre' ? (
+            <div className="p-3 rounded-xl flex flex-col gap-3" style={{ background: 'rgba(59,123,248,0.08)', border: '1px solid rgba(59,123,248,0.25)' }}>
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_100px_130px] gap-3">
+                <Input label="Descrição do item/insumo" value={livreDescricao} onChange={e => setLivreDescricao(e.target.value)} placeholder="Ex: Projeto, cimento, frete..." />
+                <Input label="Unidade" value={livreUnidade} onChange={e => setLivreUnidade(e.target.value)} placeholder="UN" />
+                <Input label="Valor unitário" type="number" value={livrePreco} onChange={e => setLivrePreco(e.target.value)} placeholder="0" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
+                <Input label={`Quantidade (${livreUnidade || 'UN'})`} type="number" value={quantidade} onChange={e => setQuantidade(e.target.value)} placeholder="0" min={0} />
+                <div className="flex gap-2">
+                  <Button variant="secondary" size="sm" loading={saving} disabled={!quantidade || !livreDescricao.trim()} onClick={() => handleAddItem(false)}>+ mais</Button>
+                  <Button size="sm" loading={saving} disabled={!quantidade || !livreDescricao.trim()} onClick={() => handleAddItem(true)}>Inserir</Button>
+                </div>
+              </div>
+            </div>
+          ) : selectedItem ? (
             <div className="p-3 rounded-xl flex items-start gap-3" style={{ background: 'rgba(59,123,248,0.08)', border: '1px solid rgba(59,123,248,0.25)' }}>
               <div className="flex-1 min-w-0">
                 <div className="flex items-start gap-2 mb-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate" style={{ color: 'var(--accent)' }}>{selectedItem.descricao}</p>
-                    <p className="text-xs font-mono truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{selectedItem.codigo}</p>
                   </div>
                   {getItemCost(selectedItem) > 0 && (
                     <span className="text-xs ml-auto flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
@@ -1391,7 +1478,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                       const qtdSugerida = qtdBase * ins.coeficiente
                       return (
                         <div key={ins.id} className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                          <span className="font-mono" style={{ fontFamily: 'JetBrains Mono, monospace' }}>{info.codigo}</span>
                           <span className="flex-1 truncate">{info.descricao}</span>
                           <span>{qtdBase > 0 ? `${qtdSugerida.toLocaleString('pt-BR')} ${info.unidade}` : `coef. ${ins.coeficiente}`}</span>
                         </div>
@@ -1435,7 +1521,6 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{c.descricao}</p>
-                      <p className="text-xs font-mono truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{c.codigo}</p>
                     </div>
                     <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
                       <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{c.unidade}</span>
@@ -1558,7 +1643,7 @@ function GrupoEtapa({
   nome, itens, isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   onUpdateQuantidade, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
   obraUf, icon: Icon, iconCor, subtotalDireto,
-  onDeleteEtapa, menuAberto, onToggleMenu, menuRef,
+  onDeleteEtapa, onRenameEtapa, onRenameSubetapa, menuAberto, onToggleMenu, menuRef,
 }: {
   nome: string
   itens: ItemEnriquecido[]
@@ -1579,6 +1664,8 @@ function GrupoEtapa({
   iconCor?: string
   subtotalDireto?: number
   onDeleteEtapa?: () => void
+  onRenameEtapa?: () => void
+  onRenameSubetapa?: (nome: string) => void
   menuAberto?: boolean
   onToggleMenu?: () => void
   menuRef?: React.RefObject<HTMLDivElement | null>
@@ -1655,6 +1742,13 @@ function GrupoEtapa({
             {menuAberto && (
               <div className="absolute right-0 top-full mt-1.5 w-44 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
                 style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                {onRenameEtapa && (
+                  <button onClick={onRenameEtapa}
+                    className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                    style={{ color: 'var(--text-primary)' }}>
+                    <Pencil size={13} /> Renomear etapa
+                  </button>
+                )}
                 <button onClick={onDeleteEtapa}
                   className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                   style={{ color: 'var(--danger)' }}>
@@ -1680,13 +1774,11 @@ function GrupoEtapa({
           ) : (
             <>
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full min-w-[980px] border-collapse text-sm">
+              <table className="w-full min-w-[860px] border-collapse text-sm">
                 <thead>
                   <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
                     <th className="w-10 px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}></th>
-                    <th className="px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}>Código</th>
                     <th className="px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}>Descrição</th>
-                    <th className="px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}>Subetapa</th>
                     <th className="px-3 py-2 text-center font-semibold" style={{ color: 'var(--text-secondary)' }}>Un.</th>
                     <th className="px-3 py-2 text-center font-semibold" style={{ color: 'var(--text-secondary)' }}>Qtd.</th>
                     <th className="px-3 py-2 text-right font-semibold" style={{ color: 'var(--text-secondary)' }}>Unitário</th>
@@ -1712,11 +1804,15 @@ function GrupoEtapa({
                               {subFechada ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
                             </button>
                           </td>
-                          <td className="px-3 py-2 font-semibold" colSpan={2} style={{ color: 'var(--text-primary)' }}>
-                            {grupo.nome}
-                          </td>
-                          <td className="px-3 py-2 text-xs" colSpan={3} style={{ color: 'var(--text-secondary)' }}>
-                            {grupo.itens.length} {grupo.itens.length === 1 ? 'composição' : 'composições'}
+                          <td className="px-3 py-2 font-semibold" colSpan={3} style={{ color: 'var(--text-primary)' }}>
+                            <div className="flex items-center gap-2">
+                              <span>{grupo.nome}</span>
+                              {onRenameSubetapa && !isReadonly && (
+                                <button type="button" onClick={e => { e.stopPropagation(); onRenameSubetapa(grupo.nome) }} className="p-1 rounded hover:bg-[var(--bg-card)]" title="Renomear subetapa">
+                                  <Pencil size={12} style={{ color: 'var(--text-secondary)' }} />
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-right text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
                             Subtotal
@@ -1751,13 +1847,9 @@ function GrupoEtapa({
                                     </button>
                                   )}
                                 </td>
-                                <td className="px-3 py-2 align-top font-mono text-xs" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                                  {item.codigo}
-                                </td>
                                 <td className="px-3 py-2 align-top" style={{ color: 'var(--text-primary)' }}>
                                   <span className="line-clamp-2">{item.descricao}</span>
                                 </td>
-                                <td className="px-3 py-2 align-top text-xs" style={{ color: 'var(--text-secondary)' }}>{grupo.nome}</td>
                                 <td className="px-3 py-2 align-top text-center" style={{ color: 'var(--text-secondary)' }}>{item.unidade}</td>
                                 <td className="px-3 py-2 align-top text-center">
                                   <input
@@ -1806,7 +1898,7 @@ function GrupoEtapa({
                               {isExpanded && hasInsumos && (
                                 <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
                                   <td />
-                                  <td colSpan={8} className="px-3 py-3">
+                                  <td colSpan={6} className="px-3 py-3">
                                     <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
                                       <table className="w-full text-xs">
                                         <thead>
@@ -1834,7 +1926,6 @@ function GrupoEtapa({
                                               <tr key={ins.id} style={{ borderBottom: '1px solid var(--border)' }}>
                                                 <td className="px-3 py-2">
                                                   <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{info.descricao}</p>
-                                                  <p className="font-mono text-[11px]" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{info.codigo !== '\u2014' ? info.codigo : ''}</p>
                                                 </td>
                                                 <td className="px-3 py-2 text-center" style={{ color: 'var(--text-secondary)' }}>{info.unidade}</td>
                                                 <td className="px-3 py-2 text-right" style={{ color: 'var(--text-secondary)' }}>{preco > 0 ? formatCurrency(preco) : '-'}</td>
@@ -1910,6 +2001,17 @@ function GrupoEtapa({
                           {grupo.itens.length} {grupo.itens.length === 1 ? 'composicao' : 'composicoes'}
                         </p>
                       </div>
+                      {onRenameSubetapa && !isReadonly && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={e => { e.stopPropagation(); onRenameSubetapa(grupo.nome) }}
+                          className="p-1 rounded hover:bg-[var(--bg-card)]"
+                          title="Renomear subetapa"
+                        >
+                          <Pencil size={12} style={{ color: 'var(--text-secondary)' }} />
+                        </span>
+                      )}
                       <span className="text-sm font-semibold flex-shrink-0" style={{ color: 'var(--accent)' }}>{formatCurrency(subtotalSubetapa)}</span>
                     </button>
 
@@ -2019,8 +2121,8 @@ function GrupoEtapa({
                                         <div key={ins.id} className="px-3 py-2.5">
                                           <div className="min-w-0">
                                             <p className="text-xs font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>{info.descricao}</p>
-                                            <p className="mt-0.5 text-[11px] font-mono truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
-                                              {info.codigo !== '\u2014' ? info.codigo : ''}{info.unidade && <span> / {info.unidade}</span>}
+                                            <p className="mt-0.5 text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>
+                                              {info.unidade}
                                             </p>
                                           </div>
 

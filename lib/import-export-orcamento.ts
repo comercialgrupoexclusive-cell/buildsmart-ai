@@ -193,6 +193,8 @@ export async function lerPlanilhaOrcamentoAntigo(file: File): Promise<ResultadoL
           custoUnitario: numeroFlex(r.custo_unit_composicao),
           custoTotal: numeroFlex(r.custo_total_composicao),
           custoTotalEtapa: numeroFlex(r.custo_total_etapa),
+          statusExecucao: texto(r.status_execucao_origem ?? r.status_execucao),
+          statusMaterial: texto(r.status_material_origem ?? r.status_material),
           insumos: [],
         },
       })

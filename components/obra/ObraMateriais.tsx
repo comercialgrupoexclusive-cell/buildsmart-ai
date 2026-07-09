@@ -121,6 +121,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   const supabase = createClient()
   const [materiais, setMateriais] = useState<MaterialRow[]>([])
   const [etapas, setEtapas] = useState<{ id: string; nome: string }[]>([])
+  const [subetapasOrcamento, setSubetapasOrcamento] = useState<Record<string, string[]>>({})
   const [fornecedores, setFornecedores] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroEtapa, setFiltroEtapa] = useState('todas')
@@ -202,7 +203,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         .select('id, obra_id, etapa_id, subetapa, insumo_id, quantidade_total, quantidade_comprada, status_compra, data_necessidade, data_recebimento, etapas(nome), insumo:sinapi_insumos(codigo,descricao,unidade)')
         .eq('obra_id', obraId)
         .order('data_necessidade', { ascending: true, nullsFirst: false })
-    const [matsRes, etapasRes, fornecedoresRes] = await Promise.all([
+    const [matsRes, etapasRes, fornecedoresRes, subetapasRes] = await Promise.all([
       matsQuery,
       supabase.from('etapas').select('id, nome').eq('obra_id', obraId).order('ordem'),
       supabase
@@ -210,12 +211,24 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         .select('id, nome, obra_id')
         .or(`obra_id.is.null,obra_id.eq.${obraId}`)
         .order('nome'),
+      supabase
+        .from('orcamentos')
+        .select('id, orcamento_itens(etapa_id, subetapa)')
+        .eq('obra_id', obraId),
     ])
     setMateriais(schemaMateriais === 'snapshot'
       ? (matsRes.data || []) as MaterialRow[]
       : ((matsRes.data || []) as unknown as MaterialBancoInsumoId[]).map(normalizarMaterialInsumoId))
     setEtapas(etapasRes.data || [])
     setFornecedores(fornecedoresRes.data || [])
+    const subMap: Record<string, string[]> = {}
+    const orcs = (subetapasRes.data || []) as { orcamento_itens?: { etapa_id: string | null; subetapa: string | null }[] }[]
+    orcs.forEach(orc => (orc.orcamento_itens || []).forEach(item => {
+      if (!item.etapa_id || !item.subetapa?.trim()) return
+      if (!subMap[item.etapa_id]) subMap[item.etapa_id] = []
+      if (!subMap[item.etapa_id].includes(item.subetapa.trim())) subMap[item.etapa_id].push(item.subetapa.trim())
+    }))
+    setSubetapasOrcamento(subMap)
     setLoading(false)
   }
   // --- Importar do orçamento ────────────────────────────────────────────────
@@ -940,7 +953,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       )}
 
       {/* ── Compras em cascata por etapa ── */}
-      {materiaisFiltrados.length === 0 ? (
+      {materiaisFiltrados.length === 0 && etapas.length === 0 ? (
         <EmptyState
           icon={Package}
           title="Nenhum material"
@@ -976,11 +989,11 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
               onRecebido={alternarRecebido}
               onEdit={openEdit}
               onDelete={handleDelete}
+              subetapasVazias={[]}
             />
           )}
           {etapas.map(etapa => {
             const itensDaEtapa = materiaisPorEtapa[etapa.id] || []
-            if (itensDaEtapa.length === 0) return null
             return (
               <GrupoCompra
                 key={etapa.id}
@@ -999,6 +1012,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
                 onRecebido={alternarRecebido}
                 onEdit={openEdit}
                 onDelete={handleDelete}
+                subetapasVazias={subetapasOrcamento[etapa.id] || []}
               />
             )
           })}
@@ -1226,7 +1240,7 @@ function GrupoCompra({
   chaveEtapa, nome, itens, collapsed, onToggleGrupo,
   collapsedSub, onToggleSubGrupo,
   selecionados, onToggleItem, onToggleGrupoSelecao, onToggleSubGrupoSelecao,
-  onComprado, onRecebido, onEdit, onDelete,
+  onComprado, onRecebido, onEdit, onDelete, subetapasVazias = [],
 }: {
   chaveEtapa: string
   nome: string
@@ -1243,11 +1257,18 @@ function GrupoCompra({
   onRecebido: (m: MaterialRow) => void
   onEdit: (m: MaterialRow) => void
   onDelete: (id: string) => void
+  subetapasVazias?: string[]
 }) {
   const pendentes = itens.filter(m => m.status_compra !== 'comprado')
   const todosSelecionados = itens.length > 0 && itens.every(m => selecionados.has(m.id))
   const algunsSelecionados = !todosSelecionados && itens.some(m => selecionados.has(m.id))
-  const gruposSub = useMemo(() => agruparPorSubetapa(itens), [itens])
+  const gruposSub = useMemo(() => {
+    const grupos = agruparPorSubetapa(itens)
+    subetapasVazias.forEach(nomeSub => {
+      if (!grupos.some(g => g.nome === nomeSub)) grupos.push({ nome: nomeSub, itens: [] })
+    })
+    return grupos
+  }, [itens, subetapasVazias])
   const exibirSubcabecalhos = !(gruposSub.length === 1 && gruposSub[0].nome === SEM_SUBETAPA)
 
   return (
@@ -1281,7 +1302,11 @@ function GrupoCompra({
       {/* Subetapas */}
       {!collapsed && (
         <div className="flex flex-col">
-          {gruposSub.map(grupo => {
+          {gruposSub.length === 0 ? (
+            <div className="px-4 py-3 text-xs" style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
+              Nenhuma subetapa/material vinculado ainda.
+            </div>
+          ) : gruposSub.map(grupo => {
             if (!exibirSubcabecalhos) {
               return grupo.itens.map(m => (
                 <LinhaMaterial
@@ -1367,7 +1392,11 @@ function GrupoSubetapaCompra({
       {/* Insumos */}
       {!collapsed && (
         <div className="flex flex-col">
-          {itens.map(m => (
+          {itens.length === 0 ? (
+            <div className="pl-16 pr-4 py-3 text-xs" style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
+              Nenhum insumo/material vinculado ainda.
+            </div>
+          ) : itens.map(m => (
             <LinhaMaterial
               key={m.id} material={m} recuado
               selecionado={selecionados.has(m.id)}
