@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2 } from 'lucide-react'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -22,14 +22,14 @@ import { ObraAssistenteIA } from '@/components/obra/ObraAssistenteIA'
 
 type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'tarefas' | 'ia'
 
-const TABS: { id: Tab; label: string }[] = [
+const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'materiais', label: 'Materiais' },
   { id: 'medicoes', label: 'Diário / Medições' },
   { id: 'tarefas', label: 'Tarefas' },
-  { id: 'ia', label: 'IA' },
+  { id: 'ia', label: 'Assistente IA', icon: Sparkles },
 ]
 
 export default function ObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -351,16 +351,17 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       {/* Tabs */}
       <div className="overflow-x-auto pb-1 -mx-3 sm:mx-0 px-3 sm:px-0">
         <div className="flex gap-1 p-1 rounded-xl w-max" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          {TABS.map(({ id: tabId, label }) => (
+          {TABS.map(({ id: tabId, label, icon: Icon }) => (
             <button
               key={tabId}
               onClick={() => setTab(tabId)}
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
               style={tab === tabId
                 ? { background: 'var(--accent)', color: 'white' }
                 : { color: 'var(--text-secondary)' }
               }
             >
+              {Icon && <Icon size={15} />}
               {label}
             </button>
           ))}
