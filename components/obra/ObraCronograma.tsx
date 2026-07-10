@@ -912,6 +912,22 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                       </label>
                     </div>
 
+                    {/* Predecessoras + financeiro */}
+                    <div className="basis-full flex flex-wrap items-center gap-1.5 mt-1" style={{ paddingLeft: 24 }}>
+                      {predecessorasDeItem('etapa', etapa.id).map(p => (
+                        <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
+                          <Link2 size={9} />
+                          <span className="font-medium">Dep:</span> {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
+                          <button onClick={() => salvarPredecessoras('etapa', etapa.id, predecessorasDeItem('etapa', etapa.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100"><X size={9} /></button>
+                        </span>
+                      ))}
+                      <button onClick={() => setPickerQuickAlvo({ tipo: 'etapa', id: etapa.id })} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-card)] transition-colors" style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}>
+                        <Plus size={9} /> Predecessora
+                      </button>
+                    </div>
+                    {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio) && (
+                      <p className="basis-full text-[10px] mt-1" style={{ color: 'var(--danger)', paddingLeft: 24 }}>Conflita com predecessora: {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio)}</p>
+                    )}
                     {mostrarFinanceiro && (
                       <div className="basis-full flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-md w-fit" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', marginLeft: 24 }}>
                         <Wallet size={10} style={{ color: '#10b981' }} />
@@ -1059,6 +1075,30 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                                 <button onClick={() => deleteSvc(svc.id)} className="p-1 rounded hover:bg-red-500/10"><Trash2 size={10} style={{ color: 'var(--danger)' }} /></button>
                               </div>
 
+                              {/* Predecessoras + financeiro */}
+                              <div className="basis-full flex flex-wrap items-center gap-1.5 mt-1" style={{ paddingLeft: 16 }}>
+                                {predecessorasDeItem('servico', svc.id).map(p => (
+                                  <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
+                                    <Link2 size={9} />
+                                    <span className="font-medium">Dep:</span> {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
+                                    <button onClick={() => salvarPredecessoras('servico', svc.id, predecessorasDeItem('servico', svc.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100"><X size={9} /></button>
+                                  </span>
+                                ))}
+                                <button onClick={() => setPickerQuickAlvo({ tipo: 'servico', id: svc.id })} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-card)] transition-colors" style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}>
+                                  <Plus size={9} /> Predecessora
+                                </button>
+                              </div>
+                              {conflitoDePredecessoras('servico', svc.id, svc.data_inicio) && (
+                                <p className="basis-full text-[10px] mt-1" style={{ color: 'var(--danger)', paddingLeft: 16 }}>Conflita com predecessora: {conflitoDePredecessoras('servico', svc.id, svc.data_inicio)}</p>
+                              )}
+                              {mostrarFinanceiro && (
+                                <div className="basis-full flex items-center gap-1.5 mt-1 px-2 py-1 rounded-md w-fit" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', marginLeft: 16 }}>
+                                  <Wallet size={10} style={{ color: '#10b981' }} />
+                                  <span className="text-[11px] font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(realizadoPorServico.get(svc.id) ?? 0)}</span>
+                                  <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>realizado</span>
+                                </div>
+                              )}
+
                               {/* Mobile dates */}
                               <div className="basis-full sm:hidden grid grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 16 }}>
                                 <label className="min-w-0">
@@ -1122,6 +1162,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
           realizadoPorSubetapa={realizadoPorSubetapa}
           realizadoPorServico={realizadoPorServico}
           statusFiltro={statusFiltro}
+          onOpenPredecessor={(tipo, id) => setPickerQuickAlvo({ tipo, id })}
         />
       )}
 
@@ -1539,7 +1580,8 @@ type GanttEff = { inicio: string | null; fim: string | null; pct: number }
 const GANTT_ROW_H = 40
 const GANTT_HDR_H = 36
 const GANTT_LEFT_W = 260
-const GANTT_DATE_COL_W = 90
+const GANTT_DATE_COL_W = 88
+const GANTT_DUR_COL_W = 52
 const GANTT_PAD_DAYS = 10
 const GANTT_MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const GANTT_COLORS = ['#3B7BF8', '#8B5CF6', '#10B981', '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#F97316']
@@ -1548,6 +1590,18 @@ function addDaysCrono(d: Date, n: number) { const r = new Date(d); r.setDate(r.g
 function daysBetweenCrono(a: Date, b: Date) { return Math.round((a.getTime() - b.getTime()) / 86400000) }
 function startOfMonthCrono(d: Date) { return new Date(d.getFullYear(), d.getMonth(), 1) }
 function fmtGanttDate(v: string | null | undefined) { return fmtBR(v) ?? '--' }
+function calcDurCronoStandalone(inicio: string | null | undefined, fim: string | null | undefined): number | null {
+  if (!inicio || !fim) return null
+  const d1 = new Date(inicio + 'T00:00:00')
+  const d2 = new Date(fim + 'T00:00:00')
+  const diff = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+  return diff >= 0 ? diff : null
+}
+function addDaysCronoStrStandalone(date: string, days: number): string {
+  const d = new Date(date + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
 
 function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], servicos: ServicoCronograma[]) {
   return etapas.map(etapa => {
@@ -1632,6 +1686,7 @@ function ObraGanttView({
   realizadoPorSubetapa,
   realizadoPorServico,
   statusFiltro,
+  onOpenPredecessor,
 }: {
   etapas: Etapa[]
   subetapas: SubetapaCronograma[]
@@ -1645,6 +1700,7 @@ function ObraGanttView({
   realizadoPorSubetapa: Map<string, number>
   realizadoPorServico: Map<string, number>
   statusFiltro: CronogramaStatus[]
+  onOpenPredecessor?: (tipo: CronogramaItemTipo, id: string) => void
 }) {
   const rawTree = buildObraGanttTree(etapas, subetapas, servicos)
   const statusDoNode = (node: ObraGanttNode): CronogramaStatus => {
@@ -1671,7 +1727,7 @@ function ObraGanttView({
   const today = new Date()
   const scrollRef = useRef<HTMLDivElement>(null)
   const nameColW = isMobile ? 168 : GANTT_LEFT_W
-  const fullLeftW = isMobile ? 168 : nameColW + GANTT_DATE_COL_W * 2
+  const fullLeftW = isMobile ? 168 : nameColW + GANTT_DATE_COL_W * 2 + GANTT_DUR_COL_W
 
   const effMap = new Map<string, GanttEff>()
   tree.forEach(node => rollupObraGantt(node, effMap))
@@ -1786,6 +1842,7 @@ function ObraGanttView({
             <div className="flex items-end text-xs font-semibold" style={{ height: GANTT_HDR_H, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>
               <div className="px-3 pb-2" style={{ width: nameColW, minWidth: nameColW }}>Item</div>
               {!isMobile && <div className="text-center pb-2" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>Início</div>}
+              {!isMobile && <div className="text-center pb-2" style={{ width: GANTT_DUR_COL_W, borderLeft: '1px solid var(--border)' }}>Dur.</div>}
               {!isMobile && <div className="text-center pb-2" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>Fim</div>}
             </div>
             {rows.map(row => {
@@ -1814,22 +1871,43 @@ function ObraGanttView({
                       {!row.isTotal && node && (
                         <span className="text-[9px] flex-shrink-0" style={{ color: (row.pct ?? 0) >= 100 ? '#10b981' : 'var(--text-secondary)' }}>{Math.round(row.pct ?? 0)}%</span>
                       )}
+                      {!row.isTotal && node && onOpenPredecessor && (
+                        <button onClick={() => onOpenPredecessor(node.table === 'etapas' ? 'etapa' : node.table === 'subetapas_cronograma' ? 'subetapa' : 'servico', node.id)} className="flex-shrink-0 opacity-40 hover:opacity-100 transition-opacity" title="Predecessora"><Link2 size={10} /></button>
+                      )}
                     </div>
+                    {mostrarFinanceiro && !row.isTotal && node && (() => {
+                      const val = node.nivel === 1 ? realizadoPorEtapa.get(node.id) : node.nivel === 2 ? realizadoPorSubetapa.get(node.id) : realizadoPorServico.get(node.id)
+                      const orc = node.nivel === 1 ? orcadoPorEtapa.get(node.id) : null
+                      return (val !== undefined && val > 0) ? (
+                        <div className="text-[9px] truncate" style={{ color: 'var(--success)', marginLeft: 22 + row.depth * 14 }}>
+                          {formatCurrency(val)}{orc ? ` / ${formatCurrency(orc)}` : ''}
+                        </div>
+                      ) : null
+                    })()}
                   </div>
-                  {!isMobile && !row.isTotal && node && (
-                    <>
-                      <div className="flex items-center px-1" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>
-                        <input type="date" className="w-full h-6 rounded border px-0.5 text-[10px] outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={node.data_inicio ?? ''} onChange={e => onUpdateDate(node.table, node.id, 'data_inicio', e.target.value)} />
-                      </div>
-                      <div className="flex items-center px-1" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>
-                        <input type="date" className="w-full h-6 rounded border px-0.5 text-[10px] outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={node.data_fim ?? ''} onChange={e => onUpdateDate(node.table, node.id, 'data_fim', e.target.value)} />
-                      </div>
-                    </>
-                  )}
+                  {!isMobile && !row.isTotal && node && (() => {
+                    const dur = calcDurCronoStandalone(node.data_inicio, node.data_fim)
+                    return (
+                      <>
+                        <div className="flex items-center px-1" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>
+                          <input type="date" className="w-full h-6 rounded border px-0.5 text-[10px] outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={node.data_inicio ?? ''} onChange={e => onUpdateDate(node.table, node.id, 'data_inicio', e.target.value)} />
+                        </div>
+                        <div className="flex items-center justify-center px-0.5" style={{ width: GANTT_DUR_COL_W, borderLeft: '1px solid var(--border)' }}>
+                          <input type="number" min={0} className="w-full h-6 rounded border px-1 text-[10px] outline-none text-center" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} placeholder="—" value={dur ?? ''} onChange={e => { const d = parseInt(e.target.value); if (!isNaN(d) && d >= 0 && node.data_inicio) onUpdateDate(node.table, node.id, 'data_fim', addDaysCronoStrStandalone(node.data_inicio, d)) }} />
+                        </div>
+                        <div className="flex items-center px-1" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>
+                          <input type="date" className="w-full h-6 rounded border px-0.5 text-[10px] outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={node.data_fim ?? ''} onChange={e => onUpdateDate(node.table, node.id, 'data_fim', e.target.value)} />
+                        </div>
+                      </>
+                    )
+                  })()}
                   {!isMobile && row.isTotal && (
                     <>
                       <div className="flex items-center justify-center text-[10px]" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
                         {fmtGanttDate(row.inicio)}
+                      </div>
+                      <div className="flex items-center justify-center text-[10px]" style={{ width: GANTT_DUR_COL_W, borderLeft: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                        {row.inicio && row.fim ? calcDurCronoStandalone(row.inicio, row.fim) ?? '—' : '—'}
                       </div>
                       <div className="flex items-center justify-center text-[10px]" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
                         {fmtGanttDate(row.fim)}
