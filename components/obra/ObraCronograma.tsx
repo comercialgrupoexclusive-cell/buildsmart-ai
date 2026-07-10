@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import {
   Plus, Calendar, Pencil, Trash2, ChevronDown, ChevronRight,
   LayoutList, BarChart2, KanbanSquare, Check, AlertTriangle, Clock, CheckCircle2, Flag, Wallet, Link2, X,
@@ -381,6 +381,20 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     return d.toISOString().slice(0, 10)
   }
 
+  function calcDurCrono(inicio: string | null | undefined, fim: string | null | undefined): number | null {
+    if (!inicio || !fim) return null
+    const d1 = new Date(inicio + 'T00:00:00')
+    const d2 = new Date(fim + 'T00:00:00')
+    const diff = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+    return diff >= 0 ? diff : null
+  }
+
+  function addDaysCronoStr(date: string, days: number): string {
+    const d = new Date(date + 'T00:00:00')
+    d.setDate(d.getDate() + days)
+    return d.toISOString().slice(0, 10)
+  }
+
   // Diferença entre a lista nova (escolhida no picker) e a persistida — insere o
   // que faltava, remove o que foi tirado.
   async function salvarPredecessoras(itemTipo: CronogramaItemTipo, itemId: string, novaLista: PredecessoraRef[]) {
@@ -641,7 +655,6 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   }
 
   function confirmarPicker(refs: PredecessoraRef[]) {
-    // Atalho direto do card: salva na hora (o item já existe, não precisa do form).
     if (pickerQuickAlvo) {
       const { tipo, id } = pickerQuickAlvo
       const bloqueados = refs.filter(r => criariCiclo(r.tipo, r.id, tipo, id))
@@ -652,6 +665,16 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
         alert(`Não é possível usar como predecessora: ${bloqueados.map(b => b.nome).join(', ')} — geraria uma dependência circular.`)
       }
       salvarPredecessoras(tipo, id, refsValidos)
+
+      const maiorFim = refsValidos.map(r => r.data_fim).filter((v): v is string => !!v).sort().pop()
+      if (maiorFim) {
+        const { inicio: dataAtual } = dataDoItem(tipo, id)
+        if (!dataAtual) {
+          const table = tipo === 'etapa' ? 'etapas' : tipo === 'subetapa' ? 'subetapas_cronograma' : 'servicos_cronograma'
+          updateDateInline(table, id, 'data_inicio', addOneDay(maiorFim))
+        }
+      }
+
       setPickerQuickAlvo(null)
       return
     }
@@ -807,93 +830,108 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
           statusFiltro={statusFiltro}
         />
       ) : tab === 'cascata' ? (
-        /* ── CASCATA ── */
+        /* ── CASCATA (grid) ── */
         <div className="card overflow-hidden">
-          {etapas.filter(etapaVisivel).map((etapa, eIdx) => {
+          {/* Cabeçalho de colunas */}
+          <div
+            className="hidden sm:grid text-xs font-medium px-2 py-2"
+            style={{
+              gridTemplateColumns: '1fr 110px 70px 110px',
+              background: 'var(--bg-secondary)',
+              color: 'var(--text-secondary)',
+              borderBottom: '1px solid var(--border)',
+            }}
+          >
+            <span className="pl-10">Item / Etapa</span>
+            <span>Início</span>
+            <span>Duração</span>
+            <span>Fim</span>
+          </div>
+
+          {etapas.filter(etapaVisivel).map(etapa => {
             const subs = subsDaEtapa(etapa.id).filter(subetapaVisivel)
             const isCollapsedEtapa = collapsed[etapa.id] ?? false
             const prog = progressoEtapa(etapa.id)
+            const etapaDur = calcDurCrono(etapa.data_inicio, etapa.data_fim)
+            const etapaAtrasada = !!(etapa.data_fim && prog < 100 && new Date(etapa.data_fim) < new Date())
 
             return (
               <Fragment key={etapa.id}>
-                {/* ── Linha Etapa (nível 1) ── */}
+                {/* ── Linha Etapa (nível 1) — grid row ── */}
                 <div
-                  className="flex items-center gap-2 px-4 py-3 group hover:bg-[var(--bg-secondary)] transition-colors"
-                  style={{ borderBottom: '1px solid var(--border)', background: eIdx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.02)' }}
+                  className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors px-2 py-1.5"
+                  style={{
+                    gridTemplateColumns: '1fr 110px 70px 110px',
+                    background: 'rgba(59,123,248,0.06)',
+                    borderBottom: '1px solid var(--border)',
+                    minHeight: 36,
+                  }}
                 >
-                  <button
-                    onClick={() => toggle(etapa.id)}
-                    className="p-1 rounded hover:bg-[var(--bg-card)] flex-shrink-0"
-                    style={{ color: 'var(--text-secondary)' }}
-                  >
-                    {isCollapsedEtapa ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
-                  </button>
+                  {/* Col 1: Nome + expand + status + marco + ações */}
+                  <div className="flex items-center gap-1.5 py-1 min-w-0 flex-wrap sm:flex-nowrap" style={{ paddingLeft: 0 }}>
+                    <button onClick={() => toggle(etapa.id)} className="w-5 h-5 flex items-center justify-center flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+                      {isCollapsedEtapa ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                    </button>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[etapa.status]}`}>
-                        {STATUS_ETAPA_LABEL[etapa.status]}
-                      </span>
+                    <span className="flex-1 text-sm font-semibold truncate min-w-0" style={{ color: 'var(--accent)' }}>
+                      {etapa.nome}
+                      <span className="ml-2 text-[10px] font-normal opacity-60">{prog}%</span>
+                    </span>
+
+                    <button
+                      className="p-0.5 rounded flex-shrink-0 hover:bg-[var(--bg-card)] transition-colors"
+                      title={etapa.is_marco ? 'Marco — clique para remover' : 'Marcar como marco'}
+                      onClick={() => toggleMarco('etapas', etapa.id, etapa.is_marco)}
+                    >
+                      <Flag size={12} style={{ color: etapa.is_marco ? '#F59E0B' : 'var(--text-secondary)' }} fill={etapa.is_marco ? '#F59E0B' : 'none'} strokeWidth={etapa.is_marco ? 2.5 : 1.5} />
+                    </button>
+
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${STATUS_ETAPA_COLOR[etapa.status]}`}>
+                      {STATUS_ETAPA_LABEL[etapa.status]}
+                    </span>
+
+                    <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
+                      <button onClick={() => openNewSub(etapa.id)} className="p-1 rounded hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }} title="Adicionar subetapa"><Plus size={12} /></button>
+                      <button onClick={() => openEditEtapa(etapa)} className="p-1 rounded hover:bg-[var(--bg-card)]"><Pencil size={11} style={{ color: 'var(--text-secondary)' }} /></button>
+                      <button onClick={() => deleteEtapa(etapa.id)} className="p-1 rounded hover:bg-red-500/10"><Trash2 size={11} style={{ color: 'var(--danger)' }} /></button>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                      <DateCell
-                        value={etapa.data_inicio}
-                        isEditing={editField?.id === etapa.id && editField.field === 'data_inicio'}
-                        onStartEdit={() => setEditField({ id: etapa.id, table: 'etapas', field: 'data_inicio' })}
-                        onCommit={v => updateDateInline('etapas', etapa.id, 'data_inicio', v)}
-                      />
-                      <span className="text-[10px] opacity-30" style={{ color: 'var(--text-secondary)' }}>→</span>
-                      <DateCell
-                        value={etapa.data_fim}
-                        isEditing={editField?.id === etapa.id && editField.field === 'data_fim'}
-                        onStartEdit={() => setEditField({ id: etapa.id, table: 'etapas', field: 'data_fim' })}
-                        onCommit={v => updateDateInline('etapas', etapa.id, 'data_fim', v)}
-                      />
+
+                    {/* Mobile dates */}
+                    <div className="basis-full sm:hidden grid grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 24 }}>
+                      <label className="min-w-0">
+                        <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Início</span>
+                        <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={etapa.data_inicio ?? ''} onChange={e => updateDateInline('etapas', etapa.id, 'data_inicio', e.target.value)} />
+                      </label>
+                      <label className="min-w-0">
+                        <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Duração</span>
+                        <input type="number" min={0} className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} placeholder="dias" value={etapaDur ?? ''} onChange={e => { const d = parseInt(e.target.value); if (!isNaN(d) && d >= 0 && etapa.data_inicio) updateDateInline('etapas', etapa.id, 'data_fim', addDaysCronoStr(etapa.data_inicio, d)) }} />
+                      </label>
+                      <label className="min-w-0">
+                        <span className="block text-[10px] mb-1" style={{ color: etapaAtrasada ? '#EF4444' : 'var(--text-secondary)' }}>Fim</span>
+                        <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: etapaAtrasada ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }} value={etapa.data_fim ?? ''} onChange={e => updateDateInline('etapas', etapa.id, 'data_fim', e.target.value)} />
+                      </label>
                     </div>
+
                     {mostrarFinanceiro && (
-                      <div className="flex flex-wrap items-center gap-2 mt-2 px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
-                        <Wallet size={12} style={{ color: '#10b981' }} />
-                        <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(realizadoPorEtapa.get(etapa.id) ?? 0)}</span>
-                        <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>realizado de {formatCurrency(orcadoPorEtapa.get(etapa.id) ?? 0)} orçado</span>
-                        {(orcadoPorEtapa.get(etapa.id) ?? 0) > 0 && (
-                          <span
-                            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-auto"
-                            style={{
-                              color: (realizadoPorEtapa.get(etapa.id) ?? 0) > (orcadoPorEtapa.get(etapa.id) ?? 0) ? '#EF4444' : '#10b981',
-                              background: (realizadoPorEtapa.get(etapa.id) ?? 0) > (orcadoPorEtapa.get(etapa.id) ?? 0) ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
-                            }}
-                          >
-                            {Math.round(((realizadoPorEtapa.get(etapa.id) ?? 0) / (orcadoPorEtapa.get(etapa.id) ?? 1)) * 100)}%
-                          </span>
-                        )}
+                      <div className="basis-full flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-md w-fit" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', marginLeft: 24 }}>
+                        <Wallet size={10} style={{ color: '#10b981' }} />
+                        <span className="text-[11px] font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(realizadoPorEtapa.get(etapa.id) ?? 0)}</span>
+                        <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>de {formatCurrency(orcadoPorEtapa.get(etapa.id) ?? 0)}</span>
                       </div>
                     )}
-                    <div className="sm:hidden flex items-center gap-2 mt-1.5">
-                      <div className="flex-1 h-1.5 rounded-full overflow-hidden max-w-[100px]" style={{ background: 'var(--border)' }}>
-                        <div className="h-full rounded-full" style={{ width: `${prog}%`, background: prog >= 100 ? '#10b981' : 'var(--accent)' }} />
-                      </div>
-                      <PctInput value={prog} onChange={v => updatePct('etapas', etapa.id, v)} small />
-                    </div>
                   </div>
 
-                  <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
-                    <div className="w-20 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
-                      <div className="h-full rounded-full" style={{ width: `${prog}%`, background: prog >= 100 ? '#10b981' : 'var(--accent)' }} />
-                    </div>
-                    <PctInput value={prog} onChange={v => updatePct('etapas', etapa.id, v)} />
+                  {/* Col 2: Início */}
+                  <div className="hidden sm:block py-1">
+                    <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={etapa.data_inicio ?? ''} onChange={e => updateDateInline('etapas', etapa.id, 'data_inicio', e.target.value)} />
                   </div>
-
-                  <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => openNewSub(etapa.id)} className="p-1.5 rounded text-xs hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }} title="Adicionar subetapa">
-                      <Plus size={13} />
-                    </button>
-                    <button onClick={() => openEditEtapa(etapa)} className="p-1.5 rounded hover:bg-[var(--bg-card)]">
-                      <Pencil size={13} style={{ color: 'var(--text-secondary)' }} />
-                    </button>
-                    <button onClick={() => deleteEtapa(etapa.id)} className="p-1.5 rounded hover:bg-red-500/10">
-                      <Trash2 size={13} style={{ color: 'var(--danger)' }} />
-                    </button>
+                  {/* Col 3: Duração */}
+                  <div className="hidden sm:block py-1">
+                    <input type="number" min={0} className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none text-center" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} placeholder="—" value={etapaDur ?? ''} onChange={e => { const d = parseInt(e.target.value); if (!isNaN(d) && d >= 0 && etapa.data_inicio) updateDateInline('etapas', etapa.id, 'data_fim', addDaysCronoStr(etapa.data_inicio, d)) }} />
+                  </div>
+                  {/* Col 4: Fim */}
+                  <div className="hidden sm:block py-1">
+                    <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-secondary)', borderColor: etapaAtrasada ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }} value={etapa.data_fim ?? ''} onChange={e => updateDateInline('etapas', etapa.id, 'data_fim', e.target.value)} />
                   </div>
                 </div>
 
@@ -901,79 +939,80 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                 {!isCollapsedEtapa && subs.map(sub => {
                   const svcs = svcsDaSub(sub.id).filter(servicoVisivel)
                   const isCollapsedSub = collapsed[sub.id] ?? false
+                  const subDur = calcDurCrono(sub.data_inicio, sub.data_fim)
+                  const subAtrasada = !!(sub.data_fim && sub.percentual_executado < 100 && new Date(sub.data_fim) < new Date())
                   return (
                     <Fragment key={sub.id}>
                       <div
-                        className="flex items-center gap-2 pl-10 pr-4 py-2.5 group hover:bg-[var(--bg-secondary)] transition-colors"
-                        style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}
+                        className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors px-2 py-1.5"
+                        style={{
+                          gridTemplateColumns: '1fr 110px 70px 110px',
+                          background: 'rgba(255,255,255,0.018)',
+                          borderBottom: '1px solid var(--border)',
+                          minHeight: 36,
+                        }}
                       >
-                        <button onClick={() => toggle(sub.id)} className="p-1 rounded flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
-                          {isCollapsedSub ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                        </button>
+                        <div className="flex items-center gap-1.5 py-1 min-w-0 flex-wrap sm:flex-nowrap" style={{ paddingLeft: 20 }}>
+                          <button onClick={() => toggle(sub.id)} className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ color: 'var(--text-secondary)', visibility: svcs.length > 0 ? 'visible' : 'hidden' }}>
+                            {isCollapsedSub ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                          </button>
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{sub.nome}</span>
-                            <button
-                              onClick={() => toggleMarco('subetapas_cronograma', sub.id, sub.is_marco)}
-                              className="p-0.5 rounded hover:bg-[var(--bg-card)] transition-colors"
-                              title={sub.is_marco ? 'Marco de projeto — clique para remover' : 'Marcar como marco de projeto'}
-                            >
-                              <Flag size={14} style={{ color: sub.is_marco ? '#F59E0B' : 'var(--text-secondary)' }} fill={sub.is_marco ? '#F59E0B' : 'none'} strokeWidth={sub.is_marco ? 2.5 : 1.5} />
-                            </button>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_ETAPA_COLOR[sub.status]}`}>
-                              {STATUS_ETAPA_LABEL[sub.status]}
-                            </span>
+                          <span className="flex-1 text-sm font-medium truncate min-w-0" style={{ color: 'var(--text-primary)' }}>{sub.nome}</span>
+
+                          <button
+                            className="p-0.5 rounded flex-shrink-0 hover:bg-[var(--bg-card)] transition-colors"
+                            title={sub.is_marco ? 'Marco — clique para remover' : 'Marcar como marco'}
+                            onClick={() => toggleMarco('subetapas_cronograma', sub.id, sub.is_marco)}
+                          >
+                            <Flag size={12} style={{ color: sub.is_marco ? '#F59E0B' : 'var(--text-secondary)' }} fill={sub.is_marco ? '#F59E0B' : 'none'} strokeWidth={sub.is_marco ? 2.5 : 1.5} />
+                          </button>
+
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full flex-shrink-0 ${STATUS_ETAPA_COLOR[sub.status]}`}>
+                            {STATUS_ETAPA_LABEL[sub.status]}
+                          </span>
+
+                          <PctInput value={sub.percentual_executado} onChange={v => updatePct('subetapas_cronograma', sub.id, v)} small />
+
+                          <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
+                            <button onClick={() => openNewSvc(sub.id)} className="p-1 rounded hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }}><Plus size={11} /></button>
+                            <button onClick={() => openEditSub(sub)} className="p-1 rounded hover:bg-[var(--bg-card)]"><Pencil size={11} style={{ color: 'var(--text-secondary)' }} /></button>
+                            <button onClick={() => deleteSub(sub)} className="p-1 rounded hover:bg-red-500/10"><Trash2 size={11} style={{ color: 'var(--danger)' }} /></button>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2 mt-2">
-                            <DateCell
-                              value={sub.data_inicio}
-                              isEditing={editField?.id === sub.id && editField.field === 'data_inicio'}
-                              onStartEdit={() => setEditField({ id: sub.id, table: 'subetapas_cronograma', field: 'data_inicio' })}
-                              onCommit={v => updateDateInline('subetapas_cronograma', sub.id, 'data_inicio', v)}
-                            />
-                            <span className="text-[10px] opacity-30" style={{ color: 'var(--text-secondary)' }}>→</span>
-                            <DateCell
-                              value={sub.data_fim}
-                              isEditing={editField?.id === sub.id && editField.field === 'data_fim'}
-                              onStartEdit={() => setEditField({ id: sub.id, table: 'subetapas_cronograma', field: 'data_fim' })}
-                              onCommit={v => updateDateInline('subetapas_cronograma', sub.id, 'data_fim', v)}
-                            />
-                            {sub.responsavel && (
-                              <span className="text-[10px] ml-2 opacity-60" style={{ color: 'var(--text-secondary)' }}>· {sub.responsavel}</span>
-                            )}
+
+                          {/* Mobile dates */}
+                          <div className="basis-full sm:hidden grid grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 20 }}>
+                            <label className="min-w-0">
+                              <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Início</span>
+                              <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={sub.data_inicio ?? ''} onChange={e => updateDateInline('subetapas_cronograma', sub.id, 'data_inicio', e.target.value)} />
+                            </label>
+                            <label className="min-w-0">
+                              <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Duração</span>
+                              <input type="number" min={0} className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} placeholder="dias" value={subDur ?? ''} onChange={e => { const d = parseInt(e.target.value); if (!isNaN(d) && d >= 0 && sub.data_inicio) updateDateInline('subetapas_cronograma', sub.id, 'data_fim', addDaysCronoStr(sub.data_inicio, d)) }} />
+                            </label>
+                            <label className="min-w-0">
+                              <span className="block text-[10px] mb-1" style={{ color: subAtrasada ? '#EF4444' : 'var(--text-secondary)' }}>Fim</span>
+                              <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: subAtrasada ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }} value={sub.data_fim ?? ''} onChange={e => updateDateInline('subetapas_cronograma', sub.id, 'data_fim', e.target.value)} />
+                            </label>
                           </div>
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+
+                          {/* Predecessoras + financeiro */}
+                          <div className="basis-full flex flex-wrap items-center gap-1.5 mt-1" style={{ paddingLeft: 20 }}>
                             {predecessorasDeItem('subetapa', sub.id).map(p => (
                               <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
                                 <Link2 size={9} />
                                 <span className="font-medium">Dep:</span> {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
-                                <button onClick={() => salvarPredecessoras('subetapa', sub.id, predecessorasDeItem('subetapa', sub.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100">
-                                  <X size={9} />
-                                </button>
+                                <button onClick={() => salvarPredecessoras('subetapa', sub.id, predecessorasDeItem('subetapa', sub.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100"><X size={9} /></button>
                               </span>
                             ))}
-                            {antecessorasDeItem('subetapa', sub.id).map(a => (
-                              <span key={a.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(139,92,246,0.08)', color: '#8B5CF6', border: '1px solid rgba(139,92,246,0.25)' }}>
-                                <Link2 size={9} />
-                                <span className="font-medium">Lib:</span> {nomeDoItem(a.item_tipo, a.item_id)}
-                              </span>
-                            ))}
-                            <button
-                              onClick={() => setPickerQuickAlvo({ tipo: 'subetapa', id: sub.id })}
-                              className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-card)] transition-colors"
-                              style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}
-                            >
+                            <button onClick={() => setPickerQuickAlvo({ tipo: 'subetapa', id: sub.id })} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-card)] transition-colors" style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}>
                               <Plus size={9} /> Predecessora
                             </button>
                           </div>
                           {conflitoDePredecessoras('subetapa', sub.id, sub.data_inicio) && (
-                            <p className="text-[10px] mt-1" style={{ color: 'var(--danger)' }}>
-                              ⚠ Conflita com predecessora: {conflitoDePredecessoras('subetapa', sub.id, sub.data_inicio)}
-                            </p>
+                            <p className="basis-full text-[10px] mt-1" style={{ color: 'var(--danger)', paddingLeft: 20 }}>Conflita com predecessora: {conflitoDePredecessoras('subetapa', sub.id, sub.data_inicio)}</p>
                           )}
                           {mostrarFinanceiro && (
-                            <div className="flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-md w-fit" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
+                            <div className="basis-full flex items-center gap-1.5 mt-1 px-2 py-1 rounded-md w-fit" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', marginLeft: 20 }}>
                               <Wallet size={10} style={{ color: '#10b981' }} />
                               <span className="text-[11px] font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(realizadoPorSubetapa.get(sub.id) ?? 0)}</span>
                               <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>realizado</span>
@@ -981,79 +1020,78 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
                           )}
                         </div>
 
-                        <PctInput value={sub.percentual_executado} onChange={v => updatePct('subetapas_cronograma', sub.id, v)} />
-
-                        <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openNewSvc(sub.id)} className="p-1.5 rounded" style={{ color: 'var(--accent)' }}>
-                            <Plus size={12} />
-                          </button>
-                          <button onClick={() => openEditSub(sub)} className="p-1.5 rounded">
-                            <Pencil size={12} style={{ color: 'var(--text-secondary)' }} />
-                          </button>
-                          <button onClick={() => deleteSub(sub)} className="p-1.5 rounded hover:bg-red-500/10">
-                            <Trash2 size={12} style={{ color: 'var(--danger)' }} />
-                          </button>
+                        {/* Col 2: Início */}
+                        <div className="hidden sm:block py-1">
+                          <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={sub.data_inicio ?? ''} onChange={e => updateDateInline('subetapas_cronograma', sub.id, 'data_inicio', e.target.value)} />
+                        </div>
+                        {/* Col 3: Duração */}
+                        <div className="hidden sm:block py-1">
+                          <input type="number" min={0} className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none text-center" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} placeholder="—" value={subDur ?? ''} onChange={e => { const d = parseInt(e.target.value); if (!isNaN(d) && d >= 0 && sub.data_inicio) updateDateInline('subetapas_cronograma', sub.id, 'data_fim', addDaysCronoStr(sub.data_inicio, d)) }} />
+                        </div>
+                        {/* Col 4: Fim */}
+                        <div className="hidden sm:block py-1">
+                          <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-secondary)', borderColor: subAtrasada ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }} value={sub.data_fim ?? ''} onChange={e => updateDateInline('subetapas_cronograma', sub.id, 'data_fim', e.target.value)} />
                         </div>
                       </div>
 
                       {/* ── Serviços (nível 3) ── */}
-                      {!isCollapsedSub && svcs.map(svc => (
-                        <div
-                          key={svc.id}
-                          className="flex items-center gap-2 pl-16 pr-4 py-2 group hover:bg-[var(--bg-card)] transition-colors"
-                          style={{ borderBottom: '1px solid var(--border)' }}
-                        >
-                          <Check size={12} className="flex-shrink-0" style={{ color: svc.percentual_executado >= 100 ? '#10b981' : 'var(--border)' }} />
-                          <div className="flex-1 min-w-0">
-                            <span className="text-xs" style={{ color: 'var(--text-primary)' }}>{svc.nome}</span>
-                            <div className="flex flex-wrap items-center gap-2 mt-2">
-                              <DateCell
-                                value={svc.data_inicio}
-                                isEditing={editField?.id === svc.id && editField.field === 'data_inicio'}
-                                onStartEdit={() => setEditField({ id: svc.id, table: 'servicos_cronograma', field: 'data_inicio' })}
-                                onCommit={v => updateDateInline('servicos_cronograma', svc.id, 'data_inicio', v)}
-                              />
-                              <span className="text-[10px] opacity-30" style={{ color: 'var(--text-secondary)' }}>→</span>
-                              <DateCell
-                                value={svc.data_fim}
-                                isEditing={editField?.id === svc.id && editField.field === 'data_fim'}
-                                onStartEdit={() => setEditField({ id: svc.id, table: 'servicos_cronograma', field: 'data_fim' })}
-                                onCommit={v => updateDateInline('servicos_cronograma', svc.id, 'data_fim', v)}
-                              />
-                              {svc.responsavel && (
-                                <span className="text-[10px] ml-1 opacity-60" style={{ color: 'var(--text-secondary)' }}>· {svc.responsavel}</span>
-                              )}
+                      {!isCollapsedSub && svcs.map(svc => {
+                        const svcDur = calcDurCrono(svc.data_inicio, svc.data_fim)
+                        const svcAtrasada = !!(svc.data_fim && svc.percentual_executado < 100 && new Date(svc.data_fim) < new Date())
+                        return (
+                          <div
+                            key={svc.id}
+                            className="block sm:grid items-center group hover:bg-[var(--bg-card)] transition-colors px-2 py-1.5"
+                            style={{ gridTemplateColumns: '1fr 110px 70px 110px', borderBottom: '1px solid var(--border)', minHeight: 32 }}
+                          >
+                            <div className="flex items-center gap-1.5 py-1 min-w-0 flex-wrap sm:flex-nowrap" style={{ paddingLeft: 44 }}>
+                              <Check size={12} className="flex-shrink-0" style={{ color: svc.percentual_executado >= 100 ? '#10b981' : 'var(--border)' }} />
+                              <span className="flex-1 text-xs truncate min-w-0" style={{ color: 'var(--text-primary)' }}>{svc.nome}</span>
+
+                              <button className="p-0.5 rounded flex-shrink-0 hover:bg-[var(--bg-card)] transition-colors" title={svc.is_marco ? 'Marco — remover' : 'Marcar como marco'} onClick={() => toggleMarco('servicos_cronograma', svc.id, svc.is_marco)}>
+                                <Flag size={11} style={{ color: svc.is_marco ? '#F59E0B' : 'var(--text-secondary)' }} fill={svc.is_marco ? '#F59E0B' : 'none'} strokeWidth={svc.is_marco ? 2.5 : 1.5} />
+                              </button>
+
+                              <PctInput value={svc.percentual_executado} onChange={v => updatePct('servicos_cronograma', svc.id, v)} small />
+
+                              <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                <button onClick={() => openEditSvc(svc)} className="p-1 rounded hover:bg-[var(--bg-card)]"><Pencil size={10} style={{ color: 'var(--text-secondary)' }} /></button>
+                                <button onClick={() => deleteSvc(svc.id)} className="p-1 rounded hover:bg-red-500/10"><Trash2 size={10} style={{ color: 'var(--danger)' }} /></button>
+                              </div>
+
+                              {/* Mobile dates */}
+                              <div className="basis-full sm:hidden grid grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 16 }}>
+                                <label className="min-w-0">
+                                  <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Início</span>
+                                  <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={svc.data_inicio ?? ''} onChange={e => updateDateInline('servicos_cronograma', svc.id, 'data_inicio', e.target.value)} />
+                                </label>
+                                <label className="min-w-0">
+                                  <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Duração</span>
+                                  <input type="number" min={0} className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} placeholder="dias" value={svcDur ?? ''} onChange={e => { const d = parseInt(e.target.value); if (!isNaN(d) && d >= 0 && svc.data_inicio) updateDateInline('servicos_cronograma', svc.id, 'data_fim', addDaysCronoStr(svc.data_inicio, d)) }} />
+                                </label>
+                                <label className="min-w-0">
+                                  <span className="block text-[10px] mb-1" style={{ color: svcAtrasada ? '#EF4444' : 'var(--text-secondary)' }}>Fim</span>
+                                  <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: svcAtrasada ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }} value={svc.data_fim ?? ''} onChange={e => updateDateInline('servicos_cronograma', svc.id, 'data_fim', e.target.value)} />
+                                </label>
+                              </div>
                             </div>
-                            {conflitoDePredecessoras('servico', svc.id, svc.data_inicio) && (
-                              <p className="text-[10px] mt-1" style={{ color: 'var(--danger)' }}>
-                                ⚠ Conflita com predecessora: {conflitoDePredecessoras('servico', svc.id, svc.data_inicio)}
-                              </p>
-                            )}
-                            {mostrarFinanceiro && (
-                              <p className="text-[10px] mt-1" style={{ color: 'var(--text-secondary)' }}>
-                                💰 Realizado {formatCurrency(realizadoPorServico.get(svc.id) ?? 0)}
-                              </p>
-                            )}
-                          </div>
 
-                          <PctInput value={svc.percentual_executado} onChange={v => updatePct('servicos_cronograma', svc.id, v)} small />
-
-                          <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => openEditSvc(svc)} className="p-1 rounded">
-                              <Pencil size={11} style={{ color: 'var(--text-secondary)' }} />
-                            </button>
-                            <button onClick={() => deleteSvc(svc.id)} className="p-1 rounded hover:bg-red-500/10">
-                              <Trash2 size={11} style={{ color: 'var(--danger)' }} />
-                            </button>
+                            <div className="hidden sm:block py-1">
+                              <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={svc.data_inicio ?? ''} onChange={e => updateDateInline('servicos_cronograma', svc.id, 'data_inicio', e.target.value)} />
+                            </div>
+                            <div className="hidden sm:block py-1">
+                              <input type="number" min={0} className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none text-center" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} placeholder="—" value={svcDur ?? ''} onChange={e => { const d = parseInt(e.target.value); if (!isNaN(d) && d >= 0 && svc.data_inicio) updateDateInline('servicos_cronograma', svc.id, 'data_fim', addDaysCronoStr(svc.data_inicio, d)) }} />
+                            </div>
+                            <div className="hidden sm:block py-1">
+                              <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-secondary)', borderColor: svcAtrasada ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }} value={svc.data_fim ?? ''} onChange={e => updateDateInline('servicos_cronograma', svc.id, 'data_fim', e.target.value)} />
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
 
                       {!isCollapsedSub && (
                         <div className="pl-16 pr-4 py-1.5" style={{ borderBottom: '1px solid var(--border)' }}>
-                          <button onClick={() => openNewSvc(sub.id)} className="text-xs opacity-40 hover:opacity-70 transition-opacity" style={{ color: 'var(--accent)' }}>
-                            + Serviço
-                          </button>
+                          <button onClick={() => openNewSvc(sub.id)} className="text-xs opacity-40 hover:opacity-70 transition-opacity" style={{ color: 'var(--accent)' }}>+ Serviço</button>
                         </div>
                       )}
                     </Fragment>
@@ -1062,9 +1100,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
 
                 {!isCollapsedEtapa && (
                   <div className="pl-10 pr-4 py-1.5" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-                    <button onClick={() => openNewSub(etapa.id)} className="text-xs opacity-40 hover:opacity-70 transition-opacity" style={{ color: 'var(--accent)' }}>
-                      + Subetapa
-                    </button>
+                    <button onClick={() => openNewSub(etapa.id)} className="text-xs opacity-40 hover:opacity-70 transition-opacity" style={{ color: 'var(--accent)' }}>+ Subetapa</button>
                   </div>
                 )}
               </Fragment>
@@ -1503,6 +1539,7 @@ type GanttEff = { inicio: string | null; fim: string | null; pct: number }
 const GANTT_ROW_H = 40
 const GANTT_HDR_H = 36
 const GANTT_LEFT_W = 260
+const GANTT_DATE_COL_W = 90
 const GANTT_PAD_DAYS = 10
 const GANTT_MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const GANTT_COLORS = ['#3B7BF8', '#8B5CF6', '#10B981', '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#F97316']
@@ -1632,7 +1669,9 @@ function ObraGanttView({
     return () => window.removeEventListener('resize', check)
   }, [])
   const today = new Date()
-  const leftW = isMobile ? 168 : GANTT_LEFT_W
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const nameColW = isMobile ? 168 : GANTT_LEFT_W
+  const fullLeftW = isMobile ? 168 : nameColW + GANTT_DATE_COL_W * 2
 
   const effMap = new Map<string, GanttEff>()
   tree.forEach(node => rollupObraGantt(node, effMap))
@@ -1652,7 +1691,7 @@ function ObraGanttView({
     ]).filter(Boolean) as string[]
   const allDates = collectDates(tree)
 
-  if (allDates.length === 0) {
+  if (tree.length === 0) {
     return (
       <div className="text-center py-16 rounded-xl border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
         <p className="text-sm font-medium">Nenhum item para exibir</p>
@@ -1661,14 +1700,27 @@ function ObraGanttView({
     )
   }
 
-  const dates = allDates.map(d => new Date(`${d}T12:00:00`))
-  const minDate = addDaysCrono(new Date(Math.min(...dates.map(d => d.getTime()))), -GANTT_PAD_DAYS)
-  const maxDate = addDaysCrono(new Date(Math.max(...dates.map(d => d.getTime()))), GANTT_PAD_DAYS)
+  let minDate: Date, maxDate: Date
+  if (allDates.length === 0) {
+    minDate = addDaysCrono(today, -30)
+    maxDate = addDaysCrono(today, 30)
+  } else {
+    const dates = allDates.map(d => new Date(`${d}T12:00:00`))
+    minDate = addDaysCrono(new Date(Math.min(...dates.map(d => d.getTime()))), -GANTT_PAD_DAYS)
+    maxDate = addDaysCrono(new Date(Math.max(...dates.map(d => d.getTime()))), GANTT_PAD_DAYS)
+  }
   const totalDays = Math.max(1, daysBetweenCrono(maxDate, minDate))
   const pxPerDay = isMobile ? 13 : 18
   const timelineW = Math.max(totalDays * pxPerDay, isMobile ? 320 : 460)
-  const ganttW = leftW + timelineW
+  const ganttW = fullLeftW + timelineW
   const todayX = daysBetweenCrono(today, minDate) * pxPerDay
+
+  useEffect(() => {
+    if (!scrollRef.current) return
+    const el = scrollRef.current
+    const visibleW = el.clientWidth - fullLeftW
+    el.scrollLeft = Math.max(0, todayX - visibleW / 2)
+  }, [todayX, fullLeftW])
 
   const nodeColorMap = new Map<string, string>()
   tree.forEach((etapa, idx) => {
@@ -1728,58 +1780,62 @@ function ObraGanttView({
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-      <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
+      <div ref={scrollRef} className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
         <div className="flex" style={{ width: ganttW, minWidth: ganttW }}>
-          <div style={{ width: leftW, minWidth: leftW, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
-            <div className="flex items-end px-3 pb-2 text-xs font-semibold" style={{ height: GANTT_HDR_H, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>
-              Item
+          <div style={{ width: fullLeftW, minWidth: fullLeftW, flexShrink: 0, borderRight: '1px solid var(--border)', position: 'sticky', left: 0, zIndex: 10, background: 'var(--bg-card)' }}>
+            <div className="flex items-end text-xs font-semibold" style={{ height: GANTT_HDR_H, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>
+              <div className="px-3 pb-2" style={{ width: nameColW, minWidth: nameColW }}>Item</div>
+              {!isMobile && <div className="text-center pb-2" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>Início</div>}
+              {!isMobile && <div className="text-center pb-2" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>Fim</div>}
             </div>
             {rows.map(row => {
               const node = row.node
               const isCollapsed = collapsed.has(row.id)
               const atrasado = !!(row.fim && row.pct < 100 && new Date(`${row.fim}T12:00:00`) < today)
+              const rowBg = row.isTotal ? 'rgba(59,123,248,0.08)' : node?.nivel === 1 ? 'rgba(59,123,248,0.04)' : 'transparent'
               return (
-                <div
-                  key={row.id}
-                  className="flex flex-col justify-center border-b"
-                  style={{
-                    height: GANTT_ROW_H,
-                    paddingLeft: 8 + row.depth * 14,
-                    paddingRight: 8,
-                    borderColor: 'var(--border)',
-                    background: row.isTotal ? 'rgba(59,123,248,0.08)' : node?.nivel === 1 ? 'rgba(59,123,248,0.04)' : 'transparent',
-                  }}
-                >
-                  <div className="flex items-center gap-1">
-                    {row.hasKids && node ? (
-                      <button
-                        onClick={() => toggleRow(node.id)}
-                        className="text-[10px] w-4 h-4 flex items-center justify-center flex-shrink-0 rounded"
-                        style={{ color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}
-                      >
-                        {isCollapsed ? '>' : 'v'}
-                      </button>
-                    ) : (
-                      <span className="w-4 flex-shrink-0" />
-                    )}
-                    {!row.isTotal && node?.nivel === 2 && node.is_marco && (
-                      <Flag size={11} style={{ color: '#F59E0B' }} fill="#F59E0B" className="flex-shrink-0" />
-                    )}
-                    <span
-                      className="text-[11px] truncate flex-1"
-                      style={{
-                        color: row.isTotal || node?.nivel === 1 ? 'var(--accent)' : 'var(--text-primary)',
-                        fontWeight: row.isTotal ? 700 : node?.nivel === 1 ? 600 : 400,
-                      }}
-                      title={row.nome}
-                    >
-                      {row.nome}
-                    </span>
-                    {atrasado && <span className="text-[9px] flex-shrink-0" style={{ color: '#EF4444' }}>!</span>}
-                    {!row.isTotal && node && (
-                      <span className="text-[9px] flex-shrink-0" style={{ color: (row.pct ?? 0) >= 100 ? '#10b981' : 'var(--text-secondary)' }}>{Math.round(row.pct ?? 0)}%</span>
-                    )}
+                <div key={row.id} className="flex border-b" style={{ height: GANTT_ROW_H, borderColor: 'var(--border)', background: rowBg }}>
+                  <div className="flex flex-col justify-center" style={{ width: nameColW, minWidth: nameColW, paddingLeft: 8 + row.depth * 14, paddingRight: 8 }}>
+                    <div className="flex items-center gap-1">
+                      {row.hasKids && node ? (
+                        <button onClick={() => toggleRow(node.id)} className="text-[10px] w-4 h-4 flex items-center justify-center flex-shrink-0 rounded" style={{ color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}>
+                          {isCollapsed ? '>' : 'v'}
+                        </button>
+                      ) : (
+                        <span className="w-4 flex-shrink-0" />
+                      )}
+                      {!row.isTotal && node?.nivel === 2 && node.is_marco && (
+                        <Flag size={11} style={{ color: '#F59E0B' }} fill="#F59E0B" className="flex-shrink-0" />
+                      )}
+                      <span className="text-[11px] truncate flex-1" style={{ color: row.isTotal || node?.nivel === 1 ? 'var(--accent)' : 'var(--text-primary)', fontWeight: row.isTotal ? 700 : node?.nivel === 1 ? 600 : 400 }} title={row.nome}>
+                        {row.nome}
+                      </span>
+                      {atrasado && <span className="text-[9px] flex-shrink-0" style={{ color: '#EF4444' }}>!</span>}
+                      {!row.isTotal && node && (
+                        <span className="text-[9px] flex-shrink-0" style={{ color: (row.pct ?? 0) >= 100 ? '#10b981' : 'var(--text-secondary)' }}>{Math.round(row.pct ?? 0)}%</span>
+                      )}
+                    </div>
                   </div>
+                  {!isMobile && !row.isTotal && node && (
+                    <>
+                      <div className="flex items-center px-1" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>
+                        <input type="date" className="w-full h-6 rounded border px-0.5 text-[10px] outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={node.data_inicio ?? ''} onChange={e => onUpdateDate(node.table, node.id, 'data_inicio', e.target.value)} />
+                      </div>
+                      <div className="flex items-center px-1" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)' }}>
+                        <input type="date" className="w-full h-6 rounded border px-0.5 text-[10px] outline-none" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} value={node.data_fim ?? ''} onChange={e => onUpdateDate(node.table, node.id, 'data_fim', e.target.value)} />
+                      </div>
+                    </>
+                  )}
+                  {!isMobile && row.isTotal && (
+                    <>
+                      <div className="flex items-center justify-center text-[10px]" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                        {fmtGanttDate(row.inicio)}
+                      </div>
+                      <div className="flex items-center justify-center text-[10px]" style={{ width: GANTT_DATE_COL_W, borderLeft: '1px solid var(--border)', color: 'var(--text-secondary)' }}>
+                        {fmtGanttDate(row.fim)}
+                      </div>
+                    </>
+                  )}
                 </div>
               )
             })}
@@ -1817,7 +1873,9 @@ function ObraGanttView({
               )}
 
               {rows.map((row, idx) => {
-                if (!row.inicio && !row.fim) return null
+                if (!row.inicio && !row.fim) {
+                  return null
+                }
                 const y = GANTT_HDR_H + idx * GANTT_ROW_H
                 const barH = GANTT_ROW_H - 18
                 const barY = y + 9

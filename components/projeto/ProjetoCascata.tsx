@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil, Paperclip } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil, Paperclip, Flag } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
@@ -17,6 +17,8 @@ export type ProjetoItemNode = {
   responsavel: string | null
   data_inicio: string | null
   data_prazo: string | null
+  is_marco: boolean
+  status: string | null
   children?: ProjetoItemNode[]
 }
 
@@ -29,7 +31,7 @@ type Props = {
   onAdd: (parentId: string | null, nivel: number, nome: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
-  onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo'>>) => void
+  onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>>) => void
 }
 
 type ProjectItemFile = {
@@ -83,6 +85,7 @@ const STATUS_CFG: Record<StatusKey, { label: string; color: string; bg: string }
 }
 
 function calcStatus(node: ProjetoItemNode): StatusKey {
+  if (node.status && (node.status as StatusKey) in STATUS_CFG) return node.status as StatusKey
   if (node.nivel === 1 && node.children?.length) {
     const p = calcProgress(node)
     if (p.total > 0 && p.done === p.total) return 'concluido'
@@ -93,6 +96,22 @@ function calcStatus(node: ProjetoItemNode): StatusKey {
   if (node.data_prazo && new Date(node.data_prazo) < today) return 'atrasado'
   if (node.data_inicio && new Date(node.data_inicio) <= today) return 'em_andamento'
   return 'pendente'
+}
+
+const STATUS_ORDER: StatusKey[] = ['pendente', 'em_andamento', 'concluido', 'atrasado']
+
+function calcDurationDays(inicio: string, fim: string): number | null {
+  if (!inicio || !fim) return null
+  const d1 = new Date(inicio + 'T00:00:00')
+  const d2 = new Date(fim + 'T00:00:00')
+  const diff = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+  return diff >= 0 ? diff : null
+}
+
+function addDaysToDate(date: string, days: number): string {
+  const d = new Date(date + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
 }
 
 function projectFilesKey(projetoId: string) {
@@ -190,7 +209,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
       <div
         className="hidden sm:grid text-xs font-medium px-2 py-2 rounded-t-lg mb-1"
         style={{
-          gridTemplateColumns: '1fr 130px 110px 110px',
+          gridTemplateColumns: '1fr 130px 110px 70px 110px',
           background: 'var(--bg-secondary)',
           color: 'var(--text-secondary)',
           borderBottom: '1px solid var(--border)',
@@ -199,6 +218,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
         <span className="pl-10">Item / Disciplina</span>
         <span>Responsável</span>
         <span>Início</span>
+        <span>Duração</span>
         <span>Fim</span>
       </div>
 
@@ -247,7 +267,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   onAdd: (parentId: string | null, nivel: number, nome: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
-  onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo'>>) => void
+  onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>>) => void
   file?: ProjectItemFile
   allFiles: ProjectItemFile[]
   onAttach: (itemId: string) => void
@@ -259,7 +279,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   const [editValue, setEditValue]     = useState(item.nome)
   const [editingResp, setEditingResp] = useState(false)
   const [tempResp, setTempResp]       = useState(item.responsavel ?? '')
-  const [editingDate, setEditingDate] = useState<'inicio' | 'fim' | null>(null)
+  const [editingDate, setEditingDate] = useState<'inicio' | 'fim' | 'duracao' | null>(null)
 
   const hasChildren     = (item.children?.length ?? 0) > 0
   const canHaveChildren = item.nivel < 3
@@ -292,7 +312,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
       <div
         className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors rounded-lg sm:rounded-none mb-1 sm:mb-0 px-2 sm:px-0 py-2 sm:py-0"
         style={{
-          gridTemplateColumns: '1fr 130px 110px 110px',
+          gridTemplateColumns: '1fr 130px 110px 70px 110px',
           paddingLeft: 8,
           paddingRight: 8,
           minHeight: 36,
@@ -345,14 +365,44 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             </span>
           )}
 
-          {/* Badge de status */}
-          {item.nivel <= 2 && (
-            <span
-              className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0"
-              style={{ color: STATUS_CFG[status].color, background: STATUS_CFG[status].bg, whiteSpace: 'nowrap' }}
+          {/* Marco flag */}
+          {canEdit && (
+            <button
+              className="p-0.5 rounded flex-shrink-0 hover:bg-[var(--bg-card)] transition-colors"
+              title={item.is_marco ? 'Marco de projeto — clique para remover' : 'Marcar como marco'}
+              onClick={e => { e.stopPropagation(); onUpdateItem?.(item.id, { is_marco: !item.is_marco }) }}
             >
-              {STATUS_CFG[status].label}
-            </span>
+              <Flag size={12} style={{ color: item.is_marco ? '#F59E0B' : 'var(--text-secondary)' }} fill={item.is_marco ? '#F59E0B' : 'none'} strokeWidth={item.is_marco ? 2.5 : 1.5} />
+            </button>
+          )}
+          {!canEdit && item.is_marco && (
+            <Flag size={12} style={{ color: '#F59E0B' }} fill="#F59E0B" className="flex-shrink-0" />
+          )}
+
+          {/* Badge de status — clicável para alterar */}
+          {item.nivel <= 2 && (
+            canEdit ? (
+              <button
+                className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 hover:ring-1 hover:ring-current transition-all"
+                style={{ color: STATUS_CFG[status].color, background: STATUS_CFG[status].bg, whiteSpace: 'nowrap' }}
+                title="Clique para alterar status"
+                onClick={e => {
+                  e.stopPropagation()
+                  const idx = STATUS_ORDER.indexOf(status)
+                  const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length]
+                  onUpdateItem?.(item.id, { status: next, concluido: next === 'concluido' } as any)
+                }}
+              >
+                {STATUS_CFG[status].label}
+              </button>
+            ) : (
+              <span
+                className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0"
+                style={{ color: STATUS_CFG[status].color, background: STATUS_CFG[status].bg, whiteSpace: 'nowrap' }}
+              >
+                {STATUS_CFG[status].label}
+              </span>
+            )
           )}
 
           <button
@@ -394,15 +444,32 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
 
           {/* Ações hover */}
           {canEdit && hasDateInput && (
-            <div className="basis-full sm:hidden grid grid-cols-2 gap-2 mt-2" style={{ paddingLeft: 42 }}>
+            <div className="basis-full sm:hidden grid grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 42 }}>
               <label className="min-w-0">
-                <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Inicio</span>
+                <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Início</span>
                 <input
                   type="date"
                   className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
                   style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                   value={item.data_inicio ?? ''}
                   onChange={e => onUpdateItem?.(item.id, { data_inicio: e.target.value || null })}
+                />
+              </label>
+              <label className="min-w-0">
+                <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Duração</span>
+                <input
+                  type="number"
+                  min={0}
+                  className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
+                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  placeholder="dias"
+                  value={calcDurationDays(item.data_inicio ?? '', item.data_prazo ?? '') ?? ''}
+                  onChange={e => {
+                    const days = parseInt(e.target.value)
+                    if (!isNaN(days) && days >= 0 && item.data_inicio) {
+                      onUpdateItem?.(item.id, { data_prazo: addDaysToDate(item.data_inicio, days) })
+                    }
+                  }}
                 />
               </label>
               <label className="min-w-0">
@@ -507,7 +574,14 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                 className="text-xs rounded-md border px-1.5 py-0.5 outline-none w-full"
                 style={{ background: 'var(--bg-secondary)', borderColor: 'var(--accent)', color: 'var(--text-primary)' }}
                 value={item.data_inicio ?? ''}
-                onChange={e => onUpdateItem?.(item.id, { data_inicio: e.target.value || null })}
+                onChange={e => {
+                  const newInicio = e.target.value || null
+                  if (newInicio && item.data_prazo) {
+                    onUpdateItem?.(item.id, { data_inicio: newInicio })
+                  } else {
+                    onUpdateItem?.(item.id, { data_inicio: newInicio })
+                  }
+                }}
                 onBlur={() => setEditingDate(null)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingDate(null) }}
               />
@@ -535,7 +609,67 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
           )}
         </div>
 
-        {/* Coluna 4 — Fim */}
+        {/* Coluna 4 — Duração */}
+        <div className="hidden sm:block py-1 pr-1">
+          {hasDateInput ? (
+            editingDate === 'duracao' && canEdit ? (
+              <input
+                type="number"
+                autoFocus
+                min={0}
+                className="text-xs rounded-md border px-1.5 py-0.5 outline-none w-full"
+                style={{ background: 'var(--bg-secondary)', borderColor: 'var(--accent)', color: 'var(--text-primary)' }}
+                defaultValue={calcDurationDays(item.data_inicio ?? '', item.data_prazo ?? '') ?? ''}
+                onBlur={e => {
+                  const days = parseInt(e.target.value)
+                  if (!isNaN(days) && days >= 0 && item.data_inicio) {
+                    onUpdateItem?.(item.id, { data_prazo: addDaysToDate(item.data_inicio, days) })
+                  }
+                  setEditingDate(null)
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    const days = parseInt((e.target as HTMLInputElement).value)
+                    if (!isNaN(days) && days >= 0 && item.data_inicio) {
+                      onUpdateItem?.(item.id, { data_prazo: addDaysToDate(item.data_inicio, days) })
+                    }
+                    setEditingDate(null)
+                  }
+                  if (e.key === 'Escape') setEditingDate(null)
+                }}
+              />
+            ) : (
+              <button
+                className="text-left w-full rounded px-1 py-0.5 hover:bg-[var(--bg-secondary)] transition-colors"
+                disabled={!canEdit || !item.data_inicio}
+                onClick={() => canEdit && item.data_inicio && setEditingDate('duracao')}
+                title={!item.data_inicio ? 'Defina a data de início primeiro' : 'Clique para editar duração'}
+              >
+                {(() => {
+                  const dur = calcDurationDays(item.data_inicio ?? '', item.data_prazo ?? '')
+                  return dur !== null ? (
+                    <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                      {dur}d
+                    </span>
+                  ) : (
+                    <span className="text-xs opacity-0 group-hover:opacity-30 transition-opacity" style={{ color: 'var(--text-secondary)' }}>—</span>
+                  )
+                })()}
+              </button>
+            )
+          ) : (() => {
+            const dur = calcDurationDays(eff.inicio ?? '', eff.fim ?? '')
+            return dur !== null ? (
+              <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                {dur}d
+              </span>
+            ) : (
+              <span className="text-xs opacity-30" style={{ color: 'var(--text-secondary)' }}>—</span>
+            )
+          })()}
+        </div>
+
+        {/* Coluna 5 — Fim */}
         <div className="hidden sm:block py-1 pr-2">
           {hasDateInput ? (
             editingDate === 'fim' && canEdit ? (
@@ -598,8 +732,8 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
         </div>
       )}
 
-      {/* Adicionar filho inline */}
-      {open && canEdit && canHaveChildren && (
+      {/* Adicionar filho inline — always visible when no children or when expanded */}
+      {(open || !hasChildren) && canEdit && canHaveChildren && (
         <div style={{ paddingLeft: indent + 52 }}>
           <AddInlineRow
             parentId={item.id}

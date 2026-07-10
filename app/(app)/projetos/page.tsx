@@ -356,7 +356,7 @@ export default function ProjetosPage() {
           onClick={e => { if (e.target === e.currentTarget) setShowModal(false) }}
         >
           <div
-            className="w-full max-w-lg rounded-2xl shadow-2xl"
+            className="w-full max-w-lg rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto"
             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'var(--border)' }}>

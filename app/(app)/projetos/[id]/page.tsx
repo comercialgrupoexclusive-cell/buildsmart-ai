@@ -116,16 +116,14 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     setTree(buildProjetoTree(updated))
   }
 
-  async function handleUpdateItem(itemId: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo'>>) {
-    // Atualização otimista imediata (UI responsiva)
+  async function handleUpdateItem(itemId: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>> & { concluido?: boolean }) {
     const updated = itens.map(i => i.id === itemId ? { ...i, ...fields } : i)
     setItens(updated)
     setTree(buildProjetoTree(updated))
-    // Persiste e revela erro real (ex.: coluna inexistente)
     const supabase = createClient()
     const { error } = await supabase.from('projeto_itens').update(fields).eq('id', itemId)
     if (error) {
-      alert('Erro ao salvar: ' + error.message + '\n\nVerifique se as colunas data_inicio / data_prazo / responsavel existem na tabela projeto_itens.')
+      alert('Erro ao salvar: ' + error.message)
     }
   }
 

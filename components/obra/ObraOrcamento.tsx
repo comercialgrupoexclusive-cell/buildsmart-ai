@@ -178,6 +178,25 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     return tem
   }
 
+  // Modal editar item de composição
+  const [editItem, setEditItem] = useState<ItemEnriquecido | null>(null)
+  const [editDescricao, setEditDescricao] = useState('')
+  const [editUnidade, setEditUnidade] = useState('')
+  const [editPreco, setEditPreco] = useState('')
+  const [editQuantidade, setEditQuantidade] = useState('')
+  const [editSubetapa, setEditSubetapa] = useState('')
+  const [editEtapaId, setEditEtapaId] = useState('')
+
+  function openEditItem(item: ItemEnriquecido) {
+    setEditItem(item)
+    setEditDescricao(item.descricao)
+    setEditUnidade(item.unidade)
+    setEditPreco(item.preco_unitario_snapshot.toString())
+    setEditQuantidade(item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 }))
+    setEditSubetapa(item.subetapa ?? '')
+    setEditEtapaId(item.etapa_id ?? '')
+  }
+
   // Modal nova etapa
   const [showNovaEtapa, setShowNovaEtapa] = useState(false)
   const [novaEtapaNome, setNovaEtapaNome] = useState('')
@@ -524,6 +543,37 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     } else if (item.sinapi_composicao_id && item.codigo && item.codigo !== '\u2014') {
       await abaterMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, quantidadeAnterior, item.etapa_id, item.subetapa)
       await gerarMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, novaQuantidade, item.etapa_id, item.subetapa, item.descricao, item.unidade)
+    }
+  }
+
+  async function handleEditItemSave() {
+    if (!editItem || !orcamento) return
+    setSaving(true)
+    try {
+      const novaQtd = Number(editQuantidade.replace(',', '.'))
+      const novoPreco = Number(editPreco.replace(',', '.'))
+      const novaSubetapa = editSubetapa.trim() || null
+      const novaEtapaId = editEtapaId || null
+
+      const updates: Record<string, unknown> = {
+        descricao_snapshot: editDescricao.trim(),
+        unidade_snapshot: editUnidade.trim(),
+        preco_unitario_snapshot: Number.isFinite(novoPreco) ? novoPreco : editItem.preco_unitario_snapshot,
+        quantidade: Number.isFinite(novaQtd) && novaQtd > 0 ? novaQtd : editItem.quantidade,
+        subetapa: novaSubetapa,
+        etapa_id: novaEtapaId,
+      }
+
+      const { error } = await supabase.from('orcamento_itens').update(updates).eq('id', editItem.id)
+      if (error) throw error
+
+      await loadItens(orcamento.id)
+      setEditItem(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
+      alert(`Não foi possível atualizar: ${message}`)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -1370,6 +1420,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                 onAddInsumoToItem={(item) => openItemModal(item.etapa_id, item.subetapa, true)}
                 onRenameSubetapa={(nomeSub) => handleRenameSubetapa(null, nomeSub)}
                 onDeleteSubetapa={(nomeSub) => handleRemoveSubetapa(null, nomeSub)}
+                onEditItem={!isReadonly ? openEditItem : undefined}
               />
             )}
             {etapasVisiveis.map(etapa => {
@@ -1402,6 +1453,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
                   onRenameEtapa={!isReadonly ? () => handleRenameEtapa(etapa.id, etapa.nome) : undefined}
                   onRenameSubetapa={!isReadonly ? (nomeSub) => handleRenameSubetapa(etapa.id, nomeSub) : undefined}
                   onDeleteSubetapa={!isReadonly ? (nomeSub) => handleRemoveSubetapa(etapa.id, nomeSub) : undefined}
+                  onEditItem={!isReadonly ? openEditItem : undefined}
                   menuAberto={etapaMenuAberto === etapa.id}
                   onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
                   menuRef={etapaMenuAberto === etapa.id ? etapaMenuRef : undefined}
@@ -1659,6 +1711,70 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         </div>
       </Modal>
 
+      {/* ── Modal editar composição ── */}
+      <Modal open={!!editItem} onClose={() => setEditItem(null)} title="Editar composição" size="md">
+        {editItem && (
+          <div className="flex flex-col gap-4">
+            <Input
+              label="Descrição"
+              value={editDescricao}
+              onChange={e => setEditDescricao(e.target.value)}
+              autoFocus
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Input
+                label="Unidade"
+                value={editUnidade}
+                onChange={e => setEditUnidade(e.target.value)}
+              />
+              <Input
+                label="Preço unitário (R$)"
+                type="number"
+                value={editPreco}
+                onChange={e => setEditPreco(e.target.value)}
+                min={0}
+                step="any"
+              />
+              <Input
+                label="Quantidade"
+                value={editQuantidade}
+                onChange={e => setEditQuantidade(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Etapa</label>
+                <select
+                  value={editEtapaId}
+                  onChange={e => setEditEtapaId(e.target.value)}
+                  className="input-base w-full"
+                >
+                  <option value="">Sem etapa</option>
+                  {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                </select>
+              </div>
+              <Input
+                label="Subetapa"
+                value={editSubetapa}
+                onChange={e => setEditSubetapa(e.target.value)}
+                placeholder="Ex: Baldrames, térreo..."
+              />
+            </div>
+            {editItem.codigo && editItem.codigo !== '—' && (
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                Código: {editItem.codigo}
+                {editItem.composicao_id && ' (composição própria)'}
+                {editItem.sinapi_composicao_id && ' (SINAPI)'}
+              </p>
+            )}
+            <div className="flex gap-3 justify-end">
+              <Button variant="secondary" onClick={() => setEditItem(null)}>Cancelar</Button>
+              <Button loading={saving} onClick={handleEditItemSave}>Salvar</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <ImportarExportarOrcamentoModal
         open={showImportExportTabular}
         onClose={() => setShowImportExportTabular(false)}
@@ -1721,7 +1837,7 @@ function GrupoEtapa({
   nome, itens, isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   onUpdateQuantidade, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
   obraUf, icon: Icon, iconCor, subtotalDireto,
-  onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, menuAberto, onToggleMenu, menuRef,
+  onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditItem, menuAberto, onToggleMenu, menuRef,
 }: {
   nome: string
   itens: ItemEnriquecido[]
@@ -1747,6 +1863,7 @@ function GrupoEtapa({
   onAddInsumoToItem?: (item: ItemEnriquecido) => void
   onRenameSubetapa?: (nome: string) => void
   onDeleteSubetapa?: (nome: string) => void
+  onEditItem?: (item: ItemEnriquecido) => void
   menuAberto?: boolean
   onToggleMenu?: () => void
   menuRef?: React.RefObject<HTMLDivElement | null>
@@ -1754,6 +1871,18 @@ function GrupoEtapa({
   const [subetapasFechadas, setSubetapasFechadas] = useState<Record<string, boolean>>({})
   const [subMenuAberto, setSubMenuAberto] = useState<string | null>(null)
   const [itemMenuAberto, setItemMenuAberto] = useState<string | null>(null)
+  useEffect(() => {
+    if (!subMenuAberto && !itemMenuAberto) return
+    function handleClick(e: MouseEvent) {
+      const t = e.target as HTMLElement
+      if (t.closest('[data-submenu-container]') || t.closest('[data-itemmenu-container]')) return
+      if (subMenuAberto) setSubMenuAberto(null)
+      if (itemMenuAberto) setItemMenuAberto(null)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [subMenuAberto, itemMenuAberto])
+
   const subtotalGrupo = itens.reduce((a, i) => a + getItemTotal(i), 0)
   const totalGrupo = subtotalGrupo * (1 + bdi / 100)
   const pctDoDireto = subtotalDireto && subtotalDireto > 0 ? (subtotalGrupo / subtotalDireto) * 100 : null
@@ -1915,7 +2044,7 @@ function GrupoEtapa({
                           </td>
                           <td className="px-3 py-2 text-right">
                             {!isReadonly && (onDeleteSubetapa || onRenameSubetapa || onAddItemToSubetapa) && (
-                              <div className="relative inline-flex" onClick={e => e.stopPropagation()}>
+                              <div className="relative inline-flex" data-submenu-container onClick={e => e.stopPropagation()}>
                                 <button
                                   type="button"
                                   onClick={() => setSubMenuAberto(v => v === grupo.key ? null : grupo.key)}
@@ -2017,7 +2146,7 @@ function GrupoEtapa({
                                 </td>
                                 <td className="px-3 py-2 align-top text-right">
                                   {!isReadonly && (
-                                    <div className="relative inline-flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                    <div className="relative inline-flex items-center gap-1" data-itemmenu-container onClick={e => e.stopPropagation()}>
                                       {onAddInsumoToItem && (
                                         <button
                                           type="button"
@@ -2041,6 +2170,13 @@ function GrupoEtapa({
                                       {itemMenuAberto === item.id && (
                                         <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
                                           style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                                          {onEditItem && (
+                                            <button onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
+                                              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                              style={{ color: 'var(--text-primary)' }}>
+                                              <Pencil size={13} /> Editar composição
+                                            </button>
+                                          )}
                                           {onAddInsumoToItem && (
                                             <button onClick={() => { setItemMenuAberto(null); onAddInsumoToItem(item) }}
                                               className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
@@ -2190,7 +2326,7 @@ function GrupoEtapa({
                       )}
                       <span className="text-sm font-semibold flex-shrink-0" style={{ color: 'var(--accent)' }}>{formatCurrency(subtotalSubetapa)}</span>
                       {!isReadonly && (onDeleteSubetapa || onAddItemToSubetapa || onRenameSubetapa) && (
-                        <span className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+                        <span className="relative flex-shrink-0" data-submenu-container onClick={e => e.stopPropagation()}>
                           <span
                             role="button"
                             tabIndex={0}
@@ -2303,7 +2439,7 @@ function GrupoEtapa({
                                         {hasOverride && <span className="ml-1 text-xs opacity-60">(ajust.)</span>}
                                       </span>
                                       {!isReadonly && (
-                                        <span className="relative inline-flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                        <span className="relative inline-flex items-center gap-1" data-itemmenu-container onClick={e => e.stopPropagation()}>
                                           {onAddInsumoToItem && (
                                             <button
                                               type="button"
@@ -2327,6 +2463,13 @@ function GrupoEtapa({
                                           {itemMenuAberto === item.id && (
                                             <span className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter text-left"
                                               style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                                              {onEditItem && (
+                                                <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
+                                                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                                  style={{ color: 'var(--text-primary)' }}>
+                                                  <Pencil size={13} /> Editar composição
+                                                </span>
+                                              )}
                                               {onAddInsumoToItem && (
                                                 <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onAddInsumoToItem(item) }}
                                                   className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
