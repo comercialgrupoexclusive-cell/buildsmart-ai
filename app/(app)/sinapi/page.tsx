@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { SINAPI_UFS, getPrecoInsumo, SinapiComposicaoItem, SinapiInsumo } from '@/lib/types'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, fixMojibake } from '@/lib/utils'
 
 // ─── Tipos internos de parse ──────────────────────────────────────────────────
 type InsumoRaw = {
@@ -584,7 +584,7 @@ function BuscarSinapi({ supabase }: { supabase: ReturnType<typeof createClient> 
         .limit(30)
       if (busca.length >= 2) query = query.or(`descricao.ilike.%${busca}%,codigo.ilike.%${busca}%`)
       const { data } = await query
-      setResultados(data || [])
+      setResultados((data || []).map((r: any) => ({ ...r, descricao: fixMojibake(r.descricao) })))
     } else {
       let query = supabase
         .from('sinapi_composicoes')
@@ -593,7 +593,7 @@ function BuscarSinapi({ supabase }: { supabase: ReturnType<typeof createClient> 
         .limit(30)
       if (busca.length >= 2) query = query.or(`descricao.ilike.%${busca}%,codigo.ilike.%${busca}%`)
       const { data } = await query
-      setResultados(data || [])
+      setResultados((data || []).map((r: any) => ({ ...r, descricao: fixMojibake(r.descricao) })))
     }
     setLoading(false)
   }

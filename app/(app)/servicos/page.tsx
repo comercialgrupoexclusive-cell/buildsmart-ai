@@ -16,7 +16,7 @@ import { ImportarBaseAntigaModal } from '@/components/servicos/ImportarBaseAntig
 import {
   ConfigImportacao, normalizarTexto, normalizarOpcao, normalizarNumero, normalizarBooleano,
 } from '@/lib/import-export-templates'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, fixMojibake } from '@/lib/utils'
 
 const GRUPOS = [
   'GERAL', 'FUNDACAO', 'ESTRUTURA', 'ALVENARIA', 'COBERTURA',
@@ -170,7 +170,7 @@ export default function ServicosPage({
       .from('composicoes_proprias')
       .select('*')
       .order('grupo').order('codigo')
-    setComposicoes(data || [])
+    setComposicoes((data || []).map((c: any) => ({ ...c, descricao: fixMojibake(c.descricao) })))
     setLoading(false)
   }
 
@@ -231,7 +231,8 @@ export default function ServicosPage({
   const grupos = ['TODOS', ...Array.from(new Set(composicoes.map(c => c.grupo)))]
 
   const filtradas = composicoes.filter(c => {
-    const matchBusca = !busca || c.descricao.toLowerCase().includes(busca.toLowerCase()) || c.codigo.toLowerCase().includes(busca.toLowerCase())
+    const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    const matchBusca = !busca || norm(c.descricao).includes(norm(busca)) || norm(c.codigo).includes(norm(busca))
     const matchGrupo = filtroGrupo === 'TODOS' || c.grupo === filtroGrupo
     return matchBusca && matchGrupo
   })
@@ -1073,7 +1074,7 @@ function InsumosTab() {
       .from('insumos_proprios')
       .select('*')
       .order('codigo')
-    setInsumos((data || []) as InsumoProprio[])
+    setInsumos((data || []).map((i: any) => ({ ...i, descricao: fixMojibake(i.descricao) })) as InsumoProprio[])
     setLoading(false)
   }
 
@@ -1144,9 +1145,10 @@ function InsumosTab() {
     setInsumos(prev => prev.filter(i => i.id !== id))
   }
 
-  const filtrados = insumos.filter(i =>
-    !busca || i.descricao.toLowerCase().includes(busca.toLowerCase()) || i.codigo.toLowerCase().includes(busca.toLowerCase())
-  )
+  const filtrados = insumos.filter(i => {
+    const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    return !busca || norm(i.descricao).includes(norm(busca)) || norm(i.codigo).includes(norm(busca))
+  })
 
   return (
     <div className="flex flex-col gap-4">

@@ -385,14 +385,5 @@ export function createLocalClient() {
 
 export function isLocalDataMode() {
   if (process.env.NEXT_PUBLIC_DATA_MODE === 'local') return true
-  if (typeof window === 'undefined') return false
-
-  const host = window.location.hostname
-  return (
-    host === 'localhost' ||
-    host === '127.0.0.1' ||
-    host.startsWith('192.168.') ||
-    host.startsWith('10.') ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
-  )
+  return false
 }

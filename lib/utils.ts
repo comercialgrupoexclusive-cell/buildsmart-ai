@@ -20,6 +20,16 @@ export function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`
 }
 
+export function fixMojibake(text: string | null | undefined): string {
+  if (!text) return ''
+  try {
+    const bytes = new Uint8Array([...text].map(c => c.charCodeAt(0)))
+    const decoded = new TextDecoder('utf-8').decode(bytes)
+    if (/Ã|Â/.test(text) && !(/Ã|Â/.test(decoded))) return decoded
+  } catch {}
+  return text
+}
+
 export function diasAteData(data: string): number {
   const hoje = new Date()
   hoje.setHours(0, 0, 0, 0)

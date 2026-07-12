@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Orcamento, ComposicaoPropria, SinapiComposicao, Etapa } from '@/lib/types'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, fixMojibake } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -305,7 +305,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       return {
         ...item,
         codigo: cp?.codigo || sc?.codigo || item.codigo_snapshot || '—',
-        descricao: item.descricao_snapshot || cp?.descricao || sc?.descricao || '—',
+        descricao: fixMojibake(item.descricao_snapshot || cp?.descricao || sc?.descricao || '—'),
         unidade: cp?.unidade || sc?.unidade || item.unidade_snapshot || '—',
         composicao_itens: cp?.composicao_insumos || [],
         sinapi_mes_referencia: sc?.mes_referencia || null,
@@ -326,19 +326,17 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       .eq('ativo', true).order('codigo')
     const withCusto = (data || []).map((comp: ComposicaoPropriaRow) => {
       const composicao_itens = comp.composicao_insumos || []
-      // custo_calculado = soma (coeficiente × preço do insumo na UF da obra) — usado como
-      // valor unitário ao adicionar a composição ao orçamento (snapshot em preco_unitario_snapshot)
       const custo_calculado = composicao_itens.reduce(
         (total, ins) => total + ins.coeficiente * infoDoItem(ins, obraUf).preco, 0
       )
-      return { ...comp, composicao_itens, custo_calculado }
+      return { ...comp, descricao: fixMojibake(comp.descricao), composicao_itens, custo_calculado }
     })
     setComposicoesProprias(withCusto)
   }
 
   async function loadSinapiComps() {
     const { data } = await supabase.from('sinapi_composicoes').select('*').order('codigo').limit(200)
-    setSinapiComps(data || [])
+    setSinapiComps((data || []).map((c: any) => ({ ...c, descricao: fixMojibake(c.descricao) })))
   }
 
   useEffect(() => {
@@ -1197,12 +1195,18 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     itensPorEtapa[key].push(item)
   }
 
-  const termoBusca = busca.trim().toLowerCase()
+  const normBusca = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const termoBusca = normBusca(busca.trim())
   const listaFiltrada = termoBusca
     ? (fonte === 'proprias' ? composicoesProprias : sinapiComps).filter(c =>
-        c.descricao.toLowerCase().includes(termoBusca) || c.codigo.toLowerCase().includes(termoBusca))
+        normBusca(fixMojibake(c.descricao)).includes(termoBusca) || normBusca(c.codigo).includes(termoBusca))
     : []
-  const etapaOptions = etapas.map(e => e.nome)
+  const etapasPadrao = readEtapasPadrao()
+  const nomesEtapasObra = new Set(etapas.map(e => e.nome.toLowerCase()))
+  const etapaOptions = [
+    ...etapas.map(e => e.nome),
+    ...etapasPadrao.filter(n => !nomesEtapasObra.has(n.toLowerCase())),
+  ]
   const isReadonly = orcamento?.status === 'finalizado'
   const etapasVisiveis = filtroEtapaId === 'todas'
     ? etapas
