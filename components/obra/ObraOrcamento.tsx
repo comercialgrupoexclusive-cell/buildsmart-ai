@@ -442,11 +442,18 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     setShowAddItem(true)
   }
 
-  function ensureEtapaSelecionada(): string | null {
+  async function ensureEtapaSelecionada(): Promise<string | null> {
     const nome = selectedEtapaNome.trim()
     if (!nome) return null
     const existente = etapas.find(e => e.nome.toLowerCase() === nome.toLowerCase())
-    return existente?.id ?? null
+    if (existente) return existente.id
+    const ordem = etapas.length + 1
+    const { data } = await supabase.from('etapas').insert({ obra_id: obraId, nome, ordem }).select().single()
+    if (data) {
+      setEtapas(prev => [...prev, data])
+      return data.id
+    }
+    return null
   }
 
   // ─── Adicionar item ───────────────────────────────────────────────────────
@@ -462,7 +469,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       const descricaoFinal = fonte === 'livre' ? livreDescricao.trim() : selectedItem!.descricao
       const unidadeFinal = fonte === 'livre' ? (livreUnidade.trim() || 'UN') : selectedItem!.unidade
       const custoUnitario = fonte === 'livre' ? (parseFloat(livrePreco.replace(',', '.')) || 0) : getItemCost(selectedItem!)
-      const etapaId = ensureEtapaSelecionada()
+      const etapaId = await ensureEtapaSelecionada()
       const subetapaFinal = subetapaLivre.trim() || null
 
       const { error } = await supabase.from('orcamento_itens').insert({
