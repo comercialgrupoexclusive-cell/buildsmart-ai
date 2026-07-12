@@ -755,10 +755,11 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     id: string,
     pct: number
   ) {
-    await supabase.from(table).update({ percentual_executado: pct }).eq('id', id)
     if (table === 'etapas') setEtapas(prev => prev.map(e => e.id === id ? { ...e, percentual_executado: pct } : e))
     if (table === 'subetapas_cronograma') setSubetapas(prev => prev.map(s => s.id === id ? { ...s, percentual_executado: pct } : s))
     if (table === 'servicos_cronograma') setServicos(prev => prev.map(s => s.id === id ? { ...s, percentual_executado: pct } : s))
+    const { error } = await supabase.from(table).update({ percentual_executado: pct }).eq('id', id)
+    if (error) console.error('Erro ao salvar %:', error)
   }
 
   // ── Picker de predecessoras — compartilhado pelos 3 modais ────────────────────
