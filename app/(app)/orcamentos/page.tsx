@@ -234,7 +234,7 @@ export default function OrcamentosPage() {
             <div
               key={orc.id}
               className="card p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center hover:scale-[1.005] transition-transform animate-enter relative"
-              style={{ animationDelay: `${i * 40}ms` }}
+              style={{ animationDelay: `${i * 40}ms`, zIndex: menuId === orc.id ? 10 : 1 }}
             >
               {/* Thumb obra */}
               <Link href={`/orcamentos/${orc.id}`} className="w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)' }}>

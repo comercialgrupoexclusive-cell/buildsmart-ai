@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { ChevronLeft, HardHat, FolderOpen, Link2, Unlink } from 'lucide-react'
+import { ChevronLeft, HardHat, FolderOpen, Link2, Unlink, Pencil, Check, X } from 'lucide-react'
 import Link from 'next/link'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { formatCurrency } from '@/lib/utils'
@@ -18,6 +18,14 @@ type OrcamentoHeader = {
   status: string
   versao: number
   created_at: string
+  cliente: string | null
+  endereco: string | null
+  responsavel: string | null
+  area_m2: number | null
+  uf: string | null
+  data_inicio: string | null
+  data_previsao: string | null
+  observacoes: string | null
 }
 
 type LinkedEntity = { id: string; nome: string }
@@ -32,6 +40,13 @@ export default function OrcamentoDetailPage({ params }: { params: Promise<{ id: 
   const [loading, setLoading] = useState(true)
   const [obraUf, setObraUf] = useState('SP')
   const [areaM2, setAreaM2] = useState<number | null>(null)
+
+  // Dados gerais
+  const [editDados, setEditDados] = useState(false)
+  const [dadosForm, setDadosForm] = useState({
+    cliente: '', endereco: '', responsavel: '', area_m2: '' as string, uf: '', data_inicio: '', data_previsao: '', observacoes: ''
+  })
+  const [savingDados, setSavingDados] = useState(false)
 
   // Vincular
   const [showVincular, setShowVincular] = useState(false)
@@ -88,6 +103,43 @@ export default function OrcamentoDetailPage({ params }: { params: Promise<{ id: 
     else setProjeto(null)
     setOrcamento(prev => prev ? { ...prev, ...(tipo === 'obra' ? { obra_id: null } : { projeto_id: null }) } : null)
   }
+
+  function startEditDados() {
+    if (!orcamento) return
+    setDadosForm({
+      cliente: orcamento.cliente || '',
+      endereco: orcamento.endereco || '',
+      responsavel: orcamento.responsavel || '',
+      area_m2: orcamento.area_m2 != null ? String(orcamento.area_m2) : '',
+      uf: orcamento.uf || '',
+      data_inicio: orcamento.data_inicio || '',
+      data_previsao: orcamento.data_previsao || '',
+      observacoes: orcamento.observacoes || '',
+    })
+    setEditDados(true)
+  }
+
+  async function saveDados() {
+    setSavingDados(true)
+    const update = {
+      cliente: dadosForm.cliente || null,
+      endereco: dadosForm.endereco || null,
+      responsavel: dadosForm.responsavel || null,
+      area_m2: dadosForm.area_m2 ? parseFloat(dadosForm.area_m2) : null,
+      uf: dadosForm.uf || null,
+      data_inicio: dadosForm.data_inicio || null,
+      data_previsao: dadosForm.data_previsao || null,
+      observacoes: dadosForm.observacoes || null,
+    }
+    await supabase.from('orcamentos').update(update).eq('id', id)
+    setOrcamento(prev => prev ? { ...prev, ...update } : null)
+    if (update.uf) setObraUf(update.uf)
+    if (update.area_m2 != null) setAreaM2(update.area_m2)
+    setEditDados(false)
+    setSavingDados(false)
+  }
+
+  const UF_LIST = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
 
   if (loading) {
     return (
@@ -155,6 +207,92 @@ export default function OrcamentoDetailPage({ params }: { params: Promise<{ id: 
                 <button onClick={() => handleDesvincular('projeto')} className="ml-1 hover:opacity-70" style={{ color: 'var(--text-secondary)' }}>
                   <Unlink size={12} />
                 </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Dados Gerais */}
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Dados Gerais</h2>
+          {!editDados ? (
+            <button onClick={startEditDados} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium hover:opacity-80" style={{ color: 'var(--accent)' }}>
+              <Pencil size={13} /> Editar
+            </button>
+          ) : (
+            <div className="flex gap-1.5">
+              <button onClick={() => setEditDados(false)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium hover:opacity-80" style={{ color: 'var(--text-secondary)' }}>
+                <X size={13} /> Cancelar
+              </button>
+              <button onClick={saveDados} disabled={savingDados} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
+                <Check size={13} /> Salvar
+              </button>
+            </div>
+          )}
+        </div>
+
+        {editDados ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>Cliente</label>
+              <input value={dadosForm.cliente} onChange={e => setDadosForm(p => ({ ...p, cliente: e.target.value }))} className="input-base w-full text-sm" placeholder="Nome do cliente" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>Responsável</label>
+              <input value={dadosForm.responsavel} onChange={e => setDadosForm(p => ({ ...p, responsavel: e.target.value }))} className="input-base w-full text-sm" placeholder="Engenheiro responsável" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>UF</label>
+              <select value={dadosForm.uf} onChange={e => setDadosForm(p => ({ ...p, uf: e.target.value }))} className="input-base w-full text-sm">
+                <option value="">Selecione...</option>
+                {UF_LIST.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>Endereço</label>
+              <input value={dadosForm.endereco} onChange={e => setDadosForm(p => ({ ...p, endereco: e.target.value }))} className="input-base w-full text-sm" placeholder="Endereço da obra / local" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>Área (m²)</label>
+              <input type="number" step="0.01" value={dadosForm.area_m2} onChange={e => setDadosForm(p => ({ ...p, area_m2: e.target.value }))} className="input-base w-full text-sm" placeholder="0.00" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>Data Início</label>
+              <input type="date" value={dadosForm.data_inicio} onChange={e => setDadosForm(p => ({ ...p, data_inicio: e.target.value }))} className="input-base w-full text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>Previsão Término</label>
+              <input type="date" value={dadosForm.data_previsao} onChange={e => setDadosForm(p => ({ ...p, data_previsao: e.target.value }))} className="input-base w-full text-sm" />
+            </div>
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--text-secondary)' }}>Observações</label>
+              <textarea value={dadosForm.observacoes} onChange={e => setDadosForm(p => ({ ...p, observacoes: e.target.value }))} className="input-base w-full text-sm" rows={3} placeholder="Notas adicionais..." />
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3">
+            {[
+              { label: 'Cliente', value: orcamento.cliente },
+              { label: 'Responsável', value: orcamento.responsavel },
+              { label: 'UF', value: orcamento.uf },
+              { label: 'Endereço', value: orcamento.endereco },
+              { label: 'Área', value: orcamento.area_m2 ? `${orcamento.area_m2} m²` : null },
+              { label: 'Data Início', value: orcamento.data_inicio ? new Date(orcamento.data_inicio + 'T12:00:00').toLocaleDateString('pt-BR') : null },
+              { label: 'Previsão Término', value: orcamento.data_previsao ? new Date(orcamento.data_previsao + 'T12:00:00').toLocaleDateString('pt-BR') : null },
+            ].map(f => (
+              <div key={f.label}>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{f.label}</p>
+                <p className="text-sm font-medium" style={{ color: f.value ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                  {f.value || '—'}
+                </p>
+              </div>
+            ))}
+            {orcamento.observacoes && (
+              <div className="sm:col-span-2 lg:col-span-3">
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Observações</p>
+                <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{orcamento.observacoes}</p>
               </div>
             )}
           </div>
