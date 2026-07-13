@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, FolderOpen, Search, MoreVertical, Calendar, Link2, AlertTriangle } from 'lucide-react'
+import { Plus, FolderOpen, Search, MoreVertical, Calendar, Link2, AlertTriangle, Copy, BookTemplate, ImagePlus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import type { Profile, Proprietario, Responsavel } from '@/lib/types'
@@ -17,6 +17,7 @@ type Projeto = {
   status: 'em_andamento' | 'concluido' | 'suspenso'
   obra_id: string | null
   responsavel: string | null
+  foto_url: string | null
   created_at: string
 }
 
@@ -73,6 +74,8 @@ export default function ProjetosPage() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [menuId, setMenuId] = useState<string | null>(null)
+  const [fotoFile, setFotoFile] = useState<File | null>(null)
+  const [fotoPreview, setFotoPreview] = useState<string | null>(null)
 
   useEffect(() => { loadData() }, [])
 
@@ -109,6 +112,24 @@ export default function ProjetosPage() {
     setSaving(true)
     const supabase = createClient()
     const driveUrl = form.drive_folder_url.trim()
+
+    let foto_url: string | null = null
+    if (fotoFile) {
+      try {
+        const ext = fotoFile.name.split('.').pop() || 'jpg'
+        const path = `projetos/${Date.now()}.${ext}`
+        const { error: upErr } = await supabase.storage.from('project-files').upload(path, fotoFile)
+        if (!upErr) {
+          const { data: urlData } = supabase.storage.from('project-files').getPublicUrl(path)
+          foto_url = urlData.publicUrl
+        } else {
+          foto_url = await fileToDataUrl(fotoFile)
+        }
+      } catch {
+        foto_url = await fileToDataUrl(fotoFile)
+      }
+    }
+
     const payload = {
       nome: form.nome.trim(),
       cliente: form.cliente || null,
@@ -120,6 +141,7 @@ export default function ProjetosPage() {
       responsavel_tecnico_id: form.responsavel_tecnico_id || null,
       drive_folder_url: driveUrl || null,
       drive_folder_id: extractDriveFolderId(driveUrl),
+      foto_url,
     }
     const { data, error } = await supabase.from('projetos').insert(payload).select().single()
     if (!error && data) {
@@ -130,6 +152,8 @@ export default function ProjetosPage() {
       await loadData()
       setShowModal(false)
       setForm(EMPTY_FORM)
+      setFotoFile(null)
+      setFotoPreview(null)
     }
     setSaving(false)
   }
@@ -140,6 +164,59 @@ export default function ProjetosPage() {
     await supabase.from('projetos').delete().eq('id', id)
     setProjetos(prev => prev.filter(p => p.id !== id))
     setMenuId(null)
+  }
+
+  async function handleDuplicate(proj: Projeto) {
+    setMenuId(null)
+    const supabase = createClient()
+    const payload = {
+      nome: proj.nome + ' (cópia)',
+      cliente: proj.cliente,
+      endereco: proj.endereco,
+      data_inicio: proj.data_inicio,
+      data_previsao: proj.data_previsao,
+      status: 'em_andamento' as const,
+      responsavel: proj.responsavel,
+    }
+    const { data: novoProjeto } = await supabase.from('projetos').insert(payload).select().single()
+    if (!novoProjeto) return
+    const { data: itensOrigem } = await supabase.from('projeto_itens').select('*').eq('projeto_id', proj.id).order('ordem')
+    if (itensOrigem && itensOrigem.length > 0) {
+      const idMap = new Map<string, string>()
+      for (const item of itensOrigem) {
+        const { data: novo } = await supabase.from('projeto_itens').insert({
+          projeto_id: novoProjeto.id,
+          parent_id: item.parent_id ? idMap.get(item.parent_id) || null : null,
+          nome: item.nome,
+          nivel: item.nivel,
+          ordem: item.ordem,
+        }).select('id').single()
+        if (novo) idMap.set(item.id, novo.id)
+      }
+    }
+    await loadData()
+  }
+
+  async function handleSaveAsTemplate(proj: Projeto) {
+    setMenuId(null)
+    const supabase = createClient()
+    const { data: itensFlat } = await supabase.from('projeto_itens').select('*').eq('projeto_id', proj.id).order('ordem')
+    if (!itensFlat || itensFlat.length === 0) {
+      alert('Este projeto não tem itens para salvar como template.')
+      return
+    }
+    function buildTree(parentId: string | null): TemplateItem[] {
+      return itensFlat!
+        .filter((i: any) => i.parent_id === parentId)
+        .map((i: any) => ({ nome: i.nome, nivel: i.nivel, children: buildTree(i.id) }))
+    }
+    const arvore = buildTree(null)
+    await supabase.from('projeto_templates').insert({
+      nome: proj.nome,
+      descricao: `Gerado a partir do projeto "${proj.nome}"`,
+      itens: arvore,
+    })
+    alert('Template salvo com sucesso!')
   }
 
   const STATUS_ORDER: Record<Projeto['status'], number> = { em_andamento: 0, concluido: 1, suspenso: 2 }
@@ -247,8 +324,14 @@ export default function ProjetosPage() {
                   className="block rounded-xl border overflow-hidden hover:shadow-md transition-shadow"
                   style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                 >
-                  {/* Faixa de status */}
-                  <div className="h-1" style={{ background: meta.color }} />
+                  {/* Foto ou faixa de status */}
+                  {p.foto_url ? (
+                    <div className="h-28 overflow-hidden">
+                      <img src={p.foto_url} alt="" className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="h-1" style={{ background: meta.color }} />
+                  )}
 
                   <div className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
@@ -321,7 +404,7 @@ export default function ProjetosPage() {
                   </button>
                   {menuId === p.id && (
                     <div
-                      className="absolute right-0 top-8 z-50 rounded-lg shadow-xl border min-w-[140px] py-1"
+                      className="absolute right-0 top-8 z-50 rounded-lg shadow-xl border min-w-[160px] py-1"
                       style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                     >
                       <a
@@ -329,15 +412,33 @@ export default function ProjetosPage() {
                         className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--bg-secondary)]"
                         style={{ color: 'var(--text-primary)' }}
                       >
-                        Abrir
+                        Editar
                       </a>
                       {!isCliente && (
-                        <button
-                          onClick={() => handleDelete(p.id)}
-                          className="flex items-center gap-2 px-3 py-2 text-sm w-full text-left text-red-400 hover:bg-red-500/10"
-                        >
-                          Excluir
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleDuplicate(p)}
+                            className="flex items-center gap-2 px-3 py-2 text-sm w-full text-left hover:bg-[var(--bg-secondary)]"
+                            style={{ color: 'var(--text-primary)' }}
+                          >
+                            <Copy size={14} />
+                            Duplicar
+                          </button>
+                          <button
+                            onClick={() => handleSaveAsTemplate(p)}
+                            className="flex items-center gap-2 px-3 py-2 text-sm w-full text-left hover:bg-[var(--bg-secondary)]"
+                            style={{ color: 'var(--text-primary)' }}
+                          >
+                            <BookTemplate size={14} />
+                            Salvar como template
+                          </button>
+                          <button
+                            onClick={() => handleDelete(p.id)}
+                            className="flex items-center gap-2 px-3 py-2 text-sm w-full text-left text-red-400 hover:bg-red-500/10"
+                          >
+                            Excluir
+                          </button>
+                        </>
                       )}
                     </div>
                   )}
@@ -365,6 +466,18 @@ export default function ProjetosPage() {
             </div>
 
             <div className="p-6 space-y-4">
+              {/* Template no topo */}
+              {templates.length > 0 && (
+                <Field label="Template">
+                  <select className="input-base" value={form.template_id} onChange={e => setForm(f => ({ ...f, template_id: e.target.value }))}>
+                    <option value="">Nenhum (começar em branco)</option>
+                    {templates.map(t => (
+                      <option key={t.id} value={t.id}>{t.nome}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+
               <Field label="Nome *">
                 <input
                   className="input-base"
@@ -473,17 +586,41 @@ export default function ProjetosPage() {
                 )}
               </Field>
 
-              {/* Template */}
-              {templates.length > 0 && (
-                <Field label="Template de estrutura">
-                  <select className="input-base" value={form.template_id} onChange={e => setForm(f => ({ ...f, template_id: e.target.value }))}>
-                    <option value="">Nenhum (começar em branco)</option>
-                    {templates.map(t => (
-                      <option key={t.id} value={t.id}>{t.nome}</option>
-                    ))}
-                  </select>
-                </Field>
-              )}
+              {/* Foto do projeto */}
+              <Field label="Foto do projeto">
+                <div className="flex items-center gap-3">
+                  {fotoPreview ? (
+                    <div className="relative w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 border" style={{ borderColor: 'var(--border)' }}>
+                      <img src={fotoPreview} alt="Preview" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => { setFotoFile(null); setFotoPreview(null) }}
+                        className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full flex items-center justify-center text-xs text-white"
+                        style={{ background: 'rgba(0,0,0,0.6)' }}
+                      >✕</button>
+                    </div>
+                  ) : (
+                    <label
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+                    >
+                      <ImagePlus size={16} />
+                      <span className="text-sm">Selecionar imagem</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            setFotoFile(file)
+                            setFotoPreview(URL.createObjectURL(file))
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+              </Field>
             </div>
 
             <div className="flex justify-end gap-2 px-6 pb-6">
@@ -525,6 +662,15 @@ export default function ProjetosPage() {
       `}</style>
     </div>
   )
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

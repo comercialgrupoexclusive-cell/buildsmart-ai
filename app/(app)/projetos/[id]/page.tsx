@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
@@ -29,6 +29,7 @@ type Projeto = {
   status: 'em_andamento' | 'concluido' | 'suspenso'
   obra_id: string | null
   responsavel: string | null
+  foto_url: string | null
   created_at: string
 }
 
@@ -53,6 +54,8 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [editingDados, setEditingDados] = useState(false)
   const [dadosForm, setDadosForm] = useState<Partial<Projeto>>({})
   const [saving, setSaving] = useState(false)
+  const [fotoFile, setFotoFile] = useState<File | null>(null)
+  const [fotoPreview, setFotoPreview] = useState<string | null>(null)
 
   useEffect(() => { loadData() }, [id])
 
@@ -141,6 +144,24 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     if (!projeto) return
     setSaving(true)
     const supabase = createClient()
+
+    let foto_url = dadosForm.foto_url ?? projeto.foto_url
+    if (fotoFile) {
+      try {
+        const ext = fotoFile.name.split('.').pop() || 'jpg'
+        const path = `projetos/${Date.now()}.${ext}`
+        const { error: upErr } = await supabase.storage.from('project-files').upload(path, fotoFile)
+        if (!upErr) {
+          const { data: urlData } = supabase.storage.from('project-files').getPublicUrl(path)
+          foto_url = urlData.publicUrl
+        } else {
+          foto_url = await fileToDataUrl(fotoFile)
+        }
+      } catch {
+        foto_url = await fileToDataUrl(fotoFile)
+      }
+    }
+
     const payload = {
       nome: dadosForm.nome ?? projeto.nome,
       cliente: dadosForm.cliente ?? null,
@@ -149,10 +170,16 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       data_previsao: dadosForm.data_previsao ?? null,
       status: dadosForm.status ?? projeto.status,
       responsavel: dadosForm.responsavel ?? null,
+      foto_url,
       updated_at: new Date().toISOString(),
     }
     const { data } = await supabase.from('projetos').update(payload).eq('id', id).select().single()
-    if (data) { setProjeto(data); setEditingDados(false) }
+    if (data) {
+      setProjeto(data)
+      setEditingDados(false)
+      setFotoFile(null)
+      setFotoPreview(null)
+    }
     setSaving(false)
   }
 
@@ -310,10 +337,54 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
             )}
           </div>
 
+          {/* Foto do projeto */}
+          <div className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+            <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Foto do projeto</label>
+            {(fotoPreview || projeto.foto_url) && (
+              <div className="relative w-full max-w-xs h-40 rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
+                <img src={fotoPreview || projeto.foto_url!} alt="Foto do projeto" className="w-full h-full object-cover" />
+                {editingDados && (
+                  <button
+                    onClick={() => {
+                      setFotoFile(null)
+                      setFotoPreview(null)
+                      setDadosForm(f => ({ ...f, foto_url: null }))
+                    }}
+                    className="absolute top-1 right-1 p-1 rounded-full flex items-center justify-center"
+                    style={{ background: 'rgba(0,0,0,0.6)' }}
+                  >
+                    <Trash2 size={14} className="text-white" />
+                  </button>
+                )}
+              </div>
+            )}
+            {editingDados && (
+              <label
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+              >
+                <ImagePlus size={16} />
+                <span className="text-sm">{projeto.foto_url || fotoPreview ? 'Trocar imagem' : 'Selecionar imagem'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0]
+                    if (file) {
+                      setFotoFile(file)
+                      setFotoPreview(URL.createObjectURL(file))
+                    }
+                  }}
+                />
+              </label>
+            )}
+          </div>
+
           {editingDados && (
             <div className="flex justify-end gap-2 pt-2">
               <button
-                onClick={() => { setEditingDados(false); setDadosForm(projeto) }}
+                onClick={() => { setEditingDados(false); setDadosForm(projeto); setFotoFile(null); setFotoPreview(null) }}
                 className="px-4 py-2 text-sm border rounded-lg"
                 style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)' }}
               >
@@ -334,6 +405,15 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       )}
     </div>
   )
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 function DadosField({ label, value, editing, onChange, type = 'text', className = '' }: {

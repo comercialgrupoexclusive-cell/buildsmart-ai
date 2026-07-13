@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, ChevronDown, ChevronRight, Save, ArrowLeft, BookTemplate } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, ChevronRight, Save, ArrowLeft, BookTemplate, Sparkles, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 
@@ -30,6 +30,10 @@ export default function ProjetoTemplatesPage() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [itens, setItens] = useState<TemplateItem[]>([])
   const [saving, setSaving] = useState(false)
+  const [iaDescricao, setIaDescricao] = useState('')
+  const [iaNome, setIaNome] = useState('')
+  const [gerandoIA, setGerandoIA] = useState(false)
+  const [erroIA, setErroIA] = useState<string | null>(null)
 
   useEffect(() => { loadTemplates() }, [])
 
@@ -75,6 +79,31 @@ export default function ProjetoTemplatesPage() {
     const supabase = createClient()
     await supabase.from('projeto_templates').delete().eq('id', id)
     setTemplates(prev => prev.filter(t => t.id !== id))
+  }
+
+  async function handleGerarComIA() {
+    if (!iaNome.trim()) return
+    setGerandoIA(true)
+    setErroIA(null)
+    try {
+      const res = await fetch('/api/projetos/estrutura-ia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nomeProjeto: iaNome.trim(), descricao: iaDescricao.trim() || undefined }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao gerar estrutura')
+      setEditId(null)
+      setForm({ nome: iaNome.trim(), descricao: iaDescricao.trim() || '' })
+      setItens(data.itens.map((i: any) => ({ ...i, children: i.children || [] })))
+      setShowForm(true)
+      setIaNome('')
+      setIaDescricao('')
+    } catch (err) {
+      setErroIA(err instanceof Error ? err.message : 'Erro ao gerar')
+    } finally {
+      setGerandoIA(false)
+    }
   }
 
   // ── Edição de itens do template ──
@@ -140,6 +169,47 @@ export default function ProjetoTemplatesPage() {
           </button>
         )}
       </div>
+
+      {/* IA para gerar template */}
+      {!isCliente && !showForm && (
+        <div className="rounded-xl border p-5 space-y-3" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} style={{ color: 'var(--accent)' }} />
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Criar template com IA</h2>
+          </div>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Descreva o tipo de projeto e a IA gera a estrutura de disciplinas, itens e subitens automaticamente.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input
+              className="w-full px-3 py-2 rounded-lg text-sm border outline-none"
+              style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              placeholder="Nome do template (ex: Residencial 2 pavimentos)"
+              value={iaNome}
+              onChange={e => setIaNome(e.target.value)}
+              disabled={gerandoIA}
+            />
+            <input
+              className="w-full px-3 py-2 rounded-lg text-sm border outline-none"
+              style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              placeholder="Descrição (ex: reforma apartamento 80m², 2 banheiros...)"
+              value={iaDescricao}
+              onChange={e => setIaDescricao(e.target.value)}
+              disabled={gerandoIA}
+            />
+          </div>
+          <button
+            onClick={handleGerarComIA}
+            disabled={gerandoIA || !iaNome.trim()}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+            style={{ background: 'var(--accent)' }}
+          >
+            {gerandoIA ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+            {gerandoIA ? 'Gerando...' : 'Gerar com IA'}
+          </button>
+          {erroIA && <p className="text-sm text-red-400">{erroIA}</p>}
+        </div>
+      )}
 
       {showForm ? (
         /* ── Editor de template ── */
