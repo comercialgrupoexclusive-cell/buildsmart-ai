@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { FileText, Plus, HardHat } from 'lucide-react'
+import { useEffect, useState, useRef } from 'react'
+import { FileText, Plus, HardHat, MoreVertical, Pencil, Copy, Trash2, CheckCircle, Circle, Archive } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { NovoCadastroModal } from '@/components/cadastro/NovoCadastroModal'
 
 import ServicosPage from '@/app/(app)/servicos/page'
@@ -15,6 +16,7 @@ import SinapiPage from '@/app/(app)/sinapi/page'
 type OrcamentoComObra = {
   id: string
   obra_id: string | null
+  projeto_id: string | null
   nome: string | null
   tipo: string
   bdi_percentual: number
@@ -28,6 +30,7 @@ type OrcamentoComObra = {
 
 export default function OrcamentosPage() {
   const supabase = createClient()
+  const router = useRouter()
   const [orcamentos, setOrcamentos] = useState<OrcamentoComObra[]>([])
   const [obras, setObras] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,11 +43,25 @@ export default function OrcamentosPage() {
   const [projetos, setProjetos] = useState<{ id: string; nome: string }[]>([])
   const [aba, setAba] = useState<'orcamentos' | 'composicoes' | 'insumos' | 'base'>('orcamentos')
   const [showNovoModal, setShowNovoModal] = useState(false)
+  const [menuId, setMenuId] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Editar nome inline
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editNome, setEditNome] = useState('')
 
   useEffect(() => {
     loadOrcamentos()
     supabase.from('obras').select('id, nome').order('nome').then((res: { data: { id: string; nome: string }[] | null }) => setObras(res.data ?? []))
     supabase.from('projetos').select('id, nome').order('nome').then((res: { data: { id: string; nome: string }[] | null }) => setProjetos(res.data ?? []))
+  }, [])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuId(null)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
   async function loadOrcamentos() {
@@ -71,6 +88,64 @@ export default function OrcamentosPage() {
     })
     setOrcamentos(enriched)
     setLoading(false)
+  }
+
+  async function handleDuplicate(orc: OrcamentoComObra) {
+    setMenuId(null)
+    const { data: novoOrc } = await supabase.from('orcamentos').insert({
+      obra_id: orc.obra_id,
+      projeto_id: orc.projeto_id,
+      nome: (orc.nome || `Orçamento v${orc.versao}`) + ' (cópia)',
+      tipo: orc.tipo,
+      bdi_percentual: orc.bdi_percentual,
+      status: 'rascunho',
+      versao: 1,
+    }).select().single()
+
+    if (!novoOrc) return
+
+    const { data: itensOrigem } = await supabase
+      .from('orcamento_itens')
+      .select('*')
+      .eq('orcamento_id', orc.id)
+
+    if (itensOrigem && itensOrigem.length > 0) {
+      const novosItens = itensOrigem.map(({ id, created_at, orcamento_id, ...rest }: any) => ({
+        ...rest,
+        orcamento_id: novoOrc.id,
+      }))
+      await supabase.from('orcamento_itens').insert(novosItens)
+    }
+
+    await loadOrcamentos()
+  }
+
+  async function handleDelete(orc: OrcamentoComObra) {
+    setMenuId(null)
+    const nomeExibido = orc.nome || orc.obra?.nome || `Orçamento v${orc.versao}`
+    if (!confirm(`Excluir "${nomeExibido}"? Todos os itens serão removidos.`)) return
+    await supabase.from('orcamento_itens').delete().eq('orcamento_id', orc.id)
+    await supabase.from('orcamentos').delete().eq('id', orc.id)
+    await loadOrcamentos()
+  }
+
+  async function handleStatusChange(orc: OrcamentoComObra, novoStatus: string) {
+    setMenuId(null)
+    await supabase.from('orcamentos').update({ status: novoStatus }).eq('id', orc.id)
+    setOrcamentos(prev => prev.map(o => o.id === orc.id ? { ...o, status: novoStatus } : o))
+  }
+
+  async function handleRename(orc: OrcamentoComObra) {
+    setMenuId(null)
+    setEditId(orc.id)
+    setEditNome(orc.nome || orc.obra?.nome || `Orçamento v${orc.versao}`)
+  }
+
+  async function saveRename() {
+    if (!editId || !editNome.trim()) return
+    await supabase.from('orcamentos').update({ nome: editNome.trim() }).eq('id', editId)
+    setOrcamentos(prev => prev.map(o => o.id === editId ? { ...o, nome: editNome.trim() } : o))
+    setEditId(null)
   }
 
   const STATUS_ORC_COLOR: Record<string, string> = {
@@ -154,33 +229,41 @@ export default function OrcamentosPage() {
       ) : (
         <div className="flex flex-col gap-3">
           {filtrados.map((orc, i) => {
-            const href = `/orcamentos/${orc.id}`
             const nomeExibido = orc.nome || orc.obra?.nome || `Orçamento v${orc.versao}`
             return (
-            <Link
+            <div
               key={orc.id}
-              href={href}
-              className="card p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center hover:scale-[1.005] transition-transform animate-enter block"
+              className="card p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center hover:scale-[1.005] transition-transform animate-enter relative"
               style={{ animationDelay: `${i * 40}ms` }}
             >
               {/* Thumb obra */}
-              <div
-                className="w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: 'var(--bg-secondary)' }}
-              >
+              <Link href={`/orcamentos/${orc.id}`} className="w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)' }}>
                 {orc.obra?.foto_url ? (
                   <img src={orc.obra.foto_url} alt={nomeExibido} className="w-full h-full rounded-xl object-cover" />
                 ) : (
                   <HardHat size={24} style={{ color: 'var(--text-secondary)' }} />
                 )}
-              </div>
+              </Link>
 
               {/* Dados */}
-              <div className="flex-1 min-w-0">
+              <Link href={`/orcamentos/${orc.id}`} className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                    {nomeExibido}
-                  </span>
+                  {editId === orc.id ? (
+                    <input
+                      autoFocus
+                      value={editNome}
+                      onChange={e => setEditNome(e.target.value)}
+                      onBlur={saveRename}
+                      onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') setEditId(null) }}
+                      onClick={e => e.preventDefault()}
+                      className="input-base text-sm font-semibold py-0.5 px-1.5 -ml-1.5"
+                      style={{ maxWidth: 300 }}
+                    />
+                  ) : (
+                    <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
+                      {nomeExibido}
+                    </span>
+                  )}
                   {orc.obra?.status && (
                     <span className={`text-xs px-2 py-0.5 rounded-full border ${STATUS_OBRA_COLOR[orc.obra.status]}`}>
                       {STATUS_OBRA_LABEL[orc.obra.status]}
@@ -193,16 +276,97 @@ export default function OrcamentosPage() {
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                   {orc.total_itens} {orc.total_itens === 1 ? 'item' : 'itens'} · BDI {orc.bdi_percentual}% · Criado em {formatDate(orc.created_at)}
                 </p>
-              </div>
+              </Link>
 
               {/* Valor */}
-              <div className="text-right flex-shrink-0">
+              <Link href={`/orcamentos/${orc.id}`} className="text-right flex-shrink-0">
                 <p className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>Total c/ BDI</p>
                 <p className="text-lg font-bold" style={{ color: 'var(--accent)' }}>
                   {formatCurrency(orc.valor_total)}
                 </p>
+              </Link>
+
+              {/* Menu 3 pontinhos */}
+              <div className="relative flex-shrink-0" ref={menuId === orc.id ? menuRef : undefined}>
+                <button
+                  onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuId(menuId === orc.id ? null : orc.id) }}
+                  className="p-2 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <MoreVertical size={18} />
+                </button>
+
+                {menuId === orc.id && (
+                  <div
+                    className="absolute right-0 top-full mt-1 w-52 rounded-xl shadow-xl z-50 py-1 animate-enter"
+                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+                  >
+                    <button
+                      onClick={() => { router.push(`/orcamentos/${orc.id}`); setMenuId(null) }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Pencil size={15} /> Editar
+                    </button>
+                    <button
+                      onClick={() => handleRename(orc)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <FileText size={15} /> Renomear
+                    </button>
+                    <button
+                      onClick={() => handleDuplicate(orc)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                      style={{ color: 'var(--text-primary)' }}
+                    >
+                      <Copy size={15} /> Duplicar
+                    </button>
+
+                    <div className="mx-3 my-1 border-t" style={{ borderColor: 'var(--border)' }} />
+
+                    <p className="px-4 py-1 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Status</p>
+                    {orc.status !== 'rascunho' && (
+                      <button
+                        onClick={() => handleStatusChange(orc, 'rascunho')}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                        style={{ color: '#3B82F6' }}
+                      >
+                        <Circle size={15} /> Rascunho
+                      </button>
+                    )}
+                    {orc.status !== 'ativo' && (
+                      <button
+                        onClick={() => handleStatusChange(orc, 'ativo')}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                        style={{ color: '#10B981' }}
+                      >
+                        <CheckCircle size={15} /> Ativo
+                      </button>
+                    )}
+                    {orc.status !== 'finalizado' && (
+                      <button
+                        onClick={() => handleStatusChange(orc, 'finalizado')}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                        style={{ color: '#6B7280' }}
+                      >
+                        <Archive size={15} /> Finalizado
+                      </button>
+                    )}
+
+                    <div className="mx-3 my-1 border-t" style={{ borderColor: 'var(--border)' }} />
+
+                    <button
+                      onClick={() => handleDelete(orc)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-red-500/10 transition-colors"
+                      style={{ color: 'var(--danger, #EF4444)' }}
+                    >
+                      <Trash2 size={15} /> Excluir
+                    </button>
+                  </div>
+                )}
               </div>
-            </Link>
+            </div>
           )})}
         </div>
       )}
