@@ -120,21 +120,11 @@ export default function ObrasPage() {
         foto_url: form.foto_url || null,
         area_m2: form.area_m2 ? parseFloat(form.area_m2) : null,
         uf: form.uf,
-        status: 'orcamento',
+        status: 'ativa',
         proprietario_id: form.proprietario_id || null,
       })
       .select()
       .single()
-
-    if (obra) {
-      await supabase.from('orcamentos').insert({
-        obra_id: obra.id,
-        tipo: 'executivo',
-        bdi_percentual: 25,
-        status: 'rascunho',
-        versao: 1,
-      })
-    }
 
     setSaving(false)
     setShowModal(false)

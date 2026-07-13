@@ -14,6 +14,7 @@ interface Props {
   templates?: { id: string; nome: string }[]
   profiles?: { id: string; name: string; apelido: string | null }[]
   obras?: { id: string; nome: string }[]
+  projetos?: { id: string; nome: string }[]
   onClose: () => void
   onCreated: () => void
 }
@@ -29,9 +30,10 @@ const EMPTY_FORM = {
   uf: 'SP',
   template_id: '',
   obra_id: '',
+  projeto_id: '',
 }
 
-export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [], obras = [], onClose, onCreated }: Props) {
+export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [], obras = [], projetos = [], onClose, onCreated }: Props) {
   const supabase = createClient()
   const [tipo, setTipo] = useState<CadastroTipoNovo>(tipoProp)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -102,19 +104,10 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           foto_url: form.foto_url || null,
           area_m2: form.area_m2 ? Number(form.area_m2) : null,
           uf: form.uf || 'SP',
-          status: 'orcamento',
+          status: 'ativa',
         }).select().single()
 
         if (obraErr || !obra) throw new Error(obraErr?.message ?? 'Erro ao criar obra')
-
-        // Auto-criar orçamento rascunho
-        await supabase.from('orcamentos').insert({
-          obra_id: obra.id,
-          tipo: 'executivo',
-          bdi_percentual: 25,
-          status: 'rascunho',
-          versao: 1,
-        })
 
         // Salvar responsáveis
         if (responsaveis.length > 0) {
@@ -168,6 +161,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
 
         await supabase.from('orcamentos').insert({
           obra_id: form.obra_id || null,
+          projeto_id: form.projeto_id || null,
           nome: form.nome.trim() || null,
           tipo: 'executivo',
           bdi_percentual: 25,
@@ -251,10 +245,21 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
                   <option value="">Sem obra vinculada</option>
                   {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
                 </select>
-                <p className="text-xs mt-2 opacity-60" style={{ color: 'var(--text-secondary)' }}>
-                  Será criado um novo orçamento (nova versão). Vincular a uma obra é opcional.
-                </p>
               </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Projeto (opcional)</label>
+                <select
+                  value={form.projeto_id}
+                  onChange={e => setForm(f => ({ ...f, projeto_id: e.target.value }))}
+                  className="input-base w-full"
+                >
+                  <option value="">Sem projeto vinculado</option>
+                  {projetos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+              </div>
+              <p className="text-xs opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                Vincular a uma obra ou projeto é opcional. Você pode vincular depois.
+              </p>
             </div>
           )}
 

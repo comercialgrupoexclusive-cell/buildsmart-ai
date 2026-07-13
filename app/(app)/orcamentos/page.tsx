@@ -37,12 +37,14 @@ export default function OrcamentosPage() {
     ativo: '#10B981',
     finalizado: '#6B7280',
   }
+  const [projetos, setProjetos] = useState<{ id: string; nome: string }[]>([])
   const [aba, setAba] = useState<'orcamentos' | 'composicoes' | 'insumos' | 'base'>('orcamentos')
   const [showNovoModal, setShowNovoModal] = useState(false)
 
   useEffect(() => {
     loadOrcamentos()
     supabase.from('obras').select('id, nome').order('nome').then((res: { data: { id: string; nome: string }[] | null }) => setObras(res.data ?? []))
+    supabase.from('projetos').select('id, nome').order('nome').then((res: { data: { id: string; nome: string }[] | null }) => setProjetos(res.data ?? []))
   }, [])
 
   async function loadOrcamentos() {
@@ -142,7 +144,7 @@ export default function OrcamentosPage() {
         <EmptyState
           icon={FileText}
           title="Nenhum orçamento encontrado"
-          description="Crie uma nova obra para iniciar o orçamento."
+          description="Crie um novo orçamento para começar."
           action={
             <Button onClick={() => setShowNovoModal(true)} icon={<Plus size={16} />}>
               Novo Orçamento
@@ -152,7 +154,7 @@ export default function OrcamentosPage() {
       ) : (
         <div className="flex flex-col gap-3">
           {filtrados.map((orc, i) => {
-            const href = orc.obra_id ? `/obras/${orc.obra_id}?tab=orcamento` : `/cadastro`
+            const href = `/orcamentos/${orc.id}`
             const nomeExibido = orc.nome || orc.obra?.nome || `Orçamento v${orc.versao}`
             return (
             <Link
@@ -211,6 +213,7 @@ export default function OrcamentosPage() {
         <NovoCadastroModal
           tipo="orcamento"
           obras={obras}
+          projetos={projetos}
           onClose={() => setShowNovoModal(false)}
           onCreated={loadOrcamentos}
         />

@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles } from 'lucide-react'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -533,11 +533,14 @@ const GRUPO_LABEL: Record<ObraFornecedor['grupo'], string> = {
   demais: 'Demais (materiais, equipamentos e serviços)',
 }
 
+type OrcamentoResumo = { id: string; nome: string | null; versao: number; status: string; bdi_percentual: number }
+
 function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => void }) {
   const supabase = createClient()
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [vinculos, setVinculos] = useState<ObraFornecedor[]>([])
+  const [orcamentos, setOrcamentos] = useState<OrcamentoResumo[]>([])
   const [loadingExtra, setLoadingExtra] = useState(true)
   const [pendente, setPendente] = useState<string | null>(null)
   const [agora, setAgora] = useState<number | null>(null)
@@ -546,15 +549,17 @@ function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => void }) {
     let active = true
     async function load() {
       setLoadingExtra(true)
-      const [etapasRes, fornecedoresRes, vinculosRes] = await Promise.all([
+      const [etapasRes, fornecedoresRes, vinculosRes, orcRes] = await Promise.all([
         supabase.from('etapas').select('*').eq('obra_id', obra.id),
         supabase.from('fornecedores').select('*').or(`obra_id.is.null,obra_id.eq.${obra.id}`).order('nome'),
         supabase.from('obra_fornecedores').select('*, fornecedor:fornecedores(*)').eq('obra_id', obra.id),
+        supabase.from('orcamentos').select('id, nome, versao, status, bdi_percentual').eq('obra_id', obra.id).order('versao', { ascending: false }),
       ])
       if (!active) return
       setEtapas((etapasRes.data || []) as Etapa[])
       setFornecedores((fornecedoresRes.data || []) as Fornecedor[])
       setVinculos((vinculosRes.data || []) as ObraFornecedor[])
+      setOrcamentos((orcRes.data || []) as OrcamentoResumo[])
       setAgora(Date.now())
       setLoadingExtra(false)
     }
@@ -673,6 +678,59 @@ function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => void }) {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Orçamentos vinculados */}
+      <div className="card p-6">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <FileText size={18} style={{ color: 'var(--accent)' }} />
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Orçamentos vinculados</h2>
+          </div>
+          <Link
+            href={`/orcamentos?new=1`}
+            className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
+            style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}
+          >
+            <Plus size={13} /> Novo
+          </Link>
+        </div>
+
+        {orcamentos.length === 0 ? (
+          <p className="text-sm py-3" style={{ color: 'var(--text-secondary)' }}>
+            Nenhum orçamento vinculado a esta obra. Crie um orçamento e vincule a esta obra.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {orcamentos.map(orc => (
+              <Link
+                key={orc.id}
+                href={`/orcamentos/${orc.id}`}
+                className="flex items-center justify-between p-3 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                style={{ border: '1px solid var(--border)' }}
+              >
+                <div className="flex items-center gap-3">
+                  <FileText size={16} style={{ color: 'var(--text-secondary)' }} />
+                  <div>
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {orc.nome || `Orçamento v${orc.versao}`}
+                    </span>
+                    <span className="text-xs ml-2" style={{ color: 'var(--text-secondary)' }}>
+                      BDI {orc.bdi_percentual}%
+                    </span>
+                  </div>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                  orc.status === 'ativo' ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                  : orc.status === 'finalizado' ? 'bg-gray-500/20 text-gray-400 border-gray-500/30'
+                  : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                }`}>
+                  {orc.status === 'ativo' ? 'Ativo' : orc.status === 'finalizado' ? 'Finalizado' : 'Rascunho'}
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card p-6">

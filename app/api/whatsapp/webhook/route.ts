@@ -368,6 +368,31 @@ export async function POST(req: NextRequest) {
     const senderName: string = body.senderName || body.chatName || senderPhone
     const lookupPhone = isGroup ? senderPhone : phone
 
+    // ── Roteamento FamilyHub ────────────────────────────────────────────────
+    // Mesmo número Z-API atende dois sistemas. Se o telefone pertence a um
+    // usuário cadastrado no FamilyHub, repassa a mensagem pro webhook dele e
+    // não processa como Luizia/BuildSmart.
+    const fhUrl = process.env.FAMILYHUB_SUPABASE_URL
+    const fhKey = process.env.FAMILYHUB_SUPABASE_SERVICE_ROLE_KEY
+    const fhWebhook = process.env.FAMILYHUB_WEBHOOK_URL
+    if (fhUrl && fhKey && fhWebhook) {
+      try {
+        const fhDb = createClient(fhUrl, fhKey, { auth: { autoRefreshToken: false, persistSession: false } })
+        const { data: fhUser } = await fhDb.from('usuarios').select('id').eq('whatsapp', lookupPhone).maybeSingle()
+        if (fhUser) {
+          await fetch(fhWebhook, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+          return NextResponse.json({ ok: true, routed: 'familyhub' })
+        }
+      } catch (err: any) {
+        console.log('FAMILYHUB ROUTING ERROR', err?.message)
+        // segue como BuildSmart em caso de falha no roteamento
+      }
+    }
+
     // ── Texto ─────────────────────────────────────────────────────────────────
     let messageText: string = (body?.text?.message || body?.body || body?.caption || '').trim()
 

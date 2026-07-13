@@ -129,8 +129,9 @@ function getEtapaIcone(nome: string): { icon: LucideIcon; cor: string } {
   return found ? { icon: found.icon, cor: found.cor } : { icon: FolderPlus, cor: '#64748B' }
 }
 
-export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
-  obraId: string
+export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 'SP' }: {
+  obraId?: string
+  orcamentoId?: string
   areaM2?: number | null
   obraName?: string
   obraUf?: string
@@ -172,7 +173,8 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   const temSubetapaMateriaisRef = useRef<boolean | null>(null)
   async function materiaisTemSubetapa(): Promise<boolean> {
     if (temSubetapaMateriaisRef.current !== null) return temSubetapaMateriaisRef.current
-    const { error } = await supabase.from('materiais').select('subetapa').eq('obra_id', obraId).limit(1)
+    if (!resolvedObraId) { temSubetapaMateriaisRef.current = false; return false }
+    const { error } = await supabase.from('materiais').select('subetapa').eq('obra_id', resolvedObraId).limit(1)
     const tem = !(error && /column .* does not exist/i.test(error.message))
     temSubetapaMateriaisRef.current = tem
     return tem
@@ -206,7 +208,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     if (typeof window === 'undefined') return {}
     try {
-      const stored = localStorage.getItem(`bs_collapsed_${obraId}`)
+      const stored = localStorage.getItem(`bs_collapsed_${obraId || orcamentoId}`)
       return stored ? JSON.parse(stored) : {}
     } catch { return {} }
   })
@@ -245,8 +247,8 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }, [insumoOverrides, orcamento?.id])
 
   useEffect(() => {
-    localStorage.setItem(`bs_collapsed_${obraId}`, JSON.stringify(collapsed))
-  }, [collapsed, obraId])
+    localStorage.setItem(`bs_collapsed_${obraId || orcamentoId}`, JSON.stringify(collapsed))
+  }, [collapsed, obraId, orcamentoId])
 
 
   // ─── Fechar menu ao clicar fora ──────────────────────────────────────────
@@ -266,19 +268,25 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
   }
 
   async function loadOrcamento() {
-    let { data: orc } = await supabase
-      .from('orcamentos').select('*').eq('obra_id', obraId)
-      .order('versao', { ascending: false }).limit(1).maybeSingle()
+    let orc: Orcamento | null = null
 
-    // Obra sem orçamento (criada fora do fluxo padrão): cria automaticamente
-    // um orçamento em rascunho — usuário cai direto na tela de "Adicionar primeiro item"
-    if (!orc) {
-      const { data: novo } = await supabase
-        .from('orcamentos')
-        .insert({ obra_id: obraId, tipo: 'executivo', bdi_percentual: 25, status: 'rascunho', versao: 1 })
-        .select()
-        .single()
-      orc = novo
+    if (orcamentoId) {
+      const { data } = await supabase.from('orcamentos').select('*').eq('id', orcamentoId).single()
+      orc = data
+    } else if (obraId) {
+      const { data } = await supabase
+        .from('orcamentos').select('*').eq('obra_id', resolvedObraId)
+        .order('versao', { ascending: false }).limit(1).maybeSingle()
+      orc = data
+
+      if (!orc) {
+        const { data: novo } = await supabase
+          .from('orcamentos')
+          .insert({ obra_id: resolvedObraId, tipo: 'executivo', bdi_percentual: 25, status: 'rascunho', versao: 1 })
+          .select()
+          .single()
+        orc = novo
+      }
     }
 
     if (orc) { setOrcamento(orc); setBdi(orc.bdi_percentual); await loadItens(orc.id) }
@@ -314,8 +322,11 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     setItens(enriched)
   }
 
+  const resolvedObraId = obraId || orcamento?.obra_id || null
+
   async function loadEtapas() {
-    const { data } = await supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem')
+    if (!resolvedObraId) { setEtapas([]); return }
+    const { data } = await supabase.from('etapas').select('*').eq('obra_id', resolvedObraId).order('ordem')
     setEtapas(data || [])
   }
 
@@ -341,13 +352,13 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
 
   useEffect(() => {
     Promise.resolve().then(() => loadAll())
-  }, [obraId])
+  }, [obraId, orcamentoId])
 
   useEffect(() => {
     function onDataChanged() { loadAll() }
     window.addEventListener('buildsmart:obra-data-changed', onDataChanged)
     return () => window.removeEventListener('buildsmart:obra-data-changed', onDataChanged)
-  }, [obraId])
+  }, [obraId, orcamentoId])
 
   // ─── Totais com override ─────────────────────────────────────────────────
   // preços/classificação vêm direto do embed (insumo:sinapi_insumos / insumo_proprio:insumos_proprios)
@@ -418,7 +429,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     const maxOrdem = etapas.reduce((m, e) => Math.max(m, e.ordem), 0)
     const { data } = await supabase
       .from('etapas')
-      .insert({ obra_id: obraId, nome: novaEtapaNome.trim(), status: 'planejada', ordem: maxOrdem + 1 })
+      .insert({ obra_id: resolvedObraId, nome: novaEtapaNome.trim(), status: 'planejada', ordem: maxOrdem + 1 })
       .select().single()
     if (data) {
       setEtapas(prev => [...prev, data])
@@ -448,7 +459,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     const existente = etapas.find(e => e.nome.toLowerCase() === nome.toLowerCase())
     if (existente) return existente.id
     const ordem = etapas.length + 1
-    const { data } = await supabase.from('etapas').insert({ obra_id: obraId, nome, ordem }).select().single()
+    const { data } = await supabase.from('etapas').insert({ obra_id: resolvedObraId, nome, ordem }).select().single()
     if (data) {
       setEtapas(prev => [...prev, data])
       return data.id
@@ -762,7 +773,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       if (!etapaId) {
         const { data, error } = await supabase
           .from('etapas')
-          .insert({ obra_id: obraId, nome: etapaNome, status: statusExecucaoImportado, ordem: ++maxOrdem })
+          .insert({ obra_id: resolvedObraId, nome: etapaNome, status: statusExecucaoImportado, ordem: ++maxOrdem })
           .select().single()
         if (error || !data) {
           ignorados++
@@ -907,7 +918,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       const novaVersao = orcamento.versao + 1
       const { data: novoOrc } = await supabase
         .from('orcamentos')
-        .insert({ obra_id: obraId, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, status: 'rascunho', versao: novaVersao })
+        .insert({ obra_id: resolvedObraId, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, status: 'rascunho', versao: novaVersao })
         .select().single()
       if (novoOrc) {
         let atualizados = 0
@@ -983,7 +994,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     if (!codigo || codigo === '—' || qtdSomar <= 0) return
     const temSubetapa = await materiaisTemSubetapa()
     let query = supabase.from('materiais').select('id, quantidade_total')
-      .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
+      .eq('obra_id', resolvedObraId).eq('sinapi_codigo', codigo)
     query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
     if (temSubetapa) query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
     const { data: existente, error: erroSel } = await query.maybeSingle()
@@ -998,7 +1009,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
       if (error) console.error('Erro ao somar quantidade do material:', error)
     } else {
       const novoMaterial: Record<string, unknown> = {
-        obra_id: obraId, etapa_id: etapaId,
+        obra_id: resolvedObraId, etapa_id: etapaId,
         sinapi_codigo: codigo, descricao: descricao || codigo, unidade: unidade || 'UN',
         quantidade_total: qtdSomar, quantidade_comprada: statusCompra === 'comprado' ? qtdSomar : 0, status_compra: statusCompra,
       }
@@ -1012,7 +1023,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
     if (!codigo || codigo === '—' || qtdAbater <= 0) return
     const temSubetapa = await materiaisTemSubetapa()
     let query = supabase.from('materiais').select('id, quantidade_total')
-      .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
+      .eq('obra_id', resolvedObraId).eq('sinapi_codigo', codigo)
     query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
     if (temSubetapa) query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
     const { data: existente, error: erroSel } = await query.maybeSingle()
@@ -1146,7 +1157,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
         const etapaId = etapaIdRaw === 'null' ? null : etapaIdRaw
         const subetapa = subetapaRaw === 'null' ? null : subetapaRaw
         let query = supabase.from('materiais').select('id, quantidade_total')
-          .eq('obra_id', obraId).eq('sinapi_codigo', codigo)
+          .eq('obra_id', resolvedObraId).eq('sinapi_codigo', codigo)
         query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
         if (temSubetapa) query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
         const { data: existente, error: erroSelect } = await query.maybeSingle()
@@ -1160,7 +1171,7 @@ export function ObraOrcamento({ obraId, areaM2, obraName, obraUf = 'SP' }: {
           }
         } else {
           const novoMaterial: Record<string, unknown> = {
-            obra_id: obraId, etapa_id: etapaId,
+            obra_id: resolvedObraId, etapa_id: etapaId,
             sinapi_codigo: codigo, descricao: acc.descricao, unidade: acc.unidade,
             quantidade_total: qtdArredondada, quantidade_comprada: 0, status_compra: 'nao_comprado',
           }
