@@ -131,9 +131,9 @@ function DurCellCrono({ inicio, fim, onCommit }: { inicio: string | null | undef
   )
 }
 
-export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projetoId?: string }) {
+export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: string; projetoId?: string; cronogramaId?: string }) {
   const supabase = createClient()
-  const [tab, setTab] = useState<Tab>('cascata')
+  const [tab, setTab] = useState<Tab>('gantt')
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [subetapas, setSubetapas] = useState<SubetapaCronograma[]>([])
   const [servicos, setServicos] = useState<ServicoCronograma[]>([])
@@ -169,13 +169,13 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
   const [realizadoPorSubetapa, setRealizadoPorSubetapa] = useState<Map<string, number>>(new Map())
   const [realizadoPorServico, setRealizadoPorServico] = useState<Map<string, number>>(new Map())
 
-  useEffect(() => { loadData() }, [obraId, projetoId])
+  useEffect(() => { loadData() }, [obraId, projetoId, cronogramaId])
 
   useEffect(() => {
     function onDataChanged() { loadData() }
     window.addEventListener('buildsmart:obra-data-changed', onDataChanged)
     return () => window.removeEventListener('buildsmart:obra-data-changed', onDataChanged)
-  }, [obraId, projetoId])
+  }, [obraId, projetoId, cronogramaId])
 
   useEffect(() => {
     if (!obraId) return
@@ -220,10 +220,14 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     setRealizadoPorServico(svcMap)
   }
 
+  const resolvedObraId = obraId || null
+  const resolvedCronogramaId = cronogramaId || null
+
   async function loadData() {
     setLoading(true)
     const etapasQuery = supabase.from('etapas').select('*').order('ordem')
-    if (obraId) etapasQuery.eq('obra_id', obraId)
+    if (resolvedCronogramaId) etapasQuery.eq('cronograma_id', resolvedCronogramaId)
+    else if (obraId) etapasQuery.eq('obra_id', obraId)
     else if (projetoId) etapasQuery.eq('projeto_id', projetoId)
     const { data: etps } = await etapasQuery
 
@@ -253,7 +257,10 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     setSubetapas(subsData)
     setServicos(svcsData)
 
-    if (obraId) {
+    if (resolvedCronogramaId) {
+      const { data: deps } = await supabase.from('cronograma_dependencias').select('*').eq('cronograma_id', resolvedCronogramaId)
+      setDependencias((deps ?? []) as CronogramaDependencia[])
+    } else if (obraId) {
       const { data: deps } = await supabase.from('cronograma_dependencias').select('*').eq('obra_id', obraId)
       setDependencias((deps ?? []) as CronogramaDependencia[])
     }
@@ -492,7 +499,7 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
     }
     if (paraAdicionar.length > 0) {
       const { data } = await supabase.from('cronograma_dependencias').insert(
-        paraAdicionar.map(p => ({ obra_id: obraId, item_tipo: itemTipo, item_id: itemId, predecessor_tipo: p.tipo, predecessor_id: p.id }))
+        paraAdicionar.map(p => ({ obra_id: obraId || null, cronograma_id: resolvedCronogramaId, item_tipo: itemTipo, item_id: itemId, predecessor_tipo: p.tipo, predecessor_id: p.id }))
       ).select()
       if (data) setDependencias(prev => [...prev.filter(d => !paraRemover.some(r => r.id === d.id)), ...(data as CronogramaDependencia[])])
       return
@@ -622,7 +629,10 @@ export function ObraCronograma({ obraId, projetoId }: { obraId?: string; projeto
       setEtapas(prev => prev.map(e => e.id === editando.id ? { ...e, ...payload } : e))
     } else {
       const maxOrdem = etapas.reduce((m, e) => Math.max(m, e.ordem), 0)
-      const fk = obraId ? { obra_id: obraId } : { projeto_id: projetoId }
+      const fk: Record<string, any> = {}
+      if (resolvedCronogramaId) fk.cronograma_id = resolvedCronogramaId
+      if (obraId) fk.obra_id = obraId
+      if (projetoId) fk.projeto_id = projetoId
       const { data } = await supabase.from('etapas').insert({ ...fk, ...payload, ordem: maxOrdem + 1 }).select().single()
       if (data) { setEtapas(prev => [...prev, data as Etapa]); etapaId = (data as Etapa).id }
     }

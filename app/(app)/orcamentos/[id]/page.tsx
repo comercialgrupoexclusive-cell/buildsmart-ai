@@ -90,7 +90,20 @@ export default function OrcamentoDetailPage({ params }: { params: Promise<{ id: 
 
   async function handleVincular() {
     if (!vinculoId) return
-    const update = vinculoTipo === 'obra' ? { obra_id: vinculoId } : { projeto_id: vinculoId }
+    const update: Record<string, any> = vinculoTipo === 'obra' ? { obra_id: vinculoId } : { projeto_id: vinculoId }
+
+    if (vinculoTipo === 'obra') {
+      const { data: obraData } = await supabase.from('obras').select('uf, endereco, responsavel, area_m2, data_inicio, data_previsao').eq('id', vinculoId).single()
+      if (obraData && orcamento) {
+        if (!orcamento.endereco && obraData.endereco) update.endereco = obraData.endereco
+        if (!orcamento.responsavel && obraData.responsavel) update.responsavel = obraData.responsavel
+        if (!orcamento.area_m2 && obraData.area_m2) update.area_m2 = obraData.area_m2
+        if (!orcamento.uf && obraData.uf) update.uf = obraData.uf
+        if (!orcamento.data_inicio && obraData.data_inicio) update.data_inicio = obraData.data_inicio
+        if (!orcamento.data_previsao && obraData.data_previsao) update.data_previsao = obraData.data_previsao
+      }
+    }
+
     await supabase.from('orcamentos').update(update).eq('id', id)
     setShowVincular(false)
     await loadOrcamento()

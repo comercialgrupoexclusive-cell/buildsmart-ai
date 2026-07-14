@@ -1,112 +1,137 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CalendarDays, ExternalLink, HardHat, FolderOpen } from 'lucide-react'
+import { CalendarDays, Plus, HardHat, FolderOpen } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { formatDate } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { ObraCronograma } from '@/components/obra/ObraCronograma'
+import { Button } from '@/components/ui/Button'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { NovoCadastroModal } from '@/components/cadastro/NovoCadastroModal'
 
-type EntidadeSimples = { id: string; nome: string }
+type CronogramaComEntidade = {
+  id: string
+  nome: string
+  obra_id: string | null
+  projeto_id: string | null
+  status: string
+  created_at: string
+  obra: { id: string; nome: string } | null
+  projeto: { id: string; nome: string } | null
+  total_etapas: number
+}
 
 export default function CronogramaPage() {
   const supabase = createClient()
-  const [obras, setObras] = useState<EntidadeSimples[]>([])
-  const [projetos, setProjetos] = useState<EntidadeSimples[]>([])
-  const [tipo, setTipo] = useState<'obra' | 'projeto'>('obra')
-  const [selectedId, setSelectedId] = useState('')
+  const router = useRouter()
+  const [cronogramas, setCronogramas] = useState<CronogramaComEntidade[]>([])
+  const [obras, setObras] = useState<{ id: string; nome: string }[]>([])
+  const [projetos, setProjetos] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
+  const [showNovoModal, setShowNovoModal] = useState(false)
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true)
-      const [{ data: obrasData }, { data: projData }] = await Promise.all([
-        supabase.from('obras').select('id, nome').order('created_at', { ascending: false }),
-        supabase.from('projetos').select('id, nome').order('created_at', { ascending: false }),
-      ])
-      const obrasList = (obrasData || []) as EntidadeSimples[]
-      const projList = (projData || []) as EntidadeSimples[]
-      setObras(obrasList)
-      setProjetos(projList)
-      if (obrasList.length > 0) setSelectedId(obrasList[0].id)
-      else if (projList.length > 0) { setTipo('projeto'); setSelectedId(projList[0].id) }
-      setLoading(false)
-    }
-    load()
-  }, [])
+  useEffect(() => { load() }, [])
 
-  const lista = tipo === 'obra' ? obras : projetos
+  async function load() {
+    setLoading(true)
+    const { data: cronos } = await supabase
+      .from('cronogramas')
+      .select('id, nome, obra_id, projeto_id, status, created_at, obra:obras(id, nome), projeto:projetos(id, nome)')
+      .order('created_at', { ascending: false })
 
-  function handleTipoChange(t: 'obra' | 'projeto') {
-    setTipo(t)
-    const l = t === 'obra' ? obras : projetos
-    setSelectedId(l[0]?.id || '')
+    const list = (cronos || []) as any[]
+    const withCounts = await Promise.all(list.map(async (c) => {
+      const { count } = await supabase.from('etapas').select('id', { count: 'exact', head: true }).eq('cronograma_id', c.id)
+      return { ...c, obra: c.obra || null, projeto: c.projeto || null, total_etapas: count || 0 }
+    }))
+    setCronogramas(withCounts)
+
+    const [{ data: obrasData }, { data: projData }] = await Promise.all([
+      supabase.from('obras').select('id, nome').order('nome'),
+      supabase.from('projetos').select('id, nome').order('nome'),
+    ])
+    setObras((obrasData || []) as { id: string; nome: string }[])
+    setProjetos((projData || []) as { id: string; nome: string }[])
+    setLoading(false)
   }
-
-  const linkHref = tipo === 'obra' && selectedId
-    ? `/obras/${selectedId}?tab=cronograma`
-    : tipo === 'projeto' && selectedId
-      ? `/projetos/${selectedId}`
-      : null
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col lg:flex-row gap-3 lg:items-end justify-between">
-        <div className="flex gap-3 items-end flex-wrap">
-          <div>
-            <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Tipo</label>
-            <div className="flex gap-1 p-0.5 rounded-lg" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-              {([
-                { value: 'obra' as const, label: 'Obras', icon: HardHat },
-                { value: 'projeto' as const, label: 'Projetos', icon: FolderOpen },
-              ]).map(t => (
-                <button
-                  key={t.value}
-                  onClick={() => handleTipoChange(t.value)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-                  style={tipo === t.value
-                    ? { background: 'var(--accent)', color: 'white' }
-                    : { color: 'var(--text-secondary)' }}
-                >
-                  <t.icon size={14} />
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
-              {tipo === 'obra' ? 'Obra' : 'Projeto'}
-            </label>
-            <select
-              value={selectedId}
-              onChange={e => setSelectedId(e.target.value)}
-              className="input-base w-full sm:min-w-72"
-            >
-              {lista.length === 0 && <option value="">Nenhum(a) encontrado(a)</option>}
-              {lista.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-            </select>
-          </div>
-        </div>
-
-        {linkHref && (
-          <Link href={linkHref} className="inline-flex items-center gap-2 text-sm font-medium hover:opacity-80" style={{ color: 'var(--accent)' }}>
-            Abrir {tipo === 'obra' ? 'na obra' : 'no projeto'} <ExternalLink size={14} />
-          </Link>
-        )}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div />
+        <Button onClick={() => setShowNovoModal(true)} icon={<Plus size={16} />}>
+          Novo Cronograma
+        </Button>
       </div>
 
       {loading ? (
         <div className="flex justify-center py-16">
           <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
         </div>
-      ) : !selectedId ? (
-        <EmptyState icon={CalendarDays} title="Nenhum cronograma" description="Crie uma obra ou projeto para usar o cronograma." />
-      ) : tipo === 'obra' ? (
-        <ObraCronograma key={selectedId} obraId={selectedId} />
+      ) : cronogramas.length === 0 ? (
+        <EmptyState
+          icon={CalendarDays}
+          title="Nenhum cronograma"
+          description="Crie um novo cronograma para começar."
+          action={
+            <Button onClick={() => setShowNovoModal(true)} icon={<Plus size={16} />}>
+              Novo Cronograma
+            </Button>
+          }
+        />
       ) : (
-        <ObraCronograma key={selectedId} projetoId={selectedId} />
+        <div className="flex flex-col gap-3">
+          {cronogramas.map((crono, i) => (
+            <Link
+              key={crono.id}
+              href={`/cronogramas/${crono.id}`}
+              className="card p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center hover:scale-[1.005] transition-transform animate-enter"
+              style={{ animationDelay: `${i * 40}ms` }}
+            >
+              <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)' }}>
+                <CalendarDays size={22} style={{ color: 'var(--text-secondary)' }} />
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{crono.nome}</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  <span>{crono.total_etapas} etapa{crono.total_etapas !== 1 ? 's' : ''}</span>
+                  <span>·</span>
+                  <span>Criado em {formatDate(crono.created_at)}</span>
+                  {crono.obra && (
+                    <>
+                      <span>·</span>
+                      <span className="inline-flex items-center gap-1">
+                        <HardHat size={12} /> {crono.obra.nome}
+                      </span>
+                    </>
+                  )}
+                  {crono.projeto && (
+                    <>
+                      <span>·</span>
+                      <span className="inline-flex items-center gap-1">
+                        <FolderOpen size={12} /> {crono.projeto.nome}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {showNovoModal && (
+        <NovoCadastroModal
+          onClose={() => setShowNovoModal(false)}
+          tipo="cronograma"
+          obras={obras}
+          projetos={projetos}
+          onCreated={() => { setShowNovoModal(false); load() }}
+        />
       )}
     </div>
   )

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { SINAPI_UFS } from '@/lib/types'
 
-export type CadastroTipoNovo = 'projeto' | 'obra' | 'orcamento'
+export type CadastroTipoNovo = 'projeto' | 'obra' | 'orcamento' | 'cronograma'
 
 interface Props {
   tipo: CadastroTipoNovo
@@ -91,7 +91,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
 
   async function handleSave() {
     setError('')
-    if (!form.nome.trim() && tipo !== 'orcamento') { setError('Nome é obrigatório.'); return }
+    if (!form.nome.trim() && tipo !== 'orcamento' && tipo !== 'cronograma') { setError('Nome é obrigatório.'); return }
     setSaving(true)
 
     try {
@@ -151,8 +151,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           }
         }
 
-      } else {
-        // tipo === 'orcamento'
+      } else if (tipo === 'orcamento') {
         let proxVersao = 1
         if (form.obra_id) {
           const { data: existentes } = await supabase.from('orcamentos').select('versao').eq('obra_id', form.obra_id).order('versao', { ascending: false }).limit(1)
@@ -168,6 +167,14 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           status: 'rascunho',
           versao: proxVersao,
         })
+      } else {
+        // tipo === 'cronograma'
+        await supabase.from('cronogramas').insert({
+          nome: form.nome.trim() || 'Cronograma',
+          obra_id: form.obra_id || null,
+          projeto_id: form.projeto_id || null,
+          status: 'rascunho',
+        })
       }
 
       onCreated()
@@ -179,7 +186,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
     }
   }
 
-  const showFotoAndResponsaveis = tipo !== 'orcamento'
+  const showFotoAndResponsaveis = tipo !== 'orcamento' && tipo !== 'cronograma'
 
   return (
     <div
@@ -209,7 +216,8 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
                 { value: 'projeto', label: '📐 Projeto' },
                 { value: 'obra', label: '🏗️ Obra' },
                 { value: 'orcamento', label: '📋 Orçamento' },
-              ] as const).map(({ value, label }) => (
+                { value: 'cronograma', label: '📅 Cronograma' },
+              ] as { value: CadastroTipoNovo; label: string }[]).map(({ value, label }) => (
                 <button
                   key={value}
                   type="button"
@@ -263,8 +271,45 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
             </div>
           )}
 
+          {/* Campos para Cronograma */}
+          {tipo === 'cronograma' && (
+            <div className="flex flex-col gap-3">
+              <Input
+                label="Nome do cronograma"
+                value={form.nome}
+                onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
+                placeholder="Ex.: Cronograma Fase 1"
+              />
+              <div>
+                <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Obra (opcional)</label>
+                <select
+                  value={form.obra_id}
+                  onChange={e => setForm(f => ({ ...f, obra_id: e.target.value }))}
+                  className="input-base w-full"
+                >
+                  <option value="">Sem obra vinculada</option>
+                  {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Projeto (opcional)</label>
+                <select
+                  value={form.projeto_id}
+                  onChange={e => setForm(f => ({ ...f, projeto_id: e.target.value }))}
+                  className="input-base w-full"
+                >
+                  <option value="">Sem projeto vinculado</option>
+                  {projetos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </select>
+              </div>
+              <p className="text-xs opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                Vincular a uma obra ou projeto é opcional. Você pode vincular depois.
+              </p>
+            </div>
+          )}
+
           {/* Campos para Projeto e Obra */}
-          {tipo !== 'orcamento' && (
+          {tipo !== 'orcamento' && tipo !== 'cronograma' && (
             <>
               {/* Foto */}
               <div>
