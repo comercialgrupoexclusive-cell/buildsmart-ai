@@ -534,14 +534,17 @@ type OrcSelectItem = { id: string; nome: string | null; versao: number }
 
 function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: string; obraNome: string; obraUf?: string; obraArea?: number | null }) {
   const supabase = createClient()
-  const router = useRouter()
   const [orcamentos, setOrcamentos] = useState<OrcSelectItem[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [showVincular, setShowVincular] = useState(false)
   const [disponiveis, setDisponiveis] = useState<OrcSelectItem[]>([])
   const [vinculoId, setVinculoId] = useState('')
+  const [showNovo, setShowNovo] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
   const [creating, setCreating] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [editName, setEditName] = useState('')
 
   useEffect(() => { load() }, [obraId])
 
@@ -561,14 +564,15 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
     setLoading(false)
   }
 
-  async function handleNovoOrcamento() {
+  async function handleCriar() {
+    if (!novoNome.trim()) return
     setCreating(true)
     const { data: obra } = await supabase.from('obras').select('uf, endereco, responsavel, area_m2, data_inicio, data_previsao').eq('id', obraId).single()
     const { data: novo } = await supabase
       .from('orcamentos')
       .insert({
         obra_id: obraId,
-        nome: `${obraNome} - Orçamento`,
+        nome: novoNome.trim(),
         tipo: 'executivo',
         bdi_percentual: 25,
         status: 'rascunho',
@@ -584,10 +588,19 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
       .select()
       .single()
     setCreating(false)
+    setShowNovo(false)
+    setNovoNome('')
     if (novo) {
       await load()
       setSelectedId(novo.id)
     }
+  }
+
+  async function handleRenomear() {
+    if (!editName.trim() || !selectedId) return
+    await supabase.from('orcamentos').update({ nome: editName.trim() }).eq('id', selectedId)
+    setEditingName(false)
+    load()
   }
 
   async function openVincular() {
@@ -622,6 +635,16 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
     load()
   }
 
+  async function handleDesvincular() {
+    if (!selectedId) return
+    if (!confirm('Desvincular este orçamento da obra? Ele continuará existindo em Orçamentos.')) return
+    await supabase.from('orcamentos').update({ obra_id: null }).eq('id', selectedId)
+    setSelectedId('')
+    load()
+  }
+
+  const selectedOrc = orcamentos.find(o => o.id === selectedId)
+
   if (loading) {
     return (
       <div className="flex justify-center py-16">
@@ -636,16 +659,34 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           {orcamentos.length > 0 ? (
-            <select
-              value={selectedId}
-              onChange={e => setSelectedId(e.target.value)}
-              className="input-base text-sm font-medium"
-              style={{ minWidth: 220, maxWidth: 400 }}
-            >
-              {orcamentos.map(o => (
-                <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`}</option>
-              ))}
-            </select>
+            <>
+              <select
+                value={selectedId}
+                onChange={e => setSelectedId(e.target.value)}
+                className="input-base text-sm font-medium"
+                style={{ minWidth: 220, maxWidth: 400 }}
+              >
+                {orcamentos.map(o => (
+                  <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => { setEditName(selectedOrc?.nome || ''); setEditingName(true) }}
+                className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                title="Renomear"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={handleDesvincular}
+                className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                title="Desvincular da obra"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <Unlink size={13} />
+              </button>
+            </>
           ) : (
             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum orçamento vinculado</span>
           )}
@@ -654,8 +695,8 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
           <button onClick={openVincular} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
             <Link2 size={13} /> Vincular
           </button>
-          <button onClick={handleNovoOrcamento} disabled={creating} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-            <Plus size={13} /> {creating ? 'Criando...' : 'Novo'}
+          <button onClick={() => { setNovoNome(`${obraNome} - Orçamento`); setShowNovo(true) }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>
+            <Plus size={13} /> Novo
           </button>
         </div>
       </div>
@@ -671,6 +712,51 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
         </div>
       )}
 
+      {/* Modal novo orçamento */}
+      {showNovo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowNovo(false)}>
+          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Novo Orçamento</h3>
+            <input
+              value={novoNome}
+              onChange={e => setNovoNome(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleCriar()}
+              placeholder="Nome do orçamento"
+              className="input-base w-full mb-4"
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowNovo(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
+              <button onClick={handleCriar} disabled={!novoNome.trim() || creating} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
+                {creating ? 'Criando...' : 'Criar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal renomear */}
+      {editingName && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setEditingName(false)}>
+          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Renomear Orçamento</h3>
+            <input
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleRenomear()}
+              placeholder="Nome do orçamento"
+              className="input-base w-full mb-4"
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setEditingName(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
+              <button onClick={handleRenomear} disabled={!editName.trim()} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal vincular existente */}
       {showVincular && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowVincular(false)}>
           <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
@@ -707,7 +793,11 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
   const [showVincular, setShowVincular] = useState(false)
   const [disponiveis, setDisponiveis] = useState<CronoSelectItem[]>([])
   const [vinculoId, setVinculoId] = useState('')
+  const [showNovo, setShowNovo] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
   const [creating, setCreating] = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [editName, setEditName] = useState('')
 
   useEffect(() => { load() }, [obraId])
 
@@ -727,18 +817,28 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
     setLoading(false)
   }
 
-  async function handleNovo() {
+  async function handleCriar() {
+    if (!novoNome.trim()) return
     setCreating(true)
     const { data: novo } = await supabase
       .from('cronogramas')
-      .insert({ obra_id: obraId, nome: `${obraNome} - Cronograma` })
+      .insert({ obra_id: obraId, nome: novoNome.trim() })
       .select()
       .single()
     setCreating(false)
+    setShowNovo(false)
+    setNovoNome('')
     if (novo) {
       await load()
       setSelectedId(novo.id)
     }
+  }
+
+  async function handleRenomear() {
+    if (!editName.trim() || !selectedId) return
+    await supabase.from('cronogramas').update({ nome: editName.trim() }).eq('id', selectedId)
+    setEditingName(false)
+    load()
   }
 
   async function openVincular() {
@@ -760,6 +860,16 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
     load()
   }
 
+  async function handleDesvincular() {
+    if (!selectedId) return
+    if (!confirm('Desvincular este cronograma da obra? Ele continuará existindo em Cronogramas.')) return
+    await supabase.from('cronogramas').update({ obra_id: null }).eq('id', selectedId)
+    setSelectedId('')
+    load()
+  }
+
+  const selectedCrono = cronogramas.find(c => c.id === selectedId)
+
   if (loading) {
     return (
       <div className="flex justify-center py-16">
@@ -774,16 +884,34 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           {cronogramas.length > 0 ? (
-            <select
-              value={selectedId}
-              onChange={e => setSelectedId(e.target.value)}
-              className="input-base text-sm font-medium"
-              style={{ minWidth: 220, maxWidth: 400 }}
-            >
-              {cronogramas.map(c => (
-                <option key={c.id} value={c.id}>{c.nome}</option>
-              ))}
-            </select>
+            <>
+              <select
+                value={selectedId}
+                onChange={e => setSelectedId(e.target.value)}
+                className="input-base text-sm font-medium"
+                style={{ minWidth: 220, maxWidth: 400 }}
+              >
+                {cronogramas.map(c => (
+                  <option key={c.id} value={c.id}>{c.nome}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => { setEditName(selectedCrono?.nome || ''); setEditingName(true) }}
+                className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                title="Renomear"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={handleDesvincular}
+                className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                title="Desvincular da obra"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                <Unlink size={13} />
+              </button>
+            </>
           ) : (
             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum cronograma vinculado</span>
           )}
@@ -792,8 +920,8 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
           <button onClick={openVincular} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
             <Link2 size={13} /> Vincular
           </button>
-          <button onClick={handleNovo} disabled={creating} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-            <Plus size={13} /> {creating ? 'Criando...' : 'Novo'}
+          <button onClick={() => { setNovoNome(`${obraNome} - Cronograma`); setShowNovo(true) }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>
+            <Plus size={13} /> Novo
           </button>
         </div>
       </div>
@@ -809,6 +937,51 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
         </div>
       )}
 
+      {/* Modal novo cronograma */}
+      {showNovo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowNovo(false)}>
+          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Novo Cronograma</h3>
+            <input
+              value={novoNome}
+              onChange={e => setNovoNome(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleCriar()}
+              placeholder="Nome do cronograma"
+              className="input-base w-full mb-4"
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowNovo(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
+              <button onClick={handleCriar} disabled={!novoNome.trim() || creating} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
+                {creating ? 'Criando...' : 'Criar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal renomear */}
+      {editingName && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setEditingName(false)}>
+          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Renomear Cronograma</h3>
+            <input
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleRenomear()}
+              placeholder="Nome do cronograma"
+              className="input-base w-full mb-4"
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setEditingName(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
+              <button onClick={handleRenomear} disabled={!editName.trim()} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal vincular existente */}
       {showVincular && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowVincular(false)}>
           <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
