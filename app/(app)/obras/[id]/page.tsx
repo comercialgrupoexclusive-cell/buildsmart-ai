@@ -17,6 +17,8 @@ import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { ObraArquivos } from '@/components/obra/ObraArquivos'
 import { ObraTarefas } from '@/components/obra/ObraTarefas'
 import { ObraAssistenteIA } from '@/components/obra/ObraAssistenteIA'
+import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
+import { ObraCronograma } from '@/components/obra/ObraCronograma'
 
 type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'tarefas' | 'ia'
 
@@ -380,7 +382,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       <div className="animate-enter">
         {tab === 'visao-geral' && <ObraVisaoGeral obra={obra} onEdit={openEdit} />}
         {tab === 'arquivos' && <ObraArquivos obraId={id} />}
-        {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} />}
+        {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} />}
         {tab === 'cronograma' && <ObraCronogramasTab obraId={id} obraNome={obra.nome} />}
         {tab === 'materiais' && <ObraMateriais obraId={id} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} />}
@@ -528,18 +530,16 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
 
 /* ─── Aba Orçamentos da Obra ─── */
 
-type OrcListItem = {
-  id: string; nome: string | null; versao: number; status: string; bdi_percentual: number
-  total_itens: number; valor_total: number; created_at: string
-}
+type OrcSelectItem = { id: string; nome: string | null; versao: number }
 
-function ObraOrcamentosTab({ obraId, obraNome }: { obraId: string; obraNome: string }) {
+function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: string; obraNome: string; obraUf?: string; obraArea?: number | null }) {
   const supabase = createClient()
   const router = useRouter()
-  const [orcamentos, setOrcamentos] = useState<OrcListItem[]>([])
+  const [orcamentos, setOrcamentos] = useState<OrcSelectItem[]>([])
+  const [selectedId, setSelectedId] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [showVincular, setShowVincular] = useState(false)
-  const [disponiveis, setDisponiveis] = useState<{ id: string; nome: string | null; versao: number }[]>([])
+  const [disponiveis, setDisponiveis] = useState<OrcSelectItem[]>([])
   const [vinculoId, setVinculoId] = useState('')
   const [creating, setCreating] = useState(false)
 
@@ -549,18 +549,15 @@ function ObraOrcamentosTab({ obraId, obraNome }: { obraId: string; obraNome: str
     setLoading(true)
     const { data: orcs } = await supabase
       .from('orcamentos')
-      .select('id, nome, versao, status, bdi_percentual, created_at')
+      .select('id, nome, versao')
       .eq('obra_id', obraId)
       .order('versao', { ascending: false })
-    const list = (orcs || []) as any[]
-    const withTotals = await Promise.all(list.map(async (orc) => {
-      const { count } = await supabase.from('orcamento_itens').select('id', { count: 'exact', head: true }).eq('orcamento_id', orc.id)
-      const { data: itens } = await supabase.from('orcamento_itens').select('valor_total').eq('orcamento_id', orc.id)
-      const valor = (itens || []).reduce((s: number, i: any) => s + (i.valor_total || 0), 0)
-      const bdiMultiplier = 1 + (orc.bdi_percentual || 0) / 100
-      return { ...orc, total_itens: count || 0, valor_total: valor * bdiMultiplier }
-    }))
-    setOrcamentos(withTotals)
+    const list = (orcs || []) as OrcSelectItem[]
+    setOrcamentos(list)
+    if (list.length > 0 && (!selectedId || !list.find(o => o.id === selectedId))) {
+      setSelectedId(list[0].id)
+    }
+    if (list.length === 0) setSelectedId('')
     setLoading(false)
   }
 
@@ -575,7 +572,7 @@ function ObraOrcamentosTab({ obraId, obraNome }: { obraId: string; obraNome: str
         tipo: 'executivo',
         bdi_percentual: 25,
         status: 'rascunho',
-        versao: 1,
+        versao: (orcamentos.length > 0 ? Math.max(...orcamentos.map(o => o.versao)) : 0) + 1,
         cliente: null,
         endereco: obra?.endereco || null,
         responsavel: obra?.responsavel || null,
@@ -587,7 +584,10 @@ function ObraOrcamentosTab({ obraId, obraNome }: { obraId: string; obraNome: str
       .select()
       .single()
     setCreating(false)
-    if (novo) router.push(`/orcamentos/${novo.id}`)
+    if (novo) {
+      await load()
+      setSelectedId(novo.id)
+    }
   }
 
   async function openVincular() {
@@ -596,7 +596,7 @@ function ObraOrcamentosTab({ obraId, obraNome }: { obraId: string; obraNome: str
       .select('id, nome, versao')
       .is('obra_id', null)
       .order('created_at', { ascending: false })
-    setDisponiveis((data || []) as any[])
+    setDisponiveis((data || []) as OrcSelectItem[])
     setVinculoId('')
     setShowVincular(true)
   }
@@ -618,19 +618,8 @@ function ObraOrcamentosTab({ obraId, obraNome }: { obraId: string; obraNome: str
 
     await supabase.from('orcamentos').update(update).eq('id', vinculoId)
     setShowVincular(false)
+    setSelectedId(vinculoId)
     load()
-  }
-
-  async function handleDesvincular(orcId: string) {
-    if (!confirm('Desvincular este orçamento da obra?')) return
-    await supabase.from('orcamentos').update({ obra_id: null }).eq('id', orcId)
-    load()
-  }
-
-  const STATUS_COR: Record<string, string> = {
-    ativo: 'bg-green-500/20 text-green-400 border-green-500/30',
-    finalizado: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-    rascunho: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   }
 
   if (loading) {
@@ -643,70 +632,42 @@ function ObraOrcamentosTab({ obraId, obraNome }: { obraId: string; obraNome: str
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Toolbar: dropdown + ações */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <h2 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-          {orcamentos.length} orçamento{orcamentos.length !== 1 ? 's' : ''} vinculado{orcamentos.length !== 1 ? 's' : ''}
-        </h2>
-        <div className="flex gap-2">
-          <button
-            onClick={openVincular}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80"
-            style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-          >
-            <Link2 size={13} /> Vincular existente
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {orcamentos.length > 0 ? (
+            <select
+              value={selectedId}
+              onChange={e => setSelectedId(e.target.value)}
+              className="input-base text-sm font-medium"
+              style={{ minWidth: 220, maxWidth: 400 }}
+            >
+              {orcamentos.map(o => (
+                <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum orçamento vinculado</span>
+          )}
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
+          <button onClick={openVincular} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+            <Link2 size={13} /> Vincular
           </button>
-          <button
-            onClick={handleNovoOrcamento}
-            disabled={creating}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50"
-            style={{ background: 'var(--accent)' }}
-          >
-            <Plus size={13} /> {creating ? 'Criando...' : 'Novo Orçamento'}
+          <button onClick={handleNovoOrcamento} disabled={creating} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
+            <Plus size={13} /> {creating ? 'Criando...' : 'Novo'}
           </button>
         </div>
       </div>
 
-      {orcamentos.length === 0 ? (
+      {/* Editor inline do orçamento selecionado */}
+      {selectedId ? (
+        <ObraOrcamento key={selectedId} orcamentoId={selectedId} obraId={obraId} obraName={obraNome} obraUf={obraUf} areaM2={obraArea} />
+      ) : (
         <div className="card p-8 text-center">
           <FileText size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />
           <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Nenhum orçamento vinculado</p>
-          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Crie um novo ou vincule um orçamento existente a esta obra.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {orcamentos.map(orc => (
-            <div key={orc.id} className="card p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-              <Link href={`/orcamentos/${orc.id}`} className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <FileText size={16} style={{ color: 'var(--accent)' }} />
-                  <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                    {orc.nome || `Orçamento v${orc.versao}`}
-                  </span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full border ${STATUS_COR[orc.status] || STATUS_COR.rascunho}`}>
-                    {orc.status === 'ativo' ? 'Ativo' : orc.status === 'finalizado' ? 'Finalizado' : 'Rascunho'}
-                  </span>
-                </div>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  {orc.total_itens} {orc.total_itens === 1 ? 'item' : 'itens'} · BDI {orc.bdi_percentual}% · Criado em {formatDate(orc.created_at)}
-                </p>
-              </Link>
-
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <div className="text-right">
-                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Total c/ BDI</p>
-                  <p className="text-lg font-bold" style={{ color: 'var(--accent)' }}>{formatCurrency(orc.valor_total)}</p>
-                </div>
-                <button
-                  onClick={() => handleDesvincular(orc.id)}
-                  className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                  style={{ color: 'var(--text-secondary)' }}
-                  title="Desvincular"
-                >
-                  <Unlink size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Crie um novo ou vincule um orçamento existente a esta obra.</p>
         </div>
       )}
 
@@ -715,7 +676,7 @@ function ObraOrcamentosTab({ obraId, obraNome }: { obraId: string; obraNome: str
           <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Vincular orçamento existente</h3>
             <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
-              Os dados gerais da obra (endereço, UF, área, etc.) serão copiados para o orçamento quando seus campos estiverem vazios.
+              Os dados gerais da obra serão copiados para campos vazios do orçamento.
             </p>
             <select value={vinculoId} onChange={e => setVinculoId(e.target.value)} className="input-base w-full mb-4">
               <option value="">Selecione um orçamento...</option>
@@ -736,15 +697,15 @@ function ObraOrcamentosTab({ obraId, obraNome }: { obraId: string; obraNome: str
 
 /* ─── Aba Cronogramas da Obra ─── */
 
-type CronoListItem = { id: string; nome: string; status: string; created_at: string }
+type CronoSelectItem = { id: string; nome: string }
 
 function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: string }) {
   const supabase = createClient()
-  const router = useRouter()
-  const [cronogramas, setCronogramas] = useState<CronoListItem[]>([])
+  const [cronogramas, setCronogramas] = useState<CronoSelectItem[]>([])
+  const [selectedId, setSelectedId] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [showVincular, setShowVincular] = useState(false)
-  const [disponiveis, setDisponiveis] = useState<CronoListItem[]>([])
+  const [disponiveis, setDisponiveis] = useState<CronoSelectItem[]>([])
   const [vinculoId, setVinculoId] = useState('')
   const [creating, setCreating] = useState(false)
 
@@ -754,10 +715,15 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
     setLoading(true)
     const { data } = await supabase
       .from('cronogramas')
-      .select('id, nome, status, created_at')
+      .select('id, nome')
       .eq('obra_id', obraId)
       .order('created_at', { ascending: false })
-    setCronogramas((data || []) as CronoListItem[])
+    const list = (data || []) as CronoSelectItem[]
+    setCronogramas(list)
+    if (list.length > 0 && (!selectedId || !list.find(c => c.id === selectedId))) {
+      setSelectedId(list[0].id)
+    }
+    if (list.length === 0) setSelectedId('')
     setLoading(false)
   }
 
@@ -769,16 +735,19 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
       .select()
       .single()
     setCreating(false)
-    if (novo) router.push(`/cronogramas/${novo.id}`)
+    if (novo) {
+      await load()
+      setSelectedId(novo.id)
+    }
   }
 
   async function openVincular() {
     const { data } = await supabase
       .from('cronogramas')
-      .select('id, nome, status, created_at')
+      .select('id, nome')
       .is('obra_id', null)
       .order('created_at', { ascending: false })
-    setDisponiveis((data || []) as CronoListItem[])
+    setDisponiveis((data || []) as CronoSelectItem[])
     setVinculoId('')
     setShowVincular(true)
   }
@@ -787,12 +756,7 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
     if (!vinculoId) return
     await supabase.from('cronogramas').update({ obra_id: obraId }).eq('id', vinculoId)
     setShowVincular(false)
-    load()
-  }
-
-  async function handleDesvincular(cronoId: string) {
-    if (!confirm('Desvincular este cronograma da obra?')) return
-    await supabase.from('cronogramas').update({ obra_id: null }).eq('id', cronoId)
+    setSelectedId(vinculoId)
     load()
   }
 
@@ -806,49 +770,42 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Toolbar: dropdown + ações */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <h2 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-          {cronogramas.length} cronograma{cronogramas.length !== 1 ? 's' : ''} vinculado{cronogramas.length !== 1 ? 's' : ''}
-        </h2>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {cronogramas.length > 0 ? (
+            <select
+              value={selectedId}
+              onChange={e => setSelectedId(e.target.value)}
+              className="input-base text-sm font-medium"
+              style={{ minWidth: 220, maxWidth: 400 }}
+            >
+              {cronogramas.map(c => (
+                <option key={c.id} value={c.id}>{c.nome}</option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum cronograma vinculado</span>
+          )}
+        </div>
+        <div className="flex gap-2 flex-shrink-0">
           <button onClick={openVincular} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-            <Link2 size={13} /> Vincular existente
+            <Link2 size={13} /> Vincular
           </button>
           <button onClick={handleNovo} disabled={creating} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-            <Plus size={13} /> {creating ? 'Criando...' : 'Novo Cronograma'}
+            <Plus size={13} /> {creating ? 'Criando...' : 'Novo'}
           </button>
         </div>
       </div>
 
-      {cronogramas.length === 0 ? (
+      {/* Editor inline do cronograma selecionado */}
+      {selectedId ? (
+        <ObraCronograma key={selectedId} cronogramaId={selectedId} obraId={obraId} />
+      ) : (
         <div className="card p-8 text-center">
           <Calendar size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />
           <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Nenhum cronograma vinculado</p>
-          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Crie um novo ou vincule um cronograma existente a esta obra.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {cronogramas.map(crono => (
-            <div key={crono.id} className="card p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-              <Link href={`/cronogramas/${crono.id}`} className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <Calendar size={16} style={{ color: 'var(--accent)' }} />
-                  <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{crono.nome}</span>
-                </div>
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  Criado em {formatDate(crono.created_at)}
-                </p>
-              </Link>
-              <button
-                onClick={() => handleDesvincular(crono.id)}
-                className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors flex-shrink-0"
-                style={{ color: 'var(--text-secondary)' }}
-                title="Desvincular"
-              >
-                <Unlink size={14} />
-              </button>
-            </div>
-          ))}
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Crie um novo ou vincule um cronograma existente a esta obra.</p>
         </div>
       )}
 
