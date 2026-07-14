@@ -305,8 +305,8 @@ export default function ServicosPage({
               <table className="w-full table-zebra">
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    {['', 'Código', 'Descrição', 'Unid.', 'Grupo', 'Itens', 'Ativo', ''].map(h => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{h}</th>
+                    {['', 'Código', 'Descrição', 'Unid.', 'Grupo', 'Itens', 'Ativo', ''].map((h, i) => (
+                      <th key={i} className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
