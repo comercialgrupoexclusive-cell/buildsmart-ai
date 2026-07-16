@@ -2312,15 +2312,15 @@ function GrupoEtapa({
                   <section key={grupo.key} className="border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 px-3 sm:px-4 py-2.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+                      className="flex w-full items-start gap-2 px-3.5 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)]"
                       onClick={() => setSubetapasFechadas(prev => ({ ...prev, [grupo.key]: !subFechada }))}
                     >
-                      <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center" style={{ color: 'var(--text-secondary)' }}>
+                      <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg" style={{ color: 'var(--text-secondary)', background: 'var(--bg-card)' }}>
                         {subFechada ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{grupo.nome}</p>
-                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        <p className="text-[15px] font-semibold leading-snug" style={{ color: 'var(--text-primary)' }}>{grupo.nome}</p>
+                        <p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
                           {grupo.itens.length} {grupo.itens.length === 1 ? 'composicao' : 'composicoes'}
                         </p>
                       </div>
@@ -2329,7 +2329,7 @@ function GrupoEtapa({
                           role="button"
                           tabIndex={0}
                           onClick={e => { e.stopPropagation(); onRenameSubetapa(grupo.nome) }}
-                          className="p-1 rounded hover:bg-[var(--bg-card)]"
+                          className="hidden"
                           title="Renomear subetapa"
                         >
                           <Pencil size={12} style={{ color: 'var(--text-secondary)' }} />
@@ -2340,20 +2340,23 @@ function GrupoEtapa({
                           role="button"
                           tabIndex={0}
                           onClick={e => { e.stopPropagation(); onAddItemToSubetapa(grupo.nome) }}
-                          className="p-1 rounded hover:bg-[var(--bg-card)]"
+                          className="hidden"
                           title="Adicionar composição"
                         >
                           <Plus size={13} style={{ color: 'var(--accent)' }} />
                         </span>
                       )}
-                      <span className="text-sm font-semibold flex-shrink-0" style={{ color: 'var(--accent)' }}>{formatCurrency(subtotalSubetapa)}</span>
+                      <span className="min-w-[92px] flex-shrink-0 rounded-lg px-2.5 py-1.5 text-right" style={{ background: 'rgba(59, 123, 248, 0.10)' }}>
+                        <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Subtotal</span>
+                        <span className="block text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatCurrency(subtotalSubetapa)}</span>
+                      </span>
                       {!isReadonly && (onDeleteSubetapa || onAddItemToSubetapa || onRenameSubetapa) && (
                         <span className="relative flex-shrink-0" data-submenu-container onClick={e => e.stopPropagation()}>
                           <span
                             role="button"
                             tabIndex={0}
                             onClick={() => setSubMenuAberto(v => v === grupo.key ? null : grupo.key)}
-                            className="flex p-1 rounded hover:bg-[var(--bg-card)]"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[var(--bg-card)]"
                             title="Ações da subetapa"
                           >
                             <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
@@ -2400,12 +2403,12 @@ function GrupoEtapa({
                           })
 
                           return (
-                            <div key={item.id} className="px-3 sm:px-4 py-3">
+                            <div key={item.id} className="px-3 py-3">
                               <div
                                 role={hasInsumos ? 'button' : undefined}
                                 tabIndex={hasInsumos ? 0 : undefined}
-                                className="flex items-start gap-2 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
-                                style={{ cursor: hasInsumos ? 'pointer' : 'default' }}
+                                className="rounded-xl border p-3 transition-colors hover:bg-[var(--bg-secondary)]"
+                                style={{ cursor: hasInsumos ? 'pointer' : 'default', borderColor: 'var(--border)', background: 'rgba(255,255,255,0.015)' }}
                                 onClick={() => hasInsumos && onToggleItem(item.id)}
                                 onKeyDown={e => {
                                   if (!hasInsumos) return
@@ -2415,22 +2418,24 @@ function GrupoEtapa({
                                   }
                                 }}
                               >
-                                <span className="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center" style={{ color: 'var(--text-secondary)' }}>
+                                <div className="flex items-start gap-2">
+                                <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg" style={{ color: 'var(--text-secondary)', background: 'var(--bg-card)' }}>
                                   {hasInsumos ? (isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />) : null}
                                 </span>
 
                                 <div className="min-w-0 flex-1">
-                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="flex flex-col gap-3">
                                     <div className="min-w-0 flex-1">
-                                      <p className="text-sm font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
-                                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }} onClick={e => e.stopPropagation()}>
-                                        <span>Qtd.</span>
+                                      <p className="text-[15px] font-semibold leading-snug" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
+                                      <div className="mt-3 rounded-lg border px-2.5 py-2 text-xs" style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)', background: 'var(--bg-secondary)' }} onClick={e => e.stopPropagation()}>
+                                        <span className="block text-[10px] font-medium uppercase tracking-wide">Qtd.</span>
+                                        <div className="mt-1 flex items-center gap-2">
                                         <input
                                           type="text"
                                           inputMode="decimal"
                                           defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
-                                          className="input-base py-1 text-xs text-center tabular-nums"
-                                          style={{ width: 82, color: 'var(--text-primary)' }}
+                                          className="input-base h-9 min-w-0 flex-1 py-1 text-center text-sm tabular-nums"
+                                          style={{ color: 'var(--text-primary)' }}
                                           disabled={isReadonly}
                                           onFocus={e => e.currentTarget.select()}
                                           onBlur={e => {
@@ -2450,15 +2455,21 @@ function GrupoEtapa({
                                             }
                                           }}
                                         />
-                                        <span>{item.unidade}</span>
+                                        <span className="max-w-[56px] truncate">{item.unidade}</span>
+                                        </div>
                                       </div>
                                     </div>
 
-                                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{formatCurrency(item.preco_unitario_snapshot)}/un.</span>
-                                      <span className="text-sm font-semibold" style={{ color: hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
-                                        {formatCurrency(itemTotal)}
-                                        {hasOverride && <span className="ml-1 text-xs opacity-60">(ajust.)</span>}
+                                    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+                                      <span className="min-w-0 rounded-lg border px-2.5 py-2" style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}>
+                                        <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Unitario</span>
+                                        <span className="mt-0.5 block truncate text-sm font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{formatCurrency(item.preco_unitario_snapshot)}</span>
+                                      </span>
+                                      <span className="min-w-[106px] rounded-lg px-2.5 py-2 text-right" style={{ background: hasOverride ? 'rgba(245, 158, 11, 0.12)' : 'rgba(255,255,255,0.035)' }}>
+                                        <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Total</span>
+                                        <span className="mt-0.5 block text-sm font-bold tabular-nums" style={{ color: hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
+                                          {formatCurrency(itemTotal)}
+                                        </span>
                                       </span>
                                       {!isReadonly && (
                                         <span className="relative inline-flex items-center gap-1" data-itemmenu-container onClick={e => e.stopPropagation()}>
@@ -2466,7 +2477,7 @@ function GrupoEtapa({
                                             <button
                                               type="button"
                                               onClick={() => onAddInsumoToItem(item)}
-                                              className="p-1.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                                              className="hidden"
                                               aria-label="Adicionar insumo"
                                               title="Adicionar insumo"
                                             >
@@ -2476,7 +2487,8 @@ function GrupoEtapa({
                                           <button
                                             type="button"
                                             onClick={() => setItemMenuAberto(v => v === item.id ? null : item.id)}
-                                            className="p-1.5 rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                                            className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                                            style={{ border: '1px solid var(--border)' }}
                                             aria-label="Ações da composição"
                                             title="Ações da composição"
                                           >
@@ -2511,6 +2523,7 @@ function GrupoEtapa({
                                     </div>
                                   </div>
                                 </div>
+                              </div>
                               </div>
 
                               {isExpanded && hasInsumos && (
