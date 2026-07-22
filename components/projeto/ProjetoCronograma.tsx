@@ -59,7 +59,7 @@ export function ProjetoCronograma({ projetoId, profiles = [] }: Props) {
   const [flat, setFlat]     = useState<ItemRow[]>([])
   const [tree, setTree]     = useState<ItemRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [subTab, setSubTab] = useState<'kanban' | 'gantt'>('kanban')
+  const [subTab, setSubTab] = useState<'kanban' | 'gantt'>('gantt')
 
   useEffect(() => { load() }, [projetoId])
 
@@ -117,17 +117,17 @@ export function ProjetoCronograma({ projetoId, profiles = [] }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-2">
       {/* Sub-tabs */}
       <div className="flex items-center gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
         {([
-          { key: 'kanban', label: '🗂 Kanban' },
-          { key: 'gantt',  label: '📊 Gantt' },
+          { key: 'gantt',  label: 'Cronograma' },
+          { key: 'kanban', label: 'Kanban' },
         ] as const).map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setSubTab(key)}
-            className="px-4 py-1.5 rounded-md text-sm font-medium transition-all"
+            className="px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
             style={subTab === key
               ? { background: 'var(--accent)', color: 'white' }
               : { color: 'var(--text-secondary)' }}
@@ -338,6 +338,8 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(flat.filter(i => flat.some(j => j.parent_id === i.id)).map(i => i.id))
   )
+  const [showDatesMobile, setShowDatesMobile] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
   const today = new Date()
 
@@ -365,17 +367,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
 
   const allStrs = flat.flatMap(i => [i.data_inicio, i.data_prazo].filter(Boolean) as string[])
 
-  if (allStrs.length === 0) {
-    return (
-      <div className="text-center py-16 rounded-xl border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-        <p className="text-2xl mb-2">📅</p>
-        <p className="text-sm font-medium">Nenhum período definido</p>
-        <p className="text-xs mt-1 opacity-60">Defina início e fim nos itens da aba Estrutura — o gráfico calcula o resto.</p>
-      </div>
-    )
-  }
-
-  const dateDates = allStrs.map(s => new Date(s))
+  const dateDates = allStrs.length ? allStrs.map(s => new Date(s)) : [today]
   const minDate  = addDays(new Date(Math.min(...dateDates.map(d => d.getTime()))), -PAD_DAY)
   const maxDate  = addDays(new Date(Math.max(...dateDates.map(d => d.getTime()))), PAD_DAY)
   const totalDays = daysBetween(minDate, maxDate)
@@ -388,6 +380,23 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
   }
 
   const todayX = daysBetween(minDate, today) * PX_PER_DAY
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const target = Math.max(0, LEFT_W + todayX - el.clientWidth * 0.55)
+    el.scrollLeft = target
+  }, [todayX, timelineW])
+
+  if (allStrs.length === 0) {
+    return (
+      <div className="text-center py-16 rounded-xl border" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+        <p className="text-2xl mb-2">Calendario</p>
+        <p className="text-sm font-medium">Nenhum periodo definido</p>
+        <p className="text-xs mt-1 opacity-60">Defina inicio e fim nos itens da aba Estrutura; o grafico calcula o resto.</p>
+      </div>
+    )
+  }
 
   // Meses
   const months: { label: string; x: number; w: number }[] = []
@@ -420,7 +429,8 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
       hasKids: flat.some(j => j.parent_id === item.id), isProj: false, nivel: item.nivel,
     })),
   ]
-  const svgH = HDR_H + drows.length * ROW_H + 4
+  const rowH = showDatesMobile ? ROW_H : 42
+  const svgH = HDR_H + drows.length * rowH + 4
 
   function toggleCollapse(id: string) {
     setCollapsed(prev => { const s = new Set(prev); if (s.has(id)) s.delete(id); else s.add(id); return s })
@@ -432,11 +442,18 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-      <div className="flex items-center justify-between gap-3 border-b px-3 py-2 text-[11px] sm:hidden" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-        <span>Arraste a linha do tempo para o lado.</span>
-        <span className="font-semibold" style={{ color: 'var(--accent)' }}>{drows.length} linhas</span>
+      <div className="flex items-center justify-between gap-2 border-b px-2.5 py-1.5 text-[11px] sm:hidden" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+        <span className="truncate">Hoje centralizado. Arraste para o lado.</span>
+        <button
+          type="button"
+          onClick={() => setShowDatesMobile(v => !v)}
+          className="flex-shrink-0 rounded-lg border px-2 py-1 text-[11px] font-semibold"
+          style={{ borderColor: 'rgba(59,123,248,0.35)', color: 'var(--accent)', background: 'rgba(59,123,248,0.08)' }}
+        >
+          {showDatesMobile ? 'Ocultar datas' : 'Mostrar datas'}
+        </button>
       </div>
-      <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
+      <div ref={scrollRef} className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
         <div className="flex" style={{ width: ganttW, minWidth: ganttW }}>
         {/* Painel esquerdo — nomes */}
         <div className="sticky left-0 z-20 shadow-[8px_0_18px_rgba(0,0,0,0.22)] sm:shadow-none" style={{ width: LEFT_W, minWidth: LEFT_W, flexShrink: 0, borderRight: '1px solid var(--border)', background: 'var(--bg-card)' }}>
@@ -457,7 +474,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
                 key={id}
                 className="flex flex-col justify-center border-b"
                 style={{
-                  height: ROW_H,
+                  height: rowH,
                   paddingLeft: 8 + Math.min(depth, 2) * 12,
                   paddingRight: 8,
                   borderColor: 'var(--border)',
@@ -493,7 +510,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
                 </div>
 
                 {/* Linha 2: datas */}
-                <div className="flex items-center gap-1 pl-5">
+                <div className={`${showDatesMobile ? 'flex' : 'hidden'} sm:flex items-center gap-1 pl-5`}>
                   {editable && origItem ? (
                     <>
                       <input
@@ -532,7 +549,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
             {/* Fundo alternado */}
             {drows.map(({ id, isProj, nivel }, idx) => (
               <rect key={id}
-                x={0} y={HDR_H + idx * ROW_H} width={timelineW} height={ROW_H}
+                x={0} y={HDR_H + idx * rowH} width={timelineW} height={rowH}
                 fill={isProj ? 'rgba(59,123,248,0.06)' : nivel === 1 ? 'rgba(59,123,248,0.04)' : idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'}
               />
             ))}
@@ -560,8 +577,8 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
 
             {/* Barras */}
             {drows.map(({ id, inicio, fim, concluido, isProj, nivel }, idx) => {
-              const y    = HDR_H + idx * ROW_H
-              const barH = ROW_H - 16
+              const y    = HDR_H + idx * rowH
+              const barH = rowH - 16
               const barY = y + 8
               if (!inicio && !fim) return null
               const x1   = xOf(inicio, fim ? addDays(new Date(fim), -1) : today)

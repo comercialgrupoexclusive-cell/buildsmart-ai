@@ -334,13 +334,13 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
 
           <button
             className={cn(
-              'w-8 h-8 sm:w-4 sm:h-4 rounded-lg sm:rounded border flex items-center justify-center flex-shrink-0 transition-colors shadow-sm',
-              item.concluido ? 'bg-[var(--accent)] border-[var(--accent)]' : 'border-[var(--border)] bg-[var(--bg-card)]'
+              'w-6 h-6 sm:w-4 sm:h-4 rounded-md sm:rounded border flex items-center justify-center flex-shrink-0 transition-colors shadow-sm',
+              item.concluido ? 'bg-[var(--accent)] border-[var(--accent)]' : 'border-[rgba(59,123,248,0.35)] bg-[rgba(59,123,248,0.08)]'
             )}
             title={item.concluido ? 'Marcar como pendente' : 'Marcar como concluído'}
             onClick={() => onToggle(item.id, !item.concluido)}
           >
-            {item.concluido && <Check size={18} className="text-white sm:hidden" strokeWidth={3} />}
+            {item.concluido && <Check size={14} className="text-white sm:hidden" strokeWidth={3} />}
             {item.concluido && <Check size={9} className="text-white hidden sm:block" strokeWidth={3} />}
           </button>
 
