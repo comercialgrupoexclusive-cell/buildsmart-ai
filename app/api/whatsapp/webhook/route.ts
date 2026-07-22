@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
+import { obraAiToolDefs, execObraAiTool } from '@/lib/ai-obra-tools'
 
 // Aumenta o timeout do Vercel de 10s para 60s (funciona no plano Pro)
 // No plano Hobby permanece 10s — se CRUD travar, assinar Vercel Pro
@@ -57,6 +58,8 @@ async function transcribeAudio(openai: OpenAI, audioUrl: string) {
 function buildTools(crudEnabled: boolean): OpenAI.Chat.ChatCompletionTool[] {
   if (!crudEnabled) return []
   return [
+    // RDO, avanço físico e boletim de medição (compartilhadas com a IA in-app)
+    ...obraAiToolDefs(false),
     {
       type: 'function',
       function: {
@@ -164,22 +167,6 @@ function buildTools(crudEnabled: boolean): OpenAI.Chat.ChatCompletionTool[] {
     {
       type: 'function',
       function: {
-        name: 'registrar_medicao',
-        description: 'Registra uma medição ou anotação no diário da obra.',
-        parameters: {
-          type: 'object',
-          properties: {
-            nome_obra: { type: 'string', description: 'Nome ou parte do nome da obra' },
-            observacao: { type: 'string', description: 'Texto da observação ou registro' },
-            percentual_executado: { type: 'number', description: 'Percentual executado no período (0-100), padrão 0' },
-          },
-          required: ['nome_obra', 'observacao'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
         name: 'listar_pendencias',
         description: 'Lista materiais pendentes (não comprados) de todas as obras.',
         parameters: { type: 'object', properties: {}, required: [] },
@@ -191,6 +178,10 @@ function buildTools(crudEnabled: boolean): OpenAI.Chat.ChatCompletionTool[] {
 // ─── Executor de funções ──────────────────────────────────────────────────────
 async function executeTool(db: DB, name: string, args: Record<string, unknown>): Promise<string> {
   try {
+    // Ferramentas compartilhadas (RDO, avanço, boletim) — resolve a obra pelo nome
+    const shared = await execObraAiTool(db, name, args as Record<string, any>)
+    if (shared !== null) return shared
+
     switch (name) {
 
       case 'listar_obras': {
@@ -273,22 +264,6 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>):
         })
         if (error) return `Erro: ${error.message}`
         return `Material "${args.descricao}" adicionado a obra "${obra.nome}".`
-      }
-
-      case 'registrar_medicao': {
-        const { data: obras } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
-        if (!obras?.length) return `Obra "${args.nome_obra}" nao encontrada.`
-        const obra = obras[0] as any
-        const hoje = new Date().toISOString().split('T')[0]
-        const { error } = await db.from('medicoes').insert({
-          obra_id: obra.id,
-          periodo_inicio: hoje,
-          periodo_fim: hoje,
-          percentual_executado: args.percentual_executado || 0,
-          observacao: args.observacao,
-        })
-        if (error) return `Erro: ${error.message}`
-        return `Medicao registrada na obra "${obra.nome}": ${args.observacao}`
       }
 
       case 'listar_pendencias': {
@@ -508,7 +483,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── System prompt ─────────────────────────────────────────────────────────
-    const DEFAULT_PERSONA = `Voce e a ${botName}, assistente inteligente do BuildSmart AI, sistema de gestao de obras para construcao civil. Responda via WhatsApp de forma breve, clara e em portugues brasileiro. NAO use markdown (asterisco, hashtag, bullet). Escreva texto simples. Maximo 3 paragrafos curtos. Voce tem acesso ao banco de dados do BuildSmart e pode criar, listar e atualizar obras, etapas, materiais e medicoes usando as funcoes disponiveis. Use sempre as funcoes para consultar dados atuais.`
+    const DEFAULT_PERSONA = `Voce e a ${botName}, assistente inteligente do BuildSmart AI, sistema de gestao de obras para construcao civil. Responda via WhatsApp de forma breve, clara e em portugues brasileiro. NAO use markdown (asterisco, hashtag, bullet). Escreva texto simples. Maximo 3 paragrafos curtos. Voce tem acesso ao banco de dados do BuildSmart e pode criar, listar e atualizar obras, etapas, materiais, avanco fisico, boletins de medicao e principalmente o RDO (Relatorio Diario de Obra). Quando o usuario descrever o dia na obra (equipe presente, o que foi feito, clima, ocorrencias) registre um RDO com registrar_rdo, informando o nome da obra. Se ele disser o avanco de um servico, use registrar_rdo com o percentual ou atualizar_avanco. Sempre confirme o que registrou. Use as funcoes para consultar dados atuais.`
 
     const systemPrompt = [
       config['persona_global'] || DEFAULT_PERSONA,

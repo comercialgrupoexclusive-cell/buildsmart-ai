@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
+import { obraAiToolDefs, execObraAiTool } from '@/lib/ai-obra-tools'
 
 export const maxDuration = 60
 
@@ -17,6 +18,8 @@ type Msg = { role: 'user' | 'assistant'; content: string }
 // ─── Tools ───────────────────────────────────────────────────────────────────
 function buildTools(): OpenAI.Chat.ChatCompletionTool[] {
   return [
+    // Ferramentas de RDO / avanço / boletim (compartilhadas com o WhatsApp)
+    ...obraAiToolDefs(true),
     {
       type: 'function',
       function: {
@@ -240,6 +243,10 @@ async function findByName(db: DB, table: string, campo: string, nome: string, ob
 // ─── Executor de funções ────────────────────────────────────────────────────
 async function executeTool(db: DB, obraId: string, name: string, args: Record<string, any>): Promise<string> {
   try {
+    // Ferramentas compartilhadas (RDO, avanço, boletim) — obra fixa
+    const shared = await execObraAiTool(db, name, args, obraId)
+    if (shared !== null) return shared
+
     switch (name) {
 
       case 'listar_cronograma': {
@@ -566,6 +573,9 @@ CAPACIDADES:
 - Voce pode criar, alterar e excluir etapas, subetapas e servicos no CRONOGRAMA.
 - Voce pode listar, adicionar, alterar e excluir itens no ORCAMENTO.
 - Voce pode buscar composicoes (proprias e SINAPI) para adicionar ao orcamento.
+- Voce pode registrar o RDO (diario de obra) do dia com clima, efetivo, equipamentos, atividades e ocorrencias (registrar_rdo).
+- Voce pode atualizar o avanco fisico de qualquer item do cronograma pelo nome (atualizar_avanco).
+- Voce pode criar e fechar boletins de medicao por periodo (criar_boletim, fechar_boletim).
 - Use as funcoes disponiveis para executar acoes. Nao invente dados.
 
 REGRAS:
