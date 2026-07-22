@@ -303,7 +303,7 @@ function KanbanCard({ item, disciplina, onToggle, onMoveStatus }: {
 
 const ROW_H   = 48
 const HDR_H   = 48
-const LEFT_W  = 220
+const LEFT_W  = 180
 const PAD_DAY = 12
 const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const GANTT_COLORS = ['#3B7BF8', '#8B5CF6', '#10B981', '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#F97316']
@@ -379,8 +379,8 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
   const minDate  = addDays(new Date(Math.min(...dateDates.map(d => d.getTime()))), -PAD_DAY)
   const maxDate  = addDays(new Date(Math.max(...dateDates.map(d => d.getTime()))), PAD_DAY)
   const totalDays = daysBetween(minDate, maxDate)
-  const PX_PER_DAY = 18
-  const timelineW = Math.max(totalDays * PX_PER_DAY, 420)
+  const PX_PER_DAY = 20
+  const timelineW = Math.max(totalDays * PX_PER_DAY, 560)
   const ganttW = LEFT_W + timelineW
 
   function xOf(dateStr: string | null, fallback: Date): number {
@@ -432,10 +432,14 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+      <div className="flex items-center justify-between gap-3 border-b px-3 py-2 text-[11px] sm:hidden" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+        <span>Arraste a linha do tempo para o lado.</span>
+        <span className="font-semibold" style={{ color: 'var(--accent)' }}>{drows.length} linhas</span>
+      </div>
       <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
         <div className="flex" style={{ width: ganttW, minWidth: ganttW }}>
         {/* Painel esquerdo — nomes */}
-        <div style={{ width: LEFT_W, minWidth: LEFT_W, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
+        <div className="sticky left-0 z-20 shadow-[8px_0_18px_rgba(0,0,0,0.22)] sm:shadow-none" style={{ width: LEFT_W, minWidth: LEFT_W, flexShrink: 0, borderRight: '1px solid var(--border)', background: 'var(--bg-card)' }}>
           <div
             className="flex items-end px-3 pb-2 text-xs font-semibold"
             style={{ height: HDR_H, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
@@ -454,7 +458,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
                 className="flex flex-col justify-center border-b"
                 style={{
                   height: ROW_H,
-                  paddingLeft: 8 + depth * 16,
+                  paddingLeft: 8 + Math.min(depth, 2) * 12,
                   paddingRight: 8,
                   borderColor: 'var(--border)',
                   background: isProj ? 'rgba(59,123,248,0.08)' : nivel === 1 ? 'rgba(59,123,248,0.04)' : 'transparent',
@@ -474,7 +478,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
                     <span className="w-4 flex-shrink-0" />
                   )}
                   <span
-                    className="text-xs truncate flex-1"
+                    className="text-[11px] sm:text-xs truncate flex-1"
                     style={{
                       color: isProj || nivel === 1 ? 'var(--accent)' : 'var(--text-primary)',
                       fontWeight: isProj ? 700 : nivel === 1 ? 600 : 400,
@@ -495,18 +499,21 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
                       <input
                         type="date"
                         value={origItem.data_inicio ?? ''}
-                        className="text-[10px] rounded border px-1 py-0.5"
+                        className="hidden sm:block text-[10px] rounded border px-1 py-0.5"
                         style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-secondary)', width: 78 }}
                         onChange={e => onUpdateItem(id, { data_inicio: e.target.value || null })}
                       />
-                      <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>→</span>
+                      <span className="hidden sm:inline text-[9px]" style={{ color: 'var(--text-secondary)' }}>-&gt;</span>
                       <input
                         type="date"
                         value={origItem.data_prazo ?? ''}
-                        className="text-[10px] rounded border px-1 py-0.5"
+                        className="hidden sm:block text-[10px] rounded border px-1 py-0.5"
                         style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-secondary)', width: 78 }}
                         onChange={e => onUpdateItem(id, { data_prazo: e.target.value || null })}
                       />
+                      <span className="text-[10px] sm:hidden truncate" style={{ color: 'var(--text-secondary)' }}>
+                        {fmtDate(origItem.data_inicio)}{origItem.data_prazo ? ` -> ${fmtDate(origItem.data_prazo)}` : ''}
+                      </span>
                     </>
                   ) : (inicio || fim) ? (
                     <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>

@@ -310,34 +310,38 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
     <div>
       {/* Linha principal — grid de 3 colunas */}
       <div
-        className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors rounded-lg sm:rounded-none mb-1 sm:mb-0 px-2 sm:px-0 py-2 sm:py-0"
+        className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors rounded-xl sm:rounded-none mb-2 sm:mb-0 px-3 sm:px-0 py-3 sm:py-0 border sm:border-0"
         style={{
           gridTemplateColumns: '1fr 130px 110px 70px 110px',
           paddingLeft: 8,
           paddingRight: 8,
           minHeight: 36,
           background: item.nivel === 1 ? NIVEL_BG[1] : item.nivel === 2 ? 'rgba(255,255,255,0.018)' : 'transparent',
+          borderColor: 'var(--border)',
           borderBottom: '1px solid var(--border)',
         }}
       >
         {/* Coluna 1 — checkbox + expand + nome */}
-        <div className="flex items-center gap-1.5 py-1.5 min-w-0 flex-wrap sm:flex-nowrap" style={{ paddingLeft: indent }}>
+        <div className="flex items-start sm:items-center gap-2 sm:gap-1.5 py-1.5 min-w-0 flex-wrap sm:flex-nowrap" style={{ paddingLeft: indent }}>
           <button
-            className="w-4 h-4 flex items-center justify-center flex-shrink-0"
+            className="w-7 h-8 sm:w-4 sm:h-4 flex items-center justify-center flex-shrink-0 rounded-lg sm:rounded-none"
             style={{ color: 'var(--text-secondary)', visibility: hasChildren ? 'visible' : 'hidden' }}
             onClick={() => setOpen(o => !o)}
           >
-            {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {open ? <ChevronDown size={18} className="sm:hidden" /> : <ChevronRight size={18} className="sm:hidden" />}
+            {open ? <ChevronDown size={13} className="hidden sm:block" /> : <ChevronRight size={13} className="hidden sm:block" />}
           </button>
 
           <button
             className={cn(
-              'w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors',
-              item.concluido ? 'bg-[var(--accent)] border-[var(--accent)]' : 'border-[var(--border)]'
+              'w-8 h-8 sm:w-4 sm:h-4 rounded-lg sm:rounded border flex items-center justify-center flex-shrink-0 transition-colors shadow-sm',
+              item.concluido ? 'bg-[var(--accent)] border-[var(--accent)]' : 'border-[var(--border)] bg-[var(--bg-card)]'
             )}
+            title={item.concluido ? 'Marcar como pendente' : 'Marcar como concluído'}
             onClick={() => onToggle(item.id, !item.concluido)}
           >
-            {item.concluido && <Check size={9} className="text-white" strokeWidth={3} />}
+            {item.concluido && <Check size={18} className="text-white sm:hidden" strokeWidth={3} />}
+            {item.concluido && <Check size={9} className="text-white hidden sm:block" strokeWidth={3} />}
           </button>
 
           {editingNome ? (
@@ -355,7 +359,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             />
           ) : (
             <span
-              className={cn('flex-1 text-sm truncate min-w-0', item.concluido && 'line-through opacity-50')}
+              className={cn('flex-1 text-[15px] sm:text-sm leading-snug sm:truncate min-w-0', item.concluido && 'line-through opacity-50')}
               style={{ color: NIVEL_COLORS[item.nivel], fontWeight: item.nivel === 1 ? 600 : 400 }}
             >
               {item.nome}
@@ -431,7 +435,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             </button>
           )}
 
-          <div className="basis-full mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:hidden" style={{ color: 'var(--text-secondary)', paddingLeft: 42 }}>
+          <div className="basis-full mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] sm:hidden" style={{ color: 'var(--text-secondary)', paddingLeft: 42 }}>
             {item.responsavel && <span>{item.responsavel}</span>}
             {file && <button onClick={() => onOpenFile(file)} className="truncate" style={{ color: 'var(--accent)' }}>{file.file_name}</button>}
             {(eff.inicio || eff.fim) && (
@@ -444,7 +448,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
 
           {/* Ações hover */}
           {canEdit && hasDateInput && (
-            <div className="basis-full sm:hidden grid grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 42 }}>
+            <div className="basis-full hidden sm:hidden grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 42 }}>
               <label className="min-w-0">
                 <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Início</span>
                 <input
