@@ -303,7 +303,8 @@ function KanbanCard({ item, disciplina, onToggle, onMoveStatus }: {
 
 const ROW_H   = 48
 const HDR_H   = 48
-const LEFT_W  = 180
+const LEFT_W  = 220
+const MOBILE_LEFT_W = 180
 const PAD_DAY = 12
 const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const GANTT_COLORS = ['#3B7BF8', '#8B5CF6', '#10B981', '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#F97316']
@@ -339,9 +340,19 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
     () => new Set(flat.filter(i => flat.some(j => j.parent_id === i.id)).map(i => i.id))
   )
   const [showDatesMobile, setShowDatesMobile] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const today = new Date()
+  const leftW = isMobile ? MOBILE_LEFT_W : LEFT_W
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 639px)')
+    const update = () => setIsMobile(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
 
   // Datas efetivas (rollup) de cada nó
   const effMap = new Map<string, EffDate>()
@@ -373,7 +384,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
   const totalDays = daysBetween(minDate, maxDate)
   const PX_PER_DAY = 20
   const timelineW = Math.max(totalDays * PX_PER_DAY, 560)
-  const ganttW = LEFT_W + timelineW
+  const ganttW = leftW + timelineW
 
   function xOf(dateStr: string | null, fallback: Date): number {
     return daysBetween(minDate, dateStr ? new Date(dateStr) : fallback) * PX_PER_DAY
@@ -382,11 +393,12 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
   const todayX = daysBetween(minDate, today) * PX_PER_DAY
 
   useEffect(() => {
+    if (!isMobile) return
     const el = scrollRef.current
     if (!el) return
-    const target = Math.max(0, LEFT_W + todayX - el.clientWidth * 0.55)
+    const target = Math.max(0, leftW + todayX - el.clientWidth * 0.55)
     el.scrollLeft = target
-  }, [todayX, timelineW])
+  }, [isMobile, leftW, todayX, timelineW])
 
   if (allStrs.length === 0) {
     return (
@@ -429,7 +441,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
       hasKids: flat.some(j => j.parent_id === item.id), isProj: false, nivel: item.nivel,
     })),
   ]
-  const rowH = showDatesMobile ? ROW_H : 42
+  const rowH = isMobile && !showDatesMobile ? 42 : ROW_H
   const svgH = HDR_H + drows.length * rowH + 4
 
   function toggleCollapse(id: string) {
@@ -456,7 +468,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
       <div ref={scrollRef} className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
         <div className="flex" style={{ width: ganttW, minWidth: ganttW }}>
         {/* Painel esquerdo — nomes */}
-        <div className="sticky left-0 z-20 shadow-[8px_0_18px_rgba(0,0,0,0.22)] sm:shadow-none" style={{ width: LEFT_W, minWidth: LEFT_W, flexShrink: 0, borderRight: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+        <div className="sticky left-0 z-20 shadow-[8px_0_18px_rgba(0,0,0,0.22)] sm:shadow-none" style={{ width: leftW, minWidth: leftW, flexShrink: 0, borderRight: '1px solid var(--border)', background: 'var(--bg-card)' }}>
           <div
             className="flex items-end px-3 pb-2 text-xs font-semibold"
             style={{ height: HDR_H, background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}
