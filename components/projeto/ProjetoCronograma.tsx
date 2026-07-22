@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Check } from 'lucide-react'
+import { CalendarDays, Check, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface ItemRow {
   id: string
@@ -304,7 +304,7 @@ function KanbanCard({ item, disciplina, onToggle, onMoveStatus }: {
 const ROW_H   = 48
 const HDR_H   = 48
 const LEFT_W  = 220
-const MOBILE_LEFT_W = 180
+const MOBILE_ROW_H = 48
 const PAD_DAY = 12
 const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const GANTT_COLORS = ['#3B7BF8', '#8B5CF6', '#10B981', '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#F97316']
@@ -344,7 +344,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const today = new Date()
-  const leftW = isMobile ? MOBILE_LEFT_W : LEFT_W
+  const leftW = LEFT_W
 
   useEffect(() => {
     const query = window.matchMedia('(max-width: 639px)')
@@ -392,13 +392,23 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
 
   const todayX = daysBetween(minDate, today) * PX_PER_DAY
 
-  useEffect(() => {
-    if (!isMobile) return
+  function centerMobileTimeline() {
     const el = scrollRef.current
     if (!el) return
-    const target = Math.max(0, leftW + todayX - el.clientWidth * 0.55)
+    const target = Math.max(0, todayX - el.clientWidth * 0.42)
     el.scrollLeft = target
-  }, [isMobile, leftW, todayX, timelineW])
+  }
+
+  useEffect(() => {
+    if (!isMobile) return
+    const frame = requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (!el) return
+      const target = Math.max(0, todayX - el.clientWidth * 0.42)
+      el.scrollLeft = target
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [isMobile, todayX, timelineW])
 
   if (allStrs.length === 0) {
     return (
@@ -441,8 +451,10 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
       hasKids: flat.some(j => j.parent_id === item.id), isProj: false, nivel: item.nivel,
     })),
   ]
-  const rowH = isMobile && !showDatesMobile ? 42 : ROW_H
+  const rowH = ROW_H
   const svgH = HDR_H + drows.length * rowH + 4
+  const mobileTimelineRows = drows.filter(row => row.isProj || row.nivel === 1)
+  const mobileSvgH = HDR_H + mobileTimelineRows.length * MOBILE_ROW_H + 4
 
   function toggleCollapse(id: string) {
     setCollapsed(prev => { const s = new Set(prev); if (s.has(id)) s.delete(id); else s.add(id); return s })
@@ -454,18 +466,191 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-      <div className="flex items-center justify-between gap-2 border-b px-2.5 py-1.5 text-[11px] sm:hidden" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-        <span className="truncate">Hoje centralizado. Arraste para o lado.</span>
-        <button
-          type="button"
-          onClick={() => setShowDatesMobile(v => !v)}
-          className="flex-shrink-0 rounded-lg border px-2 py-1 text-[11px] font-semibold"
-          style={{ borderColor: 'rgba(59,123,248,0.35)', color: 'var(--accent)', background: 'rgba(59,123,248,0.08)' }}
-        >
-          {showDatesMobile ? 'Ocultar datas' : 'Mostrar datas'}
-        </button>
+      {/* Mobile: arvore e linha do tempo em blocos verticais independentes. */}
+      <div className="sm:hidden">
+        <div className="flex items-center justify-between gap-2 border-b px-3 py-2" style={{ borderColor: 'var(--border)' }}>
+          <div className="min-w-0">
+            <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Disciplinas e etapas</p>
+            <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Toque na seta para abrir a cascata</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowDatesMobile(v => !v)}
+            className="flex flex-shrink-0 items-center gap-1 rounded-lg border px-2 py-1.5 text-[11px] font-semibold"
+            style={{ borderColor: 'rgba(59,123,248,0.35)', color: 'var(--accent)', background: 'rgba(59,123,248,0.08)' }}
+          >
+            <CalendarDays size={13} />
+            {showDatesMobile ? 'Ocultar datas' : 'Mostrar datas'}
+          </button>
+        </div>
+
+        <div>
+          {drows.map(({ id, nome, depth, inicio, fim, concluido, hasKids, isProj, nivel }) => {
+            const isCollapsed = collapsed.has(id)
+            const atrasado = !!(fim && !concluido && new Date(fim) < today)
+            const editable = !isProj && canEditDates(id, nivel)
+            const origItem = flat.find(i => i.id === id)
+            const color = isProj ? '#3B7BF8' : (nodeColorMap.get(id) ?? '#3B7BF8')
+
+            return (
+              <div
+                key={id}
+                className="border-b px-3 py-2.5"
+                style={{
+                  borderColor: 'var(--border)',
+                  paddingLeft: 12 + Math.min(depth, 2) * 12,
+                  background: isProj ? 'rgba(59,123,248,0.08)' : nivel === 1 ? 'rgba(59,123,248,0.035)' : 'transparent',
+                }}
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  {hasKids ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleCollapse(id)}
+                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}
+                      aria-label={isCollapsed ? `Abrir ${nome}` : `Fechar ${nome}`}
+                    >
+                      {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                    </button>
+                  ) : (
+                    <span className="ml-2 h-2 w-2 flex-shrink-0 rounded-full" style={{ background: color, opacity: 0.75 }} />
+                  )}
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start gap-2">
+                      <span
+                        className="min-w-0 flex-1 text-sm leading-5"
+                        style={{
+                          color: isProj || nivel === 1 ? 'var(--accent)' : 'var(--text-primary)',
+                          fontWeight: isProj || nivel === 1 ? 600 : 400,
+                          opacity: concluido ? 0.55 : 1,
+                          textDecoration: concluido ? 'line-through' : 'none',
+                        }}
+                      >
+                        {nome}
+                      </span>
+                      {atrasado && (
+                        <span className="flex-shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold" style={{ color: '#EF4444', background: 'rgba(239,68,68,0.1)' }}>
+                          Atrasado
+                        </span>
+                      )}
+                    </div>
+                    {!showDatesMobile && (inicio || fim) && (
+                      <p className="mt-0.5 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                        {fmtDate(inicio)}{fim ? ` -> ${fmtDate(fim)}` : ''}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {showDatesMobile && (
+                  <div className="mt-2 grid grid-cols-2 gap-2 pl-9">
+                    {editable && origItem ? (
+                      <>
+                        <label className="min-w-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                          Inicio
+                          <input
+                            type="date"
+                            value={origItem.data_inicio ?? ''}
+                            className="mt-1 block h-9 w-full min-w-0 rounded-md border px-2 text-xs"
+                            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                            onChange={e => onUpdateItem(id, { data_inicio: e.target.value || null })}
+                          />
+                        </label>
+                        <label className="min-w-0 text-[10px]" style={{ color: 'var(--text-secondary)' }}>
+                          Fim
+                          <input
+                            type="date"
+                            value={origItem.data_prazo ?? ''}
+                            className="mt-1 block h-9 w-full min-w-0 rounded-md border px-2 text-xs"
+                            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                            onChange={e => onUpdateItem(id, { data_prazo: e.target.value || null })}
+                          />
+                        </label>
+                      </>
+                    ) : (
+                      <p className="col-span-2 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                        {fmtDate(inicio)}{fim ? ` -> ${fmtDate(fim)}` : ''}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="flex items-center justify-between border-b px-3 py-2.5" style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}>
+          <div>
+            <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>Linha do tempo</p>
+            <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Arraste para navegar pelos meses</p>
+          </div>
+          <button
+            type="button"
+            onClick={centerMobileTimeline}
+            className="rounded-md border px-2.5 py-1.5 text-[11px] font-semibold"
+            style={{ borderColor: 'rgba(59,123,248,0.35)', color: 'var(--accent)', background: 'rgba(59,123,248,0.08)' }}
+          >
+            Hoje
+          </button>
+        </div>
+
+        <div ref={scrollRef} className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
+          <svg width={timelineW} height={mobileSvgH} style={{ display: 'block' }}>
+            {mobileTimelineRows.map(({ id, isProj, nivel }, idx) => (
+              <rect
+                key={id}
+                x={0}
+                y={HDR_H + idx * MOBILE_ROW_H}
+                width={timelineW}
+                height={MOBILE_ROW_H}
+                fill={isProj ? 'rgba(59,123,248,0.06)' : nivel === 1 ? 'rgba(59,123,248,0.035)' : 'transparent'}
+              />
+            ))}
+            {months.map((m, i) => (
+              <g key={i}>
+                <rect x={m.x} y={0} width={m.w} height={HDR_H} fill={i % 2 === 0 ? 'rgba(59,123,248,0.04)' : 'transparent'} />
+                <text x={m.x + m.w / 2} y={HDR_H / 2 + 4} textAnchor="middle" fontSize={10} fill="var(--text-secondary)" fontFamily="var(--font-sans)">{m.label}</text>
+                <line x1={m.x} y1={0} x2={m.x} y2={mobileSvgH} stroke="var(--border)" strokeWidth={0.5} />
+              </g>
+            ))}
+            <line x1={0} y1={HDR_H} x2={timelineW} y2={HDR_H} stroke="var(--border)" strokeWidth={1} />
+            {todayX >= 0 && todayX <= timelineW && (
+              <g>
+                <line x1={todayX} y1={HDR_H} x2={todayX} y2={mobileSvgH} stroke="#3B7BF8" strokeWidth={1.5} strokeDasharray="4 3" />
+                <rect x={todayX - 19} y={HDR_H - 19} width={38} height={16} rx={4} fill="#3B7BF8" />
+                <text x={todayX} y={HDR_H - 7.5} textAnchor="middle" fontSize={8} fill="white" fontFamily="var(--font-sans)">hoje</text>
+              </g>
+            )}
+            {mobileTimelineRows.map(({ id, nome, inicio, fim, concluido, isProj }, idx) => {
+              if (!inicio && !fim) return null
+              const y = HDR_H + idx * MOBILE_ROW_H
+              const x1 = xOf(inicio, fim ? addDays(new Date(fim), -1) : today)
+              const x2 = xOf(fim, inicio ? addDays(new Date(inicio), 1) : today)
+              const barW = Math.max(x2 - x1, 10)
+              const atrasado = !!(fim && !concluido && new Date(fim) < today)
+              const baseColor = isProj ? '#1D4ED8' : (nodeColorMap.get(id) ?? '#3B7BF8')
+              const color = concluido ? '#10B981' : atrasado ? '#EF4444' : baseColor
+              const label = isProj ? 'Projeto total' : nome
+
+              return (
+                <g key={id} opacity={concluido ? 0.65 : 1}>
+                  <rect x={x1} y={y + 8} width={barW} height={MOBILE_ROW_H - 16} rx={isProj ? 4 : 14} fill={color} />
+                  {barW >= 72 && (
+                    <text x={x1 + 10} y={y + MOBILE_ROW_H / 2 + 4} fontSize={10} fill="white" fontFamily="var(--font-sans)" style={{ pointerEvents: 'none' }}>
+                      {label.length > 22 ? `${label.slice(0, 20)}...` : label}
+                    </text>
+                  )}
+                </g>
+              )
+            })}
+          </svg>
+        </div>
       </div>
-      <div ref={scrollRef} className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
+
+      {/* Desktop: tabela e Gantt permanecem sincronizados lado a lado. */}
+      <div className="hidden overflow-x-auto sm:block" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}>
         <div className="flex" style={{ width: ganttW, minWidth: ganttW }}>
         {/* Painel esquerdo — nomes */}
         <div className="sticky left-0 z-20 shadow-[8px_0_18px_rgba(0,0,0,0.22)] sm:shadow-none" style={{ width: leftW, minWidth: leftW, flexShrink: 0, borderRight: '1px solid var(--border)', background: 'var(--bg-card)' }}>
