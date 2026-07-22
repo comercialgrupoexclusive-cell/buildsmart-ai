@@ -149,13 +149,16 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Boletins de medição</p>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>Cada boletim fecha um período e congela o avanço do cronograma como medição.</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>Um boletim mede um período. Você cria com nome e datas; ao <strong>fechar</strong>, ele congela o avanço atual do cronograma e calcula quanto avançou no período (saldo e valor).</p>
         </div>
         {!showForm && <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2 text-sm px-4 py-2 flex-shrink-0"><Plus size={15} /> Novo boletim</button>}
       </div>
 
       {showForm && (
         <div className="card p-4 flex flex-col gap-3">
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+            Passo 1 de 2 — identifique o período. Depois de criar, você fecha o boletim para congelar a medição.
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Nome</label>
@@ -241,7 +244,25 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
                         </div>
                       ) : <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Sem itens no snapshot.</p>
                     ) : (
-                      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Boletim em rascunho. Ao fechar, o avanço atual do cronograma será congelado como a medição deste período.</p>
+                      <div className="flex flex-col gap-2">
+                        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                          <strong style={{ color: 'var(--text-primary)' }}>Passo 2 de 2.</strong> Este boletim ainda está aberto. Ao fechar, o avanço atual do cronograma vira a medição deste período.
+                        </p>
+                        {prog && (
+                          <div className="flex items-center gap-4 rounded-lg p-3 text-sm" style={{ background: 'var(--bg-secondary)' }}>
+                            <div>
+                              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Será capturado agora</p>
+                              <p className="font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{prog.avancoPonderado.toFixed(1)}%</p>
+                            </div>
+                            {prog.temValores && (
+                              <div>
+                                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Valor acumulado</p>
+                                <p className="font-bold tabular-nums" style={{ color: 'var(--success)' }}>{brl(prog.valorTotal * prog.avancoPonderado / 100)}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
 
                     <div className="flex gap-2 pt-1 flex-wrap">

@@ -43,6 +43,9 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
   const [loading, setLoading] = useState(true)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
+  // Filtros da aba Avanço
+  const [filtroEtapa, setFiltroEtapa] = useState('')
+  const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'andamento' | 'concluido'>('todas')
 
   const carregar = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -160,22 +163,55 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
 
           {prog.etapas.length === 0 ? (
             <EmptyState icon={ListChecks} title="Nenhuma etapa cadastrada" description="Cadastre etapas no cronograma para acompanhar e medir a execução aqui." />
-          ) : (
-            <div className="flex flex-col gap-3 pb-16">
-              <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
-                Ajuste o % de execução em qualquer nível — o valor é gravado direto no cronograma (fonte única). Definir a etapa espalha para baixo; ajustar serviços recalcula a subetapa e a etapa por cima. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
-              </p>
-              {prog.etapas.map(etapa => (
-                <EtapaAvanco
-                  key={etapa.id} etapa={etapa} valorTotal={prog.valorTotal} temValores={prog.temValores}
-                  collapsed={collapsed[etapa.id]} onToggle={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
-                  onSetEtapa={v => setEtapaPct(etapa, v)}
-                  onSetSub={(sub, v) => setSubetapaPct(sub, v)}
-                  onSetServico={(id, v) => setServicoPct(id, v)}
-                />
-              ))}
-            </div>
-          )}
+          ) : (() => {
+            const STATUS_FILTROS = [
+              { id: 'todas', label: 'Todas' },
+              { id: 'pendente', label: 'Pendentes' },
+              { id: 'andamento', label: 'Em andamento' },
+              { id: 'concluido', label: 'Concluídas' },
+            ] as const
+            const etapasFiltradas = prog.etapas.filter(e => {
+              if (filtroEtapa && e.id !== filtroEtapa) return false
+              if (filtroStatus === 'pendente' && e.percentual > 0) return false
+              if (filtroStatus === 'andamento' && !(e.percentual > 0 && e.percentual < 100)) return false
+              if (filtroStatus === 'concluido' && e.percentual < 100) return false
+              return true
+            })
+            return (
+              <div className="flex flex-col gap-3 pb-16">
+                {/* Filtros de etapas */}
+                <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                  <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)} className="input-base text-sm" style={{ maxWidth: 320 }}>
+                    <option value="">Todas as etapas</option>
+                    {prog.etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                  </select>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {STATUS_FILTROS.map(f => (
+                      <button key={f.id} onClick={() => setFiltroStatus(f.id)}
+                        className="px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors"
+                        style={filtroStatus === f.id ? { background: 'var(--accent)', color: '#fff' } : { background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
+                  Ajuste o % de execução em qualquer nível — o valor é gravado direto no cronograma (fonte única). Definir a etapa espalha para baixo; ajustar serviços recalcula a subetapa e a etapa por cima. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
+                </p>
+                {etapasFiltradas.length === 0 ? (
+                  <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma etapa neste filtro.</div>
+                ) : etapasFiltradas.map(etapa => (
+                  <EtapaAvanco
+                    key={etapa.id} etapa={etapa} valorTotal={prog.valorTotal} temValores={prog.temValores}
+                    collapsed={collapsed[etapa.id]} onToggle={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
+                    onSetEtapa={v => setEtapaPct(etapa, v)}
+                    onSetSub={(sub, v) => setSubetapaPct(sub, v)}
+                    onSetServico={(id, v) => setServicoPct(id, v)}
+                  />
+                ))}
+              </div>
+            )
+          })()}
         </>
       )}
     </div>

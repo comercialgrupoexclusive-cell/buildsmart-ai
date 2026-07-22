@@ -27,10 +27,9 @@ const CLIMA: Record<Clima, { label: string; icon: typeof Sun }> = {
   chuva: { label: 'Chuva', icon: CloudRain },
   impraticavel: { label: 'Impraticável', icon: CloudOff },
 }
-const TURNOS: { key: 'clima_manha' | 'clima_tarde' | 'clima_noite'; label: string }[] = [
+const TURNOS: { key: 'clima_manha' | 'clima_tarde'; label: string }[] = [
   { key: 'clima_manha', label: 'Manhã' },
   { key: 'clima_tarde', label: 'Tarde' },
-  { key: 'clima_noite', label: 'Noite' },
 ]
 
 type SvcFlat = { id: string; nome: string; caminho: string; percentual: number }
@@ -41,7 +40,6 @@ const EMPTY = {
   data: hoje(),
   clima_manha: 'sol' as Clima,
   clima_tarde: 'sol' as Clima,
-  clima_noite: 'sol' as Clima,
   condicao_trabalho: 'praticavel' as 'praticavel' | 'parcial' | 'impraticavel',
   efetivo: [] as RdoEfetivo[],
   equipamentos: [] as RdoEquipamento[],
@@ -97,7 +95,6 @@ export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?:
       data: r.data,
       clima_manha: r.clima_manha || 'sol',
       clima_tarde: r.clima_tarde || 'sol',
-      clima_noite: r.clima_noite || 'sol',
       condicao_trabalho: r.condicao_trabalho || 'praticavel',
       efetivo: r.efetivo || [],
       equipamentos: r.equipamentos || [],
@@ -136,7 +133,6 @@ export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?:
       autor_id: currentProfile?.id || null,
       clima_manha: form.clima_manha,
       clima_tarde: form.clima_tarde,
-      clima_noite: form.clima_noite,
       condicao_trabalho: form.condicao_trabalho,
       efetivo: form.efetivo,
       equipamentos: form.equipamentos,
@@ -277,7 +273,7 @@ function RdoForm({
       {/* Clima por turno */}
       <div>
         <label className={label} style={{ color: 'var(--text-secondary)' }}>Clima por turno</label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {TURNOS.map(t => (
             <div key={t.key} className="rounded-lg p-2" style={{ background: 'var(--bg-secondary)' }}>
               <p className="text-[11px] font-medium mb-1.5 text-center" style={{ color: 'var(--text-secondary)' }}>{t.label}</p>
@@ -411,7 +407,7 @@ function RdoCard({ rdo, aberto, onToggle, onEditar, onRemover }: {
   rdo: Rdo; aberto: boolean; onToggle: () => void; onEditar: () => void; onRemover: () => void
 }) {
   const totalEfetivo = (rdo.efetivo || []).reduce((a, e) => a + (Number(e.quantidade) || 0), 0)
-  const climas = [rdo.clima_manha, rdo.clima_tarde, rdo.clima_noite].filter(Boolean) as Clima[]
+  const climas = [rdo.clima_manha, rdo.clima_tarde].filter(Boolean) as Clima[]
   const dataFmt = new Date(rdo.data + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
 
   return (
