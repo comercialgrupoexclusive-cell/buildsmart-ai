@@ -46,3 +46,6 @@ next-env.d.ts
 
 # Excalidraw fonts — copied by postinstall script, not needed in git
 /public/fonts/
+
+# Generated outputs
+/outputs/
