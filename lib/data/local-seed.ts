@@ -371,8 +371,8 @@ export function createLocalSeed(): LocalDatabase {
       { id: 'mat-kit-tomada', obra_id: obraId2, etapa_id: 'etapa-instalacoes-2', subetapa: 'Quadro e circuitos', sinapi_codigo: 'IP-005', descricao: 'Kit tomada 2P+T 10A com espelho', unidade: 'UN', quantidade_total: 12, quantidade_comprada: 4, status_compra: 'parcial', data_necessidade: '2026-06-25', data_recebimento: null },
     ],
     medicoes: [
-      { id: 'medicao-1', obra_id: obraId, etapa_id: 'etapa-servicos', nome: 'Medição 1', periodo_inicio: '2026-06-10', periodo_fim: '2026-06-14', percentual_executado: 20, observacao: 'Medição inicial de teste local', fotos: [], created_at: now, updated_at: now },
-      { id: 'medicao-2', obra_id: obraId2, etapa_id: 'etapa-demolicao-2', nome: 'Medição 1', periodo_inicio: '2026-06-15', periodo_fim: '2026-06-19', percentual_executado: 35, observacao: 'Demolição de divisórias antigas iniciada', fotos: [], created_at: now, updated_at: now },
+      { id: 'medicao-1', obra_id: obraId, etapa_id: 'etapa-servicos', numero: 1, status: 'rascunho', nome: 'Medição 1', periodo_inicio: '2026-06-10', periodo_fim: '2026-06-14', percentual_executado: 20, avanco_periodo: null, avanco_acumulado: null, valor_periodo: null, valor_acumulado: null, observacao: 'Medição inicial de teste local', fotos: [], created_at: now, updated_at: now },
+      { id: 'medicao-2', obra_id: obraId2, etapa_id: 'etapa-demolicao-2', numero: 1, status: 'rascunho', nome: 'Medição 1', periodo_inicio: '2026-06-15', periodo_fim: '2026-06-19', percentual_executado: 35, avanco_periodo: null, avanco_acumulado: null, valor_periodo: null, valor_acumulado: null, observacao: 'Demolição de divisórias antigas iniciada', fotos: [], created_at: now, updated_at: now },
     ],
     sinapi_insumos: sinapiInsumos,
     sinapi_composicoes: [{

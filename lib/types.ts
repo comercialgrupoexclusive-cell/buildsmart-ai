@@ -239,19 +239,43 @@ export type Material = {
   etapa?: Etapa
 }
 
-// ─── Medição ──────────────────────────────────────────────────────────────────
+// ─── Medição / Boletim de Medição ────────────────────────────────────────────
+// A medição é um boletim numerado por período. Lê o avanço físico real do
+// cronograma (fonte única) e, ao ser fechada, congela um snapshot (medicao_itens)
+// do quanto avançou por item — base para saldo, acumulado e Curva S.
 export type Medicao = {
   id: string
   obra_id: string
   etapa_id: string | null
+  numero: number | null
+  status: 'rascunho' | 'fechada'
   nome: string | null
   periodo_inicio: string
   periodo_fim: string
-  percentual_executado: number
+  percentual_executado: number      // legado — avanço acumulado da medição
+  avanco_periodo: number | null     // % ponderado avançado só no período
+  avanco_acumulado: number | null   // % ponderado acumulado no fechamento
+  valor_periodo: number | null      // R$ medido no período
+  valor_acumulado: number | null    // R$ acumulado até o fechamento
   observacao: string | null
   fotos: string[]
   created_at: string
   updated_at: string
+  itens?: MedicaoItem[]
+}
+
+// Snapshot de avanço por item do cronograma no fechamento de uma medição
+export type MedicaoItem = {
+  id: string
+  medicao_id: string
+  item_tipo: CronogramaItemTipo
+  item_id: string
+  nome: string | null
+  valor_contratado: number
+  pct_anterior: number
+  pct_atual: number
+  valor_periodo: number
+  created_at: string
 }
 
 // ─── Fornecedor ───────────────────────────────────────────────────────────────
@@ -361,17 +385,43 @@ export type AlertaPreditivo = {
   materiais_pendentes: number
 }
 
-// ─── RDO (Relatório Diário de Obra) ──────────────────────────────────────────
+// ─── RDO (Relatório Diário de Obra) — unificado desktop + campo ───────────────
+export type Clima = 'sol' | 'nublado' | 'chuva' | 'impraticavel'
+
+export type RdoEfetivo = { funcao: string; empresa?: string; quantidade: number }
+export type RdoEquipamento = { nome: string; quantidade: number }
+export type RdoAtividade = {
+  item_tipo: CronogramaItemTipo
+  item_id: string
+  nome: string
+  percentual?: number   // avanço informado no dia (opcional)
+}
+
 export type Rdo = {
   id: string
   obra_id: string
   data: string
+  numero: number | null
   autor_id: string | null
-  equipe_presente: string | null
+  // Clima por turno + condição de trabalho (dias impraticáveis contam no prazo)
+  clima_manha: Clima | null
+  clima_tarde: Clima | null
+  clima_noite: Clima | null
+  condicao_trabalho: 'praticavel' | 'parcial' | 'impraticavel' | null
+  // Efetivo (mão de obra) e equipamentos em operação
+  efetivo: RdoEfetivo[]
+  equipamentos: RdoEquipamento[]
+  // Atividades ligadas ao cronograma + texto livre (compat)
+  atividades: RdoAtividade[]
   servicos_executados: string | null
+  equipe_presente: string | null       // legado / texto livre de equipe
+  materiais_recebidos: string | null
   ocorrencias: string | null
+  observacoes: string | null
+  etapa_id: string | null
   fotos: string[]
   created_at: string
+  updated_at: string
 }
 
 // ─── Comunicado de Obra ───────────────────────────────────────────────────────

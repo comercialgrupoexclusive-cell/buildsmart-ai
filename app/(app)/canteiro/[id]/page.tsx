@@ -4,16 +4,16 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft, CalendarDays, CheckSquare2, ClipboardList, Megaphone,
-  ChevronDown, ChevronRight, Plus, Pin, Check, Pencil, Trash2,
-  AlertCircle, CheckCircle2, Clock, Users,
+  ChevronDown, ChevronRight, Plus, Pin, Check, Trash2, Clock,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
-import { Obra, Etapa, SubetapaCronograma, ServicoCronograma, Rdo, ComunicadoObra } from '@/lib/types'
+import { Obra, Etapa, SubetapaCronograma, ServicoCronograma, ComunicadoObra } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ObraRdo } from '@/components/obra/ObraRdo'
 
 type Tab = 'cronograma' | 'checklist' | 'rdo' | 'comunicados'
 
@@ -36,13 +36,6 @@ type EtapaComFilhos = Etapa & {
   subetapas_cronograma: (SubetapaCronograma & { servicos_cronograma: ServicoCronograma[] })[]
 }
 
-const EMPTY_RDO = {
-  data: new Date().toISOString().slice(0, 10),
-  equipe_presente: '',
-  servicos_executados: '',
-  ocorrencias: '',
-}
-
 export default function CanteiroDetalhe() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
@@ -58,14 +51,6 @@ export default function CanteiroDetalhe() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [collapsedSub, setCollapsedSub] = useState<Record<string, boolean>>({})
   const [savingPct, setSavingPct] = useState<string | null>(null)
-
-  // RDO
-  const [rdos, setRdos] = useState<Rdo[]>([])
-  const [rdoModal, setRdoModal] = useState(false)
-  const [rdoForm, setRdoForm] = useState(EMPTY_RDO)
-  const [savingRdo, setSavingRdo] = useState(false)
-  const [rdoExpandido, setRdoExpandido] = useState<string | null>(null)
-  const [editandoRdo, setEditandoRdo] = useState<Rdo | null>(null)
 
   // Comunicados
   const [comunicados, setComunicados] = useState<ComunicadoObra[]>([])
@@ -85,15 +70,6 @@ export default function CanteiroDetalhe() {
     setEtapas((data || []) as EtapaComFilhos[])
   }, [id, supabase])
 
-  const loadRdos = useCallback(async () => {
-    const { data } = await supabase
-      .from('rdo')
-      .select('*')
-      .eq('obra_id', id)
-      .order('data', { ascending: false })
-    setRdos((data || []) as Rdo[])
-  }, [id, supabase])
-
   const loadComunicados = useCallback(async () => {
     const { data } = await supabase
       .from('comunicados_obra')
@@ -111,7 +87,6 @@ export default function CanteiroDetalhe() {
       const [obraRes] = await Promise.all([
         supabase.from('obras').select('*').eq('id', id).maybeSingle(),
         loadEtapas(),
-        loadRdos(),
         loadComunicados(),
       ])
       setObra(obraRes.data as Obra | null)
@@ -140,47 +115,6 @@ export default function CanteiroDetalhe() {
       .update({ status: concluida ? 'concluida' : 'planejada', percentual_executado: concluida ? 100 : 0 })
       .eq('id', subId)
     await loadEtapas()
-  }
-
-  // ── RDO ───────────────────────────────────────────────────────────────────
-  async function salvarRdo() {
-    if (!rdoForm.data) return
-    setSavingRdo(true)
-    const payload = {
-      obra_id: id,
-      autor_id: currentProfile?.id || null,
-      data: rdoForm.data,
-      equipe_presente: rdoForm.equipe_presente.trim() || null,
-      servicos_executados: rdoForm.servicos_executados.trim() || null,
-      ocorrencias: rdoForm.ocorrencias.trim() || null,
-    }
-    if (editandoRdo) {
-      await supabase.from('rdo').update(payload).eq('id', editandoRdo.id)
-    } else {
-      await supabase.from('rdo').insert(payload)
-    }
-    await loadRdos()
-    setSavingRdo(false)
-    setRdoModal(false)
-    setEditandoRdo(null)
-    setRdoForm(EMPTY_RDO)
-  }
-
-  async function deletarRdo(rdoId: string) {
-    if (!confirm('Remover este RDO?')) return
-    await supabase.from('rdo').delete().eq('id', rdoId)
-    setRdos(prev => prev.filter(r => r.id !== rdoId))
-  }
-
-  function abrirEditarRdo(rdo: Rdo) {
-    setEditandoRdo(rdo)
-    setRdoForm({
-      data: rdo.data,
-      equipe_presente: rdo.equipe_presente || '',
-      servicos_executados: rdo.servicos_executados || '',
-      ocorrencias: rdo.ocorrencias || '',
-    })
-    setRdoModal(true)
   }
 
   // ── Comunicados ───────────────────────────────────────────────────────────
@@ -463,108 +397,8 @@ export default function CanteiroDetalhe() {
         )
       })()}
 
-      {/* ── Tab: RDO ───────────────────────────────────────────────────────── */}
-      {tab === 'rdo' && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
-              {rdos.length} {rdos.length === 1 ? 'relatório' : 'relatórios'} registrados
-            </p>
-            <Button size="sm" icon={<Plus size={14} />} onClick={() => { setEditandoRdo(null); setRdoForm(EMPTY_RDO); setRdoModal(true) }}>
-              Novo RDO
-            </Button>
-          </div>
-
-          {rdos.length === 0 ? (
-            <EmptyState
-              icon={ClipboardList}
-              title="Nenhum RDO"
-              description="Registre o diário de obra com equipe, serviços executados e ocorrências."
-              action={<Button size="sm" icon={<Plus size={14} />} onClick={() => setRdoModal(true)}>Primeiro RDO</Button>}
-            />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {rdos.map(rdo => {
-                const aberto = rdoExpandido === rdo.id
-                return (
-                  <div key={rdo.id} className="card overflow-hidden">
-                    <div
-                      className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
-                      onClick={() => setRdoExpandido(aberto ? null : rdo.id)}
-                    >
-                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ background: 'var(--bg-secondary)' }}>
-                        <ClipboardList size={16} style={{ color: 'var(--accent)' }} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                          {new Date(rdo.data + 'T12:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })}
-                        </p>
-                        <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
-                          {rdo.servicos_executados
-                            ? rdo.servicos_executados.slice(0, 60) + (rdo.servicos_executados.length > 60 ? '...' : '')
-                            : 'Sem serviços registrados'}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {aberto ? <ChevronDown size={15} style={{ color: 'var(--text-secondary)' }} /> : <ChevronRight size={15} style={{ color: 'var(--text-secondary)' }} />}
-                      </div>
-                    </div>
-
-                    {aberto && (
-                      <div className="flex flex-col gap-3 px-4 py-3" style={{ borderTop: '1px solid var(--border)' }}>
-                        {rdo.equipe_presente && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <Users size={12} style={{ color: 'var(--accent)' }} />
-                              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Equipe presente</p>
-                            </div>
-                            <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{rdo.equipe_presente}</p>
-                          </div>
-                        )}
-                        {rdo.servicos_executados && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <CheckCircle2 size={12} style={{ color: 'var(--success)' }} />
-                              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Serviços executados</p>
-                            </div>
-                            <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{rdo.servicos_executados}</p>
-                          </div>
-                        )}
-                        {rdo.ocorrencias && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1">
-                              <AlertCircle size={12} style={{ color: 'var(--warning)' }} />
-                              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Ocorrências</p>
-                            </div>
-                            <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{rdo.ocorrencias}</p>
-                          </div>
-                        )}
-                        <div className="flex gap-2 pt-1">
-                          <button
-                            onClick={() => abrirEditarRdo(rdo)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-[var(--bg-secondary)]"
-                            style={{ color: 'var(--text-secondary)' }}
-                          >
-                            <Pencil size={12} /> Editar
-                          </button>
-                          <button
-                            onClick={() => deletarRdo(rdo.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-red-500/10"
-                            style={{ color: 'var(--danger)' }}
-                          >
-                            <Trash2 size={12} /> Remover
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
+      {/* ── Tab: RDO (componente unificado — mesmo do desktop) ──────────────── */}
+      {tab === 'rdo' && <ObraRdo obraId={id} compact />}
 
       {/* ── Tab: Comunicados ────────────────────────────────────────────────── */}
       {tab === 'comunicados' && (
@@ -632,61 +466,6 @@ export default function CanteiroDetalhe() {
           )}
         </div>
       )}
-
-      {/* ── Modal RDO ─────────────────────────────────────────────────────── */}
-      <Modal
-        open={rdoModal}
-        onClose={() => { setRdoModal(false); setEditandoRdo(null); setRdoForm(EMPTY_RDO) }}
-        title={editandoRdo ? 'Editar RDO' : 'Novo Relatório Diário'}
-        size="md"
-      >
-        <div className="flex flex-col gap-4">
-          <Input
-            label="Data *"
-            type="date"
-            value={rdoForm.data}
-            onChange={e => setRdoForm(f => ({ ...f, data: e.target.value }))}
-          />
-          <div>
-            <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Equipe presente</label>
-            <textarea
-              rows={2}
-              className="input-base resize-none w-full"
-              placeholder="Ex: João (pedreiro), Maria (servente)..."
-              value={rdoForm.equipe_presente}
-              onChange={e => setRdoForm(f => ({ ...f, equipe_presente: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Serviços executados</label>
-            <textarea
-              rows={3}
-              className="input-base resize-none w-full"
-              placeholder="Descreva os serviços realizados no dia..."
-              value={rdoForm.servicos_executados}
-              onChange={e => setRdoForm(f => ({ ...f, servicos_executados: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Ocorrências / observações</label>
-            <textarea
-              rows={2}
-              className="input-base resize-none w-full"
-              placeholder="Problemas, imprevistos, clima..."
-              value={rdoForm.ocorrencias}
-              onChange={e => setRdoForm(f => ({ ...f, ocorrencias: e.target.value }))}
-            />
-          </div>
-          <div className="flex gap-3 pt-2">
-            <Button variant="secondary" className="flex-1" onClick={() => { setRdoModal(false); setEditandoRdo(null); setRdoForm(EMPTY_RDO) }}>
-              Cancelar
-            </Button>
-            <Button className="flex-1" loading={savingRdo} disabled={!rdoForm.data} onClick={salvarRdo}>
-              {editandoRdo ? 'Salvar' : 'Registrar'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
 
       {/* ── Modal Comunicado ──────────────────────────────────────────────── */}
       <Modal open={comModal} onClose={() => { setComModal(false); setComForm({ titulo: '', conteudo: '', fixado: false }) }} title="Novo Aviso" size="md">
