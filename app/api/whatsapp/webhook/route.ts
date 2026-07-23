@@ -26,6 +26,17 @@ function cleanPhone(raw: string) {
   return (raw || '').replace(/@c\.us$/, '').replace(/@s\.whatsapp\.net$/, '').replace(/@g\.us$/, '').trim()
 }
 
+function isProjetoCreationRequest(text: string) {
+  const normalized = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+
+  const asksToCreate = /\b(cria|criar|cadastre|cadastrar|adicione|adicionar|inclua|incluir|novo|nova)\b/.test(normalized)
+  const mentionsProject = /\b(projeto|projetos|planta|plantas|arquitetonico|arquitetonico|estrutural|executivo|disciplina|disciplinas)\b/.test(normalized)
+  return asksToCreate && mentionsProject
+}
+
 // ─── Z-API ────────────────────────────────────────────────────────────────────
 async function sendZApi(phone: string, message: string) {
   const id = process.env.ZAPI_INSTANCE_ID
@@ -72,7 +83,7 @@ function buildTools(crudEnabled: boolean): OpenAI.Chat.ChatCompletionTool[] {
       type: 'function',
       function: {
         name: 'criar_obra',
-        description: 'Cria uma nova obra no BuildSmart.',
+        description: 'Cria uma nova obra fisica no BuildSmart. Nao use esta funcao quando o usuario pedir um projeto tecnico, planta ou disciplina; nesse caso use criar_projeto.',
         parameters: {
           type: 'object',
           properties: {
@@ -81,6 +92,35 @@ function buildTools(crudEnabled: boolean): OpenAI.Chat.ChatCompletionTool[] {
             responsavel: { type: 'string', description: 'Responsável técnico (opcional)' },
             uf: { type: 'string', description: 'Sigla do estado, ex: RS, SP, RJ (padrão RS)' },
             status: { type: 'string', enum: ['orcamento', 'ativa', 'concluida', 'paralisada'], description: 'Status inicial' },
+          },
+          required: ['nome'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'listar_projetos',
+        description: 'Lista os projetos cadastrados no modulo Projetos do BuildSmart.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'criar_projeto',
+        description: 'Cria um novo projeto tecnico no modulo Projetos. Use quando o usuario pedir projeto, planta, projeto executivo, projeto arquitetonico, projeto estrutural ou disciplinas tecnicas. Nao use criar_obra para pedidos de projeto.',
+        parameters: {
+          type: 'object',
+          properties: {
+            nome: { type: 'string', description: 'Nome do projeto' },
+            cliente: { type: 'string', description: 'Cliente ou proprietario do projeto' },
+            endereco: { type: 'string', description: 'Endereco relacionado ao projeto' },
+            responsavel: { type: 'string', description: 'Responsavel tecnico' },
+            nome_obra: { type: 'string', description: 'Nome de uma obra existente para vincular o projeto, se informado' },
+            data_inicio: { type: 'string', description: 'Data de inicio no formato YYYY-MM-DD' },
+            data_previsao: { type: 'string', description: 'Data prevista no formato YYYY-MM-DD' },
+            status: { type: 'string', enum: ['aguardando', 'em_andamento', 'concluido', 'suspenso'], description: 'Status inicial do projeto' },
           },
           required: ['nome'],
         },
@@ -202,6 +242,40 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>):
         return `Obra "${(data as any).nome}" criada com sucesso!`
       }
 
+      case 'listar_projetos': {
+        const { data } = await db
+          .from('projetos')
+          .select('nome,cliente,status,responsavel,obras(nome)')
+          .order('created_at', { ascending: false })
+          .limit(15)
+        if (!data?.length) return 'Nenhum projeto cadastrado.'
+        return (data as any[]).map((p) => {
+          const obraNome = (p.obras as any)?.nome
+          return `- ${p.nome} | ${p.status}${p.cliente ? ' | Cliente: ' + p.cliente : ''}${p.responsavel ? ' | Resp: ' + p.responsavel : ''}${obraNome ? ' | Obra: ' + obraNome : ''}`
+        }).join('\n')
+      }
+
+      case 'criar_projeto': {
+        let obraId: string | null = null
+        if (args.nome_obra) {
+          const { data: obras } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
+          if (obras?.length) obraId = (obras[0] as any).id
+        }
+
+        const { data, error } = await db.from('projetos').insert({
+          nome: args.nome,
+          cliente: args.cliente || null,
+          endereco: args.endereco || null,
+          responsavel: args.responsavel || null,
+          obra_id: obraId,
+          data_inicio: args.data_inicio || null,
+          data_previsao: args.data_previsao || null,
+          status: args.status || 'em_andamento',
+        }).select('id,nome,status').single()
+        if (error) return `Erro ao criar projeto: ${error.message}`
+        return `Projeto "${(data as any).nome}" criado com sucesso${obraId ? ' e vinculado a obra informada' : ''}.`
+      }
+
       case 'atualizar_status_obra': {
         const { data: obras } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
         if (!obras?.length) return `Obra "${args.nome_obra}" nao encontrada.`
@@ -303,6 +377,12 @@ async function buildUserContext(db: DB, phone: string) {
     if (obras?.length) {
       ctx += `\n\nObras no sistema:\n${(obras as any[]).map(o => `- ${o.nome} (${o.status})`).join('\n')}`
     }
+
+    const { data: projetos } = await db.from('projetos').select('nome,status,cliente').order('created_at', { ascending: false }).limit(8)
+    if (projetos?.length) {
+      ctx += `\n\nProjetos no sistema:\n${(projetos as any[]).map(p => `- ${p.nome} (${p.status})${p.cliente ? ' - ' + p.cliente : ''}`).join('\n')}`
+    }
+
     return { ctx, waUser }
   } catch { return { ctx: '', waUser: null } }
 }
@@ -457,6 +537,7 @@ export async function POST(req: NextRequest) {
     const audioEnabled = config['audio_enabled'] !== 'false'
     const photosEnabled = config['photos_enabled'] !== 'false'
     const requireMention = config['group_require_mention'] === 'true' // padrão: NÃO exige
+    const forceProjetoTool = crudEnabled && isProjetoCreationRequest(messageText)
 
     // Nome da IA configurável no painel (config bot_name) — usado na detecção de menção
     const botName = (config['bot_name'] || 'Luiza').trim()
@@ -482,15 +563,27 @@ export async function POST(req: NextRequest) {
       } catch { /* ignora */ }
     }
 
+    let projetosCtx = ''
+    if (db && crudEnabled) {
+      try {
+        const { data: projetos } = await db.from('projetos').select('nome,status,cliente').order('created_at', { ascending: false }).limit(10)
+        if (projetos?.length) {
+          projetosCtx = `Projetos cadastrados no sistema:\n${(projetos as any[]).map(p => `- ${p.nome} (${p.status})${p.cliente ? ' - ' + p.cliente : ''}`).join('\n')}`
+        }
+      } catch { /* ignora */ }
+    }
+
     // ── System prompt ─────────────────────────────────────────────────────────
     const DEFAULT_PERSONA = `Voce e a ${botName}, assistente inteligente do BuildSmart AI, sistema de gestao de obras para construcao civil. Responda via WhatsApp de forma breve, clara e em portugues brasileiro. NAO use markdown (asterisco, hashtag, bullet). Escreva texto simples. Maximo 3 paragrafos curtos. Voce tem acesso ao banco de dados do BuildSmart e pode criar, listar e atualizar obras, etapas, materiais, avanco fisico, boletins de medicao e principalmente o RDO (Relatorio Diario de Obra). Quando o usuario descrever o dia na obra (equipe presente, o que foi feito, clima, ocorrencias) registre um RDO com registrar_rdo, informando o nome da obra. Se ele disser o avanco de um servico, use registrar_rdo com o percentual ou atualizar_avanco. Sempre confirme o que registrou. Use as funcoes para consultar dados atuais.`
 
     const systemPrompt = [
       config['persona_global'] || DEFAULT_PERSONA,
       `Seu nome e ${botName}.`,
+      'Diferencie OBRA de PROJETO: obra e a construcao fisica; projeto e cadastro tecnico no modulo Projetos. Se o usuario pedir projeto, planta, projeto executivo, projeto arquitetonico, projeto estrutural ou disciplina tecnica, use criar_projeto, nunca criar_obra.',
       (phoneRule as any)?.persona || '',
       userCtx || '',
       obrasCtx || '',
+      projetosCtx || '',
       isGroup ? `Voce esta em um grupo de WhatsApp chamado "${body.chatName || 'grupo'}".` : '',
       isAudio ? 'O usuario enviou um audio que foi transcrito automaticamente.' : '',
       isDocument ? 'O usuario enviou um documento PDF cujo conteudo foi extraido e incluido na mensagem.' : '',
@@ -515,6 +608,9 @@ export async function POST(req: NextRequest) {
     ]
 
     const tools = buildTools(crudEnabled)
+    const forcedToolChoice = forceProjetoTool
+      ? { type: 'function' as const, function: { name: 'criar_projeto' } }
+      : undefined
 
     // ── Chamada OpenAI (com possível tool_call loop) ───────────────────────────
     let reply = ''
@@ -526,7 +622,7 @@ export async function POST(req: NextRequest) {
         model,
         messages,
         tools: tools.length > 0 ? tools : undefined,
-        tool_choice: tools.length > 0 ? 'auto' : undefined,
+        tool_choice: forcedToolChoice ?? (tools.length > 0 ? 'auto' : undefined),
         max_tokens: 700,
       })
 

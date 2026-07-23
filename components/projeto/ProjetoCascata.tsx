@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil, Paperclip, Flag } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil, Paperclip, Flag, Link2, Square, CheckSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
+import { Modal } from '@/components/ui/Modal'
+import { Button } from '@/components/ui/Button'
 
 export type ProjetoItemNode = {
   id: string
@@ -22,16 +24,28 @@ export type ProjetoItemNode = {
   children?: ProjetoItemNode[]
 }
 
+export type ProjetoItemDependencia = {
+  id: string
+  projeto_id: string
+  item_id: string
+  predecessor_id: string
+  created_at?: string
+}
+
+type ProjetoItemUpdate = Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>> & { concluido?: boolean }
+
 type Props = {
   itens: ProjetoItemNode[]
   projetoId: string
   canEdit?: boolean
   profiles?: { id: string; name: string; apelido: string | null }[]
+  dependencias?: ProjetoItemDependencia[]
   onToggle: (id: string, concluido: boolean) => void
   onAdd: (parentId: string | null, nivel: number, nome: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
-  onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>>) => void
+  onUpdateItem?: (id: string, fields: ProjetoItemUpdate) => void
+  onSavePredecessoras?: (itemId: string, predecessorIds: string[]) => void
 }
 
 type ProjectItemFile = {
@@ -127,11 +141,12 @@ function fileToDataUrl(file: File) {
   })
 }
 
-export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem }: Props) {
+export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = [], dependencias = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, onSavePredecessoras }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [files, setFiles] = useState<ProjectItemFile[]>([])
   const [targetItemId, setTargetItemId] = useState<string | null>(null)
   const [pdfAberto, setPdfAberto] = useState<ProjectItemFile | null>(null)
+  const [predecessorTarget, setPredecessorTarget] = useState<ProjetoItemNode | null>(null)
 
   useEffect(() => {
     const raw = localStorage.getItem(projectFilesKey(projetoId))
@@ -234,6 +249,8 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
             onDelete={onDelete}
             onRename={onRename}
             onUpdateItem={onUpdateItem}
+            dependencias={dependencias}
+            onEditPredecessoras={canEdit && onSavePredecessoras ? setPredecessorTarget : undefined}
             file={files.find(f => f.item_id === item.id)}
             allFiles={files}
             onAttach={attachToItem}
@@ -255,11 +272,22 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
           onClose={() => setPdfAberto(null)}
         />
       )}
+      <ProjetoPredecessorPicker
+        open={!!predecessorTarget}
+        item={predecessorTarget}
+        itens={itens}
+        dependencias={dependencias}
+        onClose={() => setPredecessorTarget(null)}
+        onConfirmar={ids => {
+          if (predecessorTarget) onSavePredecessoras?.(predecessorTarget.id, ids)
+          setPredecessorTarget(null)
+        }}
+      />
     </div>
   )
 }
 
-function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, file, allFiles, onAttach, onOpenFile, onRemoveFile }: {
+function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, dependencias, onEditPredecessoras, file, allFiles, onAttach, onOpenFile, onRemoveFile }: {
   item: ProjetoItemNode
   canEdit: boolean
   profiles: { id: string; name: string; apelido: string | null }[]
@@ -267,7 +295,9 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   onAdd: (parentId: string | null, nivel: number, nome: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
-  onUpdateItem?: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>>) => void
+  onUpdateItem?: (id: string, fields: ProjetoItemUpdate) => void
+  dependencias: ProjetoItemDependencia[]
+  onEditPredecessoras?: (item: ProjetoItemNode) => void
   file?: ProjectItemFile
   allFiles: ProjectItemFile[]
   onAttach: (itemId: string) => void
@@ -285,6 +315,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   const canHaveChildren = item.nivel < 3
   const hasDateInput    = item.nivel <= 2
   const status          = calcStatus(item)
+  const hasPredecessoras = dependencias.some(d => d.item_id === item.id)
 
   const progress = item.nivel === 1 ? calcProgress(item) : null
   const progPct  = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0
@@ -383,6 +414,23 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             <Flag size={12} style={{ color: '#F59E0B' }} fill="#F59E0B" className="flex-shrink-0" />
           )}
 
+          {canEdit && onEditPredecessoras && (
+            <button
+              className="p-1 rounded flex-shrink-0 hover:bg-[var(--bg-card)] transition-colors"
+              title={hasPredecessoras ? 'Predecessoras configuradas' : 'Adicionar predecessoras'}
+              onClick={e => {
+                e.stopPropagation()
+                onEditPredecessoras(item)
+              }}
+              style={{
+                color: hasPredecessoras ? 'var(--accent)' : 'var(--text-secondary)',
+                background: hasPredecessoras ? 'rgba(59,123,248,0.12)' : 'transparent',
+              }}
+            >
+              <Link2 size={12} strokeWidth={hasPredecessoras ? 2.6 : 1.8} />
+            </button>
+          )}
+
           {/* Badge de status — clicável para alterar */}
           {item.nivel <= 2 && (
             canEdit ? (
@@ -394,7 +442,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                   e.stopPropagation()
                   const idx = STATUS_ORDER.indexOf(status)
                   const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length]
-                  onUpdateItem?.(item.id, { status: next, concluido: next === 'concluido' } as any)
+                  onUpdateItem?.(item.id, { status: next, concluido: next === 'concluido' })
                 }}
               >
                 {STATUS_CFG[status].label}
@@ -435,14 +483,46 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             </button>
           )}
 
-          <div className="basis-full mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] sm:hidden" style={{ color: 'var(--text-secondary)', paddingLeft: 42 }}>
-            {item.responsavel && <span>{item.responsavel}</span>}
-            {file && <button onClick={() => onOpenFile(file)} className="truncate" style={{ color: 'var(--accent)' }}>{file.file_name}</button>}
-            {(eff.inicio || eff.fim) && (
-              <span>
-                {eff.inicio ? fmtDate(eff.inicio) : '--'}
-                {eff.fim ? ` -> ${fmtDate(eff.fim)}` : ''}
-              </span>
+          <div className="basis-full mt-2 flex items-center justify-between gap-2 text-[12px] sm:hidden" style={{ color: 'var(--text-secondary)', paddingLeft: 42 }}>
+            <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {item.responsavel && <span>{item.responsavel}</span>}
+              {file && <button onClick={() => onOpenFile(file)} className="truncate" style={{ color: 'var(--accent)' }}>{file.file_name}</button>}
+              {(eff.inicio || eff.fim) && (
+                <span>
+                  {eff.inicio ? fmtDate(eff.inicio) : '--'}
+                  {eff.fim ? ` -> ${fmtDate(eff.fim)}` : ''}
+                </span>
+              )}
+            </div>
+            {canEdit && !editingNome && (
+              <div className="flex flex-shrink-0 items-center gap-1">
+                <button
+                  className="h-8 w-8 rounded-lg border flex items-center justify-center"
+                  title="Renomear"
+                  onClick={() => { setEditingNome(true); setOpen(true) }}
+                  style={{ color: 'var(--text-secondary)', borderColor: 'rgba(148,163,184,0.22)', background: 'rgba(148,163,184,0.08)' }}
+                >
+                  <Pencil size={13} />
+                </button>
+                {canHaveChildren && (
+                  <button
+                    className="h-8 w-8 rounded-lg border flex items-center justify-center"
+                    title={`Adicionar ${NIVEL_LABELS[item.nivel + 1]}`}
+                    onClick={() => setOpen(true)}
+                    style={{ color: 'var(--accent)', borderColor: 'rgba(59,123,248,0.28)', background: 'rgba(59,123,248,0.08)' }}
+                  >
+                    <Plus size={14} />
+                  </button>
+                )}
+                <button
+                  className="h-8 w-8 rounded-lg border flex items-center justify-center"
+                  title="Excluir"
+                  onClick={() => onDelete(item.id)}
+                  style={{ color: '#f87171', borderColor: 'rgba(248,113,113,0.25)', background: 'rgba(248,113,113,0.08)' }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             )}
           </div>
 
@@ -490,7 +570,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
           )}
 
           {canEdit && !editingNome && (
-            <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
+            <div className="hidden sm:flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
               <button
                 className="p-1 rounded hover:bg-[var(--bg-card)]"
                 title="Renomear"
@@ -726,6 +806,8 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
               onDelete={onDelete}
               onRename={onRename}
               onUpdateItem={onUpdateItem}
+              dependencias={dependencias}
+              onEditPredecessoras={onEditPredecessoras}
               file={allFiles.find(f => f.item_id === child.id)}
               allFiles={allFiles}
               onAttach={onAttach}
@@ -749,6 +831,104 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
       )}
     </div>
   )
+}
+
+function ProjetoPredecessorPicker({ open, item, itens, dependencias, onClose, onConfirmar }: {
+  open: boolean
+  item: ProjetoItemNode | null
+  itens: ProjetoItemNode[]
+  dependencias: ProjetoItemDependencia[]
+  onClose: () => void
+  onConfirmar: (ids: string[]) => void
+}) {
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    if (!open || !item) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelecionados(new Set(dependencias.filter(d => d.item_id === item.id).map(d => d.predecessor_id)))
+  }, [open, item, dependencias])
+
+  if (!item) return null
+
+  const excluirIds = new Set([item.id, ...collectNodeDescendants(item)])
+
+  function toggle(id: string) {
+    setSelecionados(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function renderNode(node: ProjetoItemNode, depth = 0) {
+    if (excluirIds.has(node.id)) return null
+    const hasKids = (node.children?.filter(child => !excluirIds.has(child.id)).length ?? 0) > 0
+    const isCollapsed = collapsed[node.id] ?? false
+    const checked = selecionados.has(node.id)
+
+    return (
+      <div key={node.id}>
+        <div
+          className="flex items-center gap-2 border-b px-3 py-2"
+          style={{ borderColor: 'var(--border)', paddingLeft: 12 + depth * 18, background: node.nivel === 1 ? 'var(--bg-secondary)' : 'transparent' }}
+        >
+          {hasKids ? (
+            <button
+              type="button"
+              onClick={() => setCollapsed(prev => ({ ...prev, [node.id]: !prev[node.id] }))}
+              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+            </button>
+          ) : (
+            <span className="h-6 w-6 flex-shrink-0" />
+          )}
+          <button
+            type="button"
+            onClick={() => toggle(node.id)}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            style={{ color: checked ? 'var(--accent)' : 'var(--text-primary)' }}
+          >
+            {checked ? <CheckSquare size={15} /> : <Square size={15} />}
+            <span className={cn('truncate text-sm', node.nivel === 1 && 'font-semibold')}>{node.nome}</span>
+          </button>
+          {(node.data_prazo || node.data_inicio) && (
+            <span className="hidden text-[10px] sm:inline" style={{ color: 'var(--text-secondary)' }}>
+              {fmtDate(node.data_inicio)}{node.data_prazo ? ` -> ${fmtDate(node.data_prazo)}` : ''}
+            </span>
+          )}
+        </div>
+        {!isCollapsed && node.children?.map(child => renderNode(child, depth + 1))}
+      </div>
+    )
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Selecionar predecessoras" size="lg">
+      <div className="flex flex-col gap-3">
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          Marque o que precisa terminar antes de &quot;{item.nome}&quot; começar.
+        </p>
+        <div className="max-h-[52vh] overflow-y-auto rounded-lg border" style={{ borderColor: 'var(--border)' }}>
+          {itens.map(node => renderNode(node))}
+        </div>
+        <div className="flex gap-3">
+          <Button variant="secondary" className="flex-1" onClick={onClose}>Cancelar</Button>
+          <Button className="flex-1" onClick={() => onConfirmar(Array.from(selecionados))}>
+            Confirmar ({selecionados.size})
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function collectNodeDescendants(node: ProjetoItemNode): string[] {
+  return (node.children ?? []).flatMap(child => [child.id, ...collectNodeDescendants(child)])
 }
 
 function AddInlineRow({ parentId, nivel, placeholder, onAdd }: {

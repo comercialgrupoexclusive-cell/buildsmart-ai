@@ -445,15 +445,21 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
   type DRow = { id: string; nome: string; depth: number; inicio: string | null; fim: string | null; concluido: boolean; hasKids: boolean; isProj: boolean; nivel: number }
   const drows: DRow[] = [
     { id: '__proj__', nome: 'Projeto (total)', depth: 0, inicio: projInicio, fim: projFim, concluido: false, hasKids: false, isProj: true, nivel: 0 },
-    ...getVisibleRows(tree).map(({ item, depth }) => ({
-      id: item.id, nome: item.nome, depth: depth + 1,
-      inicio: item.data_inicio, fim: item.data_prazo, concluido: item.concluido,
-      hasKids: flat.some(j => j.parent_id === item.id), isProj: false, nivel: item.nivel,
-    })),
+    ...getVisibleRows(tree).map(({ item, depth }) => {
+      const hasKids = flat.some(j => j.parent_id === item.id)
+      const eff = effMap.get(item.id)
+      return {
+        id: item.id, nome: item.nome, depth: depth + 1,
+        inicio: hasKids ? (eff?.inicio ?? item.data_inicio) : item.data_inicio,
+        fim: hasKids ? (eff?.fim ?? item.data_prazo) : item.data_prazo,
+        concluido: item.concluido,
+        hasKids, isProj: false, nivel: item.nivel,
+      }
+    }),
   ]
   const rowH = ROW_H
   const svgH = HDR_H + drows.length * rowH + 4
-  const mobileTimelineRows = drows.filter(row => row.isProj || row.nivel === 1)
+  const mobileTimelineRows = drows
   const mobileSvgH = HDR_H + mobileTimelineRows.length * MOBILE_ROW_H + 4
 
   function toggleCollapse(id: string) {

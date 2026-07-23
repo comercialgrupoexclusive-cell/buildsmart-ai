@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
-import { ProjetoCascata, buildProjetoTree, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
+import { ProjetoCascata, buildProjetoTree, type ProjetoItemDependencia, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
 import { ProjetoAssistenteIA } from '@/components/projeto/ProjetoAssistenteIA'
 import dynamic from 'next/dynamic'
@@ -26,7 +26,7 @@ type Projeto = {
   endereco: string | null
   data_inicio: string | null
   data_previsao: string | null
-  status: 'em_andamento' | 'concluido' | 'suspenso'
+  status: 'aguardando' | 'em_andamento' | 'concluido' | 'suspenso'
   obra_id: string | null
   responsavel: string | null
   foto_url: string | null
@@ -35,6 +35,7 @@ type Projeto = {
 
 const STATUS_OPTIONS = [
   { value: 'em_andamento', label: 'Em andamento' },
+  { value: 'aguardando',    label: 'Aguardando' },
   { value: 'concluido',    label: 'Concluído' },
   { value: 'suspenso',     label: 'Suspenso' },
 ]
@@ -46,6 +47,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [projeto, setProjeto] = useState<Projeto | null>(null)
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
+  const [dependencias, setDependencias] = useState<ProjetoItemDependencia[]>([])
   const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'board' | 'ia'>(
     (searchParams.get('tab') as 'estrutura' | 'dados' | 'cronograma' | 'board' | 'ia') ?? 'estrutura'
   )
@@ -62,11 +64,13 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    const [{ data: p }, { data: its }, { data: profs }] = await Promise.all([
+    const [{ data: p }, { data: its }, { data: profs }, depsRes] = await Promise.all([
       supabase.from('projetos').select('*').eq('id', id).single(),
       supabase.from('projeto_itens').select('*').eq('projeto_id', id).order('ordem'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
+      supabase.from('projeto_item_dependencias').select('*').eq('projeto_id', id),
     ])
+    if (!depsRes.error) setDependencias((depsRes.data ?? []) as ProjetoItemDependencia[])
     setProfiles((profs ?? []) as { id: string; name: string; apelido: string | null }[])
     if (p) {
       setProjeto(p)
@@ -127,6 +131,46 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     const { error } = await supabase.from('projeto_itens').update(fields).eq('id', itemId)
     if (error) {
       alert('Erro ao salvar: ' + error.message)
+    }
+  }
+
+  async function handleSavePredecessoras(itemId: string, predecessorIds: string[]) {
+    const supabase = createClient()
+    const atuais = dependencias.filter(d => d.item_id === itemId)
+    const nextSet = new Set(predecessorIds)
+    const remover = atuais.filter(d => !nextSet.has(d.predecessor_id))
+    const existentes = new Set(atuais.map(d => d.predecessor_id))
+    const inserir = predecessorIds.filter(predecessorId => !existentes.has(predecessorId))
+
+    setDependencias(prev => [
+      ...prev.filter(d => d.item_id !== itemId || nextSet.has(d.predecessor_id)),
+      ...inserir.map(predecessorId => ({
+        id: `local-${itemId}-${predecessorId}`,
+        projeto_id: id,
+        item_id: itemId,
+        predecessor_id: predecessorId,
+      })),
+    ])
+
+    try {
+      if (remover.length) {
+        await Promise.all(remover.map(dep => supabase.from('projeto_item_dependencias').delete().eq('id', dep.id)))
+      }
+      if (inserir.length) {
+        const { data, error } = await supabase
+          .from('projeto_item_dependencias')
+          .insert(inserir.map(predecessor_id => ({ projeto_id: id, item_id: itemId, predecessor_id })))
+          .select('*')
+        if (error) throw error
+        if (data) {
+          setDependencias(prev => [
+            ...prev.filter(d => d.item_id !== itemId || nextSet.has(d.predecessor_id) && !String(d.id).startsWith('local-')),
+            ...(data as ProjetoItemDependencia[]),
+          ])
+        }
+      }
+    } catch (error) {
+      console.warn('[Projetos] Dependencias ainda sem tabela aplicada:', error)
     }
   }
 
@@ -269,11 +313,13 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
             projetoId={projeto.id}
             canEdit={!isCliente}
             profiles={profiles}
+            dependencias={dependencias}
             onToggle={handleToggle}
             onAdd={handleAdd}
             onDelete={handleDelete}
             onRename={handleRename}
             onUpdateItem={(id, fields) => handleUpdateItem(id, fields)}
+            onSavePredecessoras={handleSavePredecessoras}
           />
         </div>
       )}

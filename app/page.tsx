@@ -5,10 +5,10 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, CheckSquare, Square, Lock, Eye, EyeOff } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { Profile } from '@/lib/types'
 import { APP_VERSION } from '@/lib/version'
+import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
 
 const ACCENT_OPTIONS = [
   '#3B7BF8', '#10B981', '#F59E0B', '#EF4444',
@@ -18,10 +18,10 @@ const ACCENT_OPTIONS = [
 function ProfileSelectionPage() {
   const router = useRouter()
   const { setCurrentProfile } = useProfile()
-  const supabase = createClient()
 
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null)
   const [formData, setFormData] = useState({
@@ -48,9 +48,30 @@ function ProfileSelectionPage() {
 
   async function loadProfiles() {
     setLoading(true)
-    const { data } = await supabase.from('profiles').select('*').order('created_at')
-    setProfiles(data || [])
-    setLoading(false)
+    setLoadError(null)
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 8000)
+    try {
+      const url = `${supabaseUrl()}/rest/v1/profiles?select=*&order=created_at.asc`
+      const key = supabaseAnonKey()
+      const res = await fetch(url, {
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+        },
+        signal: controller.signal,
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setProfiles((data || []) as Profile[])
+    } catch (err) {
+      setLoadError(err instanceof Error && err.name === 'AbortError'
+        ? 'Tempo esgotado ao carregar usuários.'
+        : 'Não foi possível carregar os usuários.')
+    } finally {
+      window.clearTimeout(timeout)
+      setLoading(false)
+    }
   }
 
   async function handleSelectProfile(profile: Profile) {
@@ -87,6 +108,8 @@ function ProfileSelectionPage() {
   async function handleSaveProfile() {
     if (!formData.name.trim()) return
     setSaving(true)
+    const { createClient } = await import('@/lib/supabase/client')
+    const supabase = createClient()
 
     // Sem perfis ainda: o primeiro a se cadastrar vira o administrador do sistema.
     const isFirstProfile = profiles.length === 0 && !editingProfile
@@ -174,6 +197,20 @@ function ProfileSelectionPage() {
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+          </div>
+        ) : loadError ? (
+          <div className="flex flex-col items-center gap-3 text-center rounded-2xl border p-5" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Usuários não carregaram</p>
+            <p className="text-xs max-w-sm" style={{ color: 'var(--text-secondary)' }}>
+              {loadError} Verifique se o celular está na mesma rede e tente novamente.
+            </p>
+            <button
+              onClick={loadProfiles}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white"
+              style={{ background: 'var(--accent)' }}
+            >
+              Tentar novamente
+            </button>
           </div>
         ) : profiles.length === 0 ? (
           // Bootstrap: ninguém cadastrado ainda — quem criar o primeiro perfil vira o administrador

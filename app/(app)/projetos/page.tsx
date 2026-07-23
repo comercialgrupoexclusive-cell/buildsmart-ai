@@ -14,7 +14,7 @@ type Projeto = {
   endereco: string | null
   data_inicio: string | null
   data_previsao: string | null
-  status: 'em_andamento' | 'concluido' | 'suspenso'
+  status: 'aguardando' | 'em_andamento' | 'concluido' | 'suspenso'
   obra_id: string | null
   responsavel: string | null
   foto_url: string | null
@@ -35,6 +35,7 @@ type TemplateItem = {
 }
 
 const STATUS_META = {
+  aguardando:    { label: 'Aguardando',    color: '#f59e0b',       bg: 'rgba(245,158,11,0.1)' },
   em_andamento: { label: 'Em andamento', color: 'var(--accent)', bg: 'rgba(59,123,248,0.1)' },
   concluido:    { label: 'Concluído',    color: '#10b981',       bg: 'rgba(16,185,129,0.1)' },
   suspenso:     { label: 'Suspenso',     color: '#f59e0b',       bg: 'rgba(245,158,11,0.1)' },
@@ -219,7 +220,7 @@ export default function ProjetosPage() {
     alert('Template salvo com sucesso!')
   }
 
-  const STATUS_ORDER: Record<Projeto['status'], number> = { em_andamento: 0, concluido: 1, suspenso: 2 }
+  const STATUS_ORDER: Record<Projeto['status'], number> = { em_andamento: 0, aguardando: 1, concluido: 2, suspenso: 3 }
   const filtered = projetos
     .filter(p => {
       const matchesSearch = p.nome.toLowerCase().includes(search.toLowerCase()) ||
@@ -281,7 +282,7 @@ export default function ProjetosPage() {
           />
         </div>
         <div className="flex gap-1 p-1 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          {(['todos', 'em_andamento', 'concluido', 'suspenso'] as const).map(s => (
+          {(['em_andamento', 'todos', 'aguardando', 'concluido', 'suspenso'] as const).map(s => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}

@@ -338,6 +338,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
   return (
     <div
       id="board-container"
+      className="buildsmart-board-shell"
       style={{ width: '100%', height: '100%', display: 'flex', position: 'relative' }}
     >
       <input
@@ -470,6 +471,33 @@ export function ExcalidrawBoard({ projectId }: Props) {
           />
         </div>
       )}
+      <style jsx global>{`
+        @media (max-width: 639px) {
+          .buildsmart-board-shell .excalidraw .FixedSideContainer_side_top {
+            left: 0;
+            right: 0;
+            max-width: 100%;
+            overflow: hidden;
+          }
+          .buildsmart-board-shell .excalidraw .App-toolbar,
+          .buildsmart-board-shell .excalidraw .App-toolbar-content,
+          .buildsmart-board-shell .excalidraw .FixedSideContainer_side_top .Island {
+            max-width: calc(100vw - 40px);
+            overflow-x: auto;
+            overflow-y: hidden;
+            justify-content: flex-start;
+            scrollbar-width: none;
+          }
+          .buildsmart-board-shell .excalidraw .App-toolbar::-webkit-scrollbar,
+          .buildsmart-board-shell .excalidraw .App-toolbar-content::-webkit-scrollbar,
+          .buildsmart-board-shell .excalidraw .FixedSideContainer_side_top .Island::-webkit-scrollbar {
+            display: none;
+          }
+          .buildsmart-board-shell .excalidraw .ToolIcon__icon {
+            min-width: 34px;
+          }
+        }
+      `}</style>
     </div>
   )
 }
