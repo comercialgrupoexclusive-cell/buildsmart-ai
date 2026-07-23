@@ -313,7 +313,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
 
   const hasChildren     = (item.children?.length ?? 0) > 0
   const canHaveChildren = item.nivel < 3
-  const hasDateInput    = item.nivel <= 3
+  const hasDateInput    = item.nivel <= 2
   const status          = calcStatus(item)
   const hasPredecessoras = dependencias.some(d => d.item_id === item.id)
 
@@ -528,7 +528,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
 
           {/* Ações hover */}
           {canEdit && hasDateInput && (
-            <div className="basis-full grid grid-cols-3 gap-2 mt-2 sm:hidden" style={{ paddingLeft: 42 }}>
+            <div className="basis-full hidden sm:hidden grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 42 }}>
               <label className="min-w-0">
                 <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Início</span>
                 <input

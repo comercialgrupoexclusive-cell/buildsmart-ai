@@ -336,7 +336,9 @@ function rollup(node: ItemRow, map: Map<string, EffDate>): EffDate {
 
 function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRow[]; onUpdateItem: (id: string, f: Partial<ItemRow>) => void }) {
   // Cascata inicia fechada: colapsa todo nó que tem filhos
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(flat.filter(i => flat.some(j => j.parent_id === i.id)).map(i => i.id))
+  )
   const [showDatesMobile, setShowDatesMobile] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -465,7 +467,7 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
   }
 
   function canEditDates(_id: string, nivel: number): boolean {
-    return nivel <= 3
+    return nivel <= 2
   }
 
   return (
