@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil, Paperclip, Flag, Link2, Square, CheckSquare } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil, Paperclip, Flag, Link2, Square, CheckSquare, MoreVertical, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { PdfAnnotator } from '@/components/pdf/PdfAnnotator'
@@ -310,10 +310,24 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   const [editingResp, setEditingResp] = useState(false)
   const [tempResp, setTempResp]       = useState(item.responsavel ?? '')
   const [editingDate, setEditingDate] = useState<'inicio' | 'fim' | 'duracao' | null>(null)
+  // Mobile: menu de ações (3 pontinhos) + painel de datas
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [showDatesMobile, setShowDatesMobile] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    function onDoc(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [menuOpen])
 
   const hasChildren     = (item.children?.length ?? 0) > 0
   const canHaveChildren = item.nivel < 3
-  const hasDateInput    = item.nivel <= 2
+  // Datas editáveis em todos os níveis (inclui subitem nível 3)
+  const hasDateInput    = item.nivel <= 3
   const status          = calcStatus(item)
   const hasPredecessoras = dependencias.some(d => d.item_id === item.id)
 
@@ -394,29 +408,40 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
               style={{ color: NIVEL_COLORS[item.nivel], fontWeight: item.nivel === 1 ? 600 : 400 }}
             >
               {item.nome}
+            </span>
+          )}
+
+          {/* Marco flag + % de conclusão (agrupados) */}
+          {(canEdit || item.is_marco || (item.nivel === 1 && progress && progress.total > 0)) && (
+            <span className="flex items-center gap-1 flex-shrink-0">
+              {canEdit ? (
+                <button
+                  className="p-0.5 rounded hover:bg-[var(--bg-card)] transition-colors relative"
+                  title={item.is_marco ? 'Marco de projeto — clique para remover' : 'Marcar como marco'}
+                  onClick={e => { e.stopPropagation(); onUpdateItem?.(item.id, { is_marco: !item.is_marco }) }}
+                >
+                  <Flag size={item.is_marco ? 16 : 12} style={{ color: item.is_marco ? '#F59E0B' : 'var(--text-secondary)' }} fill={item.is_marco ? '#F59E0B' : 'none'} strokeWidth={item.is_marco ? 2.5 : 1.5} />
+                </button>
+              ) : item.is_marco ? (
+                <Flag size={16} style={{ color: '#F59E0B' }} fill="#F59E0B" />
+              ) : null}
               {item.nivel === 1 && progress && progress.total > 0 && (
-                <span className="ml-2 text-[10px] font-normal opacity-60">{progPct}%</span>
+                <span
+                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"
+                  style={{
+                    color: progPct >= 100 ? '#10B981' : progPct > 0 ? 'var(--accent)' : 'var(--text-secondary)',
+                    background: progPct >= 100 ? 'rgba(16,185,129,0.14)' : progPct > 0 ? 'rgba(59,123,248,0.12)' : 'var(--bg-secondary)',
+                  }}
+                >
+                  {progPct}%
+                </span>
               )}
             </span>
           )}
 
-          {/* Marco flag */}
-          {canEdit && (
-            <button
-              className="p-0.5 rounded flex-shrink-0 hover:bg-[var(--bg-card)] transition-colors"
-              title={item.is_marco ? 'Marco de projeto — clique para remover' : 'Marcar como marco'}
-              onClick={e => { e.stopPropagation(); onUpdateItem?.(item.id, { is_marco: !item.is_marco }) }}
-            >
-              <Flag size={12} style={{ color: item.is_marco ? '#F59E0B' : 'var(--text-secondary)' }} fill={item.is_marco ? '#F59E0B' : 'none'} strokeWidth={item.is_marco ? 2.5 : 1.5} />
-            </button>
-          )}
-          {!canEdit && item.is_marco && (
-            <Flag size={12} style={{ color: '#F59E0B' }} fill="#F59E0B" className="flex-shrink-0" />
-          )}
-
           {canEdit && onEditPredecessoras && (
             <button
-              className="p-1 rounded flex-shrink-0 hover:bg-[var(--bg-card)] transition-colors"
+              className="hidden sm:inline-flex p-1 rounded flex-shrink-0 hover:bg-[var(--bg-card)] transition-colors"
               title={hasPredecessoras ? 'Predecessoras configuradas' : 'Adicionar predecessoras'}
               onClick={e => {
                 e.stopPropagation()
@@ -458,7 +483,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
           )}
 
           <button
-            className="p-1 rounded hover:bg-[var(--bg-card)] flex-shrink-0"
+            className="hidden sm:inline-flex p-1 rounded hover:bg-[var(--bg-card)] flex-shrink-0"
             title={file ? `Abrir ${file.file_name}` : 'Anexar PDF'}
             onClick={e => {
               e.stopPropagation()
@@ -471,7 +496,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
           </button>
           {file && canEdit && (
             <button
-              className="p-1 rounded hover:bg-red-500/10 flex-shrink-0"
+              className="hidden sm:inline-flex p-1 rounded hover:bg-red-500/10 flex-shrink-0"
               title="Remover PDF"
               onClick={e => {
                 e.stopPropagation()
@@ -483,91 +508,100 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             </button>
           )}
 
-          <div className="basis-full mt-2 flex items-center justify-between gap-2 text-[12px] sm:hidden" style={{ color: 'var(--text-secondary)', paddingLeft: 42 }}>
-            <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
-              {item.responsavel && <span>{item.responsavel}</span>}
-              {file && <button onClick={() => onOpenFile(file)} className="truncate" style={{ color: 'var(--accent)' }}>{file.file_name}</button>}
-              {(eff.inicio || eff.fim) && (
-                <span>
-                  {eff.inicio ? fmtDate(eff.inicio) : '--'}
-                  {eff.fim ? ` -> ${fmtDate(eff.fim)}` : ''}
-                </span>
-              )}
-            </div>
-            {canEdit && !editingNome && (
-              <div className="flex flex-shrink-0 items-center gap-1">
-                <button
-                  className="h-8 w-8 rounded-lg border flex items-center justify-center"
-                  title="Renomear"
-                  onClick={() => { setEditingNome(true); setOpen(true) }}
-                  style={{ color: 'var(--text-secondary)', borderColor: 'rgba(148,163,184,0.22)', background: 'rgba(148,163,184,0.08)' }}
-                >
-                  <Pencil size={13} />
-                </button>
-                {canHaveChildren && (
+          {/* Mobile: linha de info (toque p/ editar datas) + menu de 3 pontinhos */}
+          <div className="basis-full mt-2 sm:hidden" style={{ paddingLeft: 42 }}>
+            <div className="flex items-start justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => { if (canEdit && hasDateInput) setShowDatesMobile(v => !v) }}
+                className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-left"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {item.responsavel && <span>👤 {item.responsavel}</span>}
+                {(eff.inicio || eff.fim) ? (
+                  <span style={{ color: atrasado ? '#EF4444' : 'var(--text-secondary)' }}>
+                    {atrasado && '⚠ '}{eff.inicio ? fmtDate(eff.inicio) : '--'}{eff.fim ? ` → ${fmtDate(eff.fim)}` : ''}
+                    {(() => { const d = calcDurationDays(eff.inicio ?? '', eff.fim ?? ''); return d !== null ? ` · ${d}d` : '' })()}
+                  </span>
+                ) : canEdit && hasDateInput ? (
+                  <span className="opacity-60">+ definir datas</span>
+                ) : null}
+                {file && <span className="truncate" style={{ color: 'var(--accent)' }}>{file.file_name}</span>}
+              </button>
+
+              {canEdit && !editingNome && (
+                <div className="relative flex-shrink-0" ref={menuRef}>
                   <button
                     className="h-8 w-8 rounded-lg border flex items-center justify-center"
-                    title={`Adicionar ${NIVEL_LABELS[item.nivel + 1]}`}
-                    onClick={() => setOpen(true)}
-                    style={{ color: 'var(--accent)', borderColor: 'rgba(59,123,248,0.28)', background: 'rgba(59,123,248,0.08)' }}
+                    style={{ color: 'var(--text-secondary)', borderColor: 'rgba(148,163,184,0.22)', background: 'rgba(148,163,184,0.08)' }}
+                    onClick={() => setMenuOpen(v => !v)}
+                    title="Ações"
                   >
-                    <Plus size={14} />
+                    <MoreVertical size={16} />
                   </button>
-                )}
-                <button
-                  className="h-8 w-8 rounded-lg border flex items-center justify-center"
-                  title="Excluir"
-                  onClick={() => onDelete(item.id)}
-                  style={{ color: '#f87171', borderColor: 'rgba(248,113,113,0.25)', background: 'rgba(248,113,113,0.08)' }}
-                >
-                  <Trash2 size={13} />
-                </button>
+                  {menuOpen && (
+                    <div className="absolute right-0 top-9 z-30 w-52 rounded-xl border py-1 shadow-lg" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+                      <MenuItem icon={Pencil} label="Renomear" onClick={() => { setMenuOpen(false); setEditingNome(true); setOpen(true) }} />
+                      {canHaveChildren && <MenuItem icon={Plus} label={`Adicionar ${NIVEL_LABELS[item.nivel + 1]}`} onClick={() => { setMenuOpen(false); setOpen(true) }} />}
+                      {hasDateInput && <MenuItem icon={CalendarDays} label="Editar datas" onClick={() => { setMenuOpen(false); setShowDatesMobile(true) }} />}
+                      <MenuItem icon={Flag} label={item.is_marco ? 'Remover marco' : 'Marcar como marco'} onClick={() => { setMenuOpen(false); onUpdateItem?.(item.id, { is_marco: !item.is_marco }) }} />
+                      {onEditPredecessoras && <MenuItem icon={Link2} label="Predecessoras" onClick={() => { setMenuOpen(false); onEditPredecessoras(item) }} />}
+                      {file ? (
+                        <MenuItem icon={Paperclip} label="Abrir PDF" onClick={() => { setMenuOpen(false); onOpenFile(file) }} />
+                      ) : (
+                        <MenuItem icon={Paperclip} label="Anexar PDF" onClick={() => { setMenuOpen(false); onAttach(item.id) }} />
+                      )}
+                      {file && <MenuItem icon={Trash2} label="Remover PDF" danger onClick={() => { setMenuOpen(false); onRemoveFile(file) }} />}
+                      <MenuItem icon={Trash2} label="Excluir" danger onClick={() => { setMenuOpen(false); onDelete(item.id) }} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Painel de datas mobile (Início / Duração / Fim) */}
+            {canEdit && hasDateInput && showDatesMobile && (
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                <label className="min-w-0">
+                  <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Início</span>
+                  <input
+                    type="date"
+                    className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
+                    style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    value={item.data_inicio ?? ''}
+                    onChange={e => onUpdateItem?.(item.id, { data_inicio: e.target.value || null })}
+                  />
+                </label>
+                <label className="min-w-0">
+                  <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Duração</span>
+                  <input
+                    type="number"
+                    min={0}
+                    className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
+                    style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    placeholder="dias"
+                    value={calcDurationDays(item.data_inicio ?? '', item.data_prazo ?? '') ?? ''}
+                    onChange={e => {
+                      const days = parseInt(e.target.value)
+                      if (!isNaN(days) && days >= 0 && item.data_inicio) {
+                        onUpdateItem?.(item.id, { data_prazo: addDaysToDate(item.data_inicio, days) })
+                      }
+                    }}
+                  />
+                </label>
+                <label className="min-w-0">
+                  <span className="block text-[10px] mb-1" style={{ color: atrasado ? '#EF4444' : 'var(--text-secondary)' }}>Fim</span>
+                  <input
+                    type="date"
+                    className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
+                    style={{ background: 'var(--bg-card)', borderColor: atrasado ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }}
+                    value={item.data_prazo ?? ''}
+                    onChange={e => onUpdateItem?.(item.id, { data_prazo: e.target.value || null })}
+                  />
+                </label>
               </div>
             )}
           </div>
-
-          {/* Ações hover */}
-          {canEdit && hasDateInput && (
-            <div className="basis-full hidden sm:hidden grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 42 }}>
-              <label className="min-w-0">
-                <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Início</span>
-                <input
-                  type="date"
-                  className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
-                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                  value={item.data_inicio ?? ''}
-                  onChange={e => onUpdateItem?.(item.id, { data_inicio: e.target.value || null })}
-                />
-              </label>
-              <label className="min-w-0">
-                <span className="block text-[10px] mb-1" style={{ color: 'var(--text-secondary)' }}>Duração</span>
-                <input
-                  type="number"
-                  min={0}
-                  className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
-                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                  placeholder="dias"
-                  value={calcDurationDays(item.data_inicio ?? '', item.data_prazo ?? '') ?? ''}
-                  onChange={e => {
-                    const days = parseInt(e.target.value)
-                    if (!isNaN(days) && days >= 0 && item.data_inicio) {
-                      onUpdateItem?.(item.id, { data_prazo: addDaysToDate(item.data_inicio, days) })
-                    }
-                  }}
-                />
-              </label>
-              <label className="min-w-0">
-                <span className="block text-[10px] mb-1" style={{ color: atrasado ? '#EF4444' : 'var(--text-secondary)' }}>Fim</span>
-                <input
-                  type="date"
-                  className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
-                  style={{ background: 'var(--bg-card)', borderColor: atrasado ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }}
-                  value={item.data_prazo ?? ''}
-                  onChange={e => onUpdateItem?.(item.id, { data_prazo: e.target.value || null })}
-                />
-              </label>
-            </div>
-          )}
 
           {canEdit && !editingNome && (
             <div className="hidden sm:flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
@@ -929,6 +963,24 @@ function ProjetoPredecessorPicker({ open, item, itens, dependencias, onClose, on
 
 function collectNodeDescendants(node: ProjetoItemNode): string[] {
   return (node.children ?? []).flatMap(child => [child.id, ...collectNodeDescendants(child)])
+}
+
+function MenuItem({ icon: Icon, label, onClick, danger }: {
+  icon: typeof Pencil
+  label: string
+  onClick: () => void
+  danger?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-[var(--bg-secondary)] transition-colors"
+      style={{ color: danger ? '#f87171' : 'var(--text-primary)' }}
+    >
+      <Icon size={15} style={{ color: danger ? '#f87171' : 'var(--text-secondary)' }} />
+      {label}
+    </button>
+  )
 }
 
 function AddInlineRow({ parentId, nivel, placeholder, onAdd }: {

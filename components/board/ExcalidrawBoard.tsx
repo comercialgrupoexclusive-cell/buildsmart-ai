@@ -388,12 +388,13 @@ export function ExcalidrawBoard({ projectId }: Props) {
           theme={excalidrawTheme}
           langCode="pt-BR"
           renderTopRightUI={() => (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="board-topbar-ui" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               {/* Avatares dos usuários online */}
               {onlineUsers.map(user => (
                 <div
                   key={user.userId}
                   title={user.name}
+                  className="board-avatar"
                   style={{
                     width: 28, height: 28, borderRadius: '50%',
                     background: user.color, flexShrink: 0,
@@ -411,6 +412,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
               <button
                 title="Importar PDF como imagem no canvas"
                 onClick={() => fileInputRef.current?.click()}
+                className="board-topbtn"
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '6px 14px', borderRadius: 8,
@@ -418,13 +420,14 @@ export function ExcalidrawBoard({ projectId }: Props) {
                   cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#4e46dc',
                 }}
               >
-                <FileText size={14} /> PDF
+                <FileText size={14} /> <span className="board-btn-label">PDF</span>
               </button>
 
               {/* Botão NCs */}
               <button
                 title="Painel de não-conformidades"
                 onClick={() => setShowNC(v => !v)}
+                className="board-topbtn"
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '6px 14px', borderRadius: 8,
@@ -434,7 +437,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
                   color: showNC ? '#dc2626' : '#ea580c',
                 }}
               >
-                <AlertTriangle size={14} /> NCs
+                <AlertTriangle size={14} /> <span className="board-btn-label">NCs</span>
               </button>
 
               {/* Tela cheia */}
@@ -443,6 +446,14 @@ export function ExcalidrawBoard({ projectId }: Props) {
           )}
         >
           <MainMenu>
+            {/* Ações custom — acessíveis também pelo menu (essencial no mobile) */}
+            <MainMenu.Item onSelect={() => fileInputRef.current?.click()} icon={<FileText size={16} />}>
+              Importar PDF
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => setShowNC(v => !v)} icon={<AlertTriangle size={16} />}>
+              Não-conformidades
+            </MainMenu.Item>
+            <MainMenu.Separator />
             <MainMenu.DefaultItems.ClearCanvas />
             <MainMenu.DefaultItems.Export />
             <MainMenu.DefaultItems.SaveAsImage />
@@ -458,7 +469,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
 
       {/* Painel lateral de NCs */}
       {showNC && (
-        <div style={{
+        <div className="board-nc-panel" style={{
           width: 300, height: '100%', flexShrink: 0,
           borderLeft: '1px solid var(--border)',
           background: 'var(--bg-card)',
@@ -482,7 +493,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
           .buildsmart-board-shell .excalidraw .App-toolbar,
           .buildsmart-board-shell .excalidraw .App-toolbar-content,
           .buildsmart-board-shell .excalidraw .FixedSideContainer_side_top .Island {
-            max-width: calc(100vw - 40px);
+            max-width: calc(100vw - 24px);
             overflow-x: auto;
             overflow-y: hidden;
             justify-content: flex-start;
@@ -495,6 +506,39 @@ export function ExcalidrawBoard({ projectId }: Props) {
           }
           .buildsmart-board-shell .excalidraw .ToolIcon__icon {
             min-width: 34px;
+          }
+          /* Impede a barra superior de estourar a largura do container:
+             força min-width:0 na cadeia p/ o toolbar central encolher e rolar */
+          .buildsmart-board-shell .excalidraw .FixedSideContainer_side_top > *,
+          .buildsmart-board-shell .excalidraw .App-toolbar-container,
+          .buildsmart-board-shell .excalidraw .App-toolbar-container > * {
+            min-width: 0 !important;
+            max-width: 100% !important;
+            box-sizing: border-box;
+          }
+          /* Ilha de ferramentas mobile: largura fixa = viewport, rola internamente */
+          .buildsmart-board-shell .excalidraw .App-toolbar.App-toolbar--mobile {
+            width: calc(100vw - 28px) !important;
+            max-width: calc(100vw - 28px) !important;
+            flex: 0 0 auto !important;
+            overflow-x: auto !important;
+          }
+          /* No mobile, PDF/NCs ficam no menu hambúrguer e a UI custom do topo
+             é ocultada — libera a barra de ferramentas para rolar sem estourar */
+          .buildsmart-board-shell .board-topbar-ui {
+            display: none !important;
+          }
+          .buildsmart-board-shell .board-avatar {
+            width: 24px !important;
+            height: 24px !important;
+            font-size: 10px !important;
+          }
+          /* Painel de NCs ocupa a tela toda no mobile em vez de faixa lateral apertada */
+          .buildsmart-board-shell .board-nc-panel {
+            position: absolute !important;
+            inset: 0 !important;
+            width: 100% !important;
+            z-index: 40 !important;
           }
         }
       `}</style>
