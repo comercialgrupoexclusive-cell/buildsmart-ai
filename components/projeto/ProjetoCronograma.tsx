@@ -23,6 +23,8 @@ interface Props {
   profiles?: { id: string; name: string; apelido: string | null }[]
 }
 
+type Dependencia = { id: string; item_id: string; predecessor_id: string }
+
 function buildTree(items: ItemRow[]): ItemRow[] {
   const map = new Map<string, ItemRow>()
   const roots: ItemRow[] = []
@@ -58,6 +60,7 @@ export function ProjetoCronograma({ projetoId, profiles = [] }: Props) {
   const supabase = createClient()
   const [flat, setFlat]     = useState<ItemRow[]>([])
   const [tree, setTree]     = useState<ItemRow[]>([])
+  const [deps, setDeps]     = useState<Dependencia[]>([])
   const [loading, setLoading] = useState(true)
   const [subTab, setSubTab] = useState<'kanban' | 'gantt'>('gantt')
 
@@ -65,14 +68,18 @@ export function ProjetoCronograma({ projetoId, profiles = [] }: Props) {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase
-      .from('projeto_itens')
-      .select('id, projeto_id, parent_id, nome, nivel, concluido, ordem, responsavel, data_inicio, data_prazo')
-      .eq('projeto_id', projetoId)
-      .order('nivel').order('ordem')
+    const [{ data }, depsRes] = await Promise.all([
+      supabase
+        .from('projeto_itens')
+        .select('id, projeto_id, parent_id, nome, nivel, concluido, ordem, responsavel, data_inicio, data_prazo')
+        .eq('projeto_id', projetoId)
+        .order('nivel').order('ordem'),
+      supabase.from('projeto_item_dependencias').select('id, item_id, predecessor_id').eq('projeto_id', projetoId),
+    ])
     const items = (data ?? []) as ItemRow[]
     setFlat(items)
     setTree(buildTree(items))
+    if (!depsRes.error) setDeps((depsRes.data ?? []) as Dependencia[])
     setLoading(false)
   }
 
@@ -141,7 +148,7 @@ export function ProjetoCronograma({ projetoId, profiles = [] }: Props) {
         <KanbanView flat={flat} tree={tree} onToggle={toggleConcluido} onMoveStatus={moveStatus} />
       )}
       {subTab === 'gantt' && (
-        <GanttView flat={flat} tree={tree} onUpdateItem={updateItem} />
+        <GanttView flat={flat} tree={tree} deps={deps} onUpdateItem={updateItem} />
       )}
     </div>
   )
@@ -334,7 +341,7 @@ function rollup(node: ItemRow, map: Map<string, EffDate>): EffDate {
   return res
 }
 
-function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRow[]; onUpdateItem: (id: string, f: Partial<ItemRow>) => void }) {
+function GanttView({ flat, tree, deps, onUpdateItem }: { flat: ItemRow[]; tree: ItemRow[]; deps: Dependencia[]; onUpdateItem: (id: string, f: Partial<ItemRow>) => void }) {
   // Cascata inicia fechada: colapsa todo nó que tem filhos
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(flat.filter(i => flat.some(j => j.parent_id === i.id)).map(i => i.id))
@@ -777,6 +784,33 @@ function GanttView({ flat, tree, onUpdateItem }: { flat: ItemRow[]; tree: ItemRo
                 <text x={todayX} y={HDR_H - 7} textAnchor="middle" fontSize={8} fill="white" fontFamily="var(--font-sans)">hoje</text>
               </g>
             )}
+
+            {/* Linhas de dependência (Fim→Início) — entre itens visíveis com datas */}
+            {(() => {
+              const idxById = new Map(drows.map((r, i) => [r.id, i]))
+              const geom = (rid: string) => {
+                const i = idxById.get(rid)
+                if (i == null) return null
+                const r = drows[i]
+                if (!r.inicio && !r.fim) return null
+                const x1 = xOf(r.inicio, r.fim ? addDays(new Date(r.fim), -1) : today)
+                const x2 = xOf(r.fim, r.inicio ? addDays(new Date(r.inicio), 1) : today)
+                return { x1, x2, cy: HDR_H + i * rowH + rowH / 2 }
+              }
+              return deps.map(d => {
+                const p = geom(d.predecessor_id)
+                const s = geom(d.item_id)
+                if (!p || !s) return null
+                const midX = p.x2 + 10
+                const path = `M ${p.x2} ${p.cy} H ${midX} V ${s.cy} H ${s.x1}`
+                return (
+                  <g key={d.id} opacity={0.5}>
+                    <path d={path} fill="none" stroke="var(--text-secondary)" strokeWidth={1.3} />
+                    <path d={`M ${s.x1 - 6} ${s.cy - 3} L ${s.x1} ${s.cy} L ${s.x1 - 6} ${s.cy + 3} Z`} fill="var(--text-secondary)" />
+                  </g>
+                )
+              })
+            })()}
 
             {/* Barras */}
             {drows.map(({ id, inicio, fim, concluido, isProj, nivel }, idx) => {
