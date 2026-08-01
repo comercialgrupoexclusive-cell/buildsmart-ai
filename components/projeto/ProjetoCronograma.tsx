@@ -20,7 +20,6 @@ interface ItemRow {
 
 interface Props {
   projetoId: string
-  profiles?: { id: string; name: string; apelido: string | null }[]
 }
 
 type Dependencia = { id: string; item_id: string; predecessor_id: string }
@@ -56,7 +55,7 @@ function getKanbanStatus(item: ItemRow): 'pendente' | 'em_andamento' | 'atrasado
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
-export function ProjetoCronograma({ projetoId, profiles = [] }: Props) {
+export function ProjetoCronograma({ projetoId }: Props) {
   const supabase = createClient()
   const [flat, setFlat]     = useState<ItemRow[]>([])
   const [tree, setTree]     = useState<ItemRow[]>([])
@@ -145,7 +144,7 @@ export function ProjetoCronograma({ projetoId, profiles = [] }: Props) {
       </div>
 
       {subTab === 'kanban' && (
-        <KanbanView flat={flat} tree={tree} onToggle={toggleConcluido} onMoveStatus={moveStatus} />
+        <KanbanView flat={flat} onToggle={toggleConcluido} onMoveStatus={moveStatus} />
       )}
       {subTab === 'gantt' && (
         <GanttView flat={flat} tree={tree} deps={deps} onUpdateItem={updateItem} />
@@ -163,9 +162,8 @@ const KANBAN_COLS = [
   { key: 'concluido',   label: 'Concluído',    color: '#10B981', bg: 'rgba(16,185,129,0.1)' },
 ] as const
 
-function KanbanView({ flat, tree, onToggle, onMoveStatus }: {
+function KanbanView({ flat, onToggle, onMoveStatus }: {
   flat: ItemRow[]
-  tree: ItemRow[]
   onToggle: (id: string, v: boolean) => void
   onMoveStatus: (item: ItemRow, target: 'pendente' | 'em_andamento' | 'concluido') => void
 }) {

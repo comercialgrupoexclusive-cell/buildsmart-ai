@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
@@ -42,7 +43,7 @@ const STATUS_OPTIONS = [
 
 export default function ProjetoDetalhe({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { isCliente, canDelete } = usePermission()
+  const { isCliente } = usePermission()
   const searchParams = useSearchParams()
   const [projeto, setProjeto] = useState<Projeto | null>(null)
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
@@ -272,7 +273,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     return (
       <div className="text-center py-32" style={{ color: 'var(--text-secondary)' }}>
         Projeto não encontrado.
-        <a href="/projetos" className="block mt-3 text-sm" style={{ color: 'var(--accent)' }}>← Voltar</a>
+        <Link href="/projetos" className="block mt-3 text-sm" style={{ color: 'var(--accent)' }}>← Voltar</Link>
       </div>
     )
   }
@@ -281,9 +282,9 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     <div className="space-y-4 min-w-0">
       {/* Header */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        <a href="/projetos" className="p-2 rounded-lg hover:bg-[var(--bg-card)]" style={{ color: 'var(--text-secondary)' }}>
+        <Link href="/projetos" className="p-2 rounded-lg hover:bg-[var(--bg-card)]" style={{ color: 'var(--text-secondary)' }}>
           <ArrowLeft size={18} />
-        </a>
+        </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold truncate" style={{ color: 'var(--text-primary)' }}>{projeto.nome}</h1>
           {projeto.cliente && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{projeto.cliente}</p>}
@@ -353,7 +354,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       )}
 
       {tab === 'cronograma' && (
-        <ProjetoCronograma projetoId={projeto.id} profiles={profiles} />
+        <ProjetoCronograma projetoId={projeto.id} />
       )}
 
       {tab === 'board' && (

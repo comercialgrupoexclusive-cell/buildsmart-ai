@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { Plus, FolderOpen, Search, MoreVertical, Calendar, Link2, AlertTriangle, Copy, BookTemplate, ImagePlus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
@@ -249,13 +250,13 @@ export default function ProjetosPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <a
+          <Link
             href="/projetos/templates"
             className="px-3 py-2 rounded-lg text-sm font-medium border"
             style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)' }}
           >
             Templates
-          </a>
+          </Link>
           {!isCliente && (
             <button
               onClick={() => setShowModal(true)}
@@ -320,7 +321,7 @@ export default function ProjetosPage() {
             return (
               <div key={p.id} className="relative">
                 {/* Card inteiramente clicável */}
-                <a
+                <Link
                   href={`/projetos/${p.id}`}
                   className="block rounded-xl border overflow-hidden hover:shadow-md transition-shadow"
                   style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
@@ -392,7 +393,7 @@ export default function ProjetosPage() {
                       </div>
                     )}
                   </div>
-                </a>
+                </Link>
 
                 {/* Menu flutuante (fora do <a> para evitar navegação) */}
                 <div className="absolute top-5 right-3">
@@ -408,13 +409,13 @@ export default function ProjetosPage() {
                       className="absolute right-0 top-8 z-50 rounded-lg shadow-xl border min-w-[160px] py-1"
                       style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                     >
-                      <a
+                      <Link
                         href={`/projetos/${p.id}`}
                         className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-[var(--bg-secondary)]"
                         style={{ color: 'var(--text-primary)' }}
                       >
                         Editar
-                      </a>
+                      </Link>
                       {!isCliente && (
                         <>
                           <button

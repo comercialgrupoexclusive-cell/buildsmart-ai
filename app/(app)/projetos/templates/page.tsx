@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { Plus, Trash2, ChevronDown, ChevronRight, Save, ArrowLeft, BookTemplate, Sparkles, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
@@ -22,7 +23,7 @@ type Template = {
 const EMPTY_FORM = { nome: '', descricao: '' }
 
 export default function ProjetoTemplatesPage() {
-  const { isAdmin, isCliente } = usePermission()
+  const { isCliente } = usePermission()
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -150,9 +151,9 @@ export default function ProjetoTemplatesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <a href="/projetos" className="p-2 rounded-lg hover:bg-[var(--bg-card)]" style={{ color: 'var(--text-secondary)' }}>
+          <Link href="/projetos" className="p-2 rounded-lg hover:bg-[var(--bg-card)]" style={{ color: 'var(--text-secondary)' }}>
             <ArrowLeft size={18} />
-          </a>
+          </Link>
           <div>
             <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Templates de Projeto</h1>
             <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>Estruturas reutilizáveis para novos projetos</p>
