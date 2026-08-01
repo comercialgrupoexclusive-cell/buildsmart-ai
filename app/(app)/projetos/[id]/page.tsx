@@ -123,6 +123,22 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     setTree(buildProjetoTree(updated))
   }
 
+  // Reagenda datas a partir das predecessoras e persiste os itens alterados
+  async function reschedule(baseItens: ProjetoItemNode[], deps: ProjetoItemDependencia[]): Promise<ProjetoItemNode[]> {
+    const changes = scheduleFromDependencies(baseItens, deps)
+    if (changes.size === 0) return baseItens
+    const updated = baseItens.map(i => changes.has(i.id) ? { ...i, ...changes.get(i.id)! } : i)
+    setItens(updated)
+    setTree(buildProjetoTree(updated))
+    const supabase = createClient()
+    await Promise.all(
+      [...changes.entries()].map(([cid, d]) =>
+        supabase.from('projeto_itens').update({ data_inicio: d.data_inicio, data_prazo: d.data_prazo }).eq('id', cid)
+      )
+    )
+    return updated
+  }
+
   async function handleUpdateItem(itemId: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>> & { concluido?: boolean }) {
     const updated = itens.map(i => i.id === itemId ? { ...i, ...fields } : i)
     setItens(updated)
@@ -131,6 +147,11 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     const { error } = await supabase.from('projeto_itens').update(fields).eq('id', itemId)
     if (error) {
       alert('Erro ao salvar: ' + error.message)
+      return
+    }
+    // Mexeu em data → propaga para as tarefas dependentes
+    if ('data_inicio' in fields || 'data_prazo' in fields) {
+      await reschedule(updated, dependencias)
     }
   }
 
@@ -141,6 +162,13 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     const remover = atuais.filter(d => !nextSet.has(d.predecessor_id))
     const existentes = new Set(atuais.map(d => d.predecessor_id))
     const inserir = predecessorIds.filter(predecessorId => !existentes.has(predecessorId))
+
+    // Reagenda as datas conforme as novas predecessoras (Fim→Início)
+    const depsAtualizadas: ProjetoItemDependencia[] = [
+      ...dependencias.filter(d => d.item_id !== itemId),
+      ...predecessorIds.map(predecessor_id => ({ id: `sched-${itemId}-${predecessor_id}`, projeto_id: id, item_id: itemId, predecessor_id })),
+    ]
+    void reschedule(itens, depsAtualizadas)
 
     setDependencias(prev => [
       ...prev.filter(d => d.item_id !== itemId || nextSet.has(d.predecessor_id)),
@@ -493,4 +521,119 @@ function DadosField({ label, value, editing, onChange, type = 'text', className 
 function collectDescendants(itens: ProjetoItemNode[], parentId: string): string[] {
   const children = itens.filter(i => i.parent_id === parentId).map(i => i.id)
   return children.flatMap(cid => [cid, ...collectDescendants(itens, cid)])
+}
+
+// ── Agendamento por predecessoras (Fim→Início, como no MS Project) ──────────
+function daysBetween(a: string, b: string): number {
+  return Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000)
+}
+function shiftDate(d: string, n: number): string {
+  const x = new Date(d + 'T00:00:00')
+  x.setDate(x.getDate() + n)
+  return x.toISOString().slice(0, 10)
+}
+
+/**
+ * Recalcula as datas a partir das predecessoras: uma tarefa começa no dia
+ * seguinte ao término da(s) predecessora(s). Empurra apenas para frente (não
+ * antecipa), preservando a duração; um item pai arrasta toda a subárvore.
+ * Retorna só os itens cujas datas mudaram.
+ */
+function scheduleFromDependencies(
+  itens: ProjetoItemNode[],
+  deps: ProjetoItemDependencia[],
+): Map<string, { data_inicio: string | null; data_prazo: string | null }> {
+  const work = new Map(itens.map(i => [i.id, { ...i }]))
+  const childrenOf = new Map<string, string[]>()
+  itens.forEach(i => {
+    if (i.parent_id) {
+      const arr = childrenOf.get(i.parent_id) ?? []
+      arr.push(i.id)
+      childrenOf.set(i.parent_id, arr)
+    }
+  })
+
+  const effFim = (idv: string): string | null => {
+    const node = work.get(idv); if (!node) return null
+    const kids = childrenOf.get(idv)
+    if (kids?.length) {
+      const fims = kids.map(effFim).filter(Boolean) as string[]
+      return fims.length ? fims.reduce((a, b) => (a > b ? a : b)) : node.data_prazo
+    }
+    return node.data_prazo
+  }
+  const effInicio = (idv: string): string | null => {
+    const node = work.get(idv); if (!node) return null
+    const kids = childrenOf.get(idv)
+    if (kids?.length) {
+      const ins = kids.map(effInicio).filter(Boolean) as string[]
+      return ins.length ? ins.reduce((a, b) => (a < b ? a : b)) : node.data_inicio
+    }
+    return node.data_inicio
+  }
+  const descendants = (idv: string): string[] => {
+    const kids = childrenOf.get(idv) ?? []
+    return kids.flatMap(k => [k, ...descendants(k)])
+  }
+  const shiftSubtree = (idv: string, delta: number) => {
+    for (const cid of [idv, ...descendants(idv)]) {
+      const n = work.get(cid); if (!n) continue
+      if (n.data_inicio) n.data_inicio = shiftDate(n.data_inicio, delta)
+      if (n.data_prazo) n.data_prazo = shiftDate(n.data_prazo, delta)
+    }
+  }
+
+  // Ignora predecessoras que sejam ancestrais/descendentes do próprio item
+  // (evita ciclo pai↔filho que empurraria as datas indefinidamente)
+  const parentOf = new Map(itens.map(i => [i.id, i.parent_id]))
+  const isAncestor = (a: string, b: string): boolean => {
+    let cur = parentOf.get(b) ?? null
+    while (cur) { if (cur === a) return true; cur = parentOf.get(cur) ?? null }
+    return false
+  }
+
+  const predsOf = new Map<string, string[]>()
+  deps.forEach(d => {
+    if (d.predecessor_id === d.item_id || isAncestor(d.predecessor_id, d.item_id) || isAncestor(d.item_id, d.predecessor_id)) return
+    const arr = predsOf.get(d.item_id) ?? []
+    arr.push(d.predecessor_id)
+    predsOf.set(d.item_id, arr)
+  })
+
+  // Ponto fixo: repete até estabilizar (resolve cadeias A→B→C)
+  for (let iter = 0; iter < itens.length + 5; iter++) {
+    let changed = false
+    for (const [itemId, preds] of predsOf) {
+      const node = work.get(itemId); if (!node) continue
+      let maxFim: string | null = null
+      for (const p of preds) {
+        const f = effFim(p)
+        if (f && (!maxFim || f > maxFim)) maxFim = f
+      }
+      if (!maxFim) continue
+      const target = shiftDate(maxFim, 1) // começa no dia seguinte ao término da predecessora
+      const curStart = effInicio(itemId)
+      const hasKids = (childrenOf.get(itemId)?.length ?? 0) > 0
+      if (!curStart) {
+        if (!hasKids) {
+          node.data_inicio = target
+          if (!node.data_prazo || node.data_prazo < target) node.data_prazo = target
+          changed = true
+        }
+      } else if (target > curStart) {
+        const delta = daysBetween(curStart, target)
+        if (delta > 0) { shiftSubtree(itemId, delta); changed = true }
+      }
+    }
+    if (!changed) break
+  }
+
+  const result = new Map<string, { data_inicio: string | null; data_prazo: string | null }>()
+  itens.forEach(orig => {
+    const w = work.get(orig.id)!
+    if (w.data_inicio !== orig.data_inicio || w.data_prazo !== orig.data_prazo) {
+      result.set(orig.id, { data_inicio: w.data_inicio, data_prazo: w.data_prazo })
+    }
+  })
+  return result
 }
