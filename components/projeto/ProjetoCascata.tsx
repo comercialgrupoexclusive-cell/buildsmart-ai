@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, ChevronDown, Plus, Trash2, Check, Pencil, Paperclip, Flag, Link2, Square, CheckSquare, MoreVertical, CalendarDays } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -148,6 +148,14 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
   const [pdfAberto, setPdfAberto] = useState<ProjectItemFile | null>(null)
   const [predecessorTarget, setPredecessorTarget] = useState<ProjetoItemNode | null>(null)
 
+  // Mapa id → nome (para mostrar o nome da predecessora nas linhas)
+  const nomeById = useMemo(() => {
+    const m = new Map<string, string>()
+    const walk = (nodes: ProjetoItemNode[]) => nodes.forEach(n => { m.set(n.id, n.nome); if (n.children) walk(n.children) })
+    walk(itens)
+    return m
+  }, [itens])
+
   useEffect(() => {
     const raw = localStorage.getItem(projectFilesKey(projetoId))
     if (raw) setFiles(JSON.parse(raw))
@@ -250,6 +258,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
             onRename={onRename}
             onUpdateItem={onUpdateItem}
             dependencias={dependencias}
+            nomeById={nomeById}
             onEditPredecessoras={canEdit && onSavePredecessoras ? setPredecessorTarget : undefined}
             file={files.find(f => f.item_id === item.id)}
             allFiles={files}
@@ -287,7 +296,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
   )
 }
 
-function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, dependencias, onEditPredecessoras, file, allFiles, onAttach, onOpenFile, onRemoveFile }: {
+function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, dependencias, nomeById, onEditPredecessoras, file, allFiles, onAttach, onOpenFile, onRemoveFile }: {
   item: ProjetoItemNode
   canEdit: boolean
   profiles: { id: string; name: string; apelido: string | null }[]
@@ -297,6 +306,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   onRename: (id: string, nome: string) => void
   onUpdateItem?: (id: string, fields: ProjetoItemUpdate) => void
   dependencias: ProjetoItemDependencia[]
+  nomeById: Map<string, string>
   onEditPredecessoras?: (item: ProjetoItemNode) => void
   file?: ProjectItemFile
   allFiles: ProjectItemFile[]
@@ -330,6 +340,10 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   const hasDateInput    = item.nivel <= 3
   const status          = calcStatus(item)
   const hasPredecessoras = dependencias.some(d => d.item_id === item.id)
+  const predNomes = dependencias
+    .filter(d => d.item_id === item.id)
+    .map(d => nomeById.get(d.predecessor_id))
+    .filter(Boolean) as string[]
 
   const progress = item.nivel === 1 ? calcProgress(item) : null
   const progPct  = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0
@@ -480,6 +494,20 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                 {STATUS_CFG[status].label}
               </span>
             )
+          )}
+
+          {/* Chip da predecessora — feedback visível de que a dependência foi definida */}
+          {predNomes.length > 0 && (
+            <span
+              className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-0.5"
+              style={{ color: 'var(--accent)', background: 'rgba(59,123,248,0.10)', whiteSpace: 'nowrap' }}
+              title={`Depois de: ${predNomes.join(', ')}`}
+            >
+              <Link2 size={9} />
+              {predNomes.length === 1
+                ? (predNomes[0].length > 16 ? predNomes[0].slice(0, 15) + '…' : predNomes[0])
+                : `${predNomes.length} predecessoras`}
+            </span>
           )}
 
           <button
@@ -841,6 +869,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
               onRename={onRename}
               onUpdateItem={onUpdateItem}
               dependencias={dependencias}
+              nomeById={nomeById}
               onEditPredecessoras={onEditPredecessoras}
               file={allFiles.find(f => f.item_id === child.id)}
               allFiles={allFiles}

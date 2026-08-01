@@ -614,16 +614,17 @@ function scheduleFromDependencies(
       if (!maxFim) continue
       const target = shiftDate(maxFim, 1) // começa no dia seguinte ao término da predecessora
       const curStart = effInicio(itemId)
-      const hasKids = (childrenOf.get(itemId)?.length ?? 0) > 0
       if (!curStart) {
-        if (!hasKids) {
-          node.data_inicio = target
-          if (!node.data_prazo || node.data_prazo < target) node.data_prazo = target
-          changed = true
-        }
-      } else if (target > curStart) {
+        // Sem início efetivo (folha sem data OU pai cujos filhos não têm data):
+        // ancora o próprio início no dia seguinte ao término da predecessora.
+        node.data_inicio = target
+        if (!node.data_prazo || node.data_prazo < target) node.data_prazo = target
+        changed = true
+      } else if (target !== curStart) {
+        // ASAP: alinha o início logo após o término da predecessora
+        // (empurra para frente ou puxa para trás, mantendo a duração)
         const delta = daysBetween(curStart, target)
-        if (delta > 0) { shiftSubtree(itemId, delta); changed = true }
+        if (delta !== 0) { shiftSubtree(itemId, delta); changed = true }
       }
     }
     if (!changed) break
