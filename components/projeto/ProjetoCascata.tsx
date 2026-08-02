@@ -916,7 +916,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   )
 }
 
-function ProjetoPredecessorPicker({ open, item, itens, dependencias, onClose, onConfirmar }: {
+export function ProjetoPredecessorPicker({ open, item, itens, dependencias, onClose, onConfirmar }: {
   open: boolean
   item: ProjetoItemNode | null
   itens: ProjetoItemNode[]

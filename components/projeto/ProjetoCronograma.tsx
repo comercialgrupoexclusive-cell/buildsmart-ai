@@ -7,6 +7,7 @@ import {
   ChevronsUpDown, Filter, MoreVertical, Link2,
 } from 'lucide-react'
 import type { ProjetoItemNode, ProjetoItemDependencia } from '@/components/projeto/ProjetoCascata'
+import { ProjetoPredecessorPicker } from '@/components/projeto/ProjetoCascata'
 
 interface Props {
   projetoId: string
@@ -47,6 +48,7 @@ export function ProjetoCronograma({
   onAdd, onDelete, onRename, onToggle, onUpdateItem, onSavePredecessoras,
 }: Props) {
   const [subTab, setSubTab] = useState<'kanban' | 'gantt'>('gantt')
+  const [predecessorTarget, setPredecessorTarget] = useState<ProjetoItemNode | null>(null)
 
   if (itens.length === 0) {
     return (
@@ -98,8 +100,21 @@ export function ProjetoCronograma({
           onRename={onRename}
           onToggle={onToggle}
           onUpdateItem={onUpdateItem}
+          onEditPredecessoras={setPredecessorTarget}
         />
       )}
+
+      <ProjetoPredecessorPicker
+        open={!!predecessorTarget}
+        item={predecessorTarget}
+        itens={tree}
+        dependencias={deps}
+        onClose={() => setPredecessorTarget(null)}
+        onConfirmar={ids => {
+          if (predecessorTarget) onSavePredecessoras(predecessorTarget.id, ids)
+          setPredecessorTarget(null)
+        }}
+      />
     </div>
   )
 }
@@ -247,7 +262,7 @@ function rollup(node: ProjetoItemNode, map: Map<string, EffDate>): EffDate {
   return res
 }
 
-function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRename, onToggle, onUpdateItem }: {
+function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRename, onToggle, onUpdateItem, onEditPredecessoras }: {
   flat: ProjetoItemNode[]
   tree: ProjetoItemNode[]
   deps: ProjetoItemDependencia[]
@@ -258,6 +273,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
   onRename: (id: string, nome: string) => void
   onToggle: (id: string, concluido: boolean) => void
   onUpdateItem: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>> & { concluido?: boolean }) => void
+  onEditPredecessoras: (item: ProjetoItemNode) => void
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(flat.filter(i => flat.some(j => j.parent_id === i.id)).map(i => i.id))
@@ -669,10 +685,14 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                     )}
                   </div>
 
-                  {!isProj && deps.some(d => d.item_id === id) && (
-                    <span className="flex-shrink-0 mr-0.5" title="Possui predecessora" style={{ color: 'var(--accent)', opacity: 0.7 }}>
+                  {!isProj && canEdit && (
+                    <button
+                      className="flex-shrink-0 mr-0.5 rounded hover:bg-[var(--bg-secondary)] p-0.5"
+                      title={deps.some(d => d.item_id === id) ? 'Editar predecessoras' : 'Adicionar predecessora'}
+                      style={{ color: deps.some(d => d.item_id === id) ? 'var(--accent)' : 'var(--text-secondary)', opacity: deps.some(d => d.item_id === id) ? 0.8 : 0.3 }}
+                      onClick={() => { const item = flat.find(i => i.id === id); if (item) onEditPredecessoras(item) }}>
                       <Link2 size={11} />
-                    </span>
+                    </button>
                   )}
                   {atrasado && <span className="text-[8px] flex-shrink-0 mr-0.5" style={{ color: '#EF4444' }}>⚠</span>}
 
@@ -758,6 +778,11 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                   onClick={() => startRename(item.id, item.nome)}>
                   <Pencil size={12} /> Renomear
                 </button>
+                <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--bg-secondary)] flex items-center gap-2"
+                  style={{ color: 'var(--text-primary)' }}
+                  onClick={() => { setContextMenu(null); onEditPredecessoras(item) }}>
+                  <Link2 size={12} /> Predecessoras
+                </button>
                 {nivelLabel && (
                   <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--bg-secondary)] flex items-center gap-2"
                     style={{ color: 'var(--text-primary)' }}
@@ -775,6 +800,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
           })()}
         </div>
       )}
+
     </div>
   )
 }
