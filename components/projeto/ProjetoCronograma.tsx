@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   CalendarDays, Check, ChevronDown, ChevronRight, Plus, Trash2, Pencil,
-  ChevronsUpDown, Filter, MoreVertical,
+  ChevronsUpDown, Filter, MoreVertical, Link2,
 } from 'lucide-react'
 import type { ProjetoItemNode, ProjetoItemDependencia } from '@/components/projeto/ProjetoCascata'
 
@@ -202,7 +202,7 @@ function KanbanView({ flat, onToggle, onMoveStatus }: {
 
 const ROW_H = 36
 const HDR_H = 44
-const LEFT_W = 280
+const LEFT_W = 420
 const PAD_DAY = 7
 const MONTH_NAMES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const GANTT_COLORS = ['#3B7BF8', '#8B5CF6', '#10B981', '#F59E0B', '#06B6D4', '#EC4899', '#84CC16', '#F97316']
@@ -669,6 +669,11 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                     )}
                   </div>
 
+                  {!isProj && deps.some(d => d.item_id === id) && (
+                    <span className="flex-shrink-0 mr-0.5" title="Possui predecessora" style={{ color: 'var(--accent)', opacity: 0.7 }}>
+                      <Link2 size={11} />
+                    </span>
+                  )}
                   {atrasado && <span className="text-[8px] flex-shrink-0 mr-0.5" style={{ color: '#EF4444' }}>⚠</span>}
 
                   {/* Date inputs */}
