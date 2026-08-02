@@ -467,18 +467,21 @@ export function ExcalidrawBoard({ projectId }: Props) {
         <RemoteCursors onlineUsers={onlineUsers} viewState={viewState} />
       </div>
 
-      {/* Painel lateral de NCs */}
+      {/* Painel lateral de NCs — overlay para não cobrir a biblioteca */}
       {showNC && (
         <div className="board-nc-panel" style={{
-          width: 300, height: '100%', flexShrink: 0,
+          position: 'absolute', top: 0, right: 0, bottom: 0,
+          width: 300, zIndex: 30,
           borderLeft: '1px solid var(--border)',
           background: 'var(--bg-card)',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          boxShadow: '-4px 0 16px rgba(0,0,0,0.15)',
         }}>
           <NCPanel
             api={apiRef}
             projectId={projectId}
             selectedElementId={selectedElementId}
+            onClose={() => setShowNC(false)}
           />
         </div>
       )}

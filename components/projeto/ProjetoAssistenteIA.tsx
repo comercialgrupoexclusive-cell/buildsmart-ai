@@ -202,22 +202,18 @@ export function ProjetoAssistenteIA({ projeto, itens, onReload }: {
     setInput('')
     setEnviando(true)
     try {
-      const res = await fetch('/api/buildassist', {
+      const res = await fetch('/api/projetos/chat-ia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          projetoId: projeto.id,
+          projetoNome: projeto.nome,
           messages: next,
-          complex: false,
-          context: {
-            modo: 'projeto',
-            projetoAtual: projeto,
-            itensProjeto: itens.slice(0, 200),
-            observacao: 'Chat do assistente IA dentro de um projeto especifico. Contexto somente leitura.',
-          },
         }),
       })
       const data = await res.json()
       setMessages(prev => [...prev, { role: 'assistant', content: data.message || 'Não consegui responder agora.' }])
+      onReload()
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Não consegui conectar agora. Tente novamente.' }])
     } finally {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, X } from 'lucide-react'
 import { NCForm } from './NCForm'
 import { NCList } from './NCList'
 import type { NCData } from './NCForm'
@@ -17,9 +17,10 @@ interface Props {
   api: React.RefObject<any>
   projectId: string
   selectedElementId: string | null
+  onClose?: () => void
 }
 
-export function NCPanel({ api, projectId: _projectId, selectedElementId }: Props) {
+export function NCPanel({ api, projectId: _projectId, selectedElementId, onClose }: Props) {
   const [refresh, setRefresh] = useState(0)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -80,9 +81,16 @@ export function NCPanel({ api, projectId: _projectId, selectedElementId }: Props
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <AlertTriangle size={16} color="#dc2626" />
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', flex: 1 }}>
             Não-Conformidades
           </span>
+          {onClose && (
+            <button onClick={onClose} style={{ padding: 4, borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+              <X size={16} />
+            </button>
+          )}
         </div>
         <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
           {selectedEl

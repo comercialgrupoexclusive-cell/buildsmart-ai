@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 import { obraAiToolDefs, execObraAiTool } from '@/lib/ai-obra-tools'
+import { projetoAiToolDefs, execProjetoAiTool } from '@/lib/projeto-ai-tools'
 
 // Aumenta o timeout do Vercel de 10s para 60s (funciona no plano Pro)
 // No plano Hobby permanece 10s — se CRUD travar, assinar Vercel Pro
@@ -212,6 +213,8 @@ function buildTools(crudEnabled: boolean): OpenAI.Chat.ChatCompletionTool[] {
         parameters: { type: 'object', properties: {}, required: [] },
       },
     },
+    // Ferramentas de CRUD de projetos (disciplinas, itens, subitens)
+    ...projetoAiToolDefs(false),
   ]
 }
 
@@ -221,6 +224,10 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>):
     // Ferramentas compartilhadas (RDO, avanço, boletim) — resolve a obra pelo nome
     const shared = await execObraAiTool(db, name, args as Record<string, any>)
     if (shared !== null) return shared
+
+    // Ferramentas de projeto (estrutura, itens, predecessoras) — resolve o projeto pelo nome
+    const projResult = await execProjetoAiTool(db, name, args as Record<string, any>)
+    if (projResult !== null) return projResult
 
     switch (name) {
 
@@ -579,7 +586,7 @@ export async function POST(req: NextRequest) {
     const systemPrompt = [
       config['persona_global'] || DEFAULT_PERSONA,
       `Seu nome e ${botName}.`,
-      'Diferencie OBRA de PROJETO: obra e a construcao fisica; projeto e cadastro tecnico no modulo Projetos. Se o usuario pedir projeto, planta, projeto executivo, projeto arquitetonico, projeto estrutural ou disciplina tecnica, use criar_projeto, nunca criar_obra.',
+      'Diferencie OBRA de PROJETO: obra e a construcao fisica; projeto e cadastro tecnico no modulo Projetos. Se o usuario pedir projeto, planta, projeto executivo, projeto arquitetonico, projeto estrutural ou disciplina tecnica, use criar_projeto, nunca criar_obra. Voce tambem pode gerenciar a estrutura de projetos: criar disciplinas, itens e subitens, renomear, excluir, alterar datas/status/responsavel, definir predecessoras e marcar como concluido. Informe o nome_projeto para identificar qual projeto.',
       (phoneRule as any)?.persona || '',
       userCtx || '',
       obrasCtx || '',

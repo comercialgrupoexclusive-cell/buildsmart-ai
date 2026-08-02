@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemDependencia, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
@@ -59,6 +59,11 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [saving, setSaving] = useState(false)
   const [fotoFile, setFotoFile] = useState<File | null>(null)
   const [fotoPreview, setFotoPreview] = useState<string | null>(null)
+
+  const allFlat = itens
+  const totalItens = allFlat.length
+  const concluidosCount = allFlat.filter(i => i.concluido).length
+  const progresso = totalItens > 0 ? Math.round((concluidosCount / totalItens) * 100) : 0
 
   useEffect(() => { loadData() }, [id])
 
@@ -256,11 +261,6 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     setSaving(false)
   }
 
-  // Calcula progresso
-  const totalItens = itens.length
-  const concluidosCount = itens.filter(i => i.concluido).length
-  const progresso = totalItens > 0 ? Math.round((concluidosCount / totalItens) * 100) : 0
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -354,7 +354,20 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       )}
 
       {tab === 'cronograma' && (
-        <ProjetoCronograma projetoId={projeto.id} />
+        <ProjetoCronograma
+            projetoId={projeto.id}
+            itens={itens}
+            tree={tree}
+            deps={dependencias}
+            profiles={profiles}
+            canEdit={!isCliente}
+            onAdd={handleAdd}
+            onDelete={handleDelete}
+            onRename={handleRename}
+            onToggle={handleToggle}
+            onUpdateItem={(id, fields) => handleUpdateItem(id, fields)}
+            onSavePredecessoras={handleSavePredecessoras}
+          />
       )}
 
       {tab === 'board' && (
@@ -368,114 +381,136 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       )}
 
       {tab === 'dados' && (
-        <div className="rounded-xl border p-6 space-y-4" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Informações do Projeto</h2>
-            {!isCliente && !editingDados && (
-              <button
-                onClick={() => setEditingDados(true)}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border"
-                style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)' }}
-              >
-                <Pencil size={13} /> Editar
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <DadosField label="Nome" editing={editingDados} value={dadosForm.nome ?? ''} onChange={v => setDadosForm(f => ({ ...f, nome: v }))} />
-            <DadosField label="Cliente" editing={editingDados} value={dadosForm.cliente ?? ''} onChange={v => setDadosForm(f => ({ ...f, cliente: v }))} />
-            <DadosField label="Endereço" editing={editingDados} value={dadosForm.endereco ?? ''} onChange={v => setDadosForm(f => ({ ...f, endereco: v }))} className="sm:col-span-2" />
-            <DadosField label="Início" editing={editingDados} type="date" value={dadosForm.data_inicio ?? ''} onChange={v => setDadosForm(f => ({ ...f, data_inicio: v }))} />
-            <DadosField label="Previsão" editing={editingDados} type="date" value={dadosForm.data_previsao ?? ''} onChange={v => setDadosForm(f => ({ ...f, data_previsao: v }))} />
-            <DadosField label="Responsável" editing={editingDados} value={dadosForm.responsavel ?? ''} onChange={v => setDadosForm(f => ({ ...f, responsavel: v }))} />
-
-            {editingDados ? (
-              <div className="space-y-1">
-                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Status</label>
-                <select
-                  className="w-full px-3 py-2 rounded-lg text-sm border outline-none"
-                  style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                  value={dadosForm.status ?? 'em_andamento'}
-                  onChange={e => setDadosForm(f => ({ ...f, status: e.target.value as Projeto['status'] }))}
-                >
-                  {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Status</label>
-                <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
-                  {STATUS_OPTIONS.find(o => o.value === projeto.status)?.label ?? '—'}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Foto do projeto */}
-          <div className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-            <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Foto do projeto</label>
+        <div className="space-y-4">
+          {/* Header card */}
+          <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+            {/* Foto banner */}
             {(fotoPreview || projeto.foto_url) && (
-              <div className="relative w-full max-w-xs h-40 rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border)' }}>
+              <div className="relative w-full h-48 sm:h-56">
                 <img src={fotoPreview || projeto.foto_url!} alt="Foto do projeto" className="w-full h-full object-cover" />
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.5) 0%, transparent 60%)' }} />
                 {editingDados && (
                   <button
-                    onClick={() => {
-                      setFotoFile(null)
-                      setFotoPreview(null)
-                      setDadosForm(f => ({ ...f, foto_url: null }))
-                    }}
-                    className="absolute top-1 right-1 p-1 rounded-full flex items-center justify-center"
-                    style={{ background: 'rgba(0,0,0,0.6)' }}
+                    onClick={() => { setFotoFile(null); setFotoPreview(null); setDadosForm(f => ({ ...f, foto_url: null })) }}
+                    className="absolute top-3 right-3 p-1.5 rounded-lg flex items-center justify-center"
+                    style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}
                   >
                     <Trash2 size={14} className="text-white" />
                   </button>
                 )}
               </div>
             )}
-            {editingDados && (
-              <label
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
-              >
-                <ImagePlus size={16} />
-                <span className="text-sm">{projeto.foto_url || fotoPreview ? 'Trocar imagem' : 'Selecionar imagem'}</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={e => {
-                    const file = e.target.files?.[0]
-                    if (file) {
-                      setFotoFile(file)
-                      setFotoPreview(URL.createObjectURL(file))
-                    }
-                  }}
-                />
-              </label>
-            )}
-          </div>
 
-          {editingDados && (
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => { setEditingDados(false); setDadosForm(projeto); setFotoFile(null); setFotoPreview(null) }}
-                className="px-4 py-2 text-sm border rounded-lg"
-                style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)' }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={saveDados}
-                disabled={saving}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50"
-                style={{ background: 'var(--accent)' }}
-              >
-                <Save size={14} />
-                {saving ? 'Salvando...' : 'Salvar'}
-              </button>
+            <div className="p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-3 mb-5">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Informações do Projeto</h2>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                    Criado em {projeto.created_at ? new Date(projeto.created_at).toLocaleDateString('pt-BR') : '—'}
+                  </p>
+                </div>
+                {!isCliente && !editingDados && (
+                  <button onClick={() => setEditingDados(true)}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border hover:bg-[var(--bg-secondary)] transition-colors flex-shrink-0"
+                    style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)' }}>
+                    <Pencil size={13} /> Editar
+                  </button>
+                )}
+              </div>
+
+              {/* Info grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                <DadosField label="Nome do Projeto" icon={<Info size={14} />} editing={editingDados} value={dadosForm.nome ?? ''} onChange={v => setDadosForm(f => ({ ...f, nome: v }))} />
+                <DadosField label="Cliente" icon={<User size={14} />} editing={editingDados} value={dadosForm.cliente ?? ''} onChange={v => setDadosForm(f => ({ ...f, cliente: v }))} />
+                <DadosField label="Endereço" icon={<MapPin size={14} />} editing={editingDados} value={dadosForm.endereco ?? ''} onChange={v => setDadosForm(f => ({ ...f, endereco: v }))} className="sm:col-span-2" />
+
+                <DadosField label="Data de Início" icon={<CalendarDays size={14} />} editing={editingDados} type="date" value={dadosForm.data_inicio ?? ''} onChange={v => setDadosForm(f => ({ ...f, data_inicio: v }))} />
+                <DadosField label="Previsão de Término" icon={<Clock size={14} />} editing={editingDados} type="date" value={dadosForm.data_previsao ?? ''} onChange={v => setDadosForm(f => ({ ...f, data_previsao: v }))} />
+                <DadosField label="Responsável" icon={<User size={14} />} editing={editingDados} value={dadosForm.responsavel ?? ''} onChange={v => setDadosForm(f => ({ ...f, responsavel: v }))} />
+
+                {editingDados ? (
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      <CheckCircle2 size={14} /> Status
+                    </label>
+                    <select
+                      className="w-full px-3 py-2.5 rounded-lg text-sm border outline-none transition-colors focus:border-[var(--accent)]"
+                      style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                      value={dadosForm.status ?? 'em_andamento'}
+                      onChange={e => setDadosForm(f => ({ ...f, status: e.target.value as Projeto['status'] }))}
+                    >
+                      {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      <CheckCircle2 size={14} /> Status
+                    </label>
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold"
+                      style={{
+                        background: projeto.status === 'em_andamento' ? 'rgba(59,123,248,0.12)' :
+                          projeto.status === 'concluido' ? 'rgba(16,185,129,0.12)' :
+                          projeto.status === 'suspenso' ? 'rgba(239,68,68,0.12)' : 'rgba(107,114,128,0.12)',
+                        color: projeto.status === 'em_andamento' ? '#3B7BF8' :
+                          projeto.status === 'concluido' ? '#10B981' :
+                          projeto.status === 'suspenso' ? '#EF4444' : '#6B7280',
+                      }}>
+                      {STATUS_OPTIONS.find(o => o.value === projeto.status)?.label ?? '—'}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Foto upload */}
+              {editingDados && (
+                <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                  <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-dashed cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors"
+                    style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+                    <ImagePlus size={16} />
+                    <span className="text-sm">{projeto.foto_url || fotoPreview ? 'Trocar foto de capa' : 'Adicionar foto de capa'}</span>
+                    <input type="file" accept="image/*" className="hidden"
+                      onChange={e => { const file = e.target.files?.[0]; if (file) { setFotoFile(file); setFotoPreview(URL.createObjectURL(file)) } }} />
+                  </label>
+                </div>
+              )}
+
+              {/* Resumo rápido */}
+              {!editingDados && totalItens > 0 && (
+                <div className="grid grid-cols-3 gap-3 mt-5 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                  <div className="text-center p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+                    <p className="text-lg font-bold" style={{ color: 'var(--accent)' }}>{totalItens}</p>
+                    <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>Itens</p>
+                  </div>
+                  <div className="text-center p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+                    <p className="text-lg font-bold" style={{ color: '#10B981' }}>{concluidosCount}</p>
+                    <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>Concluídos</p>
+                  </div>
+                  <div className="text-center p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+                    <p className="text-lg font-bold" style={{ color: 'var(--accent)' }}>{progresso}%</p>
+                    <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>Progresso</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              {editingDados && (
+                <div className="flex justify-end gap-2 mt-5 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                  <button onClick={() => { setEditingDados(false); setDadosForm(projeto); setFotoFile(null); setFotoPreview(null) }}
+                    className="px-4 py-2 text-sm border rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                    style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)' }}>
+                    Cancelar
+                  </button>
+                  <button onClick={saveDados} disabled={saving}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-opacity"
+                    style={{ background: 'var(--accent)' }}>
+                    <Save size={14} />
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>
@@ -491,28 +526,31 @@ function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
-function DadosField({ label, value, editing, onChange, type = 'text', className = '' }: {
+function DadosField({ label, value, editing, onChange, type = 'text', className = '', icon }: {
   label: string
   value: string
   editing: boolean
   onChange: (v: string) => void
   type?: string
   className?: string
+  icon?: React.ReactNode
 }) {
   return (
-    <div className={`space-y-1 ${className}`}>
-      <label className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</label>
+    <div className={`space-y-1.5 ${className}`}>
+      <label className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+        {icon} {label}
+      </label>
       {editing ? (
         <input
           type={type}
-          className="w-full px-3 py-2 rounded-lg text-sm border outline-none"
+          className="w-full px-3 py-2.5 rounded-lg text-sm border outline-none transition-colors focus:border-[var(--accent)]"
           style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
           value={value}
           onChange={e => onChange(e.target.value)}
         />
       ) : (
         <p className="text-sm" style={{ color: value ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-          {value || '—'}
+          {type === 'date' && value ? new Date(value + 'T12:00:00').toLocaleDateString('pt-BR') : (value || '—')}
         </p>
       )}
     </div>

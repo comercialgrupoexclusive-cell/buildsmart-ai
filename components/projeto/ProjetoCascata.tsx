@@ -147,6 +147,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
   const [targetItemId, setTargetItemId] = useState<string | null>(null)
   const [pdfAberto, setPdfAberto] = useState<ProjectItemFile | null>(null)
   const [predecessorTarget, setPredecessorTarget] = useState<ProjetoItemNode | null>(null)
+  const [statusFilter, setStatusFilter] = useState<StatusKey | 'todos'>('todos')
 
   // Mapa id → nome (para mostrar o nome da predecessora nas linhas)
   const nomeById = useMemo(() => {
@@ -228,6 +229,18 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
   return (
     <div className="min-w-0">
       <input ref={inputRef} type="file" accept="application/pdf" className="hidden" onChange={e => void handleFile(e.target.files)} />
+
+      {/* Filtro por status */}
+      <div className="flex items-center gap-0.5 rounded-md border p-0.5 mb-2 w-fit" style={{ borderColor: 'var(--border)' }}>
+        {([{ key: 'todos' as const, label: 'Todos' }, ...STATUS_ORDER.map(k => ({ key: k, label: STATUS_CFG[k].label }))] as const).map(o => (
+          <button key={o.key} onClick={() => setStatusFilter(o.key)}
+            className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors"
+            style={statusFilter === o.key ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+
       {/* Cabeçalho de colunas */}
       <div
         className="hidden sm:grid text-xs font-medium px-2 py-2 rounded-t-lg mb-1"
@@ -246,7 +259,14 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
       </div>
 
       <div className="space-y-0.5">
-        {itens.map(item => (
+        {itens.filter(item => {
+          if (statusFilter === 'todos') return true
+          const matchesOrHasChild = (n: ProjetoItemNode): boolean => {
+            if (calcStatus(n) === statusFilter) return true
+            return n.children?.some(matchesOrHasChild) ?? false
+          }
+          return matchesOrHasChild(item)
+        }).map(item => (
           <CascataNode
             key={item.id}
             item={item}
