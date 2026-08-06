@@ -116,6 +116,26 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           )
         }
 
+        // Criar orçamento e cronograma automaticamente vinculados à obra
+        await supabase.from('orcamentos').insert({
+          obra_id: obra.id,
+          nome: form.nome.trim(),
+          tipo: 'executivo',
+          bdi_percentual: 25,
+          status: 'rascunho',
+          versao: 1,
+          endereco: form.endereco.trim() || null,
+          area_m2: form.area_m2 ? Number(form.area_m2) : null,
+          uf: form.uf || 'SP',
+          data_inicio: form.data_inicio || null,
+          data_previsao: form.data_previsao || null,
+        })
+        await supabase.from('cronogramas').insert({
+          obra_id: obra.id,
+          nome: form.nome.trim(),
+          status: 'rascunho',
+        })
+
       } else if (tipo === 'projeto') {
         const { data: proj, error: projErr } = await supabase.from('projetos').insert({
           nome: form.nome.trim(),
