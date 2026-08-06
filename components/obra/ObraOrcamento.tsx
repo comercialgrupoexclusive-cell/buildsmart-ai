@@ -388,7 +388,12 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     for (const item of itens) {
       const itensComp = item.composicao_itens || []
       const totalItem = getItemTotal(item)
-      if (itensComp.length === 0) { acc.outros += totalItem; continue }
+      if (itensComp.length === 0) {
+        const desc = (item.descricao || '').toLowerCase()
+        if (desc.startsWith('mão de obra') || desc.startsWith('mao de obra')) { acc.maoDeObra += totalItem }
+        else { acc.material += totalItem }
+        continue
+      }
       const temPreco = itensComp.some(ins => infoDoItem(ins, obraUf).preco > 0)
       if (!temPreco) { acc.outros += totalItem; continue }
       for (const ins of itensComp) {
