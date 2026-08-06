@@ -216,6 +216,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     setMenuOpen(false)
     try {
       const childTables = [
+        'tarefas',
         'obra_files',
         'cronograma_dependencias',
         'servicos_cronograma',
