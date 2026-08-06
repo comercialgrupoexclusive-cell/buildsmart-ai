@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Package, AlertTriangle,
   Plus, Pencil, Trash2, ChevronDown, ChevronRight,
-  Square, CheckSquare, ShoppingCart, Copy, X,
+  Square, CheckSquare, ShoppingCart, Copy, X, Link2, Unlink,
   Building2, Send, PackageCheck, ClipboardList, FileText, Zap,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -142,6 +142,39 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   const [prefillLancamento, setPrefillLancamento] = useState<PrefillLancamento>(null)
   const [listas, setListas] = useState<ListaCompra[]>([])
   const [listasCarregadas, setListasCarregadas] = useState(false)
+
+  // ── Orçamentos vinculados ──
+  const [orcamentosVinculados, setOrcamentosVinculados] = useState<{ id: string; nome: string }[]>([])
+  const [showVincularOrc, setShowVincularOrc] = useState(false)
+  const [orcDisponiveis, setOrcDisponiveis] = useState<{ id: string; nome: string }[]>([])
+  const [vinculoOrcId, setVinculoOrcId] = useState('')
+
+  async function loadOrcamentos() {
+    const { data } = await supabase.from('orcamentos').select('id, nome').eq('obra_id', obraId).order('created_at', { ascending: false })
+    setOrcamentosVinculados((data || []) as { id: string; nome: string }[])
+  }
+
+  async function openVincularOrc() {
+    const { data } = await supabase.from('orcamentos').select('id, nome').is('obra_id', null).order('created_at', { ascending: false })
+    setOrcDisponiveis((data || []) as { id: string; nome: string }[])
+    setVinculoOrcId('')
+    setShowVincularOrc(true)
+  }
+
+  async function handleVincularOrc() {
+    if (!vinculoOrcId) return
+    await supabase.from('orcamentos').update({ obra_id: obraId }).eq('id', vinculoOrcId)
+    setShowVincularOrc(false)
+    await loadOrcamentos()
+    await importarDoOrcamento(true)
+    await loadMateriais()
+  }
+
+  async function handleDesvincularOrc(orcId: string) {
+    if (!confirm('Desvincular este orçamento da obra?')) return
+    await supabase.from('orcamentos').update({ obra_id: null }).eq('id', orcId)
+    await loadOrcamentos()
+  }
 
   // Modal editar / novo
   const [editando, setEditando] = useState<MaterialRow | null>(null)
@@ -493,7 +526,13 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   }
 
   useEffect(() => {
-    void Promise.all([loadMateriais(), loadListas()])
+    void Promise.all([loadMateriais(), loadListas(), loadOrcamentos()]).then(async () => {
+      const { data: orcs } = await supabase.from('orcamentos').select('id').eq('obra_id', obraId).limit(1)
+      if (orcs && orcs.length > 0) {
+        await importarDoOrcamento(true)
+        await loadMateriais()
+      }
+    })
   }, [obraId])
 
   async function handleSave() {
@@ -840,6 +879,48 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* ── Orçamentos vinculados à obra ── */}
+      <div className="card p-3 flex flex-col sm:flex-row items-start sm:items-center gap-2 justify-between">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Orçamentos:</span>
+          {orcamentosVinculados.length === 0 ? (
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Nenhum vinculado</span>
+          ) : orcamentosVinculados.map(orc => (
+            <span key={orc.id} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.2)' }}>
+              <FileText size={11} />
+              {orc.nome || 'Orçamento'}
+              <button onClick={() => handleDesvincularOrc(orc.id)} className="ml-0.5 opacity-60 hover:opacity-100" title="Desvincular"><X size={10} /></button>
+            </span>
+          ))}
+        </div>
+        <button onClick={openVincularOrc} className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium hover:opacity-80 flex-shrink-0" style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}>
+          <Link2 size={12} /> Vincular orçamento
+        </button>
+      </div>
+
+      {/* Modal vincular orçamento */}
+      {showVincularOrc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowVincularOrc(false)}>
+          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Vincular orçamento à obra</h3>
+            {orcDisponiveis.length === 0 ? (
+              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Nenhum orçamento disponível sem vínculo. Crie um na aba Orçamento.</p>
+            ) : (
+              <select value={vinculoOrcId} onChange={e => setVinculoOrcId(e.target.value)} className="input-base w-full mb-4">
+                <option value="">Selecione um orçamento...</option>
+                {orcDisponiveis.map(o => (
+                  <option key={o.id} value={o.id}>{o.nome || 'Orçamento'}</option>
+                ))}
+              </select>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowVincularOrc(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
+              <button onClick={handleVincularOrc} disabled={!vinculoOrcId} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Vincular</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Sub-abas: Lançamentos → Lista de Compras → Requisições → Fornecedores ── */}
       <div className="flex gap-1 p-1 rounded-lg w-full max-w-full overflow-x-auto sm:w-fit" style={{ background: 'var(--bg-secondary)' }}>
         {[
