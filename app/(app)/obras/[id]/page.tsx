@@ -214,9 +214,43 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     if (!confirm(`Excluir definitivamente "${obra.nome}"? Todos os dados vinculados (orçamento, cronograma, materiais, medições) serão removidos. Esta ação não pode ser desfeita.`)) return
     setDeleting(true)
     setMenuOpen(false)
-    await supabase.from('obras').delete().eq('id', id)
-    setDeleting(false)
-    router.push('/obras')
+    try {
+      const childTables = [
+        'obra_files',
+        'cronograma_dependencias',
+        'servicos_cronograma',
+        'subetapas_cronograma',
+        'compra_itens',
+        'etapa_caixa',
+        'cotacoes',
+        'requisicao_itens',
+        'requisicoes_compra',
+        'medicao_progresso',
+        'diario_obra',
+        'listas_compra',
+        'medicoes',
+        'orcamento_item_insumos',
+        'orcamento_itens',
+        'orcamentos',
+        'materiais',
+        'etapas',
+        'fornecedores',
+        'obra_usuarios',
+      ]
+      for (const table of childTables) {
+        await supabase.from(table).delete().eq('obra_id', id)
+      }
+      const { error } = await supabase.from('obras').delete().eq('id', id)
+      if (error) {
+        alert(`Erro ao excluir obra: ${error.message}`)
+        setDeleting(false)
+        return
+      }
+      router.push('/obras')
+    } catch (err: any) {
+      alert(`Erro ao excluir obra: ${err?.message || 'Erro desconhecido'}`)
+      setDeleting(false)
+    }
   }
 
   if (loading) {
