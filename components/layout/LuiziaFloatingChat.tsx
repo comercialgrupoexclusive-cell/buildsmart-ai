@@ -112,7 +112,7 @@ export function LuiziaFloatingChat() {
         supabase.from('medicoes').select('id,obra_id,etapa_id,periodo_inicio,periodo_fim,percentual_executado,observacao,created_at').order('created_at', { ascending: false }).limit(20),
         supabase.from('fornecedores').select('id,obra_id,nome,categoria,contato,telefone,email,ativo').order('nome'),
         supabase.from('composicoes_proprias').select('id,codigo,descricao,unidade,grupo,ativo').order('codigo').limit(50),
-        supabase.from('insumos_proprios').select('id,codigo,descricao,unidade,categoria,grupo,preco_unitario,ativo').order('codigo').limit(80),
+        supabase.from('insumos_proprios').select('id,codigo,descricao,unidade,categoria,classificacao,grupo,preco_unitario,ativo').order('codigo').limit(80),
       ])
       const obras = safeRows(obrasRes)
       const obraAtual = obras[0] || null

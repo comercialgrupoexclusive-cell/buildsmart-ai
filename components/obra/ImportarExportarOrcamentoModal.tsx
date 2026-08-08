@@ -6,12 +6,13 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import {
   ConfigImportacao, LinhaImportada, ResultadoLeitura,
-  baixarModeloXLSX, lerPlanilhaImportacao,
 } from '@/lib/import-export-templates'
 import {
   CONFIG_IMPORT_ORCAMENTO,
   LinhaOrcamentoTabular,
+  baixarModeloOrcamentoAnaliticoXLSX,
   exportarOrcamentoTabularXLSX,
+  lerPlanilhaOrcamentoAnalitico,
   lerPlanilhaOrcamentoAntigo,
 } from '@/lib/import-export-orcamento'
 
@@ -60,7 +61,7 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
     try {
       const res = modoImportacao === 'sistema_antigo'
         ? await lerPlanilhaOrcamentoAntigo(f)
-        : await lerPlanilhaImportacao(f, config)
+        : await lerPlanilhaOrcamentoAnalitico(f)
       setLeitura(res)
       setEtapa('previa')
     } catch {
@@ -114,7 +115,7 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" size="sm" icon={<FileSpreadsheet size={14} />} onClick={() => baixarModeloXLSX(config)}>
+                <Button variant="secondary" size="sm" icon={<FileSpreadsheet size={14} />} onClick={baixarModeloOrcamentoAnaliticoXLSX}>
                   Baixar modelo em branco (.xlsx)
                 </Button>
                 {linhasAtuais.length > 0 && (
@@ -131,6 +132,9 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
                 <div>
                   <h3 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>2. Preencha e importe de volta</h3>
                   <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{config.descricaoImportacao}</p>
+                  <p className="text-xs mt-2" style={{ color: 'var(--success)' }}>
+                    Os dados importados ficam somente neste orçamento; os catálogos mestres não são alterados.
+                  </p>
                 </div>
               </div>
               <Button size="sm" icon={<ArrowRight size={14} />} onClick={() => { setModoImportacao('tabular'); setEtapa('upload') }} className="self-start">
@@ -178,7 +182,7 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
                     <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
                       {modoImportacao === 'sistema_antigo'
                         ? 'Use o arquivo exportado do sistema antigo, com a aba Dados Brutos.'
-                        : 'Use o modelo baixado na etapa anterior - nao altere os cabecalhos.'}
+                        : 'Use o modelo baixado na etapa anterior; não altere os cabeçalhos.'}
                     </p>
                   </div>
                 </>
@@ -244,6 +248,14 @@ export function ImportarExportarOrcamentoModal({ open, onClose, linhasAtuais, ob
                 <p className="font-medium mb-1 flex items-center gap-1.5"><AlertTriangle size={14} /> {leitura.erros.length} linha(s) com erro de formato — não serão importadas:</p>
                 {leitura.erros.slice(0, 6).map((e, i) => <p key={i}>{e}</p>)}
                 {leitura.erros.length > 6 && <p>+ {leitura.erros.length - 6} erros adicionais...</p>}
+              </div>
+            )}
+
+            {(leitura.avisos?.length || 0) > 0 && (
+              <div className="p-3 rounded-lg text-xs" style={{ background: 'rgba(245,158,11,0.12)', color: 'var(--warning)' }}>
+                <p className="font-medium mb-1 flex items-center gap-1.5"><AlertTriangle size={14} /> Divergências que serão sinalizadas no orçamento:</p>
+                {leitura.avisos!.slice(0, 8).map((aviso, i) => <p key={i}>{aviso}</p>)}
+                {leitura.avisos!.length > 8 && <p>+ {leitura.avisos!.length - 8} avisos adicionais...</p>}
               </div>
             )}
 

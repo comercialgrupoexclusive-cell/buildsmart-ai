@@ -23,7 +23,12 @@ const GRUPOS = [
   'REVESTIMENTO', 'PISO', 'INSTALACOES', 'ACABAMENTO', 'SERVICOS_GERAIS',
 ]
 
-const CATEGORIAS_INSUMO = ['MATERIAL', 'MAO_DE_OBRA', 'EQUIPAMENTO', 'SERVICO'] as const
+const CLASSIFICACOES_INSUMO = ['EQUIPAMENTO', 'MAO_DE_OBRA', 'MATERIAL_SERVICOS'] as const
+const CLASSIFICACAO_LABEL: Record<(typeof CLASSIFICACOES_INSUMO)[number], string> = {
+  EQUIPAMENTO: 'Equipamento',
+  MAO_DE_OBRA: 'Mão de Obra',
+  MATERIAL_SERVICOS: 'Material e Serviços',
+}
 
 // ─── Configurações de importação/exportação em massa via Excel ───────────────
 const CONFIG_IMPORT_COMPOSICOES: ConfigImportacao = {
@@ -50,10 +55,11 @@ const CONFIG_IMPORT_INSUMOS: ConfigImportacao = {
   chave: 'insumos',
   titulo: 'Insumos próprios',
   nomeAba: 'Insumos',
-  descricaoModelo: 'Planilha com Código, Descrição, Unidade, Categoria, Preço unitário e Ativo — uma linha por insumo próprio (fora da base SINAPI).',
+  descricaoModelo: 'Planilha com Código, Descrição, Unidade, Classificação, Grupo, Preço unitário e Ativo — uma linha por insumo próprio.',
   descricaoImportacao: 'Insumos com código já existente são atualizados (inclusive o preço); os demais são criados. A planilha deve seguir os mesmos cabeçalhos do modelo.',
   observacoes: [
-    `Categoria deve ser uma de: ${CATEGORIAS_INSUMO.join(', ')} (se vazia, usa MATERIAL).`,
+    `Classificação deve ser uma de: ${CLASSIFICACOES_INSUMO.join(', ')}.`,
+    'Grupo é livre e pode ser usado para detalhar famílias como Alvenaria, Elétrica ou Fretes.',
     'Preço unitário aceita vírgula ou ponto decimal (ex.: 12,50 ou 12.50).',
     'Ativo aceita Sim/Não (se vazio, considera Sim).',
   ],
@@ -61,7 +67,8 @@ const CONFIG_IMPORT_INSUMOS: ConfigImportacao = {
     { chave: 'codigo', rotulo: 'Código', obrigatoria: true, largura: 14, exemplo: 'IP-001', normalizar: normalizarTexto(true, true) },
     { chave: 'descricao', rotulo: 'Descrição', obrigatoria: true, largura: 48, exemplo: 'Cimento CP II 50kg', normalizar: normalizarTexto(true) },
     { chave: 'unidade', rotulo: 'Unidade', obrigatoria: true, largura: 10, exemplo: 'UN', normalizar: normalizarTexto(true, true) },
-    { chave: 'categoria', rotulo: 'Categoria', obrigatoria: false, largura: 16, exemplo: 'MATERIAL', normalizar: normalizarOpcao(CATEGORIAS_INSUMO, 'MATERIAL') },
+    { chave: 'classificacao', rotulo: 'Classificação', obrigatoria: true, largura: 22, exemplo: 'MATERIAL_SERVICOS', normalizar: bruto => String(bruto ?? '').trim() ? normalizarOpcao(CLASSIFICACOES_INSUMO, 'MATERIAL_SERVICOS')(bruto) : { erro: 'campo obrigatório vazio' } },
+    { chave: 'grupo', rotulo: 'Grupo', obrigatoria: false, largura: 20, exemplo: 'Alvenaria', normalizar: normalizarTexto(false) },
     { chave: 'preco_unitario', rotulo: 'Preço unitário', obrigatoria: true, largura: 16, exemplo: 32.9, normalizar: normalizarNumero(true) },
     { chave: 'ativo', rotulo: 'Ativo', obrigatoria: false, largura: 10, exemplo: 'Sim', normalizar: normalizarBooleano(true) },
   ],
@@ -100,7 +107,7 @@ type SinapiInsumoLite = {
 const COMPOSICAO_INSUMOS_SELECT = `
   id, composicao_id, insumo_id, insumo_proprio_id, coeficiente,
   insumo:sinapi_insumos(id,codigo,classificacao,descricao,unidade,precos),
-  insumo_proprio:insumos_proprios(id,codigo,descricao,unidade,categoria,preco_unitario)
+  insumo_proprio:insumos_proprios(id,codigo,descricao,unidade,categoria,classificacao,grupo,preco_unitario)
 `
 
 // Deriva a "origem" do item — única classificação possível no schema real
@@ -1063,7 +1070,8 @@ function InsumosTab() {
     codigo: '',
     descricao: '',
     unidade: 'UN',
-    categoria: 'MATERIAL' as InsumoProprio['categoria'],
+    classificacao: 'MATERIAL_SERVICOS' as NonNullable<InsumoProprio['classificacao']>,
+    grupo: '',
     preco_unitario: '',
     ativo: true,
   })
@@ -1098,7 +1106,8 @@ function InsumosTab() {
       codigo: proximoCodigo(),
       descricao: '',
       unidade: 'UN',
-      categoria: 'MATERIAL',
+      classificacao: 'MATERIAL_SERVICOS',
+      grupo: '',
       preco_unitario: '',
       ativo: true,
     })
@@ -1115,7 +1124,9 @@ function InsumosTab() {
         codigo: novoInsumo.codigo.trim().toUpperCase(),
         descricao: novoInsumo.descricao.trim(),
         unidade: novoInsumo.unidade.trim().toUpperCase(),
-        categoria: novoInsumo.categoria,
+        classificacao: novoInsumo.classificacao,
+        categoria: novoInsumo.classificacao === 'MATERIAL_SERVICOS' ? 'MATERIAL' : novoInsumo.classificacao,
+        grupo: novoInsumo.grupo.trim() || null,
         preco_unitario: preco,
         ativo: novoInsumo.ativo,
       })
@@ -1136,7 +1147,10 @@ function InsumosTab() {
 
   async function handleUpdate(id: string, field: keyof InsumoProprio, value: string | number | boolean) {
     setInsumos(prev => prev.map(i => i.id === id ? { ...i, [field]: value } as InsumoProprio : i))
-    await supabase.from('insumos_proprios').update({ [field]: value }).eq('id', id)
+    const payload = field === 'classificacao'
+      ? { classificacao: value, categoria: value === 'MATERIAL_SERVICOS' ? 'MATERIAL' : value }
+      : { [field]: value }
+    await supabase.from('insumos_proprios').update(payload).eq('id', id)
   }
 
   async function handleDelete(id: string) {
@@ -1190,7 +1204,7 @@ function InsumosTab() {
           <table className="w-full table-zebra">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Código', 'Descrição', 'Unid.', 'Categoria', 'Preço unitário', 'Ativo', ''].map(h => (
+                {['Código', 'Descrição', 'Unid.', 'Classificação', 'Grupo', 'Preço unitário', 'Ativo', ''].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>{h}</th>
                 ))}
               </tr>
@@ -1211,13 +1225,16 @@ function InsumosTab() {
                   </td>
                   <td className="px-4 py-2 text-sm" onClick={e => e.stopPropagation()}>
                     <select
-                      value={ip.categoria}
-                      onChange={e => handleUpdate(ip.id, 'categoria', e.target.value)}
+                      value={ip.classificacao || (ip.categoria === 'EQUIPAMENTO' ? 'EQUIPAMENTO' : ip.categoria === 'MAO_DE_OBRA' ? 'MAO_DE_OBRA' : 'MATERIAL_SERVICOS')}
+                      onChange={e => handleUpdate(ip.id, 'classificacao', e.target.value)}
                       className="text-xs rounded-lg px-2 py-1"
                       style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
                     >
-                      {CATEGORIAS_INSUMO.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                      {CLASSIFICACOES_INSUMO.map(c => <option key={c} value={c}>{CLASSIFICACAO_LABEL[c]}</option>)}
                     </select>
+                  </td>
+                  <td className="px-4 py-2 text-sm">
+                    <EditableCell value={ip.grupo || ''} onSave={v => handleUpdate(ip.id, 'grupo', String(v))} placeholder="Grupo" />
                   </td>
                   <td className="px-4 py-2 text-sm">
                     <div className="flex items-center gap-1">
@@ -1286,13 +1303,13 @@ function InsumosTab() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-[var(--text-secondary)]">Categoria</label>
+              <label className="text-sm font-medium text-[var(--text-secondary)]">Classificação</label>
               <select
-                value={novoInsumo.categoria}
-                onChange={e => setNovoInsumo(prev => ({ ...prev, categoria: e.target.value as InsumoProprio['categoria'] }))}
+                value={novoInsumo.classificacao}
+                onChange={e => setNovoInsumo(prev => ({ ...prev, classificacao: e.target.value as NonNullable<InsumoProprio['classificacao']> }))}
                 className="input-base"
               >
-                {CATEGORIAS_INSUMO.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                {CLASSIFICACOES_INSUMO.map(c => <option key={c} value={c}>{CLASSIFICACAO_LABEL[c]}</option>)}
               </select>
             </div>
             <Input
@@ -1305,6 +1322,13 @@ function InsumosTab() {
               placeholder="0,00"
             />
           </div>
+
+          <Input
+            label="Grupo"
+            value={novoInsumo.grupo}
+            onChange={e => setNovoInsumo(prev => ({ ...prev, grupo: e.target.value }))}
+            placeholder="Ex: Alvenaria, Elétrica, Fretes..."
+          />
 
           <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
             <input

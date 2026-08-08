@@ -160,6 +160,7 @@ export type InsumoProprio = {
   descricao: string
   unidade: string
   categoria: 'MATERIAL' | 'MAO_DE_OBRA' | 'EQUIPAMENTO' | 'SERVICO'
+  classificacao?: 'EQUIPAMENTO' | 'MAO_DE_OBRA' | 'MATERIAL_SERVICOS' | null
   grupo?: string | null          // categoria fina de origem (ex.: "Madeira", "Elétrico") — opcional, livre
   preco_unitario: number
   ativo: boolean

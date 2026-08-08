@@ -36,6 +36,7 @@ export type LinhaImportada = {
 export type ResultadoLeitura = {
   linhas: LinhaImportada[]
   erros: string[]
+  avisos?: string[]
 }
 
 // ─── Normalizadores reutilizáveis ────────────────────────────────────────────

@@ -24,6 +24,18 @@ import { readEtapasPadrao } from '@/lib/settings/etapas-padrao'
 
 type FonteBusca = 'proprias' | 'insumos' | 'sinapi' | 'livre'
 
+type HierarquiaDialog = {
+  tipo: 'renomear-etapa' | 'renomear-subetapa' | 'editar-valor' | 'excluir-etapa' | 'excluir-subetapa'
+  etapaId: string | null
+  nomeAtual: string
+  valor: string
+  quantidadeItens?: number
+}
+
+function normalizarNomeEtapa(nome: string) {
+  return nome.trim().toLocaleLowerCase('pt-BR')
+}
+
 
 // schema real (tabela composicao_insumos): FKs normalizadas para sinapi_insumos
 // ou insumos_proprios — descrição/unidade/preço vêm sempre do embed (sem snapshot)
@@ -34,8 +46,28 @@ type ComposicaoItemJoin = {
   insumo_proprio_id: string | null
   coeficiente: number
   insumo?: { codigo: string; classificacao: string; descricao: string; unidade: string; precos: Record<string, number> } | null
-  insumo_proprio?: { codigo: string; descricao: string; unidade: string; categoria: string; preco_unitario: number } | null
+  insumo_proprio?: { codigo: string; descricao: string; unidade: string; categoria: string; classificacao?: ClassificacaoInsumo | null; grupo?: string | null; preco_unitario: number } | null
+  codigo_snapshot?: string | null
+  descricao_snapshot?: string | null
+  unidade_snapshot?: string | null
+  classificacao_snapshot?: ClassificacaoInsumo | null
+  grupo_snapshot?: string | null
+  quantidade_calculada?: number
+  quantidade_adotada?: number | null
+  coeficiente_snapshot?: number | null
+  preco_unitario_snapshot?: number
+  valor_total_informado_snapshot?: number | null
+  valor_total_divergente?: boolean
+  ordem?: number
 }
+
+type ClassificacaoInsumo = 'EQUIPAMENTO' | 'MAO_DE_OBRA' | 'MATERIAL_SERVICOS'
+
+const CLASSIFICACOES_INSUMO: { value: ClassificacaoInsumo; label: string }[] = [
+  { value: 'EQUIPAMENTO', label: 'Equipamento' },
+  { value: 'MAO_DE_OBRA', label: 'Mão de Obra' },
+  { value: 'MATERIAL_SERVICOS', label: 'Material e Serviços' },
+]
 
 // Deriva os dados de exibição/custo de um item de composição, qualquer que seja
 // sua origem (insumo SINAPI ou insumo próprio da empresa)
@@ -45,7 +77,7 @@ function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; desc
       codigo: ins.insumo_proprio.codigo,
       descricao: ins.insumo_proprio.descricao,
       unidade: ins.insumo_proprio.unidade,
-      classificacao: ins.insumo_proprio.categoria,
+      classificacao: ins.insumo_proprio.classificacao || ins.insumo_proprio.categoria,
       preco: ins.insumo_proprio.preco_unitario ?? 0,
     }
   }
@@ -56,6 +88,15 @@ function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; desc
       unidade: ins.insumo.unidade,
       classificacao: ins.insumo.classificacao,
       preco: ins.insumo.precos?.[uf] ?? 0,
+    }
+  }
+  if (ins.descricao_snapshot) {
+    return {
+      codigo: ins.codigo_snapshot || '',
+      descricao: ins.descricao_snapshot,
+      unidade: ins.unidade_snapshot || 'UN',
+      classificacao: ins.classificacao_snapshot || 'MATERIAL_SERVICOS',
+      preco: Number(ins.preco_unitario_snapshot || 0),
     }
   }
   return { codigo: '—', descricao: '(insumo removido)', unidade: '—', classificacao: '', preco: 0 }
@@ -72,6 +113,8 @@ type InsumoCatalogo = {
   descricao: string
   unidade: string
   preco_unitario: number
+  classificacao: ClassificacaoInsumo
+  grupo: string
   origem: 'proprio' | 'sinapi'
 }
 
@@ -79,6 +122,7 @@ type InsumoCatalogo = {
 type OrcamentoItemRow = Omit<ItemEnriquecido, 'codigo' | 'descricao' | 'unidade' | 'composicao_itens'> & {
   composicoes_proprias?: (ComposicaoPropria & { composicao_insumos?: ComposicaoItemJoin[] }) | null
   sinapi_composicoes?: SinapiComposicao | null
+  orcamento_item_insumos?: ComposicaoItemJoin[] | null
 }
 
 // linha bruta de composicoes_proprias com o join de composicao_insumos embutido
@@ -103,6 +147,13 @@ type ItemEnriquecido = {
   tipo_linha?: 'item' | 'subetapa' | null
   subetapa_valor_manual?: number | null
   subetapa_valor_manual_ativo?: boolean | null
+  classificacao_snapshot?: ClassificacaoInsumo | null
+  grupo_snapshot?: string | null
+  subetapa_categoria_snapshot?: string | null
+  tipo_item_snapshot?: 'COMPOSICAO' | 'INSUMO' | 'ITEM_LIVRE' | null
+  valor_total_informado_snapshot?: number | null
+  valor_total_manual_ativo?: boolean | null
+  importacao_alertas?: string[] | null
   // mês de referência da composição SINAPI (quando o item vem da base SINAPI) —
   // necessário para casar com `sinapi_composicao_itens` ao gerar/abater materiais
   sinapi_mes_referencia?: string | null
@@ -115,6 +166,7 @@ type SubetapaMeta = {
   descricao: string | null
   valor_manual: number | null
   ativo: boolean
+  categoria: string | null
 }
 
 type AddItemDraft = {
@@ -128,6 +180,8 @@ type AddItemDraft = {
   preco: number
   quantidade: number
   codigo: string
+  classificacao: ClassificacaoInsumo | null
+  grupo: string
 }
 
 // ─── override key helper ─────────────────────────────────────────────────────
@@ -190,6 +244,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   const [subetapaLivre, setSubetapaLivre] = useState('')
   const [subetapaDescricao, setSubetapaDescricao] = useState('')
   const [subetapaValor, setSubetapaValor] = useState('')
+  const [subetapaCategoria, setSubetapaCategoria] = useState('')
   const [fonte, setFonte] = useState<FonteBusca>('proprias')
   const [composicoesProprias, setComposicoesProprias] = useState<ComposicaoComCusto[]>([])
   const [insumosCatalogo, setInsumosCatalogo] = useState<InsumoCatalogo[]>([])
@@ -200,6 +255,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   const [livreDescricao, setLivreDescricao] = useState('')
   const [livreUnidade, setLivreUnidade] = useState('UN')
   const [livrePreco, setLivrePreco] = useState('')
+  const [livreClassificacao, setLivreClassificacao] = useState<ClassificacaoInsumo>('MATERIAL_SERVICOS')
+  const [livreGrupo, setLivreGrupo] = useState('')
   const [itensPendentes, setItensPendentes] = useState<AddItemDraft[]>([])
   const [saving, setSaving] = useState(false)
   const qtdInputRef = useRef<HTMLInputElement>(null)
@@ -242,6 +299,12 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   const [novaEtapaNome, setNovaEtapaNome] = useState('')
   const [criandoEtapa, setCriandoEtapa] = useState(false)
 
+  // Editor da hierarquia do orcamento. Evita prompt/confirm, que nao sao
+  // suportados em todos os navegadores usados pelo aplicativo.
+  const [hierarquiaDialog, setHierarquiaDialog] = useState<HierarquiaDialog | null>(null)
+  const [salvandoHierarquia, setSalvandoHierarquia] = useState(false)
+  const [erroHierarquia, setErroHierarquia] = useState('')
+
   // Grupos colapsados (nível etapa) — persistido no localStorage por obra
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     if (typeof window === 'undefined') return {}
@@ -267,6 +330,9 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   // da base (SINAPI / composições próprias) na UF da obra.
   const [showReabrirModal, setShowReabrirModal] = useState(false)
   const [reabrindo, setReabrindo] = useState(false)
+  const [showFinalizarModal, setShowFinalizarModal] = useState(false)
+  const [finalizando, setFinalizando] = useState(false)
+  const [erroFinalizacao, setErroFinalizacao] = useState('')
 
   // ─── Carregar overrides do localStorage ─────────────────────────────────
   useEffect(() => {
@@ -335,25 +401,31 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   const COMPOSICAO_INSUMOS_EMBED = `composicao_insumos(
     id, composicao_id, insumo_id, insumo_proprio_id, coeficiente,
     insumo:sinapi_insumos(codigo,classificacao,descricao,unidade,precos),
-    insumo_proprio:insumos_proprios(codigo,descricao,unidade,categoria,preco_unitario)
+    insumo_proprio:insumos_proprios(codigo,descricao,unidade,categoria,classificacao,grupo,preco_unitario)
   )`
 
   async function loadItens(orcamentoId: string) {
     const { data } = await supabase
       .from('orcamento_itens')
-      .select(`*, composicoes_proprias(id,codigo,descricao,unidade,${COMPOSICAO_INSUMOS_EMBED}), sinapi_composicoes(id,codigo,descricao,unidade,custos,custo_unitario,mes_referencia)`)
+      .select(`*, orcamento_item_insumos(*), composicoes_proprias(id,codigo,descricao,unidade,grupo,${COMPOSICAO_INSUMOS_EMBED}), sinapi_composicoes(id,codigo,descricao,unidade,grupo,custos,custo_unitario,mes_referencia)`)
       .eq('orcamento_id', orcamentoId)
       .order('updated_at')
 
     const enriched: ItemEnriquecido[] = (data || []).map((item: OrcamentoItemRow) => {
       const cp = item.composicoes_proprias
       const sc = item.sinapi_composicoes
+      const insumosImportados = (item.orcamento_item_insumos || [])
+        .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+        .map(insumo => ({
+          ...insumo,
+          coeficiente: Number(insumo.coeficiente_snapshot || (item.quantidade ? Number(insumo.quantidade_calculada || 0) / Number(item.quantidade) : 0)),
+        }))
       return {
         ...item,
         codigo: cp?.codigo || sc?.codigo || item.codigo_snapshot || '—',
         descricao: fixMojibake(item.descricao_snapshot || cp?.descricao || sc?.descricao || '—'),
         unidade: cp?.unidade || sc?.unidade || item.unidade_snapshot || '—',
-        composicao_itens: cp?.composicao_insumos || [],
+        composicao_itens: insumosImportados.length ? insumosImportados : cp?.composicao_insumos || [],
         sinapi_mes_referencia: sc?.mes_referencia || null,
       }
     })
@@ -392,13 +464,13 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     const termo = searchTerm.trim()
     let propriosQuery = supabase
       .from('insumos_proprios')
-      .select('id,codigo,descricao,unidade,preco_unitario,ativo')
+      .select('id,codigo,descricao,unidade,preco_unitario,ativo,categoria,classificacao,grupo')
       .eq('ativo', true)
       .order('descricao')
       .limit(termo ? 80 : 200)
     let sinapiQuery = supabase
       .from('sinapi_insumos')
-      .select('id,codigo,descricao,unidade,precos')
+      .select('id,codigo,descricao,unidade,precos,classificacao')
       .order('descricao')
       .limit(termo ? 80 : 200)
 
@@ -414,6 +486,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       descricao: fixMojibake(ins.descricao),
       unidade: ins.unidade,
       preco_unitario: Number(ins.preco_unitario || 0),
+      classificacao: ins.classificacao || (ins.categoria === 'EQUIPAMENTO' ? 'EQUIPAMENTO' : ins.categoria === 'MAO_DE_OBRA' ? 'MAO_DE_OBRA' : 'MATERIAL_SERVICOS'),
+      grupo: ins.grupo || '',
       origem: 'proprio' as const,
     }))
     const sinapi = ((sinapiRes.data || []) as SinapiInsumo[]).map(ins => ({
@@ -422,6 +496,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       descricao: fixMojibake(ins.descricao),
       unidade: ins.unidade,
       preco_unitario: Number(ins.precos?.[obraUf] || 0),
+      classificacao: ((ins.classificacao === 'EQUIPAMENTO' || ins.classificacao === 'MAO_DE_OBRA') ? ins.classificacao : 'MATERIAL_SERVICOS') as ClassificacaoInsumo,
+      grupo: '',
       origem: 'sinapi' as const,
     }))
     setInsumosCatalogo([...proprios, ...sinapi])
@@ -451,6 +527,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   // preços/classificação vêm direto do embed (insumo:sinapi_insumos / insumo_proprio:insumos_proprios)
   const getItemTotal = useCallback((item: ItemEnriquecido): number => {
     if (item.tipo_linha === 'subetapa') return item.subetapa_valor_manual_ativo ? Number(item.subetapa_valor_manual || 0) : 0
+    if (item.valor_total_manual_ativo && item.valor_total_informado_snapshot != null) return Number(item.valor_total_informado_snapshot)
     const itensComp = item.composicao_itens || []
     if (itensComp.length === 0) return item.preco_unitario_snapshot * item.quantidade
     const temPreco = itensComp.some(ins => infoDoItem(ins, obraUf).preco > 0)
@@ -458,8 +535,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     return itensComp.reduce((total, ins) => {
       const info = infoDoItem(ins, obraUf)
       const key = overrideKey(item.id, info.codigo !== '—' ? info.codigo : ins.id)
-      const qtdCalculada = item.quantidade * ins.coeficiente
-      const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
+      const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+      const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
       return total + qtdAdotada * info.preco
     }, 0)
   }, [insumoOverrides, obraUf])
@@ -474,6 +551,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       descricao: item.descricao_snapshot,
       valor_manual: item.subetapa_valor_manual ?? null,
       ativo: Boolean(item.subetapa_valor_manual_ativo),
+      categoria: item.subetapa_categoria_snapshot ?? null,
     }))
 
   const subtotal = itensOrcamento.reduce((acc, item) => acc + getItemTotal(item), 0)
@@ -482,7 +560,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       .reduce((acc, meta) => {
         const itensSub = itensOrcamento.filter(item => item.etapa_id === meta.etapa_id && (item.subetapa?.trim() || 'Sem subetapa').toLowerCase() === meta.nome.toLowerCase())
         const calculado = itensSub.reduce((sum, item) => sum + getItemTotal(item), 0)
-        return acc + Math.max(0, Number(meta.valor_manual || 0) - calculado)
+        return acc + (Number(meta.valor_manual || 0) - calculado)
       }, 0)
   const totalBdi = subtotal * (bdi / 100)
   const totalGeral = subtotal + totalBdi
@@ -503,19 +581,23 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       }
       const temPreco = itensComp.some(ins => infoDoItem(ins, obraUf).preco > 0)
       if (!temPreco) { acc.outros += totalItem; continue }
+      let distribuido = 0
       for (const ins of itensComp) {
         const info = infoDoItem(ins, obraUf)
         const key = overrideKey(item.id, info.codigo !== '—' ? info.codigo : ins.id)
-        const qtdCalculada = item.quantidade * ins.coeficiente
-        const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
+        const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+        const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
         const valor = qtdAdotada * info.preco
+        distribuido += valor
         switch (info.classificacao) {
-          case 'MATERIAL': acc.material += valor; break
+          case 'MATERIAL':
+          case 'MATERIAL_SERVICOS': acc.material += valor; break
           case 'MAO_DE_OBRA': acc.maoDeObra += valor; break
           case 'EQUIPAMENTO': acc.equipamento += valor; break
           default: acc.outros += valor
         }
       }
+      if (item.valor_total_manual_ativo) acc.outros += totalItem - distribuido
     }
     return acc
   })()
@@ -538,53 +620,96 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   async function handleCriarEtapa() {
     if (!novaEtapaNome.trim()) return
     setCriandoEtapa(true)
-    const maxOrdem = etapas.reduce((m, e) => Math.max(m, e.ordem), 0)
-    const { data } = await supabase
-      .from('etapas')
-      .insert({ obra_id: resolvedObraId, nome: novaEtapaNome.trim(), status: 'planejada', ordem: maxOrdem + 1 })
-      .select().single()
-    if (data) {
-      setEtapas(prev => [...prev, data])
-      setSelectedEtapaNome(data.nome)
+    try {
+      const etapa = await findOrCreateEtapa(novaEtapaNome)
+      setSelectedEtapaNome(etapa.nome)
       setShowAddItem(true)
+      setShowNovaEtapa(false)
+      setNovaEtapaNome('')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
+      alert(`Nao foi possivel criar a etapa: ${message}`)
+    } finally {
+      setCriandoEtapa(false)
     }
-    setCriandoEtapa(false); setShowNovaEtapa(false); setNovaEtapaNome('')
   }
 
   function openItemModal(etapaId: string | null = null, subetapa: string | null = null, usarItemLivre = false) {
     const etapa = etapaId ? etapas.find(e => e.id === etapaId) : null
-    setSelectedEtapaNome(etapa?.nome || etapas[0]?.nome || '')
+    setSelectedEtapaNome(etapa?.nome || etapas[0]?.nome || readEtapasPadrao()[0] || '')
     setSubetapaLivre(subetapa && subetapa !== 'Sem subetapa' ? subetapa : '')
     setSubetapaDescricao('')
     setSubetapaValor('')
+    setSubetapaCategoria('')
     setFonte(usarItemLivre ? 'livre' : 'proprias')
     setSelectedItem(null)
     setBusca('')
     setLivreDescricao('')
     setLivreUnidade('UN')
     setLivrePreco('')
+    setLivreClassificacao('MATERIAL_SERVICOS')
+    setLivreGrupo('')
     setQuantidade('')
     setItensPendentes([])
     setShowAddItem(true)
   }
 
-  async function ensureEtapaSelecionada(): Promise<string | null> {
-    const nome = selectedEtapaNome.trim()
-    if (!nome) return null
-    const existente = etapas.find(e => e.nome.toLowerCase() === nome.toLowerCase())
-    if (existente) return existente.id
-    const ordem = etapas.length + 1
-    const { data } = await supabase.from('etapas').insert({ obra_id: resolvedObraId, nome, ordem }).select().single()
-    if (data) {
-      setEtapas(prev => [...prev, data])
-      return data.id
+  async function findOrCreateEtapa(nomeInformado: string): Promise<Etapa> {
+    const nome = nomeInformado.trim()
+    if (!nome) throw new Error('Selecione uma etapa para este lancamento.')
+    if (!resolvedObraId) throw new Error('Obra nao identificada para criar a etapa.')
+
+    const chave = normalizarNomeEtapa(nome)
+    const local = etapas.find(etapa => normalizarNomeEtapa(etapa.nome) === chave)
+    if (local) return local
+
+    const buscarNoBanco = async () => {
+      const { data, error } = await supabase.from('etapas').select('*').eq('obra_id', resolvedObraId)
+      if (error) throw error
+      return (data || []).find((etapa: Etapa) => normalizarNomeEtapa(etapa.nome) === chave) as Etapa | undefined
     }
-    return null
+
+    const existente = await buscarNoBanco()
+    if (existente) {
+      setEtapas(prev => prev.some(etapa => etapa.id === existente.id) ? prev : [...prev, existente])
+      return existente
+    }
+
+    const maxOrdem = etapas.reduce((maior, etapa) => Math.max(maior, etapa.ordem || 0), 0)
+    const { data, error } = await supabase
+      .from('etapas')
+      .insert({ obra_id: resolvedObraId, nome, status: 'planejada', ordem: maxOrdem + 1 })
+      .select()
+      .single()
+
+    if (error) {
+      if (error.code === '23505') {
+        const criadaEmParalelo = await buscarNoBanco()
+        if (criadaEmParalelo) {
+          setEtapas(prev => prev.some(etapa => etapa.id === criadaEmParalelo.id) ? prev : [...prev, criadaEmParalelo])
+          return criadaEmParalelo
+        }
+      }
+      throw error
+    }
+    if (!data) throw new Error('A etapa nao foi criada.')
+
+    setEtapas(prev => prev.some(etapa => etapa.id === data.id || normalizarNomeEtapa(etapa.nome) === chave) ? prev : [...prev, data])
+    return data
+  }
+
+  async function ensureEtapaSelecionada(): Promise<string> {
+    return (await findOrCreateEtapa(selectedEtapaNome)).id
   }
 
   function parseDecimalInput(value: string) {
     const cleaned = String(value || '').replace(/[^\d,.-]/g, '')
     const parsed = Number(cleaned.replace(/\./g, '').replace(',', '.'))
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  function parseQuantityInput(value: string) {
+    const parsed = Number(String(value || '').trim().replace(',', '.'))
     return Number.isFinite(parsed) ? parsed : 0
   }
 
@@ -597,9 +722,15 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     setItensPendentes(prev => prev.map(item => item.id === id ? { ...item, ...patch } : item))
   }
 
+  function itemAtualValido() {
+    const qtd = parseQuantityInput(quantidade)
+    if (qtd <= 0 || !selectedEtapaNome.trim()) return false
+    return fonte === 'livre' ? Boolean(livreDescricao.trim() && livreClassificacao) : Boolean(selectedItem)
+  }
+
   function draftAtual(): AddItemDraft | null {
-    const qtd = parseDecimalInput(quantidade)
-    if (!qtd || qtd <= 0 || !selectedEtapaNome.trim()) return null
+    if (!itemAtualValido()) return null
+    const qtd = parseQuantityInput(quantidade)
     const subetapa = subetapaLivre.trim() || null
     if (fonte === 'livre') {
       const descricao = livreDescricao.trim()
@@ -615,6 +746,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         preco: parseDecimalInput(livrePreco),
         quantidade: qtd,
         codigo: `LIV-${Date.now().toString(36).toUpperCase()}`,
+        classificacao: livreClassificacao,
+        grupo: livreGrupo.trim(),
       }
     }
     if (!selectedItem) return null
@@ -629,6 +762,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       preco: getItemCost(selectedItem),
       quantidade: qtd,
       codigo: selectedItem.codigo,
+      classificacao: fonte === 'insumos' ? (selectedItem as InsumoCatalogo).classificacao : null,
+      grupo: 'grupo' in selectedItem && typeof selectedItem.grupo === 'string' ? selectedItem.grupo : '',
     }
   }
 
@@ -638,6 +773,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     setBusca('')
     setLivreDescricao('')
     setLivrePreco('')
+    setLivreClassificacao('MATERIAL_SERVICOS')
+    setLivreGrupo('')
   }
 
   function handleMaisCampos() {
@@ -654,23 +791,17 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       preco: 0,
       quantidade: 1,
       codigo: `LIV-${Date.now().toString(36).toUpperCase()}`,
+      classificacao: livreClassificacao,
+      grupo: livreGrupo.trim(),
     }])
     limparCamposItemAtual()
   }
 
-  async function ensureEtapaPorNome(nomeEtapa: string): Promise<string | null> {
-    const existente = etapas.find(e => e.nome.toLowerCase() === nomeEtapa.toLowerCase())
-    if (existente) return existente.id
-    const ordem = etapas.length + 1
-    const { data } = await supabase.from('etapas').insert({ obra_id: resolvedObraId, nome: nomeEtapa, ordem }).select().single()
-    if (data) {
-      setEtapas(prev => [...prev, data])
-      return data.id
-    }
-    return null
+  async function ensureEtapaPorNome(nomeEtapa: string): Promise<string> {
+    return (await findOrCreateEtapa(nomeEtapa)).id
   }
 
-  async function upsertSubetapaMeta(etapaId: string | null, nomeSubetapa: string | null, valorManual: number, descricao?: string | null) {
+  async function upsertSubetapaMeta(etapaId: string | null, nomeSubetapa: string | null, valorManual: number | null, descricao?: string | null, categoria?: string | null, ativo = true) {
     if (!orcamento || !nomeSubetapa?.trim()) return
     const nome = nomeSubetapa.trim()
     let query = supabase.from('orcamento_itens')
@@ -693,7 +824,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       codigo_snapshot: codigo,
       unidade_snapshot: 'VB',
       subetapa_valor_manual: valorManual,
-      subetapa_valor_manual_ativo: true,
+      subetapa_valor_manual_ativo: ativo,
+      subetapa_categoria_snapshot: categoria?.trim() || null,
     }
     const { error } = existente?.id
       ? await supabase.from('orcamento_itens').update(payload).eq('id', existente.id)
@@ -717,15 +849,22 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       descricao_snapshot: draft.descricao,
       codigo_snapshot: draft.codigo,
       unidade_snapshot: draft.unidade,
+      classificacao_snapshot: draft.classificacao,
+      grupo_snapshot: draft.grupo || null,
+      tipo_item_snapshot: draft.fonte === 'proprias' || draft.fonte === 'sinapi' ? 'COMPOSICAO' : draft.fonte === 'insumos' ? 'INSUMO' : 'ITEM_LIVRE',
     })
     if (error) throw error
 
-    if (draft.fonte === 'livre' || draft.fonte === 'insumos') {
-      await upsertMaterialSoma(draft.codigo, draft.descricao, draft.unidade, draft.quantidade, etapaId, draft.subetapa)
-    } else if (!isSinapi && draft.item && 'composicao_itens' in draft.item) {
-      await gerarMateriaisDaComposicao(draft.item.composicao_itens || [], draft.quantidade, etapaId, draft.subetapa, draft.item.codigo, draft.item.descricao, draft.item.unidade)
-    } else if (isSinapi && draft.item) {
-      await gerarMateriaisDaComposicaoSinapi(draft.item.codigo, (draft.item as SinapiComposicao).mes_referencia, draft.quantidade, etapaId, draft.subetapa, draft.item.descricao, draft.item.unidade)
+    try {
+      if (draft.fonte === 'livre' || draft.fonte === 'insumos') {
+        await upsertMaterialSoma(draft.codigo, draft.descricao, draft.unidade, draft.quantidade, etapaId, draft.subetapa)
+      } else if (!isSinapi && draft.item && 'composicao_itens' in draft.item) {
+        await gerarMateriaisDaComposicao(draft.item.composicao_itens || [], draft.quantidade, etapaId, draft.subetapa, draft.item.codigo, draft.item.descricao, draft.item.unidade)
+      } else if (isSinapi && draft.item) {
+        await gerarMateriaisDaComposicaoSinapi(draft.item.codigo, (draft.item as SinapiComposicao).mes_referencia, draft.quantidade, etapaId, draft.subetapa, draft.item.descricao, draft.item.unidade)
+      }
+    } catch (error) {
+      console.error('Item inserido, mas houve falha ao sincronizar materiais:', error)
     }
   }
 
@@ -733,20 +872,26 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     if (!orcamento) return
     const atual = draftAtual()
     const drafts = [...itensPendentes, ...(atual ? [atual] : [])].filter(draft => draft.descricao.trim() && draft.quantidade > 0)
+    const valorSubetapaInformado = subetapaValor.trim().length > 0
     const valorMeta = parseDecimalInput(subetapaValor)
-    if (drafts.length === 0 && (!subetapaLivre.trim() || valorMeta <= 0)) return
+    const podeCriarSubetapaDireta = Boolean(selectedEtapaNome.trim() && subetapaLivre.trim() && valorSubetapaInformado)
+    if (drafts.length === 0 && !podeCriarSubetapaDireta) {
+      alert('Selecione um item e informe a quantidade. O valor da subetapa e opcional.')
+      return
+    }
     setSaving(true)
     try {
       const etapaId = await ensureEtapaSelecionada()
-      if (subetapaLivre.trim() && valorMeta > 0) {
-        await upsertSubetapaMeta(etapaId, subetapaLivre.trim(), valorMeta, subetapaDescricao)
-      }
       for (const draft of drafts) await inserirDraft(draft)
+      if (podeCriarSubetapaDireta) {
+        await upsertSubetapaMeta(etapaId, subetapaLivre.trim(), valorMeta, subetapaDescricao, subetapaCategoria)
+      }
       setItensPendentes([])
       limparCamposItemAtual()
       setSubetapaLivre('')
       setSubetapaDescricao('')
       setSubetapaValor('')
+      setSubetapaCategoria('')
       setShowAddItem(false)
       await Promise.all([loadItens(orcamento.id), loadEtapas()])
     } catch (error) {
@@ -886,13 +1031,16 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   // ─── Excluir etapa (e suas composições) ─────────────────────────────────
   // etapas.id não tem ON DELETE CASCADE em orcamento_itens — removemos os itens
   // (abatendo materiais gerados) antes de excluir a etapa em si.
-  async function handleRemoveEtapa(etapaId: string, nome: string) {
+  function handleRemoveEtapa(etapaId: string, nome: string) {
     const itensDaEtapa = itens.filter(i => i.etapa_id === etapaId)
-    const aviso = itensDaEtapa.length > 0
-      ? `Excluir a etapa "${nome}" e suas ${itensDaEtapa.length} composições? Esta ação não pode ser desfeita.`
-      : `Excluir a etapa "${nome}"?`
-    if (!confirm(aviso)) return
+    setErroHierarquia('')
+    setHierarquiaDialog({
+      tipo: 'excluir-etapa', etapaId, nomeAtual: nome, valor: '', quantidadeItens: itensDaEtapa.length,
+    })
+  }
 
+  async function removeEtapaConfirmada(etapaId: string) {
+    const itensDaEtapa = itens.filter(i => i.etapa_id === etapaId)
     for (const item of itensDaEtapa) {
       if (item.composicao_id) {
         await abaterMateriaisDaComposicao(item.composicao_itens || [], item.quantidade, item.etapa_id, item.subetapa, item.codigo)
@@ -904,50 +1052,41 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         Object.keys(next).filter(k => k.startsWith(item.id)).forEach(k => delete next[k])
         return next
       })
-      await supabase.from('orcamento_itens').delete().eq('id', item.id)
+      const { error: itemError } = await supabase.from('orcamento_itens').delete().eq('id', item.id)
+      if (itemError) throw itemError
     }
-    await supabase.from('etapas').delete().eq('id', etapaId)
+    const { error: etapaError } = await supabase.from('etapas').delete().eq('id', etapaId)
+    if (etapaError) throw etapaError
     setItens(prev => prev.filter(i => i.etapa_id !== etapaId))
     setEtapas(prev => prev.filter(e => e.id !== etapaId))
   }
 
-  async function handleRenameEtapa(etapaId: string, nomeAtual: string) {
-    const nome = prompt('Novo nome da etapa', nomeAtual)?.trim()
-    if (!nome || nome === nomeAtual) return
-    const { error } = await supabase.from('etapas').update({ nome }).eq('id', etapaId)
-    if (error) {
-      alert(`Nao foi possivel renomear a etapa: ${error.message}`)
-      return
-    }
-    setEtapas(prev => prev.map(e => e.id === etapaId ? { ...e, nome } : e))
+  function handleRenameEtapa(etapaId: string, nomeAtual: string) {
+    setErroHierarquia('')
+    setHierarquiaDialog({ tipo: 'renomear-etapa', etapaId, nomeAtual, valor: nomeAtual })
   }
 
-  async function handleRenameSubetapa(etapaId: string | null, subetapaAtual: string) {
+  function handleRenameSubetapa(etapaId: string | null, subetapaAtual: string) {
     const atual = subetapaAtual === 'Sem subetapa' ? '' : subetapaAtual
-    const nome = prompt('Novo nome da subetapa', atual)?.trim()
-    if (nome === undefined || nome === atual) return
-    const novoValor = nome || null
-    let query = supabase.from('orcamento_itens').update({ subetapa: novoValor })
-    query = atual ? query.eq('subetapa', atual) : query.is('subetapa', null)
-    query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
-    const { error } = await query
-    if (error) {
-      alert(`Nao foi possivel renomear a subetapa: ${error.message}`)
-      return
-    }
-    setItens(prev => prev.map(item => item.etapa_id === etapaId && (item.subetapa || 'Sem subetapa') === subetapaAtual
-      ? { ...item, subetapa: novoValor }
-      : item))
+    setErroHierarquia('')
+    setHierarquiaDialog({ tipo: 'renomear-subetapa', etapaId, nomeAtual: subetapaAtual, valor: atual })
   }
 
-  async function handleRemoveSubetapa(etapaId: string | null, subetapaNome: string) {
+  function handleRemoveSubetapa(etapaId: string | null, subetapaNome: string) {
     const itensDaSubetapa = itens.filter(item =>
       item.etapa_id === etapaId && (item.subetapa || 'Sem subetapa') === subetapaNome
     )
     if (itensDaSubetapa.length === 0) return
-    const aviso = `Excluir a subetapa "${subetapaNome}" e suas ${itensDaSubetapa.length} composições/itens? Esta ação não pode ser desfeita.`
-    if (!confirm(aviso)) return
+    setErroHierarquia('')
+    setHierarquiaDialog({
+      tipo: 'excluir-subetapa', etapaId, nomeAtual: subetapaNome, valor: '', quantidadeItens: itensDaSubetapa.length,
+    })
+  }
 
+  async function removeSubetapaConfirmada(etapaId: string | null, subetapaNome: string) {
+    const itensDaSubetapa = itens.filter(item =>
+      item.etapa_id === etapaId && (item.subetapa || 'Sem subetapa') === subetapaNome
+    )
     for (const item of itensDaSubetapa) {
       if (item.tipo_linha === 'subetapa') {
         // Apenas metadado de valor da subetapa; nao gera material.
@@ -966,21 +1105,108 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     }
 
     const ids = itensDaSubetapa.map(item => item.id)
-    await supabase.from('orcamento_itens').delete().in('id', ids)
+    const { error } = await supabase.from('orcamento_itens').delete().in('id', ids)
+    if (error) throw error
     setItens(prev => prev.filter(item => !ids.includes(item.id)))
   }
 
-  async function handleEditSubetapaValor(etapaId: string | null, subetapaNome: string, valorAtual: number) {
-    const valorDigitado = prompt('Valor manual da subetapa', valorAtual ? String(valorAtual).replace('.', ',') : '')
-    if (valorDigitado === null) return
-    const valor = parseDecimalInput(valorDigitado)
-    if (!Number.isFinite(valor) || valor < 0) return
+  function handleEditSubetapaValor(etapaId: string | null, subetapaNome: string, valorAtual: number) {
+    setErroHierarquia('')
+    setHierarquiaDialog({
+      tipo: 'editar-valor',
+      etapaId,
+      nomeAtual: subetapaNome,
+      valor: valorAtual.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    })
+  }
+
+  async function salvarHierarquia() {
+    if (!hierarquiaDialog || !orcamento) return
+    setErroHierarquia('')
+    setSalvandoHierarquia(true)
+
     try {
-      await upsertSubetapaMeta(etapaId, subetapaNome, valor)
-      if (orcamento) await loadItens(orcamento.id)
+      if (hierarquiaDialog.tipo === 'renomear-etapa') {
+        const nome = hierarquiaDialog.valor.trim()
+        if (!nome) throw new Error('Informe o novo nome da etapa.')
+        if (!hierarquiaDialog.etapaId || !resolvedObraId) throw new Error('Etapa nao identificada.')
+
+        const repetida = etapas.some(etapa =>
+          etapa.id !== hierarquiaDialog.etapaId && normalizarNomeEtapa(etapa.nome) === normalizarNomeEtapa(nome)
+        )
+        if (repetida) throw new Error('Ja existe uma etapa com esse nome nesta obra.')
+
+        const { data, error } = await supabase
+          .from('etapas')
+          .update({ nome })
+          .eq('id', hierarquiaDialog.etapaId)
+          .eq('obra_id', resolvedObraId)
+          .select('id,nome')
+          .maybeSingle()
+        if (error) throw error
+        if (!data) throw new Error('A etapa nao foi encontrada para edicao.')
+        setEtapas(prev => prev.map(etapa => etapa.id === data.id ? { ...etapa, nome: data.nome } : etapa))
+      }
+
+      if (hierarquiaDialog.tipo === 'renomear-subetapa') {
+        const nome = hierarquiaDialog.valor.trim()
+        if (!nome) throw new Error('Informe o novo nome da subetapa.')
+        const atual = hierarquiaDialog.nomeAtual === 'Sem subetapa' ? '' : hierarquiaDialog.nomeAtual
+
+        const repetida = itens.some(item =>
+          item.etapa_id === hierarquiaDialog.etapaId
+          && (item.subetapa || '') !== atual
+          && normalizarNomeEtapa(item.subetapa || '') === normalizarNomeEtapa(nome)
+        )
+        if (repetida) throw new Error('Ja existe uma subetapa com esse nome nesta etapa.')
+
+        let query = supabase
+          .from('orcamento_itens')
+          .update({ subetapa: nome })
+          .eq('orcamento_id', orcamento.id)
+        query = atual ? query.eq('subetapa', atual) : query.is('subetapa', null)
+        query = hierarquiaDialog.etapaId ? query.eq('etapa_id', hierarquiaDialog.etapaId) : query.is('etapa_id', null)
+        const { data, error } = await query.select('id')
+        if (error) throw error
+        if (!data || data.length === 0) throw new Error('A subetapa nao foi encontrada para edicao.')
+
+        if (resolvedObraId && atual && await materiaisTemSubetapa()) {
+          let materiaisQuery = supabase
+            .from('materiais')
+            .update({ subetapa: nome })
+            .eq('obra_id', resolvedObraId)
+            .eq('subetapa', atual)
+          materiaisQuery = hierarquiaDialog.etapaId
+            ? materiaisQuery.eq('etapa_id', hierarquiaDialog.etapaId)
+            : materiaisQuery.is('etapa_id', null)
+          const { error: materiaisError } = await materiaisQuery
+          if (materiaisError) console.error('Subetapa renomeada, mas materiais nao foram sincronizados:', materiaisError)
+        }
+        await loadItens(orcamento.id)
+      }
+
+      if (hierarquiaDialog.tipo === 'editar-valor') {
+        const valor = parseDecimalInput(hierarquiaDialog.valor)
+        if (!Number.isFinite(valor) || valor < 0) throw new Error('Informe um valor valido, igual ou maior que zero.')
+        await upsertSubetapaMeta(hierarquiaDialog.etapaId, hierarquiaDialog.nomeAtual, valor)
+        await loadItens(orcamento.id)
+      }
+
+      if (hierarquiaDialog.tipo === 'excluir-etapa') {
+        if (!hierarquiaDialog.etapaId) throw new Error('Etapa nao identificada.')
+        await removeEtapaConfirmada(hierarquiaDialog.etapaId)
+      }
+
+      if (hierarquiaDialog.tipo === 'excluir-subetapa') {
+        await removeSubetapaConfirmada(hierarquiaDialog.etapaId, hierarquiaDialog.nomeAtual)
+      }
+
+      setHierarquiaDialog(null)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro desconhecido'
-      alert(`Nao foi possivel salvar o valor da subetapa: ${message}`)
+      const message = error instanceof Error ? error.message : 'Nao foi possivel concluir a alteracao.'
+      setErroHierarquia(message)
+    } finally {
+      setSalvandoHierarquia(false)
     }
   }
 
@@ -996,6 +1222,31 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     const { error } = await query
     if (error) {
       alert(`Nao foi possivel restaurar o valor calculado: ${error.message}`)
+      return
+    }
+    await loadItens(orcamento.id)
+  }
+
+  async function handleRestoreItemValor(itemId: string) {
+    if (!orcamento) return
+    const { error } = await supabase.from('orcamento_itens')
+      .update({ valor_total_manual_ativo: false, importacao_alertas: [] })
+      .eq('id', itemId)
+      .eq('orcamento_id', orcamento.id)
+    if (error) {
+      alert(`Não foi possível restaurar o valor calculado: ${error.message}`)
+      return
+    }
+    await loadItens(orcamento.id)
+  }
+
+  async function handleRestoreInsumoValor(insumoId: string) {
+    if (!orcamento) return
+    const { error } = await supabase.from('orcamento_item_insumos')
+      .update({ valor_total_divergente: false, valor_total_informado_snapshot: null })
+      .eq('id', insumoId)
+    if (error) {
+      alert(`Não foi possível restaurar o total do insumo: ${error.message}`)
       return
     }
     await loadItens(orcamento.id)
@@ -1029,8 +1280,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
           const info = infoDoItem(ins, obraUf)
           const insumoKey = info.codigo !== '—' ? info.codigo : ins.id
           const key = overrideKey(item.id, insumoKey)
-          const qtdCalculada = item.quantidade * ins.coeficiente
-          const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
+          const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+          const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
           return {
             codigo: info.codigo !== '—' ? info.codigo : '',
             descricao: info.descricao,
@@ -1059,9 +1310,149 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   // ─── Importar orçamento via planilha tabular ─────────────────────────────
   // Cada linha: Etapa, Subetapa, Código (da composição), Quantidade. A etapa é
   // localizada/criada por nome e a composição é localizada pelo código —
+  async function handleImportarOrcamentoAnalitico(linhas: LinhaImportada[]): Promise<ResultadoImportacaoOrcamento> {
+    if (!orcamento) return { inseridos: 0, ignorados: linhas.length, erros: ['Orçamento não carregado.'] }
+    const erros: string[] = []
+    let inseridos = 0
+    let ignorados = 0
+    const etapasImportadas = new Map<string, string>()
+    const gruposComposicao = new Map<string, LinhaImportada[]>()
+
+    for (const linha of linhas) {
+      const tipo = String(linha.valores.tipo || '').toUpperCase()
+      if (tipo === 'SUBETAPA') continue
+      const chave = [linha.valores.etapa, linha.valores.subetapa, linha.valores.composicaoDescricao]
+        .map(valor => normalizarNomeEtapa(String(valor || ''))).join('|')
+      gruposComposicao.set(chave, [...(gruposComposicao.get(chave) || []), linha])
+    }
+
+    async function etapaIdDaLinha(linha: LinhaImportada) {
+      const nome = String(linha.valores.etapa || '').trim()
+      const chave = normalizarNomeEtapa(nome)
+      if (etapasImportadas.has(chave)) return etapasImportadas.get(chave)!
+      const etapa = await findOrCreateEtapa(nome)
+      etapasImportadas.set(chave, etapa.id)
+      return etapa.id
+    }
+
+    // Cria metadados de subetapa depois de conhecer o total único de cada composição.
+    const composicoesPorSubetapa = new Map<string, number>()
+    for (const grupo of gruposComposicao.values()) {
+      const primeira = grupo[0]
+      const chaveSub = [primeira.valores.etapa, primeira.valores.subetapa].map(valor => normalizarNomeEtapa(String(valor || ''))).join('|')
+      const total = Number(primeira.valores.composicaoValorTotal || primeira.valores._somaInsumos || 0)
+      composicoesPorSubetapa.set(chaveSub, (composicoesPorSubetapa.get(chaveSub) || 0) + total)
+    }
+
+    const subetapasProcessadas = new Set<string>()
+    for (const linha of linhas) {
+      const nomeSubetapa = String(linha.valores.subetapa || '').trim()
+      if (!nomeSubetapa) continue
+      const chaveSub = [linha.valores.etapa, nomeSubetapa].map(valor => normalizarNomeEtapa(String(valor || ''))).join('|')
+      if (subetapasProcessadas.has(chaveSub)) continue
+      subetapasProcessadas.add(chaveSub)
+      const etapaId = await etapaIdDaLinha(linha)
+      const valorInformado = Number(linha.valores.valorSubetapa || 0)
+      const valorCalculado = composicoesPorSubetapa.get(chaveSub) || 0
+      const divergente = valorInformado > 0 && Math.abs(valorInformado - valorCalculado) > Math.max(0.02, Math.abs(valorCalculado) * 0.001)
+      await upsertSubetapaMeta(
+        etapaId,
+        nomeSubetapa,
+        valorInformado > 0 ? valorInformado : null,
+        nomeSubetapa,
+        String(linha.valores.categoriaSubetapa || ''),
+        divergente,
+      )
+    }
+
+    for (const grupo of gruposComposicao.values()) {
+      const primeira = grupo[0]
+      try {
+        const etapaId = await etapaIdDaLinha(primeira)
+        const quantidade = Number(primeira.valores.composicaoQuantidade || 1)
+        const totalInformado = Number(primeira.valores.composicaoValorTotal || 0)
+        const somaInsumos = Number(primeira.valores._somaInsumosCalculada || primeira.valores._somaInsumos || 0)
+        const valorUnitario = Number(primeira.valores.composicaoValorUnitario || (totalInformado && quantidade ? totalInformado / quantidade : 0))
+        const totalCalculado = somaInsumos || quantidade * valorUnitario
+        const divergente = Boolean(primeira.valores._divergenciaComposicao)
+        const alertas = divergente
+          ? [`Total informado (${formatCurrency(totalInformado)}) diverge do calculado (${formatCurrency(totalCalculado)}).`]
+          : []
+        const descricao = String(primeira.valores.composicaoDescricao || '').trim()
+        const codigo = `IMP-${Date.now().toString(36).toUpperCase()}-${primeira.numero}`
+        const { data: itemCriado, error: erroItem } = await supabase.from('orcamento_itens').insert({
+          orcamento_id: orcamento.id,
+          etapa_id: etapaId,
+          subetapa: String(primeira.valores.subetapa || '').trim() || null,
+          tipo_linha: 'item',
+          composicao_id: null,
+          sinapi_composicao_id: null,
+          quantidade,
+          preco_unitario_snapshot: valorUnitario,
+          descricao_snapshot: descricao,
+          codigo_snapshot: codigo,
+          unidade_snapshot: String(primeira.valores.composicaoUnidade || 'UN'),
+          classificacao_snapshot: primeira.valores.composicaoClassificacao || null,
+          grupo_snapshot: String(primeira.valores.composicaoGrupo || '').trim() || null,
+          subetapa_categoria_snapshot: String(primeira.valores.categoriaSubetapa || '').trim() || null,
+          tipo_item_snapshot: String(primeira.valores.tipo || '').toUpperCase() === 'ITEM_LIVRE' ? 'ITEM_LIVRE' : 'COMPOSICAO',
+          valor_total_informado_snapshot: totalInformado || null,
+          valor_total_manual_ativo: divergente,
+          importacao_alertas: alertas,
+        }).select('id').single()
+        if (erroItem || !itemCriado) throw erroItem || new Error('Item não criado.')
+
+        const linhasInsumo = grupo.filter(linha => String(linha.valores.insumoDescricao || '').trim())
+        if (linhasInsumo.length) {
+          const payload = linhasInsumo.map((linha, indice) => {
+            const quantidadeInsumo = Number(linha.valores.insumoQuantidade || 0)
+            const valorUnitarioInsumo = Number(linha.valores.insumoValorUnitario || 0)
+            const totalInsumo = Number(linha.valores.insumoValorTotal || quantidadeInsumo * valorUnitarioInsumo)
+            const codigoInsumo = `IMP-${String(indice + 1).padStart(3, '0')}-${normalizarNomeEtapa(String(linha.valores.insumoDescricao || '')).replace(/[^a-z0-9]+/g, '-').slice(0, 28)}`.toUpperCase()
+            return {
+              orcamento_item_id: itemCriado.id,
+              sinapi_codigo: codigoInsumo,
+              descricao_snapshot: String(linha.valores.insumoDescricao || '').trim(),
+              unidade_snapshot: String(linha.valores.insumoUnidade || 'UN'),
+              classificacao_snapshot: linha.valores.insumoClassificacao || null,
+              grupo_snapshot: String(linha.valores.insumoGrupo || '').trim() || null,
+              coeficiente_snapshot: Number(linha.valores.insumoCoeficiente || (quantidade ? quantidadeInsumo / quantidade : 0)),
+              quantidade_calculada: quantidadeInsumo,
+              quantidade_adotada: quantidadeInsumo,
+              preco_unitario_snapshot: valorUnitarioInsumo,
+              valor_total_informado_snapshot: totalInsumo || null,
+              valor_total_divergente: totalInsumo > 0 && Math.abs(totalInsumo - quantidadeInsumo * valorUnitarioInsumo) > Math.max(0.02, Math.abs(totalInsumo) * 0.001),
+              ordem: indice,
+            }
+          })
+          const { error: erroInsumos } = await supabase.from('orcamento_item_insumos').insert(payload)
+          if (erroInsumos) {
+            await supabase.from('orcamento_itens').delete().eq('id', itemCriado.id)
+            throw erroInsumos
+          }
+        }
+        inseridos++
+      } catch (error) {
+        ignorados += grupo.length
+        erros.push(`Linha ${primeira.numero}: ${error instanceof Error ? error.message : 'falha ao importar composição.'}`)
+      }
+    }
+
+    // Subetapas sem itens também são válidas.
+    for (const linha of linhas.filter(item => String(item.valores.tipo || '').toUpperCase() === 'SUBETAPA')) {
+      if (String(linha.valores.subetapa || '').trim()) inseridos++
+      else { ignorados++; erros.push(`Linha ${linha.numero}: nome da subetapa vazio.`) }
+    }
+    await Promise.all([loadItens(orcamento.id), loadEtapas()])
+    return { inseridos, ignorados, erros }
+  }
+
   // própria primeiro, SINAPI em seguida. Espelha handleAddItem para cada linha.
   async function handleImportarOrcamento(linhas: LinhaImportada[]): Promise<ResultadoImportacaoOrcamento> {
     if (!orcamento) return { inseridos: 0, ignorados: linhas.length, erros: ['Orçamento não carregado.'] }
+    if (linhas.some(linha => linha.valores.origem === 'orcamento_analitico')) {
+      return handleImportarOrcamentoAnalitico(linhas)
+    }
 
     const erros: string[] = []
     let inseridos = 0
@@ -1085,6 +1476,17 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       const valorTotalImportado = Number(linha.valores.valorTotal ?? linha.valores.valor_total ?? linha.valores.custoTotal ?? 0)
       const valorSubetapaCampo = Number(linha.valores.valorSubetapa ?? linha.valores.valor_subetapa ?? 0)
       const valorSubetapaImportado = valorSubetapaCampo || (tipoLinha === 'subetapa' ? (valorTotalImportado || valorUnitarioImportado) : 0)
+      const origemImportacao = String(linha.valores.origem ?? '').trim()
+      const grupoImportado = String(linha.valores.grupo ?? linha.valores.categoriaGrupo ?? '').trim()
+      const categoriaSubetapaImportada = String(linha.valores.categoriaSubetapa ?? linha.valores.categoria_subetapa ?? '').trim()
+      const classificacaoTexto = String(linha.valores.classificacao ?? '').trim().toUpperCase()
+      const classificacaoImportada: ClassificacaoInsumo | null = classificacaoTexto === 'EQUIPAMENTO'
+        ? 'EQUIPAMENTO'
+        : classificacaoTexto === 'MAO_DE_OBRA' || classificacaoTexto === 'MÃO DE OBRA' || classificacaoTexto === 'MAO DE OBRA'
+          ? 'MAO_DE_OBRA'
+          : classificacaoTexto === 'MATERIAL_SERVICOS' || classificacaoTexto === 'MATERIAL E SERVIÇOS' || classificacaoTexto === 'MATERIAL E SERVICOS'
+            ? 'MATERIAL_SERVICOS'
+            : null
       const statusExecucaoImportado = mapStatusExecucao(linha.valores.statusExecucao)
       const statusCompraImportado = mapStatusCompra(linha.valores.statusMaterial)
       const insumosAntigos = Array.isArray(linha.valores.insumos)
@@ -1119,7 +1521,60 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       }
 
       if (subetapa && valorSubetapaImportado > 0) {
-        await upsertSubetapaMeta(etapaId, subetapa, valorSubetapaImportado, descricaoImportada && tipoLinha === 'subetapa' ? descricaoImportada : subetapa)
+        await upsertSubetapaMeta(etapaId, subetapa, valorSubetapaImportado, descricaoImportada && tipoLinha === 'subetapa' ? descricaoImportada : subetapa, categoriaSubetapaImportada)
+      }
+
+      // O modelo tabular novo importa snapshots independentes. Não cria nem altera
+      // catálogos mestres e não gera materiais automaticamente.
+      if (!origemImportacao) {
+        if (tipoLinha === 'subetapa') {
+          if (!subetapa) {
+            ignorados++
+            erros.push(`Linha ${linha.numero}: informe o nome da subetapa.`)
+            continue
+          }
+          await upsertSubetapaMeta(etapaId, subetapa, valorSubetapaImportado, descricaoImportada || subetapa, categoriaSubetapaImportada)
+          inseridos++
+          continue
+        }
+
+        const tipoSnapshot = tipoLinha === 'composicao' ? 'COMPOSICAO' : tipoLinha === 'insumo' ? 'INSUMO' : 'ITEM_LIVRE'
+        if (!descricaoImportada) {
+          ignorados++
+          erros.push(`Linha ${linha.numero}: informe a descrição do item.`)
+          continue
+        }
+        if ((tipoSnapshot === 'INSUMO' || tipoSnapshot === 'ITEM_LIVRE') && !classificacaoImportada) {
+          ignorados++
+          erros.push(`Linha ${linha.numero}: classificação obrigatória para ${tipoSnapshot}.`)
+          continue
+        }
+        const preco = valorUnitarioImportado || (valorTotalImportado > 0 ? valorTotalImportado / quantidade : 0)
+        const codigoSnapshot = codigo || `${tipoSnapshot === 'COMPOSICAO' ? 'COMP' : tipoSnapshot === 'INSUMO' ? 'INS' : 'LIV'}-${Date.now().toString(36).toUpperCase()}-${linha.numero}`
+        const { error: erroSnapshot } = await supabase.from('orcamento_itens').insert({
+          orcamento_id: orcamento.id,
+          etapa_id: etapaId,
+          subetapa,
+          tipo_linha: 'item',
+          composicao_id: null,
+          sinapi_composicao_id: null,
+          quantidade,
+          preco_unitario_snapshot: preco,
+          descricao_snapshot: descricaoImportada,
+          codigo_snapshot: codigoSnapshot,
+          unidade_snapshot: unidadeImportada,
+          classificacao_snapshot: classificacaoImportada,
+          grupo_snapshot: grupoImportado || null,
+          subetapa_categoria_snapshot: categoriaSubetapaImportada || null,
+          tipo_item_snapshot: tipoSnapshot,
+        })
+        if (erroSnapshot) {
+          ignorados++
+          erros.push(`Linha ${linha.numero}: erro ao inserir item - ${erroSnapshot.message}`)
+          continue
+        }
+        inseridos++
+        continue
       }
 
       if (tipoLinha === 'subetapa' || (!codigo && subetapa && valorSubetapaImportado > 0 && !descricaoImportada)) {
@@ -1260,11 +1715,23 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     return { inseridos, ignorados, erros }
   }
 
-  async function handleFinalizar() {
-    if (!orcamento || !confirm('Finalizar orçamento? Os preços serão congelados.')) return
-    await supabase.from('orcamentos').update({ status: 'finalizado' }).eq('id', orcamento.id)
-    setOrcamento(o => o ? { ...o, status: 'finalizado' } : o)
+  function handleFinalizar() {
     setShowMenu(false)
+    setErroFinalizacao('')
+    setShowFinalizarModal(true)
+  }
+
+  async function confirmarFinalizacao() {
+    if (!orcamento) return
+    setFinalizando(true)
+    const { error } = await supabase.from('orcamentos').update({ status: 'finalizado' }).eq('id', orcamento.id)
+    setFinalizando(false)
+    if (error) {
+      setErroFinalizacao(`Nao foi possivel finalizar o orcamento: ${error.message}`)
+      return
+    }
+    setOrcamento(o => o ? { ...o, status: 'finalizado' } : o)
+    setShowFinalizarModal(false)
   }
 
   function handleReabrir() {
@@ -1620,11 +2087,17 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         normBusca(fixMojibake(c.descricao)).includes(termoBusca) || normBusca(c.codigo).includes(termoBusca))
     : []
   const etapasPadrao = readEtapasPadrao()
-  const nomesEtapasObra = new Set(etapas.map(e => e.nome.toLowerCase()))
+  const nomesEtapasObra = new Set(etapas.map(e => normalizarNomeEtapa(e.nome)))
+  const nomesEtapasExibidos = new Set<string>()
   const etapaOptions = [
     ...etapas.map(e => e.nome),
-    ...etapasPadrao.filter(n => !nomesEtapasObra.has(n.toLowerCase())),
-  ]
+    ...etapasPadrao.filter(n => !nomesEtapasObra.has(normalizarNomeEtapa(n))),
+  ].filter(nome => {
+    const chave = normalizarNomeEtapa(nome)
+    if (!chave || nomesEtapasExibidos.has(chave)) return false
+    nomesEtapasExibidos.add(chave)
+    return true
+  })
   const isReadonly = orcamento?.status === 'finalizado'
   const etapasVisiveis = filtroEtapaId === 'todas'
     ? etapas
@@ -1641,31 +2114,46 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   const etapaNomePorId: Record<string, string> = {}
   for (const e of etapas) etapaNomePorId[e.id] = e.nome
   const linhasOrcamentoTabular: LinhaOrcamentoTabular[] = [
-    ...subetapasMeta.map(meta => ({
+    ...subetapasMeta.filter(meta => !itensOrcamento.some(item => item.etapa_id === meta.etapa_id && item.subetapa === meta.nome)).map(meta => ({
       tipo: 'subetapa' as const,
       etapa: (meta.etapa_id && etapaNomePorId[meta.etapa_id]) || 'Sem etapa',
       subetapa: meta.nome,
-      codigo: '',
-      descricao: meta.descricao || meta.nome,
-      categoriaGrupo: '',
-      unidade: 'VB',
-      quantidade: 1,
-      valorUnitario: Number(meta.valor_manual || 0),
-      valorTotal: Number(meta.valor_manual || 0),
       valorSubetapa: Number(meta.valor_manual || 0),
+      composicaoDescricao: '',
     })),
-    ...itensOrcamento.map(item => ({
-    tipo: item.composicao_id || item.sinapi_composicao_id ? 'composicao' as const : 'item_livre' as const,
-    etapa: (item.etapa_id && etapaNomePorId[item.etapa_id]) || 'Sem etapa',
-    subetapa: item.subetapa,
-    codigo: item.codigo,
-    descricao: item.descricao,
-    categoriaGrupo: item.subetapa || '',
-    unidade: item.unidade,
-    quantidade: item.quantidade,
-    valorUnitario: item.preco_unitario_snapshot,
-    valorTotal: getItemTotal(item),
-  })),
+    ...itensOrcamento.flatMap(item => {
+      const meta = subetapasMeta.find(sub => sub.etapa_id === item.etapa_id && sub.nome === item.subetapa)
+      const comum = {
+        tipo: (item.tipo_item_snapshot === 'ITEM_LIVRE' ? 'item_livre' : 'composicao') as 'item_livre' | 'composicao',
+        etapa: (item.etapa_id && etapaNomePorId[item.etapa_id]) || 'Sem etapa',
+        subetapa: item.subetapa,
+        valorSubetapa: Number(meta?.valor_manual || 0),
+        composicaoDescricao: item.descricao,
+        composicaoGrupo: item.grupo_snapshot || '',
+        composicaoUnidade: item.unidade,
+        composicaoQuantidade: item.quantidade,
+        composicaoValorUnitario: item.preco_unitario_snapshot,
+        composicaoValorTotal: getItemTotal(item),
+      }
+      const insumos = item.composicao_itens || []
+      if (!insumos.length) return [comum]
+      return insumos.map(insumo => {
+        const info = infoDoItem(insumo, obraUf)
+        const quantidadeCalculada = insumo.quantidade_calculada != null ? Number(insumo.quantidade_calculada) : item.quantidade * insumo.coeficiente
+        const quantidadeAdotada = insumo.quantidade_adotada != null ? Number(insumo.quantidade_adotada) : quantidadeCalculada
+        return {
+          ...comum,
+          insumoDescricao: info.descricao,
+          insumoClassificacao: (info.classificacao === 'EQUIPAMENTO' || info.classificacao === 'MAO_DE_OBRA' ? info.classificacao : 'MATERIAL_SERVICOS') as ClassificacaoInsumo,
+          insumoGrupo: insumo.grupo_snapshot || '',
+          insumoUnidade: info.unidade,
+          insumoCoeficiente: insumo.coeficiente,
+          insumoQuantidade: quantidadeAdotada,
+          insumoValorUnitario: info.preco,
+          insumoValorTotal: insumo.valor_total_informado_snapshot != null ? Number(insumo.valor_total_informado_snapshot) : quantidadeAdotada * info.preco,
+        }
+      })
+    }),
   ]
   // Custo de uma composição para exibir no modal de busca
   // Pós-Supabase: calcula via composicao_itens + sinapi_insumos.precos[obraUf]
@@ -1864,6 +2352,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                 onDeleteSubetapa={(nomeSub) => handleRemoveSubetapa(null, nomeSub)}
                 onEditSubetapaValor={(nomeSub, valorAtual) => handleEditSubetapaValor(null, nomeSub, valorAtual)}
                 onRestoreSubetapaValor={(nomeSub) => handleRestoreSubetapaValor(null, nomeSub)}
+                onRestoreItemValor={handleRestoreItemValor}
+                onRestoreInsumoValor={handleRestoreInsumoValor}
                 onEditItem={!isReadonly ? openEditItem : undefined}
               />
             )}
@@ -1901,6 +2391,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                   onDeleteSubetapa={!isReadonly ? (nomeSub) => handleRemoveSubetapa(etapa.id, nomeSub) : undefined}
                   onEditSubetapaValor={!isReadonly ? (nomeSub, valorAtual) => handleEditSubetapaValor(etapa.id, nomeSub, valorAtual) : undefined}
                   onRestoreSubetapaValor={!isReadonly ? (nomeSub) => handleRestoreSubetapaValor(etapa.id, nomeSub) : undefined}
+                  onRestoreItemValor={!isReadonly ? handleRestoreItemValor : undefined}
+                  onRestoreInsumoValor={!isReadonly ? handleRestoreInsumoValor : undefined}
                   onEditItem={!isReadonly ? openEditItem : undefined}
                   menuAberto={etapaMenuAberto === etapa.id}
                   onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
@@ -1973,7 +2465,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       {/* ── Modal adicionar composição ── */}
       <Modal
         open={showAddItem}
-        onClose={() => { setShowAddItem(false); setSelectedItem(null); setQuantidade(''); setBusca(''); setSubetapaLivre(''); setSubetapaDescricao(''); setSubetapaValor(''); setLivreDescricao(''); setLivrePreco(''); setItensPendentes([]) }}
+        onClose={() => { setShowAddItem(false); setSelectedItem(null); setQuantidade(''); setBusca(''); setSubetapaLivre(''); setSubetapaDescricao(''); setSubetapaValor(''); setSubetapaCategoria(''); setLivreDescricao(''); setLivrePreco(''); setLivreClassificacao('MATERIAL_SERVICOS'); setLivreGrupo(''); setItensPendentes([]) }}
         title="Adicionar item"
         size="lg"
       >
@@ -1983,7 +2475,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
               <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Etapa</label>
               <div className="flex gap-1.5">
                 <select value={selectedEtapaNome} onChange={e => setSelectedEtapaNome(e.target.value)} className="input-base flex-1">
-                  {etapaOptions.map(etapa => <option key={etapa} value={etapa}>{etapa}</option>)}
+                  {etapaOptions.map(etapa => <option key={normalizarNomeEtapa(etapa)} value={etapa}>{etapa}</option>)}
                 </select>
                 <button type="button" onClick={() => { setShowAddItem(false); setShowNovaEtapa(true) }}
                   className="px-2 rounded-lg text-xs font-medium flex-shrink-0"
@@ -1998,7 +2490,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
               onChange={e => setSubetapaLivre(e.target.value)}
               placeholder="Ex: Baldrames, térreo, bloco A..."
             />            <Input
-              label="Valor da subetapa"
+              label="Valor da subetapa (opcional)"
               type="text"
               inputMode="decimal"
               value={subetapaValor}
@@ -2007,12 +2499,20 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
               placeholder="R$ 0,00"
             />
           </div>
-          <Input
-            label="Descricao da subetapa (opcional)"
-            value={subetapaDescricao}
-            onChange={e => setSubetapaDescricao(e.target.value)}
-            placeholder="Use para criar uma subetapa com valor direto, mesmo sem composicoes."
-          />
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-3">
+            <Input
+              label="Descrição da subetapa (opcional)"
+              value={subetapaDescricao}
+              onChange={e => setSubetapaDescricao(e.target.value)}
+              placeholder="Detalhe resumido da subetapa"
+            />
+            <Input
+              label="Categoria da subetapa (opcional)"
+              value={subetapaCategoria}
+              onChange={e => setSubetapaCategoria(e.target.value)}
+              placeholder="Ex: Estrutura"
+            />
+          </div>
 
           {itensPendentes.length > 0 && (
             <div className="rounded-xl overflow-hidden" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
@@ -2021,13 +2521,21 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
               </div>
               <div className="flex flex-col divide-y" style={{ borderColor: 'var(--border)' }}>
                 {itensPendentes.map((draft, idx) => (
-                  <div key={draft.id} className="grid grid-cols-1 lg:grid-cols-[32px_minmax(220px,1fr)_80px_100px_130px_120px_92px] gap-2 p-3 items-end">
+                  <div key={draft.id} className="grid grid-cols-2 lg:grid-cols-[32px_minmax(190px,1fr)_minmax(130px,0.65fr)_150px_72px_88px_125px_92px_44px] gap-2 p-3 items-end">
                     <div className="hidden lg:flex h-9 items-center justify-center rounded-lg text-xs font-semibold" style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>
                       {idx + 1}
                     </div>
-                    <Input label="Descricao" value={draft.descricao} onChange={e => updateItemPendente(draft.id, { descricao: e.target.value })} />
+                    <div className="col-span-2 lg:col-span-1"><Input label="Descrição" value={draft.descricao} onChange={e => updateItemPendente(draft.id, { descricao: e.target.value })} /></div>
+                    <Input label="Grupo" value={draft.grupo} onChange={e => updateItemPendente(draft.id, { grupo: e.target.value })} placeholder="Opcional" />
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-sm font-medium text-[var(--text-secondary)]">Classificação</label>
+                      <select value={draft.classificacao || ''} onChange={e => updateItemPendente(draft.id, { classificacao: (e.target.value || null) as ClassificacaoInsumo | null })} className="input-base h-10">
+                        <option value="">Não se aplica</option>
+                        {CLASSIFICACOES_INSUMO.map(opcao => <option key={opcao.value} value={opcao.value}>{opcao.label}</option>)}
+                      </select>
+                    </div>
                     <Input label="Un." value={draft.unidade} onChange={e => updateItemPendente(draft.id, { unidade: e.target.value || 'UN' })} />
-                    <Input label="Qtd." type="number" value={String(draft.quantidade)} onChange={e => updateItemPendente(draft.id, { quantidade: parseDecimalInput(e.target.value) })} />
+                    <Input label="Qtd." type="number" value={String(draft.quantidade)} onChange={e => updateItemPendente(draft.id, { quantidade: parseQuantityInput(e.target.value) })} />
                     <Input
                       label="Valor unit."
                       type="text"
@@ -2080,7 +2588,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
 
           {fonte === 'livre' ? (
             <div className="p-3 rounded-xl flex flex-col gap-3" style={{ background: 'rgba(59,123,248,0.08)', border: '1px solid rgba(59,123,248,0.25)' }}>
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_100px_130px] gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-[minmax(220px,1fr)_110px_150px] gap-3">
                 <Input label="Descrição do item/insumo" value={livreDescricao} onChange={e => setLivreDescricao(e.target.value)} placeholder="Ex: Projeto, cimento, frete..." />
                 <Input label="Unidade" value={livreUnidade} onChange={e => setLivreUnidade(e.target.value)} placeholder="UN" />
                 <Input
@@ -2093,11 +2601,17 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                   placeholder="R$ 0,00"
                 />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr_auto] gap-3 items-end">
+              <div className="grid grid-cols-1 sm:grid-cols-[200px_minmax(180px,1fr)_100px_auto] gap-3 items-end">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-[var(--text-secondary)]">Classificação *</label>
+                  <select value={livreClassificacao} onChange={e => setLivreClassificacao(e.target.value as ClassificacaoInsumo)} className="input-base h-10" required>
+                    {CLASSIFICACOES_INSUMO.map(opcao => <option key={opcao.value} value={opcao.value}>{opcao.label}</option>)}
+                  </select>
+                </div>
+                <Input label="Grupo" value={livreGrupo} onChange={e => setLivreGrupo(e.target.value)} placeholder="Ex: Alvenaria, fretes..." />
                 <Input label={`Qtd. (${livreUnidade || 'UN'})`} type="number" value={quantidade} onChange={e => setQuantidade(e.target.value)} placeholder="0" min={0} />
-                <div className="hidden sm:block" />
                 <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" loading={saving} disabled={fonte !== 'livre' && !draftAtual()} onClick={handleMaisCampos}>+ linha</Button>
+                  <Button variant="secondary" size="sm" loading={saving} disabled={!draftAtual()} onClick={handleMaisCampos}>+ linha</Button>
                 </div>
               </div>
             </div>
@@ -2187,11 +2701,108 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
             <Button
               size="sm"
               loading={saving}
-              disabled={!draftAtual() && itensPendentes.length === 0 && (!subetapaLivre.trim() || parseDecimalInput(subetapaValor) <= 0)}
+              disabled={!itemAtualValido() && itensPendentes.length === 0 && !(selectedEtapaNome.trim() && subetapaLivre.trim() && subetapaValor.trim())}
               onClick={handleInserirItens}
             >
               Inserir
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!hierarquiaDialog}
+        onClose={() => !salvandoHierarquia && setHierarquiaDialog(null)}
+        title={hierarquiaDialog?.tipo === 'renomear-etapa'
+          ? 'Editar etapa'
+          : hierarquiaDialog?.tipo === 'renomear-subetapa'
+            ? 'Editar subetapa'
+            : hierarquiaDialog?.tipo === 'editar-valor'
+              ? 'Editar valor da subetapa'
+              : hierarquiaDialog?.tipo === 'excluir-etapa'
+                ? 'Excluir etapa'
+                : 'Excluir subetapa'}
+        size="sm"
+      >
+        {hierarquiaDialog && (
+          <div className="flex flex-col gap-4">
+            {(hierarquiaDialog.tipo === 'renomear-etapa' || hierarquiaDialog.tipo === 'renomear-subetapa') && (
+              <Input
+                label={hierarquiaDialog.tipo === 'renomear-etapa' ? 'Nome da etapa' : 'Nome da subetapa'}
+                value={hierarquiaDialog.valor}
+                onChange={event => setHierarquiaDialog(prev => prev ? { ...prev, valor: event.target.value } : prev)}
+                onKeyDown={event => { if (event.key === 'Enter') salvarHierarquia() }}
+                autoFocus
+              />
+            )}
+
+            {hierarquiaDialog.tipo === 'editar-valor' && (
+              <Input
+                label={`Valor de ${hierarquiaDialog.nomeAtual}`}
+                value={hierarquiaDialog.valor}
+                onChange={event => setHierarquiaDialog(prev => prev ? { ...prev, valor: event.target.value } : prev)}
+                onBlur={() => setHierarquiaDialog(prev => prev ? { ...prev, valor: formatCurrencyInput(prev.valor) || 'R$ 0,00' } : prev)}
+                onKeyDown={event => { if (event.key === 'Enter') salvarHierarquia() }}
+                inputMode="decimal"
+                placeholder="R$ 0,00"
+                autoFocus
+              />
+            )}
+
+            {(hierarquiaDialog.tipo === 'excluir-etapa' || hierarquiaDialog.tipo === 'excluir-subetapa') && (
+              <div className="rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.22)' }}>
+                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                  Excluir {hierarquiaDialog.tipo === 'excluir-etapa' ? 'a etapa' : 'a subetapa'} &quot;{hierarquiaDialog.nomeAtual}&quot;?
+                </p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  {hierarquiaDialog.quantidadeItens
+                    ? `${hierarquiaDialog.quantidadeItens} item(ns) vinculado(s) tambem serao excluidos.`
+                    : 'Esta acao nao pode ser desfeita.'}
+                </p>
+              </div>
+            )}
+
+            {erroHierarquia && (
+              <p className="rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.08)' }}>
+                {erroHierarquia}
+              </p>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="secondary" disabled={salvandoHierarquia} onClick={() => setHierarquiaDialog(null)}>
+                Cancelar
+              </Button>
+              <Button
+                variant={hierarquiaDialog.tipo.startsWith('excluir') ? 'danger' : 'primary'}
+                loading={salvandoHierarquia}
+                disabled={!hierarquiaDialog.tipo.startsWith('excluir') && !hierarquiaDialog.valor.trim()}
+                onClick={salvarHierarquia}
+              >
+                {hierarquiaDialog.tipo.startsWith('excluir') ? 'Excluir' : 'Salvar'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={showFinalizarModal}
+        onClose={() => !finalizando && setShowFinalizarModal(false)}
+        title="Finalizar orçamento"
+        size="sm"
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Os preços e valores desta versão serão congelados. Para alterar depois, será necessário criar uma nova versão do orçamento.
+          </p>
+          {erroFinalizacao && (
+            <p className="rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.08)' }}>
+              {erroFinalizacao}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" disabled={finalizando} onClick={() => setShowFinalizarModal(false)}>Cancelar</Button>
+            <Button loading={finalizando} onClick={confirmarFinalizacao}>Finalizar</Button>
           </div>
         </div>
       </Modal>
@@ -2363,7 +2974,7 @@ function GrupoEtapa({
   nome, itens, subetapasMeta = [], isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   onUpdateQuantidade, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
   obraUf, icon: Icon, iconCor, subtotalDireto,
-  onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditSubetapaValor, onRestoreSubetapaValor, onEditItem, menuAberto, onToggleMenu, menuRef,
+  onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditSubetapaValor, onRestoreSubetapaValor, onRestoreItemValor, onRestoreInsumoValor, onEditItem, menuAberto, onToggleMenu, menuRef,
 }: {
   nome: string
   itens: ItemEnriquecido[]
@@ -2392,6 +3003,8 @@ function GrupoEtapa({
   onDeleteSubetapa?: (nome: string) => void
   onEditSubetapaValor?: (nome: string, valorAtual: number) => void
   onRestoreSubetapaValor?: (nome: string) => void
+  onRestoreItemValor?: (itemId: string) => void
+  onRestoreInsumoValor?: (insumoId: string) => void
   onEditItem?: (item: ItemEnriquecido) => void
   menuAberto?: boolean
   onToggleMenu?: () => void
@@ -2436,7 +3049,7 @@ function GrupoEtapa({
   }
 
   return (
-    <div className="card overflow-hidden">
+    <div className="card overflow-visible">
       {/* Cabeçalho etapa */}
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
@@ -2480,20 +3093,22 @@ function GrupoEtapa({
               onClick={onToggleMenu}
               className="p-1.5 rounded-lg hover:bg-[var(--bg-card)] transition-colors"
               style={{ color: 'var(--text-secondary)' }}
+              aria-label={`Acoes da etapa ${nome}`}
+              title="Acoes da etapa"
             >
               <MoreHorizontal size={15} />
             </button>
             {menuAberto && (
-              <div className="absolute right-0 top-full mt-1.5 w-44 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+              <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-44"
                 style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                 {onRenameEtapa && (
-                  <button onClick={onRenameEtapa}
+                  <button onClick={() => { onToggleMenu?.(); onRenameEtapa() }}
                     className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                     style={{ color: 'var(--text-primary)' }}>
                     <Pencil size={13} /> Renomear etapa
                   </button>
                 )}
-                <button onClick={onDeleteEtapa}
+                <button onClick={() => { onToggleMenu?.(); onDeleteEtapa() }}
                   className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                   style={{ color: 'var(--danger)' }}>
                   <Trash2 size={13} /> Excluir etapa
@@ -2653,6 +3268,7 @@ function GrupoEtapa({
                             const info = infoDoItem(ins, obraUf)
                             return insumoOverrides[overrideKey(item.id, info.codigo !== '\u2014' ? info.codigo : ins.id)] !== undefined
                           })
+                          const hasValueMismatch = Boolean(item.valor_total_manual_ativo)
 
                           return (
                             <Fragment key={item.id}>
@@ -2701,8 +3317,15 @@ function GrupoEtapa({
                                   />
                                 </td>
                                 <td className="px-3 py-2 align-top text-right tabular-nums" style={{ color: 'var(--text-secondary)' }}>{formatCurrency(item.preco_unitario_snapshot)}</td>
-                                <td className="px-3 py-2 align-top text-right font-semibold tabular-nums" style={{ color: hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
-                                  {formatCurrency(itemTotal)}
+                                <td className="px-3 py-2 align-top text-right font-semibold tabular-nums" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
+                                  <div className="flex items-center justify-end gap-1">
+                                    <span title={hasValueMismatch ? item.importacao_alertas?.join(' ') : undefined}>{formatCurrency(itemTotal)}</span>
+                                    {hasValueMismatch && !isReadonly && onRestoreItemValor && (
+                                      <button type="button" onClick={() => onRestoreItemValor(item.id)} className="p-1 rounded-full hover:bg-[var(--bg-secondary)]" title="Usar soma calculada dos insumos">
+                                        <RotateCcw size={11} />
+                                      </button>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="px-3 py-2 align-top text-right">
                                   {!isReadonly && (
@@ -2777,11 +3400,13 @@ function GrupoEtapa({
                                             const info = infoDoItem(ins, obraUf)
                                             const insumoKey = info.codigo !== '\u2014' ? info.codigo : ins.id
                                             const key = overrideKey(item.id, insumoKey)
-                                            const qtdCalculada = item.quantidade * ins.coeficiente
-                                            const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
+                                            const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+                                            const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
                                             const preco = info.preco
                                             const totalIns = qtdAdotada * preco
                                             const isOverridden = insumoOverrides[key] !== undefined
+                                            const totalDivergente = Boolean(ins.valor_total_divergente)
+                                            const totalExibido = totalDivergente && ins.valor_total_informado_snapshot != null ? Number(ins.valor_total_informado_snapshot) : totalIns
 
                                             return (
                                               <tr key={ins.id} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -2821,7 +3446,14 @@ function GrupoEtapa({
                                                     )}
                                                   </div>
                                                 </td>
-                                                <td className="px-3 py-2 text-right font-semibold" style={{ color: isOverridden ? 'var(--warning)' : 'var(--text-primary)' }}>{totalIns > 0 ? formatCurrency(totalIns) : '-'}</td>
+                                                <td className="px-3 py-2 text-right font-semibold" style={{ color: totalDivergente ? 'var(--danger)' : isOverridden ? 'var(--warning)' : 'var(--text-primary)' }}>
+                                                  <div className="flex items-center justify-end gap-1">
+                                                    <span>{totalExibido > 0 ? formatCurrency(totalExibido) : '-'}</span>
+                                                    {totalDivergente && !isReadonly && onRestoreInsumoValor && (
+                                                      <button type="button" onClick={() => onRestoreInsumoValor(ins.id)} className="p-1 rounded-full" title="Usar quantidade × valor unitário"><RotateCcw size={10} /></button>
+                                                    )}
+                                                  </div>
+                                                </td>
                                               </tr>
                                             )
                                           })}
@@ -2902,7 +3534,7 @@ function GrupoEtapa({
                             <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
                           </span>
                           {subMenuAberto === grupo.key && (
-                            <span className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter text-left"
+                            <span className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter text-left"
                               style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                               {onAddItemToSubetapa && (
                                 <span role="button" tabIndex={0} onClick={() => { setSubMenuAberto(null); onAddItemToSubetapa(grupo.nome) }}
@@ -2955,6 +3587,7 @@ function GrupoEtapa({
                             const info = infoDoItem(ins, obraUf)
                             return insumoOverrides[overrideKey(item.id, info.codigo !== '\u2014' ? info.codigo : ins.id)] !== undefined
                           })
+                          const hasValueMismatch = Boolean(item.valor_total_manual_ativo)
 
                           return (
                             <div key={item.id} className="px-3 py-3">
@@ -3009,7 +3642,7 @@ function GrupoEtapa({
                                           <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
                                         </button>
                                         {itemMenuAberto === item.id && (
-                                          <span className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter text-left"
+                                          <span className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter text-left"
                                             style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                             {onEditItem && (
                                               <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
@@ -3072,10 +3705,13 @@ function GrupoEtapa({
                                       <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Unit.</span>
                                       <span className="mt-1 block truncate text-sm font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{formatCurrency(item.preco_unitario_snapshot)}</span>
                                     </span>
-                                    <span className="min-w-0 rounded-lg px-2.5 py-2 text-right" style={{ background: hasOverride ? 'rgba(245, 158, 11, 0.12)' : 'rgba(59,123,248,0.12)' }}>
+                                    <span className="min-w-0 rounded-lg px-2.5 py-2 text-right" style={{ background: hasValueMismatch ? 'rgba(239,68,68,0.12)' : hasOverride ? 'rgba(245, 158, 11, 0.12)' : 'rgba(59,123,248,0.12)' }}>
                                       <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Total</span>
-                                      <span className="mt-1 block truncate text-sm font-bold tabular-nums" style={{ color: hasOverride ? 'var(--warning)' : 'var(--accent)' }}>
-                                        {formatCurrency(itemTotal)}
+                                      <span className="mt-1 flex items-center justify-end gap-1 truncate text-sm font-bold tabular-nums" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--accent)' }}>
+                                        <span>{formatCurrency(itemTotal)}</span>
+                                        {hasValueMismatch && !isReadonly && onRestoreItemValor && (
+                                          <button type="button" onClick={e => { e.stopPropagation(); onRestoreItemValor(item.id) }} className="p-0.5 rounded-full" title="Usar soma calculada dos insumos"><RotateCcw size={11} /></button>
+                                        )}
                                       </span>
                                     </span>
                                   </div>
@@ -3092,11 +3728,13 @@ function GrupoEtapa({
                                       const info = infoDoItem(ins, obraUf)
                                       const insumoKey = info.codigo !== '\u2014' ? info.codigo : ins.id
                                       const key = overrideKey(item.id, insumoKey)
-                                      const qtdCalculada = item.quantidade * ins.coeficiente
-                                      const qtdAdotada = insumoOverrides[key] ?? qtdCalculada
+                                      const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+                                      const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
                                       const preco = info.preco
                                       const totalIns = qtdAdotada * preco
                                       const isOverridden = insumoOverrides[key] !== undefined
+                                      const totalDivergente = Boolean(ins.valor_total_divergente)
+                                      const totalExibido = totalDivergente && ins.valor_total_informado_snapshot != null ? Number(ins.valor_total_informado_snapshot) : totalIns
 
                                       return (
                                         <div key={ins.id} className="px-3 py-2.5">
@@ -3109,8 +3747,11 @@ function GrupoEtapa({
 
                                           <div className="mt-2 grid grid-cols-[auto_auto_1fr] items-center gap-x-2 gap-y-1 text-xs" onClick={e => e.stopPropagation()}>
                                             <span style={{ color: 'var(--text-secondary)' }}>{preco > 0 ? formatCurrency(preco) : '-'}</span>
-                                            <span className="font-semibold" style={{ color: isOverridden ? 'var(--warning)' : 'var(--text-secondary)' }}>
-                                              {totalIns > 0 ? formatCurrency(totalIns) : '-'}
+                                            <span className="font-semibold flex items-center gap-1" style={{ color: totalDivergente ? 'var(--danger)' : isOverridden ? 'var(--warning)' : 'var(--text-secondary)' }}>
+                                              {totalExibido > 0 ? formatCurrency(totalExibido) : '-'}
+                                              {totalDivergente && !isReadonly && onRestoreInsumoValor && (
+                                                <button type="button" onClick={e => { e.stopPropagation(); onRestoreInsumoValor(ins.id) }} className="p-0.5 rounded-full" title="Usar quantidade × valor unitário"><RotateCcw size={10} /></button>
+                                              )}
                                             </span>
                                             <span />
                                             <span className="tabular-nums" style={{ color: 'var(--text-secondary)', opacity: 0.7 }}>
