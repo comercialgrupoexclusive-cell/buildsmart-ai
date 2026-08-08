@@ -11,20 +11,25 @@ export const CONFIG_IMPORT_ORCAMENTO: ConfigImportacao = {
   chave: 'orcamento',
   titulo: 'Itens do orçamento',
   nomeAba: 'Orçamento',
-  descricaoModelo: 'Planilha tabular com Etapa, Subetapa, Código da composição e Quantidade — uma linha por item do orçamento.',
-  descricaoImportacao: 'Cada linha vira um item do orçamento: a composição é localizada pelo código (própria ou da base SINAPI) e a etapa é criada automaticamente se ainda não existir na obra.',
+  descricaoModelo: 'Planilha tabular no formato do orçamento: Etapa, Subetapa, valor direto da subetapa e linhas de composição, insumo ou item livre.',
+  descricaoImportacao: 'Cada linha cria a etapa/subetapa se necessário. Informe tipo, descrição, unidade, quantidade e valores para importar orçamentos antigos rapidamente.',
   observacoes: [
-    'O Código deve corresponder a uma composição própria ou da base SINAPI já cadastrada no sistema.',
-    'Se a Etapa informada não existir nesta obra, ela será criada automaticamente.',
-    'As colunas "Descrição" e "Unidade" são apenas referência — não são usadas na importação (vêm sempre da composição localizada pelo código).',
+    'Use Tipo como composicao, insumo, item_livre ou subetapa.',
+    'O modelo não exige código: use descrição, unidade, quantidade e valores para importar orçamentos antigos rapidamente.',
+    'Valor subetapa permite criar uma subetapa com valor direto, mesmo sem composições.',
+    'Categoria/grupo é uma coluna de apoio para organizar orçamentos antigos e exportações.',
   ],
   colunas: [
-    { chave: 'etapa', rotulo: 'Etapa', obrigatoria: true, largura: 28, exemplo: 'Fundações', normalizar: normalizarTexto(true) },
+    { chave: 'etapa', rotulo: 'Etapa', obrigatoria: true, largura: 28, exemplo: 'Fundacoes', normalizar: normalizarTexto(true) },
     { chave: 'subetapa', rotulo: 'Subetapa', obrigatoria: false, largura: 22, exemplo: 'Bloco A', normalizar: normalizarTexto(false) },
-    { chave: 'codigo', rotulo: 'Código', obrigatoria: true, largura: 14, exemplo: 'COMP-001', normalizar: normalizarTexto(true, true) },
-    { chave: 'descricao', rotulo: 'Descrição (referência)', obrigatoria: false, largura: 48, exemplo: 'Alvenaria de vedação em blocos cerâmicos', normalizar: normalizarTexto(false) },
-    { chave: 'unidade', rotulo: 'Unidade (referência)', obrigatoria: false, largura: 14, exemplo: 'M2', normalizar: normalizarTexto(false) },
-    { chave: 'quantidade', rotulo: 'Quantidade', obrigatoria: true, largura: 14, exemplo: 120, normalizar: normalizarNumero(true) },
+    { chave: 'valorSubetapa', rotulo: 'Valor subetapa', obrigatoria: false, largura: 18, exemplo: 15000, normalizar: normalizarNumero(false) },
+    { chave: 'tipo', rotulo: 'Tipo', obrigatoria: false, largura: 16, exemplo: 'composicao', normalizar: normalizarTexto(false, true) },
+    { chave: 'descricao', rotulo: 'Descricao', obrigatoria: false, largura: 48, exemplo: 'Alvenaria de vedacao em blocos ceramicos', normalizar: normalizarTexto(false) },
+    { chave: 'categoriaGrupo', rotulo: 'categoria/grupo', obrigatoria: false, largura: 22, exemplo: 'alvenaria', normalizar: normalizarTexto(false) },
+    { chave: 'unidade', rotulo: 'Unidade', obrigatoria: false, largura: 14, exemplo: 'M2', normalizar: normalizarTexto(false) },
+    { chave: 'quantidade', rotulo: 'Quantidade', obrigatoria: false, largura: 14, exemplo: 120, normalizar: normalizarNumero(false) },
+    { chave: 'valorUnitario', rotulo: 'Valor unitario', obrigatoria: false, largura: 16, exemplo: 85.5, normalizar: normalizarNumero(false) },
+    { chave: 'valorTotal', rotulo: 'Valor total', obrigatoria: false, largura: 16, exemplo: 10260, normalizar: normalizarNumero(false) },
   ],
   // Import customizado (etapa + composição) — não é um upsert simples por chave,
   // então `tabela`/`chaveUnica` aqui servem apenas para satisfazer o tipo.
@@ -33,12 +38,17 @@ export const CONFIG_IMPORT_ORCAMENTO: ConfigImportacao = {
 }
 
 export type LinhaOrcamentoTabular = {
+  tipo?: 'subetapa' | 'composicao' | 'insumo' | 'item_livre'
   etapa: string
   subetapa: string | null
   codigo: string
   descricao: string
+  categoriaGrupo?: string
   unidade: string
   quantidade: number
+  valorUnitario?: number
+  valorTotal?: number
+  valorSubetapa?: number
 }
 
 export type InsumoOrcamentoAntigo = {
@@ -221,7 +231,7 @@ export async function lerPlanilhaOrcamentoAntigo(file: File): Promise<ResultadoL
 export function exportarOrcamentoTabularXLSX(linhas: LinhaOrcamentoTabular[], obraName: string, versao: number) {
   const wb = XLSX.utils.book_new()
   const cabecalho = CONFIG_IMPORT_ORCAMENTO.colunas.map(c => c.rotulo)
-  const corpo = linhas.map(l => [l.etapa, l.subetapa ?? '', l.codigo, l.descricao, l.unidade, l.quantidade])
+  const corpo = linhas.map(l => [l.etapa, l.subetapa ?? '', l.valorSubetapa ?? '', l.tipo ?? '', l.descricao, l.categoriaGrupo ?? '', l.unidade, l.quantidade, l.valorUnitario ?? '', l.valorTotal ?? ''])
   const ws = XLSX.utils.aoa_to_sheet([cabecalho, ...corpo])
   ws['!cols'] = CONFIG_IMPORT_ORCAMENTO.colunas.map(c => ({ wch: c.largura ?? 16 }))
   XLSX.utils.book_append_sheet(wb, ws, 'Orçamento')

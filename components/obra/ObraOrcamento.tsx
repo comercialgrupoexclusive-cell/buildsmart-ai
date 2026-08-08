@@ -10,7 +10,7 @@ import {
   Pencil, type LucideIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { Orcamento, ComposicaoPropria, SinapiComposicao, Etapa } from '@/lib/types'
+import { Orcamento, ComposicaoPropria, SinapiComposicao, Etapa, InsumoProprio, SinapiInsumo } from '@/lib/types'
 import { formatCurrency, fixMojibake } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -22,7 +22,7 @@ import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
 import { readEtapasPadrao } from '@/lib/settings/etapas-padrao'
 
-type FonteBusca = 'proprias' | 'sinapi' | 'livre'
+type FonteBusca = 'proprias' | 'insumos' | 'sinapi' | 'livre'
 
 
 // schema real (tabela composicao_insumos): FKs normalizadas para sinapi_insumos
@@ -66,6 +66,15 @@ type ComposicaoComCusto = ComposicaoPropria & {
   custo_calculado: number
 }
 
+type InsumoCatalogo = {
+  id: string
+  codigo: string
+  descricao: string
+  unidade: string
+  preco_unitario: number
+  origem: 'proprio' | 'sinapi'
+}
+
 // linha bruta de orcamento_itens com os joins de composição embutidos
 type OrcamentoItemRow = Omit<ItemEnriquecido, 'codigo' | 'descricao' | 'unidade' | 'composicao_itens'> & {
   composicoes_proprias?: (ComposicaoPropria & { composicao_insumos?: ComposicaoItemJoin[] }) | null
@@ -91,9 +100,34 @@ type ItemEnriquecido = {
   descricao: string
   unidade: string
   composicao_itens?: ComposicaoItemJoin[]
+  tipo_linha?: 'item' | 'subetapa' | null
+  subetapa_valor_manual?: number | null
+  subetapa_valor_manual_ativo?: boolean | null
   // mês de referência da composição SINAPI (quando o item vem da base SINAPI) —
   // necessário para casar com `sinapi_composicao_itens` ao gerar/abater materiais
   sinapi_mes_referencia?: string | null
+}
+
+type SubetapaMeta = {
+  id: string
+  etapa_id: string | null
+  nome: string
+  descricao: string | null
+  valor_manual: number | null
+  ativo: boolean
+}
+
+type AddItemDraft = {
+  id: string
+  etapaNome: string
+  subetapa: string | null
+  fonte: FonteBusca
+  item: ComposicaoComCusto | SinapiComposicao | InsumoCatalogo | null
+  descricao: string
+  unidade: string
+  preco: number
+  quantidade: number
+  codigo: string
 }
 
 // ─── override key helper ─────────────────────────────────────────────────────
@@ -154,15 +188,19 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   const [showImportExportTabular, setShowImportExportTabular] = useState(false)
   const [selectedEtapaNome, setSelectedEtapaNome] = useState('')
   const [subetapaLivre, setSubetapaLivre] = useState('')
+  const [subetapaDescricao, setSubetapaDescricao] = useState('')
+  const [subetapaValor, setSubetapaValor] = useState('')
   const [fonte, setFonte] = useState<FonteBusca>('proprias')
   const [composicoesProprias, setComposicoesProprias] = useState<ComposicaoComCusto[]>([])
+  const [insumosCatalogo, setInsumosCatalogo] = useState<InsumoCatalogo[]>([])
   const [sinapiComps, setSinapiComps] = useState<SinapiComposicao[]>([])
   const [busca, setBusca] = useState('')
-  const [selectedItem, setSelectedItem] = useState<(ComposicaoComCusto | SinapiComposicao) | null>(null)
+  const [selectedItem, setSelectedItem] = useState<(ComposicaoComCusto | SinapiComposicao | InsumoCatalogo) | null>(null)
   const [quantidade, setQuantidade] = useState('')
   const [livreDescricao, setLivreDescricao] = useState('')
   const [livreUnidade, setLivreUnidade] = useState('UN')
   const [livrePreco, setLivrePreco] = useState('')
+  const [itensPendentes, setItensPendentes] = useState<AddItemDraft[]>([])
   const [saving, setSaving] = useState(false)
   const qtdInputRef = useRef<HTMLInputElement>(null)
   // Cache (por sessão de componente) de se a coluna materiais.subetapa existe —
@@ -263,7 +301,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
 
   async function loadAll() {
     setLoading(true)
-    await Promise.all([loadOrcamento(), loadEtapas(), loadComposicoesProprias(), loadSinapiComps()])
+    await Promise.all([loadOrcamento(), loadEtapas(), loadComposicoesProprias(), loadInsumosCatalogo(), loadSinapiComps()])
     setLoading(false)
   }
 
@@ -350,9 +388,58 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     setSinapiComps((data || []).map((c: any) => ({ ...c, descricao: fixMojibake(c.descricao) })))
   }
 
+  async function loadInsumosCatalogo(searchTerm = '') {
+    const termo = searchTerm.trim()
+    let propriosQuery = supabase
+      .from('insumos_proprios')
+      .select('id,codigo,descricao,unidade,preco_unitario,ativo')
+      .eq('ativo', true)
+      .order('descricao')
+      .limit(termo ? 80 : 200)
+    let sinapiQuery = supabase
+      .from('sinapi_insumos')
+      .select('id,codigo,descricao,unidade,precos')
+      .order('descricao')
+      .limit(termo ? 80 : 200)
+
+    if (termo) {
+      propriosQuery = propriosQuery.ilike('descricao', `%${termo}%`)
+      sinapiQuery = sinapiQuery.ilike('descricao', `%${termo}%`)
+    }
+
+    const [propriosRes, sinapiRes] = await Promise.all([propriosQuery, sinapiQuery])
+    const proprios = ((propriosRes.data || []) as InsumoProprio[]).map(ins => ({
+      id: ins.id,
+      codigo: ins.codigo,
+      descricao: fixMojibake(ins.descricao),
+      unidade: ins.unidade,
+      preco_unitario: Number(ins.preco_unitario || 0),
+      origem: 'proprio' as const,
+    }))
+    const sinapi = ((sinapiRes.data || []) as SinapiInsumo[]).map(ins => ({
+      id: ins.id,
+      codigo: ins.codigo,
+      descricao: fixMojibake(ins.descricao),
+      unidade: ins.unidade,
+      preco_unitario: Number(ins.precos?.[obraUf] || 0),
+      origem: 'sinapi' as const,
+    }))
+    setInsumosCatalogo([...proprios, ...sinapi])
+  }
+
   useEffect(() => {
     Promise.resolve().then(() => loadAll())
   }, [obraId, orcamentoId])
+
+  useEffect(() => {
+    if (fonte !== 'insumos') return
+    const termo = busca.trim()
+    if (termo.length === 1) return
+    const timer = window.setTimeout(() => {
+      void loadInsumosCatalogo(termo)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [fonte, busca, obraUf])
 
   useEffect(() => {
     function onDataChanged() { loadAll() }
@@ -363,6 +450,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   // ─── Totais com override ─────────────────────────────────────────────────
   // preços/classificação vêm direto do embed (insumo:sinapi_insumos / insumo_proprio:insumos_proprios)
   const getItemTotal = useCallback((item: ItemEnriquecido): number => {
+    if (item.tipo_linha === 'subetapa') return item.subetapa_valor_manual_ativo ? Number(item.subetapa_valor_manual || 0) : 0
     const itensComp = item.composicao_itens || []
     if (itensComp.length === 0) return item.preco_unitario_snapshot * item.quantidade
     const temPreco = itensComp.some(ins => infoDoItem(ins, obraUf).preco > 0)
@@ -376,7 +464,26 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     }, 0)
   }, [insumoOverrides, obraUf])
 
-  const subtotal = itens.reduce((a, i) => a + getItemTotal(i), 0)
+  const itensOrcamento = itens.filter(item => item.tipo_linha !== 'subetapa')
+  const subetapasMeta: SubetapaMeta[] = itens
+    .filter(item => item.tipo_linha === 'subetapa')
+    .map(item => ({
+      id: item.id,
+      etapa_id: item.etapa_id,
+      nome: item.subetapa?.trim() || item.descricao_snapshot?.trim() || item.descricao || 'Sem subetapa',
+      descricao: item.descricao_snapshot,
+      valor_manual: item.subetapa_valor_manual ?? null,
+      ativo: Boolean(item.subetapa_valor_manual_ativo),
+    }))
+
+  const subtotal = itensOrcamento.reduce((acc, item) => acc + getItemTotal(item), 0)
+    + subetapasMeta
+      .filter(meta => meta.ativo)
+      .reduce((acc, meta) => {
+        const itensSub = itensOrcamento.filter(item => item.etapa_id === meta.etapa_id && (item.subetapa?.trim() || 'Sem subetapa').toLowerCase() === meta.nome.toLowerCase())
+        const calculado = itensSub.reduce((sum, item) => sum + getItemTotal(item), 0)
+        return acc + Math.max(0, Number(meta.valor_manual || 0) - calculado)
+      }, 0)
   const totalBdi = subtotal * (bdi / 100)
   const totalGeral = subtotal + totalBdi
   const custoPorM2 = areaM2 && areaM2 > 0 ? totalGeral / areaM2 : null
@@ -385,7 +492,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   // Espelha exatamente a lógica de getItemTotal para que material+maoDeObra+equipamento+outros === subtotal
   const custoPorCategoria: CustoCategoria = (() => {
     const acc: CustoCategoria = { material: 0, maoDeObra: 0, equipamento: 0, outros: 0 }
-    for (const item of itens) {
+    for (const item of itensOrcamento) {
       const itensComp = item.composicao_itens || []
       const totalItem = getItemTotal(item)
       if (itensComp.length === 0) {
@@ -448,6 +555,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     const etapa = etapaId ? etapas.find(e => e.id === etapaId) : null
     setSelectedEtapaNome(etapa?.nome || etapas[0]?.nome || '')
     setSubetapaLivre(subetapa && subetapa !== 'Sem subetapa' ? subetapa : '')
+    setSubetapaDescricao('')
+    setSubetapaValor('')
     setFonte(usarItemLivre ? 'livre' : 'proprias')
     setSelectedItem(null)
     setBusca('')
@@ -455,6 +564,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     setLivreUnidade('UN')
     setLivrePreco('')
     setQuantidade('')
+    setItensPendentes([])
     setShowAddItem(true)
   }
 
@@ -470,6 +580,181 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       return data.id
     }
     return null
+  }
+
+  function parseDecimalInput(value: string) {
+    const cleaned = String(value || '').replace(/[^\d,.-]/g, '')
+    const parsed = Number(cleaned.replace(/\./g, '').replace(',', '.'))
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  function formatCurrencyInput(value: string) {
+    const numero = parseDecimalInput(value)
+    return numero > 0 ? numero.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : ''
+  }
+
+  function updateItemPendente(id: string, patch: Partial<AddItemDraft>) {
+    setItensPendentes(prev => prev.map(item => item.id === id ? { ...item, ...patch } : item))
+  }
+
+  function draftAtual(): AddItemDraft | null {
+    const qtd = parseDecimalInput(quantidade)
+    if (!qtd || qtd <= 0 || !selectedEtapaNome.trim()) return null
+    const subetapa = subetapaLivre.trim() || null
+    if (fonte === 'livre') {
+      const descricao = livreDescricao.trim()
+      if (!descricao) return null
+      return {
+        id: `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        etapaNome: selectedEtapaNome.trim(),
+        subetapa,
+        fonte,
+        item: null,
+        descricao,
+        unidade: livreUnidade.trim() || 'UN',
+        preco: parseDecimalInput(livrePreco),
+        quantidade: qtd,
+        codigo: `LIV-${Date.now().toString(36).toUpperCase()}`,
+      }
+    }
+    if (!selectedItem) return null
+    return {
+      id: `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      etapaNome: selectedEtapaNome.trim(),
+      subetapa,
+      fonte,
+      item: selectedItem,
+      descricao: selectedItem.descricao,
+      unidade: selectedItem.unidade,
+      preco: getItemCost(selectedItem),
+      quantidade: qtd,
+      codigo: selectedItem.codigo,
+    }
+  }
+
+  function limparCamposItemAtual() {
+    setSelectedItem(null)
+    setQuantidade('')
+    setBusca('')
+    setLivreDescricao('')
+    setLivrePreco('')
+  }
+
+  function handleMaisCampos() {
+    const draft = draftAtual()
+    if (!draft && fonte !== 'livre') return
+    setItensPendentes(prev => [...prev, draft ?? {
+      id: `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      etapaNome: selectedEtapaNome.trim(),
+      subetapa: subetapaLivre.trim() || null,
+      fonte: 'livre',
+      item: null,
+      descricao: '',
+      unidade: livreUnidade.trim() || 'UN',
+      preco: 0,
+      quantidade: 1,
+      codigo: `LIV-${Date.now().toString(36).toUpperCase()}`,
+    }])
+    limparCamposItemAtual()
+  }
+
+  async function ensureEtapaPorNome(nomeEtapa: string): Promise<string | null> {
+    const existente = etapas.find(e => e.nome.toLowerCase() === nomeEtapa.toLowerCase())
+    if (existente) return existente.id
+    const ordem = etapas.length + 1
+    const { data } = await supabase.from('etapas').insert({ obra_id: resolvedObraId, nome: nomeEtapa, ordem }).select().single()
+    if (data) {
+      setEtapas(prev => [...prev, data])
+      return data.id
+    }
+    return null
+  }
+
+  async function upsertSubetapaMeta(etapaId: string | null, nomeSubetapa: string | null, valorManual: number, descricao?: string | null) {
+    if (!orcamento || !nomeSubetapa?.trim()) return
+    const nome = nomeSubetapa.trim()
+    let query = supabase.from('orcamento_itens')
+      .select('id')
+      .eq('orcamento_id', orcamento.id)
+      .eq('tipo_linha', 'subetapa')
+      .eq('subetapa', nome)
+      .limit(1)
+    query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
+    const { data: existente } = await query.maybeSingle()
+    const codigo = `SUB-${nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toUpperCase().slice(0, 24)}`
+    const payload = {
+      orcamento_id: orcamento.id,
+      etapa_id: etapaId,
+      subetapa: nome,
+      tipo_linha: 'subetapa',
+      quantidade: 1,
+      preco_unitario_snapshot: 0,
+      descricao_snapshot: descricao?.trim() || nome,
+      codigo_snapshot: codigo,
+      unidade_snapshot: 'VB',
+      subetapa_valor_manual: valorManual,
+      subetapa_valor_manual_ativo: true,
+    }
+    const { error } = existente?.id
+      ? await supabase.from('orcamento_itens').update(payload).eq('id', existente.id)
+      : await supabase.from('orcamento_itens').insert(payload)
+    if (error) throw error
+  }
+
+  async function inserirDraft(draft: AddItemDraft) {
+    if (!orcamento) return
+    const etapaId = await ensureEtapaPorNome(draft.etapaNome)
+    const isSinapi = draft.fonte === 'sinapi'
+    const { error } = await supabase.from('orcamento_itens').insert({
+      orcamento_id: orcamento.id,
+      etapa_id: etapaId,
+      subetapa: draft.subetapa,
+      tipo_linha: 'item',
+      composicao_id: draft.fonte === 'proprias' ? draft.item!.id : null,
+      sinapi_composicao_id: isSinapi ? draft.item!.id : null,
+      quantidade: draft.quantidade,
+      preco_unitario_snapshot: draft.preco,
+      descricao_snapshot: draft.descricao,
+      codigo_snapshot: draft.codigo,
+      unidade_snapshot: draft.unidade,
+    })
+    if (error) throw error
+
+    if (draft.fonte === 'livre' || draft.fonte === 'insumos') {
+      await upsertMaterialSoma(draft.codigo, draft.descricao, draft.unidade, draft.quantidade, etapaId, draft.subetapa)
+    } else if (!isSinapi && draft.item && 'composicao_itens' in draft.item) {
+      await gerarMateriaisDaComposicao(draft.item.composicao_itens || [], draft.quantidade, etapaId, draft.subetapa, draft.item.codigo, draft.item.descricao, draft.item.unidade)
+    } else if (isSinapi && draft.item) {
+      await gerarMateriaisDaComposicaoSinapi(draft.item.codigo, (draft.item as SinapiComposicao).mes_referencia, draft.quantidade, etapaId, draft.subetapa, draft.item.descricao, draft.item.unidade)
+    }
+  }
+
+  async function handleInserirItens() {
+    if (!orcamento) return
+    const atual = draftAtual()
+    const drafts = [...itensPendentes, ...(atual ? [atual] : [])].filter(draft => draft.descricao.trim() && draft.quantidade > 0)
+    const valorMeta = parseDecimalInput(subetapaValor)
+    if (drafts.length === 0 && (!subetapaLivre.trim() || valorMeta <= 0)) return
+    setSaving(true)
+    try {
+      const etapaId = await ensureEtapaSelecionada()
+      if (subetapaLivre.trim() && valorMeta > 0) {
+        await upsertSubetapaMeta(etapaId, subetapaLivre.trim(), valorMeta, subetapaDescricao)
+      }
+      for (const draft of drafts) await inserirDraft(draft)
+      setItensPendentes([])
+      limparCamposItemAtual()
+      setSubetapaLivre('')
+      setSubetapaDescricao('')
+      setSubetapaValor('')
+      setShowAddItem(false)
+      await Promise.all([loadItens(orcamento.id), loadEtapas()])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
+      alert(`Nao foi possivel inserir no orcamento: ${message}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   // ─── Adicionar item ───────────────────────────────────────────────────────
@@ -664,7 +949,9 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     if (!confirm(aviso)) return
 
     for (const item of itensDaSubetapa) {
-      if (item.composicao_id) {
+      if (item.tipo_linha === 'subetapa') {
+        // Apenas metadado de valor da subetapa; nao gera material.
+      } else if (item.composicao_id) {
         await abaterMateriaisDaComposicao(item.composicao_itens || [], item.quantidade, item.etapa_id, item.subetapa, item.codigo)
       } else if (item.sinapi_composicao_id && item.codigo && item.codigo !== '—') {
         await abaterMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, item.quantidade, item.etapa_id, item.subetapa)
@@ -683,6 +970,37 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     setItens(prev => prev.filter(item => !ids.includes(item.id)))
   }
 
+  async function handleEditSubetapaValor(etapaId: string | null, subetapaNome: string, valorAtual: number) {
+    const valorDigitado = prompt('Valor manual da subetapa', valorAtual ? String(valorAtual).replace('.', ',') : '')
+    if (valorDigitado === null) return
+    const valor = parseDecimalInput(valorDigitado)
+    if (!Number.isFinite(valor) || valor < 0) return
+    try {
+      await upsertSubetapaMeta(etapaId, subetapaNome, valor)
+      if (orcamento) await loadItens(orcamento.id)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro desconhecido'
+      alert(`Nao foi possivel salvar o valor da subetapa: ${message}`)
+    }
+  }
+
+  async function handleRestoreSubetapaValor(etapaId: string | null, subetapaNome: string) {
+    if (!orcamento) return
+    let query = supabase
+      .from('orcamento_itens')
+      .update({ subetapa_valor_manual_ativo: false })
+      .eq('orcamento_id', orcamento.id)
+      .eq('tipo_linha', 'subetapa')
+      .eq('subetapa', subetapaNome)
+    query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
+    const { error } = await query
+    if (error) {
+      alert(`Nao foi possivel restaurar o valor calculado: ${error.message}`)
+      return
+    }
+    await loadItens(orcamento.id)
+  }
+
   async function handleUpdateBdi() {
     if (!orcamento) return
     await supabase.from('orcamentos').update({ bdi_percentual: bdi }).eq('id', orcamento.id)
@@ -696,7 +1014,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     const etapaMap: Record<string, string> = { sem_etapa: 'Sem etapa' }
     for (const e of etapas) etapaMap[e.id] = e.nome
 
-    const exportItens: ItemExportRow[] = itens.map(item => {
+    const exportItens: ItemExportRow[] = itensOrcamento.map(item => {
       const itensComp = item.composicao_itens || []
       return {
         etapaNome: etapaMap[item.etapa_id || 'sem_etapa'] || 'Sem etapa',
@@ -759,7 +1077,14 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       const etapaNome = String(linha.valores.etapa ?? '').trim()
       const subetapa = (linha.valores.subetapa as string | null) ?? null
       const codigo = String(linha.valores.codigo ?? '').trim().toUpperCase()
-      const quantidade = Number(linha.valores.quantidade ?? 0)
+      const tipoLinha = String(linha.valores.tipo ?? '').trim().toLowerCase()
+      const quantidade = Number(linha.valores.quantidade ?? 0) || 1
+      const descricaoImportada = String(linha.valores.descricao ?? '').trim()
+      const unidadeImportada = String(linha.valores.unidade ?? 'UN').trim() || 'UN'
+      const valorUnitarioImportado = Number(linha.valores.valorUnitario ?? linha.valores.valor_unitario ?? linha.valores.custoUnitario ?? 0)
+      const valorTotalImportado = Number(linha.valores.valorTotal ?? linha.valores.valor_total ?? linha.valores.custoTotal ?? 0)
+      const valorSubetapaCampo = Number(linha.valores.valorSubetapa ?? linha.valores.valor_subetapa ?? 0)
+      const valorSubetapaImportado = valorSubetapaCampo || (tipoLinha === 'subetapa' ? (valorTotalImportado || valorUnitarioImportado) : 0)
       const statusExecucaoImportado = mapStatusExecucao(linha.valores.statusExecucao)
       const statusCompraImportado = mapStatusCompra(linha.valores.statusMaterial)
       const insumosAntigos = Array.isArray(linha.valores.insumos)
@@ -768,7 +1093,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       const insumosResumoLegado = insumosAntigos.length > 0
         && insumosAntigos.every(insumo => insumo.tipo === 'LEGADO_RESUMIDO' || insumo.codigo.startsWith(`${codigo}-`))
 
-      if (!etapaNome || !codigo || !quantidade) {
+      if (!etapaNome) {
         ignorados++
         erros.push(`Linha ${linha.numero}: dados incompletos — ignorada.`)
         continue
@@ -791,6 +1116,52 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       } else if (statusExecucaoImportado !== 'planejada') {
         await supabase.from('etapas').update({ status: statusExecucaoImportado }).eq('id', etapaId)
         setEtapas(prev => prev.map(e => e.id === etapaId ? { ...e, status: statusExecucaoImportado } : e))
+      }
+
+      if (subetapa && valorSubetapaImportado > 0) {
+        await upsertSubetapaMeta(etapaId, subetapa, valorSubetapaImportado, descricaoImportada && tipoLinha === 'subetapa' ? descricaoImportada : subetapa)
+      }
+
+      if (tipoLinha === 'subetapa' || (!codigo && subetapa && valorSubetapaImportado > 0 && !descricaoImportada)) {
+        if (!subetapa) {
+          ignorados++
+          erros.push(`Linha ${linha.numero}: subetapa vazia para valor direto.`)
+          continue
+        }
+        inseridos++
+        continue
+      }
+
+      if (!codigo && (tipoLinha === 'item_livre' || descricaoImportada)) {
+        const preco = valorUnitarioImportado || (valorTotalImportado > 0 ? valorTotalImportado / quantidade : 0)
+        const codigoLivre = `LIV-${Date.now().toString(36).toUpperCase()}-${linha.numero}`
+        const { error: insertLivreErro } = await supabase.from('orcamento_itens').insert({
+          orcamento_id: orcamento.id,
+          etapa_id: etapaId,
+          subetapa,
+          tipo_linha: 'item',
+          composicao_id: null,
+          sinapi_composicao_id: null,
+          quantidade,
+          preco_unitario_snapshot: preco,
+          descricao_snapshot: descricaoImportada || `Item livre ${linha.numero}`,
+          codigo_snapshot: codigoLivre,
+          unidade_snapshot: unidadeImportada,
+        })
+        if (insertLivreErro) {
+          ignorados++
+          erros.push(`Linha ${linha.numero}: erro ao inserir item livre - ${insertLivreErro.message}`)
+          continue
+        }
+        await upsertMaterialSoma(codigoLivre, descricaoImportada || `Item livre ${linha.numero}`, unidadeImportada, quantidade, etapaId, subetapa, statusCompraImportado)
+        inseridos++
+        continue
+      }
+
+      if (!codigo) {
+        ignorados++
+        erros.push(`Linha ${linha.numero}: informe codigo da composicao, tipo subetapa ou descricao do item livre.`)
+        continue
       }
 
       let propria = mapaProprias.get(codigo)
@@ -833,7 +1204,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       }
       const isSinapi = !propria
 
-      const custoUnitarioImportado = Number(linha.valores.custoUnitario ?? 0)
+      const custoUnitarioImportado = Number(linha.valores.custoUnitario ?? linha.valores.valorUnitario ?? 0)
       const custoUnitario = custoUnitarioImportado > 0 ? custoUnitarioImportado : getItemCost(composicao)
       const descricaoSnapshot = String(linha.valores.descricao ?? composicao.descricao)
       const unidadeSnapshot = String(linha.valores.unidade ?? composicao.unidade)
@@ -841,6 +1212,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         orcamento_id: orcamento.id,
         etapa_id: etapaId,
         subetapa,
+        tipo_linha: 'item',
         composicao_id: isSinapi ? null : composicao.id,
         sinapi_composicao_id: isSinapi ? composicao.id : null,
         quantidade,
@@ -927,7 +1299,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         .select().single()
       if (novoOrc) {
         let atualizados = 0
-        for (const item of itens) {
+        for (const item of itensOrcamento) {
           let preco = item.preco_unitario_snapshot
           if (atualizarPrecos) {
             const precoAtual = await precoAtualDoItem(item)
@@ -935,17 +1307,33 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
           }
           await supabase.from('orcamento_itens').insert({
             orcamento_id: novoOrc.id, etapa_id: item.etapa_id, subetapa: item.subetapa,
+            tipo_linha: 'item',
             composicao_id: item.composicao_id, sinapi_composicao_id: item.sinapi_composicao_id,
             quantidade: item.quantidade, preco_unitario_snapshot: preco,
             descricao_snapshot: item.descricao_snapshot, codigo_snapshot: item.codigo_snapshot,
             unidade_snapshot: item.unidade_snapshot,
           })
         }
+        for (const meta of subetapasMeta) {
+          await supabase.from('orcamento_itens').insert({
+            orcamento_id: novoOrc.id,
+            etapa_id: meta.etapa_id,
+            subetapa: meta.nome,
+            tipo_linha: 'subetapa',
+            quantidade: 1,
+            preco_unitario_snapshot: 0,
+            descricao_snapshot: meta.descricao || meta.nome,
+            codigo_snapshot: `SUB-${meta.id.slice(0, 8)}`,
+            unidade_snapshot: 'VB',
+            subetapa_valor_manual: meta.valor_manual,
+            subetapa_valor_manual_ativo: meta.ativo,
+          })
+        }
         setOrcamento(novoOrc)
         await loadItens(novoOrc.id)
         if (atualizarPrecos) {
           alert(atualizados > 0
-            ? `Nova versão criada. ${atualizados} de ${itens.length} ${itens.length === 1 ? 'item teve seu preço atualizado' : 'itens tiveram o preço atualizado'} pela base atual (UF ${obraUf}). Itens sem vínculo direto com a base mantiveram o preço anterior.`
+            ? `Nova versão criada. ${atualizados} de ${itensOrcamento.length} ${itensOrcamento.length === 1 ? 'item teve seu preço atualizado' : 'itens tiveram o preço atualizado'} pela base atual (UF ${obraUf}). Itens sem vínculo direto com a base mantiveram o preço anterior.`
             : `Nova versão criada, mas nenhum item tinha vínculo vivo com a base SINAPI/composições para atualizar — os preços anteriores foram mantidos.`)
         }
       }
@@ -1120,7 +1508,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         else mapa.set(key, { qtd, descricao, unidade })
       }
 
-      for (const item of itens) {
+      for (const item of itensOrcamento) {
         if (item.sinapi_composicao_id) {
           const insumos = await buscarInsumosAnaliticosSinapi(item.codigo, item.sinapi_mes_referencia)
           if (insumos.length === 0) {
@@ -1213,15 +1601,22 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   // ─── Agrupamento ─────────────────────────────────────────────────────────
   const itensPorEtapa: Record<string, ItemEnriquecido[]> = { sem_etapa: [] }
   for (const etapa of etapas) itensPorEtapa[etapa.id] = []
-  for (const item of itens) {
+  for (const item of itensOrcamento) {
     const key = item.etapa_id && itensPorEtapa[item.etapa_id] !== undefined ? item.etapa_id : 'sem_etapa'
     itensPorEtapa[key].push(item)
+  }
+  const subetapasMetaPorEtapa: Record<string, SubetapaMeta[]> = { sem_etapa: [] }
+  for (const etapa of etapas) subetapasMetaPorEtapa[etapa.id] = []
+  for (const meta of subetapasMeta) {
+    const key = meta.etapa_id && subetapasMetaPorEtapa[meta.etapa_id] !== undefined ? meta.etapa_id : 'sem_etapa'
+    subetapasMetaPorEtapa[key].push(meta)
   }
 
   const normBusca = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   const termoBusca = normBusca(busca.trim())
+  const listaFonte = fonte === 'proprias' ? composicoesProprias : fonte === 'insumos' ? insumosCatalogo : sinapiComps
   const listaFiltrada = termoBusca
-    ? (fonte === 'proprias' ? composicoesProprias : sinapiComps).filter(c =>
+    ? listaFonte.filter(c =>
         normBusca(fixMojibake(c.descricao)).includes(termoBusca) || normBusca(c.codigo).includes(termoBusca))
     : []
   const etapasPadrao = readEtapasPadrao()
@@ -1236,7 +1631,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     : etapas.filter(etapa => etapa.id === filtroEtapaId)
   const mostrarSemEtapa = filtroEtapaId === 'todas' || filtroEtapaId === 'sem_etapa'
   const itensFiltradosCount = filtroEtapaId === 'todas'
-    ? itens.length
+    ? itensOrcamento.length
     : filtroEtapaId === 'sem_etapa'
       ? itensPorEtapa.sem_etapa.length
       : (itensPorEtapa[filtroEtapaId] || []).length
@@ -1245,18 +1640,37 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   // para exportação/round-trip com a planilha de importação
   const etapaNomePorId: Record<string, string> = {}
   for (const e of etapas) etapaNomePorId[e.id] = e.nome
-  const linhasOrcamentoTabular: LinhaOrcamentoTabular[] = itens.map(item => ({
+  const linhasOrcamentoTabular: LinhaOrcamentoTabular[] = [
+    ...subetapasMeta.map(meta => ({
+      tipo: 'subetapa' as const,
+      etapa: (meta.etapa_id && etapaNomePorId[meta.etapa_id]) || 'Sem etapa',
+      subetapa: meta.nome,
+      codigo: '',
+      descricao: meta.descricao || meta.nome,
+      categoriaGrupo: '',
+      unidade: 'VB',
+      quantidade: 1,
+      valorUnitario: Number(meta.valor_manual || 0),
+      valorTotal: Number(meta.valor_manual || 0),
+      valorSubetapa: Number(meta.valor_manual || 0),
+    })),
+    ...itensOrcamento.map(item => ({
+    tipo: item.composicao_id || item.sinapi_composicao_id ? 'composicao' as const : 'item_livre' as const,
     etapa: (item.etapa_id && etapaNomePorId[item.etapa_id]) || 'Sem etapa',
     subetapa: item.subetapa,
     codigo: item.codigo,
     descricao: item.descricao,
+    categoriaGrupo: item.subetapa || '',
     unidade: item.unidade,
     quantidade: item.quantidade,
-  }))
+    valorUnitario: item.preco_unitario_snapshot,
+    valorTotal: getItemTotal(item),
+  })),
+  ]
   // Custo de uma composição para exibir no modal de busca
   // Pós-Supabase: calcula via composicao_itens + sinapi_insumos.precos[obraUf]
-  const getItemCost = (item: { custo_calculado?: number; custos?: Record<string, number>; custo_unitario?: number }) =>
-    item.custos?.[obraUf] || item.custo_unitario || item.custo_calculado || 0
+  const getItemCost = (item: { custo_calculado?: number; custos?: Record<string, number>; custo_unitario?: number; preco_unitario?: number; precos?: Record<string, number> }) =>
+    item.precos?.[obraUf] || item.preco_unitario || item.custos?.[obraUf] || item.custo_unitario || item.custo_calculado || 0
 
   if (loading) return (
     <div className="flex justify-center py-12">
@@ -1277,7 +1691,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         <div className="p-4 flex flex-col gap-3">
           {/* Ações do orçamento */}
           <div className="flex items-center justify-end gap-2">
-            {itens.length > 0 && (
+            {itensOrcamento.length > 0 && (
               <Button size="sm" icon={<FileSpreadsheet size={14} />} variant="secondary" onClick={handleExportXLSX}>
                 Exportar Excel
               </Button>
@@ -1311,7 +1725,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                       <Unlock size={13} style={{ color: 'var(--text-secondary)' }} /> Reabrir (nova versão)
                     </button>
                   )}
-                  {itens.length > 0 && (
+                  {itensOrcamento.length > 0 && (
                     <button onClick={sincronizarMateriaisDoOrcamento} disabled={sincronizandoMateriais}
                       className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors disabled:opacity-50"
                       style={{ color: 'var(--text-primary)' }}>
@@ -1330,7 +1744,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
             <KpiMini label="Custo direto / m²" value={areaM2 && areaM2 > 0 ? formatCurrency(subtotal / areaM2) : '—'} />
             <KpiMini label="Custo final / m²" value={custoPorM2 !== null ? formatCurrency(custoPorM2) : '—'} />
             <KpiMini label="Etapas" value={String(etapas.length)} />
-            <KpiMini label="Composições" value={String(itens.length)} />
+            <KpiMini label="Composições" value={String(itensOrcamento.length)} />
           </div>
         </div>
       </div>
@@ -1380,7 +1794,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       </div>
 
       {/* ── Estrutura da Obra (etapas + composições em cascata) ── */}
-      {etapas.length === 0 && itens.length === 0 ? (
+      {etapas.length === 0 && itensOrcamento.length === 0 && subetapasMeta.length === 0 ? (
         <EmptyState
           icon={FolderPlus}
           title="Orçamento vazio"
@@ -1407,7 +1821,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                   title="Filtrar orçamento por etapa"
                 >
                   <option value="todas">Todas as etapas</option>
-                  {itensPorEtapa.sem_etapa.length > 0 && <option value="sem_etapa">Sem etapa</option>}
+                  {(itensPorEtapa.sem_etapa.length > 0 || subetapasMetaPorEtapa.sem_etapa.length > 0) && <option value="sem_etapa">Sem etapa</option>}
                   {etapas.map(etapa => <option key={etapa.id} value={etapa.id}>{etapa.nome}</option>)}
                 </select>
               </div>
@@ -1425,10 +1839,11 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
               </div>
             </div>
 
-            {mostrarSemEtapa && itensPorEtapa.sem_etapa.length > 0 && (
+            {mostrarSemEtapa && (itensPorEtapa.sem_etapa.length > 0 || subetapasMetaPorEtapa.sem_etapa.length > 0) && (
               <GrupoEtapa
                 nome="Sem etapa"
                 itens={itensPorEtapa.sem_etapa}
+                subetapasMeta={subetapasMetaPorEtapa.sem_etapa}
                 isReadonly={isReadonly}
                 collapsed={collapsed['sem_etapa']}
                 onToggleGrupo={() => setCollapsed(c => ({ ...c, sem_etapa: !c['sem_etapa'] }))}
@@ -1447,17 +1862,21 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                 onAddInsumoToItem={(item) => openItemModal(item.etapa_id, item.subetapa, true)}
                 onRenameSubetapa={(nomeSub) => handleRenameSubetapa(null, nomeSub)}
                 onDeleteSubetapa={(nomeSub) => handleRemoveSubetapa(null, nomeSub)}
+                onEditSubetapaValor={(nomeSub, valorAtual) => handleEditSubetapaValor(null, nomeSub, valorAtual)}
+                onRestoreSubetapaValor={(nomeSub) => handleRestoreSubetapaValor(null, nomeSub)}
                 onEditItem={!isReadonly ? openEditItem : undefined}
               />
             )}
             {etapasVisiveis.map(etapa => {
               const itensDaEtapa = itensPorEtapa[etapa.id] || []
+              const metasDaEtapa = subetapasMetaPorEtapa[etapa.id] || []
               const { icon, cor } = getEtapaIcone(etapa.nome)
               return (
                 <GrupoEtapa
                   key={etapa.id}
                   nome={etapa.nome}
                   itens={itensDaEtapa}
+                  subetapasMeta={metasDaEtapa}
                   isReadonly={isReadonly}
                   collapsed={collapsed[etapa.id]}
                   onToggleGrupo={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
@@ -1480,6 +1899,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                   onRenameEtapa={!isReadonly ? () => handleRenameEtapa(etapa.id, etapa.nome) : undefined}
                   onRenameSubetapa={!isReadonly ? (nomeSub) => handleRenameSubetapa(etapa.id, nomeSub) : undefined}
                   onDeleteSubetapa={!isReadonly ? (nomeSub) => handleRemoveSubetapa(etapa.id, nomeSub) : undefined}
+                  onEditSubetapaValor={!isReadonly ? (nomeSub, valorAtual) => handleEditSubetapaValor(etapa.id, nomeSub, valorAtual) : undefined}
+                  onRestoreSubetapaValor={!isReadonly ? (nomeSub) => handleRestoreSubetapaValor(etapa.id, nomeSub) : undefined}
                   onEditItem={!isReadonly ? openEditItem : undefined}
                   menuAberto={etapaMenuAberto === etapa.id}
                   onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
@@ -1552,12 +1973,12 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       {/* ── Modal adicionar composição ── */}
       <Modal
         open={showAddItem}
-        onClose={() => { setShowAddItem(false); setSelectedItem(null); setQuantidade(''); setBusca(''); setSubetapaLivre(''); setLivreDescricao(''); setLivrePreco('') }}
+        onClose={() => { setShowAddItem(false); setSelectedItem(null); setQuantidade(''); setBusca(''); setSubetapaLivre(''); setSubetapaDescricao(''); setSubetapaValor(''); setLivreDescricao(''); setLivrePreco(''); setItensPendentes([]) }}
         title="Adicionar item"
         size="lg"
       >
         <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-[minmax(180px,0.9fr)_minmax(220px,1.2fr)_150px] gap-3">
             <div>
               <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Etapa</label>
               <div className="flex gap-1.5">
@@ -1572,15 +1993,74 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
               </div>
             </div>
             <Input
-              label="Subetapa / complemento"
+              label="Subetapa / complemento (opcional)"
               value={subetapaLivre}
               onChange={e => setSubetapaLivre(e.target.value)}
               placeholder="Ex: Baldrames, térreo, bloco A..."
+            />            <Input
+              label="Valor da subetapa"
+              type="text"
+              inputMode="decimal"
+              value={subetapaValor}
+              onChange={e => setSubetapaValor(e.target.value)}
+              onBlur={() => setSubetapaValor(formatCurrencyInput(subetapaValor))}
+              placeholder="R$ 0,00"
             />
           </div>
+          <Input
+            label="Descricao da subetapa (opcional)"
+            value={subetapaDescricao}
+            onChange={e => setSubetapaDescricao(e.target.value)}
+            placeholder="Use para criar uma subetapa com valor direto, mesmo sem composicoes."
+          />
+
+          {itensPendentes.length > 0 && (
+            <div className="rounded-xl overflow-hidden" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+              <div className="px-3 py-2 text-xs font-semibold" style={{ color: 'var(--text-primary)', borderBottom: '1px solid var(--border)' }}>
+                Itens do lancamento
+              </div>
+              <div className="flex flex-col divide-y" style={{ borderColor: 'var(--border)' }}>
+                {itensPendentes.map((draft, idx) => (
+                  <div key={draft.id} className="grid grid-cols-1 lg:grid-cols-[32px_minmax(220px,1fr)_80px_100px_130px_120px_92px] gap-2 p-3 items-end">
+                    <div className="hidden lg:flex h-9 items-center justify-center rounded-lg text-xs font-semibold" style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>
+                      {idx + 1}
+                    </div>
+                    <Input label="Descricao" value={draft.descricao} onChange={e => updateItemPendente(draft.id, { descricao: e.target.value })} />
+                    <Input label="Un." value={draft.unidade} onChange={e => updateItemPendente(draft.id, { unidade: e.target.value || 'UN' })} />
+                    <Input label="Qtd." type="number" value={String(draft.quantidade)} onChange={e => updateItemPendente(draft.id, { quantidade: parseDecimalInput(e.target.value) })} />
+                    <Input
+                      label="Valor unit."
+                      type="text"
+                      inputMode="decimal"
+                      value={draft.preco ? draft.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : ''}
+                      onChange={e => updateItemPendente(draft.id, { preco: parseDecimalInput(e.target.value) })}
+                      placeholder="R$ 0,00"
+                    />
+                    <div className="rounded-lg border px-3 py-2 h-10 flex items-center justify-end text-sm font-semibold tabular-nums" style={{ borderColor: 'var(--border)', color: 'var(--accent)', background: 'var(--bg-card)' }}>
+                      {formatCurrency(draft.preco * draft.quantidade)}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setItensPendentes(prev => prev.filter(i => i.id !== draft.id))}
+                      className="h-10 rounded-lg px-3 inline-flex items-center justify-center gap-2 text-xs font-medium transition-colors hover:bg-[rgba(239,68,68,0.12)]"
+                      style={{ color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.35)' }}
+                      title="Remover linha"
+                    >
+                      <Trash2 size={14} style={{ color: 'var(--danger)' }} />
+                      <span className="lg:hidden xl:inline">Excluir</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="px-3 py-2 text-right text-xs" style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
+                Total dos itens: <strong style={{ color: 'var(--accent)' }}>{formatCurrency(itensPendentes.reduce((sum, item) => sum + item.preco * item.quantidade, 0))}</strong>
+              </div>
+            </div>
+          )}
+
 
           <div className="flex gap-1 p-1 rounded-xl w-fit max-w-full overflow-x-auto" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-            {([['proprias', 'Composições Próprias'], ['sinapi', 'Referência SINAPI'], ['livre', 'Item livre']] as [FonteBusca, string][]).map(([id, label]) => (
+            {([['proprias', 'Composições Próprias'], ['insumos', 'Insumos'], ['sinapi', 'Referência SINAPI'], ['livre', 'Item livre']] as [FonteBusca, string][]).map(([id, label]) => (
               <button key={id} onClick={() => { setFonte(id); setSelectedItem(null); setBusca('') }}
                 className="px-4 py-2 rounded-lg text-xs font-medium transition-all whitespace-nowrap"
                 style={fonte === id ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}>
@@ -1593,7 +2073,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
             <input
               value={busca} onChange={e => setBusca(e.target.value)}
-              placeholder={fonte === 'proprias' ? 'Buscar por descrição...' : 'Buscar na tabela SINAPI...'}
+              placeholder={fonte === 'proprias' ? 'Buscar composição...' : fonte === 'insumos' ? 'Buscar insumo no banco...' : 'Buscar na tabela SINAPI...'}
               className="input-base input-search" autoFocus
             />
           </div>}
@@ -1603,13 +2083,21 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_100px_130px] gap-3">
                 <Input label="Descrição do item/insumo" value={livreDescricao} onChange={e => setLivreDescricao(e.target.value)} placeholder="Ex: Projeto, cimento, frete..." />
                 <Input label="Unidade" value={livreUnidade} onChange={e => setLivreUnidade(e.target.value)} placeholder="UN" />
-                <Input label="Valor unitário" type="number" value={livrePreco} onChange={e => setLivrePreco(e.target.value)} placeholder="0" />
+                <Input
+                  label="Valor unitario"
+                  type="text"
+                  inputMode="decimal"
+                  value={livrePreco}
+                  onChange={e => setLivrePreco(e.target.value)}
+                  onBlur={() => setLivrePreco(formatCurrencyInput(livrePreco))}
+                  placeholder="R$ 0,00"
+                />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
-                <Input label={`Quantidade (${livreUnidade || 'UN'})`} type="number" value={quantidade} onChange={e => setQuantidade(e.target.value)} placeholder="0" min={0} />
+              <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr_auto] gap-3 items-end">
+                <Input label={`Qtd. (${livreUnidade || 'UN'})`} type="number" value={quantidade} onChange={e => setQuantidade(e.target.value)} placeholder="0" min={0} />
+                <div className="hidden sm:block" />
                 <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" loading={saving} disabled={!quantidade || !livreDescricao.trim()} onClick={() => handleAddItem(false)}>+ mais</Button>
-                  <Button size="sm" loading={saving} disabled={!quantidade || !livreDescricao.trim()} onClick={() => handleAddItem(true)}>Inserir</Button>
+                  <Button variant="secondary" size="sm" loading={saving} disabled={fonte !== 'livre' && !draftAtual()} onClick={handleMaisCampos}>+ linha</Button>
                 </div>
               </div>
             </div>
@@ -1628,7 +2116,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                 </div>
                 {'composicao_itens' in selectedItem && selectedItem.composicao_itens && selectedItem.composicao_itens.length > 0 && (
                   <div className="mb-3 rounded-lg p-2 flex flex-col gap-1" style={{ background: 'var(--bg-secondary)' }}>
-                    <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Insumos sugeridos para compra</p>
+                    <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Insumos da composicao</p>
                     {selectedItem.composicao_itens.slice(0, 5).map((ins) => {
                       const info = infoDoItem(ins, obraUf)
                       const qtdBase = parseFloat(quantidade) || 0
@@ -1642,21 +2130,20 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                     })}
                   </div>
                 )}
-                <div className="flex items-end gap-3">
-                  <div className="flex-1">
+                <div className="grid grid-cols-1 sm:grid-cols-[120px_1fr_auto] gap-3 items-end">
+                  <div>
                     <Input
                       ref={qtdInputRef}
-                      label={`Quantidade (${selectedItem.unidade})`}
+                      label={`Qtd. (${selectedItem.unidade})`}
                       type="number" value={quantidade}
                       onChange={e => setQuantidade(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && quantidade && handleAddItem(false)}
+                      onKeyDown={e => e.key === 'Enter' && quantidade && handleMaisCampos()}
                       placeholder="0" min={0}
                     />
                   </div>
                   <div className="flex gap-2 pb-0.5">
                     <Button variant="secondary" size="sm" onClick={() => { setSelectedItem(null); setQuantidade('') }}>Limpar</Button>
-                    <Button variant="secondary" size="sm" loading={saving} disabled={!quantidade} onClick={() => handleAddItem(false)}>+ mais</Button>
-                    <Button size="sm" loading={saving} disabled={!quantidade} onClick={() => handleAddItem(true)}>Inserir</Button>
+                    <Button variant="secondary" size="sm" loading={saving} disabled={!draftAtual()} onClick={handleMaisCampos}>+ linha</Button>
                   </div>
                 </div>
               </div>
@@ -1664,10 +2151,12 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
           ) : (
             <div className="max-h-72 overflow-y-auto flex flex-col gap-1">
               {!termoBusca ? (
-                <p className="text-sm text-center py-8" style={{ color: 'var(--text-secondary)' }}>Digite para buscar composições.</p>
+                <p className="text-sm text-center py-8" style={{ color: 'var(--text-secondary)' }}>
+                  {fonte === 'insumos' ? 'Digite para buscar insumos.' : 'Digite para buscar composições.'}
+                </p>
               ) : listaFiltrada.length === 0 ? (
                 <p className="text-sm text-center py-8" style={{ color: 'var(--text-secondary)' }}>
-                  {fonte === 'proprias' ? 'Nenhuma composição própria encontrada.' : 'Nenhuma composição SINAPI encontrada.'}
+                  {fonte === 'proprias' ? 'Nenhuma composição própria encontrada.' : fonte === 'insumos' ? 'Nenhum insumo encontrado.' : 'Nenhuma composição SINAPI encontrada.'}
                 </p>
               ) : (
                 listaFiltrada.slice(0, 60).map(c => (
@@ -1691,8 +2180,18 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
             </div>
           )}
 
-          <div className="flex justify-end">
-            <Button variant="secondary" size="sm" onClick={() => { setShowAddItem(false); setSelectedItem(null); setQuantidade('') }}>Fechar</Button>
+          <div className="flex items-center justify-between gap-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+            <Button variant="secondary" size="sm" onClick={() => { setShowAddItem(false); setSelectedItem(null); setQuantidade('') }}>
+              Fechar
+            </Button>
+            <Button
+              size="sm"
+              loading={saving}
+              disabled={!draftAtual() && itensPendentes.length === 0 && (!subetapaLivre.trim() || parseDecimalInput(subetapaValor) <= 0)}
+              onClick={handleInserirItens}
+            >
+              Inserir
+            </Button>
           </div>
         </div>
       </Modal>
@@ -1861,13 +2360,14 @@ function CustoCard({ icon: Icon, cor, label, value, hint, highlight, children }:
 
 // ─── Grupo de etapa (nível 1 da cascata) ─────────────────────────────────────
 function GrupoEtapa({
-  nome, itens, isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
+  nome, itens, subetapasMeta = [], isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   onUpdateQuantidade, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
   obraUf, icon: Icon, iconCor, subtotalDireto,
-  onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditItem, menuAberto, onToggleMenu, menuRef,
+  onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditSubetapaValor, onRestoreSubetapaValor, onEditItem, menuAberto, onToggleMenu, menuRef,
 }: {
   nome: string
   itens: ItemEnriquecido[]
+  subetapasMeta?: SubetapaMeta[]
   isReadonly: boolean
   collapsed?: boolean
   onToggleGrupo: () => void
@@ -1890,6 +2390,8 @@ function GrupoEtapa({
   onAddInsumoToItem?: (item: ItemEnriquecido) => void
   onRenameSubetapa?: (nome: string) => void
   onDeleteSubetapa?: (nome: string) => void
+  onEditSubetapaValor?: (nome: string, valorAtual: number) => void
+  onRestoreSubetapaValor?: (nome: string) => void
   onEditItem?: (item: ItemEnriquecido) => void
   menuAberto?: boolean
   onToggleMenu?: () => void
@@ -1910,10 +2412,7 @@ function GrupoEtapa({
     return () => document.removeEventListener('mousedown', handleClick)
   }, [subMenuAberto, itemMenuAberto])
 
-  const subtotalGrupo = itens.reduce((a, i) => a + getItemTotal(i), 0)
-  const totalGrupo = subtotalGrupo * (1 + bdi / 100)
-  const pctDoDireto = subtotalDireto && subtotalDireto > 0 ? (subtotalGrupo / subtotalDireto) * 100 : null
-  const gruposSubetapa = itens.reduce<{ nome: string; key: string; itens: ItemEnriquecido[] }[]>((acc, item) => {
+  const gruposSubetapa = itens.reduce<{ nome: string; key: string; itens: ItemEnriquecido[]; meta?: SubetapaMeta }[]>((acc, item) => {
     const nomeSub = item.subetapa?.trim() || 'Sem subetapa'
     const key = nomeSub.toLowerCase()
     let grupo = acc.find(g => g.key === key)
@@ -1923,7 +2422,13 @@ function GrupoEtapa({
     }
     grupo.itens.push(item)
     return acc
-  }, [])
+  }, subetapasMeta.map(meta => ({ nome: meta.nome, key: meta.nome.toLowerCase(), itens: [], meta })))
+  const subtotalGrupo = gruposSubetapa.reduce((acc, grupo) => {
+    const calculado = grupo.itens.reduce((sum, item) => sum + getItemTotal(item), 0)
+    return acc + (grupo.meta?.ativo ? Number(grupo.meta.valor_manual || 0) : calculado)
+  }, 0)
+  const totalGrupo = subtotalGrupo * (1 + bdi / 100)
+  const pctDoDireto = subtotalDireto && subtotalDireto > 0 ? (subtotalGrupo / subtotalDireto) * 100 : null
 
   function parseQuantidadeInput(value: string) {
     const parsed = Number(value.replace(',', '.'))
@@ -2002,7 +2507,7 @@ function GrupoEtapa({
       {/* Itens */}
       {!collapsed && (
         <>
-          {itens.length === 0 ? (
+          {gruposSubetapa.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
               {isReadonly ? 'Nenhum item.' : (
                 <button onClick={onAddItem} className="hover:underline" style={{ color: 'var(--accent)' }}>
@@ -2028,7 +2533,9 @@ function GrupoEtapa({
                 <tbody>
                   {gruposSubetapa.map(grupo => {
                     const subFechada = subetapasFechadas[grupo.key] ?? false
-                    const subtotalSubetapa = grupo.itens.reduce((acc, item) => acc + getItemTotal(item), 0)
+                    const subtotalCalculado = grupo.itens.reduce((acc, item) => acc + getItemTotal(item), 0)
+                    const subtotalSubetapa = grupo.meta?.ativo ? Number(grupo.meta.valor_manual || 0) : subtotalCalculado
+                    const valorManualComComposicoes = Boolean(grupo.meta?.ativo && grupo.itens.length > 0)
 
                     return (
                       <Fragment key={grupo.key}>
@@ -2066,8 +2573,20 @@ function GrupoEtapa({
                           <td className="px-3 py-2 text-right text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
                             Subtotal
                           </td>
-                          <td className="px-3 py-2 text-right font-semibold" style={{ color: 'var(--accent)' }}>
-                            {formatCurrency(subtotalSubetapa)}
+                          <td className="px-3 py-2 text-right font-semibold" style={{ color: valorManualComComposicoes ? 'var(--danger)' : 'var(--accent)' }}>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span>{formatCurrency(subtotalSubetapa)}</span>
+                              {!isReadonly && onEditSubetapaValor && (
+                                <button type="button" onClick={e => { e.stopPropagation(); onEditSubetapaValor(grupo.nome, subtotalSubetapa) }} className="p-1 rounded hover:bg-[var(--bg-card)]" title="Editar valor da subetapa">
+                                  <Pencil size={12} />
+                                </button>
+                              )}
+                              {valorManualComComposicoes && !isReadonly && onRestoreSubetapaValor && (
+                                <button type="button" onClick={e => { e.stopPropagation(); onRestoreSubetapaValor(grupo.nome) }} className="p-1 rounded-full hover:bg-[var(--bg-card)]" title="Restaurar valor calculado">
+                                  <RotateCcw size={12} />
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-2 text-right">
                             {!isReadonly && (onDeleteSubetapa || onRenameSubetapa || onAddItemToSubetapa) && (
@@ -2096,6 +2615,20 @@ function GrupoEtapa({
                                         className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                                         style={{ color: 'var(--text-primary)' }}>
                                         <Pencil size={13} /> Renomear subetapa
+                                      </button>
+                                    )}
+                                    {onEditSubetapaValor && (
+                                      <button onClick={() => { setSubMenuAberto(null); onEditSubetapaValor(grupo.nome, subtotalSubetapa) }}
+                                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                        style={{ color: 'var(--text-primary)' }}>
+                                        <Wallet size={13} /> Editar valor
+                                      </button>
+                                    )}
+                                    {valorManualComComposicoes && onRestoreSubetapaValor && (
+                                      <button onClick={() => { setSubMenuAberto(null); onRestoreSubetapaValor(grupo.nome) }}
+                                        className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                        style={{ color: 'var(--text-primary)' }}>
+                                        <RotateCcw size={13} /> Restaurar calculado
                                       </button>
                                     )}
                                     {onDeleteSubetapa && (
@@ -2311,7 +2844,9 @@ function GrupoEtapa({
             <div className="flex flex-col md:hidden">
               {gruposSubetapa.map(grupo => {
                 const subFechada = subetapasFechadas[grupo.key] ?? false
-                const subtotalSubetapa = grupo.itens.reduce((acc, item) => acc + getItemTotal(item), 0)
+                const subtotalCalculado = grupo.itens.reduce((acc, item) => acc + getItemTotal(item), 0)
+                const subtotalSubetapa = grupo.meta?.ativo ? Number(grupo.meta.valor_manual || 0) : subtotalCalculado
+                const valorManualComComposicoes = Boolean(grupo.meta?.ativo && grupo.itens.length > 0)
 
                 return (
                   <section key={grupo.key} className="border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
@@ -2351,9 +2886,9 @@ function GrupoEtapa({
                           <Plus size={13} style={{ color: 'var(--accent)' }} />
                         </span>
                       )}
-                      <span className="min-w-[92px] flex-shrink-0 rounded-lg px-2.5 py-1.5 text-right" style={{ background: 'rgba(59, 123, 248, 0.10)' }}>
+                      <span className="min-w-[92px] flex-shrink-0 rounded-lg px-2.5 py-1.5 text-right" style={{ background: valorManualComComposicoes ? 'rgba(239,68,68,0.12)' : 'rgba(59, 123, 248, 0.10)' }}>
                         <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Subtotal</span>
-                        <span className="block text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatCurrency(subtotalSubetapa)}</span>
+                        <span className="block text-sm font-bold tabular-nums" style={{ color: valorManualComComposicoes ? 'var(--danger)' : 'var(--accent)' }}>{formatCurrency(subtotalSubetapa)}</span>
                       </span>
                       {!isReadonly && (onDeleteSubetapa || onAddItemToSubetapa || onRenameSubetapa) && (
                         <span className="relative flex-shrink-0" data-submenu-container onClick={e => e.stopPropagation()}>
@@ -2381,6 +2916,20 @@ function GrupoEtapa({
                                   className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                                   style={{ color: 'var(--text-primary)' }}>
                                   <Pencil size={13} /> Renomear subetapa
+                                </span>
+                              )}
+                              {onEditSubetapaValor && (
+                                <span role="button" tabIndex={0} onClick={() => { setSubMenuAberto(null); onEditSubetapaValor(grupo.nome, subtotalSubetapa) }}
+                                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                  style={{ color: 'var(--text-primary)' }}>
+                                  <Wallet size={13} /> Editar valor
+                                </span>
+                              )}
+                              {valorManualComComposicoes && onRestoreSubetapaValor && (
+                                <span role="button" tabIndex={0} onClick={() => { setSubMenuAberto(null); onRestoreSubetapaValor(grupo.nome) }}
+                                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                  style={{ color: 'var(--text-primary)' }}>
+                                  <RotateCcw size={13} /> Restaurar calculado
                                 </span>
                               )}
                               {onDeleteSubetapa && (
@@ -2423,23 +2972,79 @@ function GrupoEtapa({
                                   }
                                 }}
                               >
-                                <div className="flex items-start gap-2">
-                                <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg" style={{ color: 'var(--text-secondary)', background: 'var(--bg-card)' }}>
-                                  {hasInsumos ? (isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />) : null}
-                                </span>
+                                <div className="space-y-3">
+                                  <div className="flex items-start gap-2">
+                                    <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg" style={{ color: hasInsumos ? 'var(--accent)' : 'var(--text-secondary)', background: 'var(--bg-card)' }}>
+                                      {hasInsumos ? (isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />) : null}
+                                    </span>
 
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex flex-col gap-3">
                                     <div className="min-w-0 flex-1">
                                       <p className="text-[15px] font-semibold leading-snug" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
-                                      <div className="mt-3 rounded-lg border px-2.5 py-2 text-xs" style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)', background: 'var(--bg-secondary)' }} onClick={e => e.stopPropagation()}>
-                                        <span className="block text-[10px] font-medium uppercase tracking-wide">Qtd.</span>
-                                        <div className="mt-1 flex items-center gap-2">
+                                      <p className="mt-1 text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>
+                                        {hasInsumos ? `${item.composicao_itens?.length || 0} insumos` : 'Item direto'}
+                                      </p>
+                                    </div>
+
+                                    {!isReadonly && (
+                                      <span className="relative inline-flex flex-shrink-0" data-itemmenu-container onClick={e => e.stopPropagation()}>
+                                          {onAddInsumoToItem && (
+                                            <button
+                                              type="button"
+                                              onClick={() => onAddInsumoToItem(item)}
+                                              className="hidden"
+                                              aria-label="Adicionar insumo"
+                                              title="Adicionar insumo"
+                                            >
+                                              <Plus size={13} style={{ color: 'var(--accent)' }} />
+                                            </button>
+                                          )}
+                                        <button
+                                          type="button"
+                                          onClick={() => setItemMenuAberto(v => v === item.id ? null : item.id)}
+                                          className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                                          style={{ border: '1px solid var(--border)' }}
+                                          aria-label="Ações da composição"
+                                          title="Ações da composição"
+                                        >
+                                          <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
+                                        </button>
+                                        {itemMenuAberto === item.id && (
+                                          <span className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter text-left"
+                                            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                                            {onEditItem && (
+                                              <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
+                                                className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                                style={{ color: 'var(--text-primary)' }}>
+                                                <Pencil size={13} /> Editar composição
+                                              </span>
+                                            )}
+                                            {onAddInsumoToItem && (
+                                              <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onAddInsumoToItem(item) }}
+                                                className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                                style={{ color: 'var(--text-primary)' }}>
+                                                <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar insumo
+                                              </span>
+                                            )}
+                                            <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onRemove(item.id) }}
+                                              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                              style={{ color: 'var(--danger)' }}>
+                                              <Trash2 size={13} /> Excluir composição
+                                            </span>
+                                          </span>
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="grid grid-cols-3 gap-2" onClick={e => e.stopPropagation()}>
+                                    <label className="min-w-0 rounded-lg border px-2.5 py-2" style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}>
+                                      <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Qtd.</span>
+                                      <span className="mt-1 flex items-center gap-1">
                                         <input
                                           type="text"
                                           inputMode="decimal"
                                           defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
-                                          className="input-base h-9 min-w-0 flex-1 py-1 text-center text-sm tabular-nums"
+                                          className="w-full min-w-0 bg-transparent p-0 text-sm font-semibold tabular-nums outline-none"
                                           style={{ color: 'var(--text-primary)' }}
                                           disabled={isReadonly}
                                           onFocus={e => e.currentTarget.select()}
@@ -2460,75 +3065,21 @@ function GrupoEtapa({
                                             }
                                           }}
                                         />
-                                        <span className="max-w-[56px] truncate">{item.unidade}</span>
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
-                                      <span className="min-w-0 rounded-lg border px-2.5 py-2" style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}>
-                                        <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Unitario</span>
-                                        <span className="mt-0.5 block truncate text-sm font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{formatCurrency(item.preco_unitario_snapshot)}</span>
+                                        <span className="max-w-[32px] truncate text-[11px]" style={{ color: 'var(--text-secondary)' }}>{item.unidade}</span>
                                       </span>
-                                      <span className="min-w-[106px] rounded-lg px-2.5 py-2 text-right" style={{ background: hasOverride ? 'rgba(245, 158, 11, 0.12)' : 'rgba(255,255,255,0.035)' }}>
-                                        <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Total</span>
-                                        <span className="mt-0.5 block text-sm font-bold tabular-nums" style={{ color: hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
-                                          {formatCurrency(itemTotal)}
-                                        </span>
+                                    </label>
+                                    <span className="min-w-0 rounded-lg border px-2.5 py-2" style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}>
+                                      <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Unit.</span>
+                                      <span className="mt-1 block truncate text-sm font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{formatCurrency(item.preco_unitario_snapshot)}</span>
+                                    </span>
+                                    <span className="min-w-0 rounded-lg px-2.5 py-2 text-right" style={{ background: hasOverride ? 'rgba(245, 158, 11, 0.12)' : 'rgba(59,123,248,0.12)' }}>
+                                      <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Total</span>
+                                      <span className="mt-1 block truncate text-sm font-bold tabular-nums" style={{ color: hasOverride ? 'var(--warning)' : 'var(--accent)' }}>
+                                        {formatCurrency(itemTotal)}
                                       </span>
-                                      {!isReadonly && (
-                                        <span className="relative inline-flex items-center gap-1" data-itemmenu-container onClick={e => e.stopPropagation()}>
-                                          {onAddInsumoToItem && (
-                                            <button
-                                              type="button"
-                                              onClick={() => onAddInsumoToItem(item)}
-                                              className="hidden"
-                                              aria-label="Adicionar insumo"
-                                              title="Adicionar insumo"
-                                            >
-                                              <Plus size={13} style={{ color: 'var(--accent)' }} />
-                                            </button>
-                                          )}
-                                          <button
-                                            type="button"
-                                            onClick={() => setItemMenuAberto(v => v === item.id ? null : item.id)}
-                                            className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                                            style={{ border: '1px solid var(--border)' }}
-                                            aria-label="Ações da composição"
-                                            title="Ações da composição"
-                                          >
-                                            <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
-                                          </button>
-                                          {itemMenuAberto === item.id && (
-                                            <span className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter text-left"
-                                              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                                              {onEditItem && (
-                                                <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
-                                                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                                                  style={{ color: 'var(--text-primary)' }}>
-                                                  <Pencil size={13} /> Editar composição
-                                                </span>
-                                              )}
-                                              {onAddInsumoToItem && (
-                                                <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onAddInsumoToItem(item) }}
-                                                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                                                  style={{ color: 'var(--text-primary)' }}>
-                                                  <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar insumo
-                                                </span>
-                                              )}
-                                              <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onRemove(item.id) }}
-                                                className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                                                style={{ color: 'var(--danger)' }}>
-                                                <Trash2 size={13} /> Excluir composição
-                                              </span>
-                                            </span>
-                                          )}
-                                        </span>
-                                      )}
-                                    </div>
+                                    </span>
                                   </div>
                                 </div>
-                              </div>
                               </div>
 
                               {isExpanded && hasInsumos && (

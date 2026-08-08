@@ -63,7 +63,8 @@ export function normalizarNumero(obrigatoria: boolean, padrao = 0) {
     if (bruto === '' || bruto == null) {
       return obrigatoria ? { erro: 'campo numérico obrigatório vazio' } : { valor: padrao }
     }
-    const num = typeof bruto === 'number' ? bruto : Number(String(bruto).replace(/\./g, '').replace(',', '.'))
+    const texto = String(bruto).replace(/[^\d,.-]/g, '')
+    const num = typeof bruto === 'number' ? bruto : Number(texto.replace(/\./g, '').replace(',', '.'))
     if (!Number.isFinite(num)) return { erro: `valor numérico inválido "${String(bruto)}"` }
     return { valor: num }
   }

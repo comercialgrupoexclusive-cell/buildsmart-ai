@@ -152,11 +152,15 @@ CREATE TABLE IF NOT EXISTS orcamento_itens (
   composicao_id UUID REFERENCES composicoes_proprias(id),
   sinapi_composicao_id UUID REFERENCES sinapi_composicoes(id),
   subetapa TEXT,
+  tipo_linha TEXT NOT NULL DEFAULT 'item'
+    CHECK (tipo_linha IN ('item','subetapa')),
   quantidade NUMERIC(12,4) NOT NULL DEFAULT 1,
   preco_unitario_snapshot NUMERIC(12,4) NOT NULL DEFAULT 0,
   descricao_snapshot TEXT,
   codigo_snapshot TEXT,
   unidade_snapshot TEXT,
+  subetapa_valor_manual NUMERIC(12,4),
+  subetapa_valor_manual_ativo BOOLEAN NOT NULL DEFAULT FALSE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -228,6 +232,7 @@ CREATE INDEX IF NOT EXISTS idx_obras_uf                     ON obras(uf);
 CREATE INDEX IF NOT EXISTS idx_orcamentos_obra              ON orcamentos(obra_id);
 CREATE INDEX IF NOT EXISTS idx_orcamento_itens_orcamento    ON orcamento_itens(orcamento_id);
 CREATE INDEX IF NOT EXISTS idx_orcamento_itens_etapa        ON orcamento_itens(etapa_id);
+CREATE INDEX IF NOT EXISTS idx_orcamento_itens_subetapa_meta ON orcamento_itens(orcamento_id, etapa_id, subetapa) WHERE tipo_linha = 'subetapa';
 CREATE INDEX IF NOT EXISTS idx_orcamento_item_insumos_item  ON orcamento_item_insumos(orcamento_item_id);
 CREATE INDEX IF NOT EXISTS idx_etapas_obra                  ON etapas(obra_id);
 CREATE INDEX IF NOT EXISTS idx_materiais_obra               ON materiais(obra_id);
