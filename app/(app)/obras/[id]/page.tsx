@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
 import { formatDate, formatCurrency, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus, Link2, Unlink, LayoutDashboard, MessageSquareText } from 'lucide-react'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, FileText, Plus, Link2, Unlink, LayoutDashboard, MessageSquareText } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -14,23 +14,22 @@ import { useProfile } from '@/lib/profile-context'
 import { usePermission } from '@/lib/permissions'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { ObraArquivos } from '@/components/obra/ObraArquivos'
-import { ObraTarefas } from '@/components/obra/ObraTarefas'
-import { ObraAssistenteIA } from '@/components/obra/ObraAssistenteIA'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraBoard } from '@/components/obra/ObraBoard'
 import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
 import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'tarefas' | 'board' | 'portal' | 'ia'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'board' | 'portal'
 
-const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
+const TABS: { id: Tab; label: string; icon?: typeof LayoutDashboard }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'medicoes', label: 'Medições' },
   { id: 'board', label: 'Board', icon: LayoutDashboard },
   { id: 'portal', label: 'Portal do Cliente', icon: MessageSquareText },
+  { id: 'arquivos', label: 'Arquivos', icon: FileText },
 ]
 
 export default function ObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -407,20 +406,6 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
               {label}
             </button>
           ))}
-          <select
-            aria-label="Mais módulos da obra"
-            value={['arquivos', 'tarefas', 'ia'].includes(tab) ? tab : ''}
-            onChange={event => event.target.value && setTab(event.target.value as Tab)}
-            className="rounded-lg px-3 py-2 text-sm font-medium outline-none"
-            style={['arquivos', 'tarefas', 'ia'].includes(tab)
-              ? { background: 'var(--accent)', color: 'white', border: '1px solid var(--accent)' }
-              : { background: 'transparent', color: 'var(--text-secondary)', border: '1px solid transparent' }}
-          >
-            <option value="" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Mais</option>
-            <option value="arquivos" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Arquivos</option>
-            <option value="tarefas" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Tarefas</option>
-            <option value="ia" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Assistente IA</option>
-          </select>
         </div>
       </div>
 
@@ -431,10 +416,8 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} onSelect={setOrcamentoId} onRefresh={refreshOrcamentos} />}
         {tab === 'cronograma' && <ObraCronogramasTab obraId={id} obraNome={obra.nome} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-        {tab === 'tarefas' && <ObraTarefas obraId={id} />}
         {tab === 'board' && <ObraBoard obraId={id} />}
         {tab === 'portal' && <ObraPortalBoard obraId={id} />}
-        {tab === 'ia' && <ObraAssistenteIA obraId={id} obraNome={obra.nome} obraUf={obra.uf || 'SP'} />}
       </div>
 
       {/* Modal editar obra */}

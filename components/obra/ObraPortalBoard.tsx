@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bell, CheckCircle2, ExternalLink, ListChecks, MessageSquareText, RefreshCw, ScanLine } from 'lucide-react'
+import { Bell, CheckCircle2, ListChecks, MessageSquareText, RefreshCw, ScanLine } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { PortalBoardStatus, PortalCategoria } from '@/lib/portal/types'
 import { PortalAccessLinks } from './PortalAccessLinks'
@@ -12,7 +12,7 @@ const TourManager = dynamic(
   { ssr: false },
 )
 
-type PortalMode = 'acesso' | 'pendencias' | 'tour'
+type PortalMode = 'pendencias' | 'tour'
 type TeamBoardItem = {
   id: string
   titulo: string | null
@@ -44,7 +44,7 @@ const CATEGORY_LABEL: Record<PortalCategoria, string> = {
 
 export function ObraPortalBoard({ obraId }: { obraId: string }) {
   const supabase = useMemo(() => createClient(), [])
-  const [mode, setMode] = useState<PortalMode>('acesso')
+  const [mode, setMode] = useState<PortalMode>('pendencias')
   const [items, setItems] = useState<TeamBoardItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -98,8 +98,7 @@ export function ObraPortalBoard({ obraId }: { obraId: string }) {
   }
 
   const pending = items.filter(item => !['resolvido', 'arquivado'].includes(item.status)).length
-  const modes: Array<{ id: PortalMode; label: string; icon: typeof ExternalLink }> = [
-    { id: 'acesso', label: 'Acesso', icon: ExternalLink },
+  const modes: Array<{ id: PortalMode; label: string; icon: typeof ListChecks }> = [
     { id: 'pendencias', label: 'Pendências', icon: ListChecks },
     { id: 'tour', label: 'Tour 360°', icon: ScanLine },
   ]
@@ -122,6 +121,8 @@ export function ObraPortalBoard({ obraId }: { obraId: string }) {
         </div>
       </div>
 
+      <PortalAccessLinks obraId={obraId} />
+
       <div className="flex max-w-full gap-1 overflow-x-auto rounded-lg p-1" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
         {modes.map(item => {
           const Icon = item.icon
@@ -139,7 +140,6 @@ export function ObraPortalBoard({ obraId }: { obraId: string }) {
         })}
       </div>
 
-      {mode === 'acesso' && <PortalAccessLinks obraId={obraId} />}
       {mode === 'tour' && <TourManager obraId={obraId} />}
       {mode === 'pendencias' && (
         <>
