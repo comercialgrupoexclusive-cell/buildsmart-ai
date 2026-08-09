@@ -22,11 +22,12 @@ export type PortalFeedItemDTO = {
   visibility: 'internal' | 'client' | 'shared'
   isStory: boolean
   storySeen: boolean
+  storyViewedAt: string | null
   albumNome: string | null
   publicadoEm: string
   archivedAt: string | null
   autor: string
-  files: Array<{ id: string; nome: string; tipo: string; url: string | null }>
+  files: Array<{ id: string; nome: string; tipo: string; url: string | null; editedAt?: string | null }>
   likes: number
   likedByMe: boolean
   comments: PortalFeedCommentDTO[]

@@ -14,24 +14,28 @@ type Props = {
 export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
   const [items, setItems] = useState(initialItems)
   const [storyId, setStoryId] = useState<string | null>(null)
-  const [viewedStoryIds, setViewedStoryIds] = useState<string[]>([])
   const [showArchive, setShowArchive] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
   const stories = useMemo(() => items.filter(item => item.isStory), [items])
-  const highlighted = stories.filter(item => !item.storySeen)
-  const archived = stories.filter(item => item.storySeen)
-  const activeStories = showArchive ? archived : highlighted
+  const cutoff = now - 24 * 60 * 60 * 1000
+  const recentStories = stories.filter(item => !item.storyViewedAt || new Date(item.storyViewedAt).getTime() > cutoff)
+  const archived = stories.filter(item => item.storyViewedAt && new Date(item.storyViewedAt).getTime() <= cutoff)
+  const activeStories = showArchive ? archived : recentStories
   const activeStoryIndex = activeStories.findIndex(item => item.id === storyId)
   const activeStory = stories.find(item => item.id === storyId) || null
 
   useEffect(() => {
     const postId = new URLSearchParams(window.location.search).get('post')
     if (postId) document.getElementById(`feed-${postId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
   }, [])
 
   async function openStory(item: PortalFeedItemDTO) {
     setStoryId(item.id)
     if (!item.storySeen) {
-      setViewedStoryIds(current => current.includes(item.id) ? current : [...current, item.id])
+      const viewedAt = new Date().toISOString()
+      setItems(current => current.map(currentItem => currentItem.id === item.id ? { ...currentItem, storySeen: true, storyViewedAt: viewedAt } : currentItem))
       await fetch(`/api/portal/${token}/feed`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'view_story', itemId: item.id }),
@@ -40,8 +44,6 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
   }
 
   function closeStory() {
-    setItems(current => current.map(item => viewedStoryIds.includes(item.id) ? { ...item, storySeen: true } : item))
-    setViewedStoryIds([])
     setStoryId(null)
   }
 
@@ -85,14 +87,14 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
       {stories.length > 0 && (
         <div className="card p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-sm font-semibold">Destaques</p>
+            <div><p className="text-sm font-semibold">Stories</p><p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Depois de vistos, permanecem aqui por 24 horas.</p></div>
             {archived.length > 0 && <button type="button" onClick={() => setShowArchive(value => !value)} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}><Archive size={14} />{showArchive ? 'Novidades' : `Arquivo (${archived.length})`}</button>}
           </div>
           {activeStories.length > 0 ? (
             <div className="flex gap-3 overflow-x-auto pb-1">
               {activeStories.map(item => <StoryButton key={item.id} item={item} onClick={() => openStory(item)} />)}
             </div>
-          ) : <p className="py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{showArchive ? 'Nenhum destaque arquivado.' : 'Todas as novidades ja foram visualizadas. Consulte o arquivo quando quiser.'}</p>}
+          ) : <p className="py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{showArchive ? 'Nenhum Story arquivado.' : 'Nenhum Story recente.'}</p>}
         </div>
       )}
 
@@ -122,7 +124,7 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
 
 function StoryButton({ item, onClick }: { item: PortalFeedItemDTO; onClick: () => void }) {
   const image = item.files.find(file => file.url)?.url
-  return <button type="button" onClick={onClick} className="w-[76px] shrink-0 text-center"><span className="mx-auto grid size-16 place-items-center overflow-hidden rounded-full p-[3px]" style={{ background: item.storySeen ? 'var(--border)' : 'var(--accent)' }}><span className="relative block size-full overflow-hidden rounded-full border-2" style={{ borderColor: 'var(--bg-card)', background: 'var(--bg-secondary)' }}>{image ? <Image src={image} alt="" fill unoptimized sizes="64px" className="object-cover" /> : <ImageIcon className="absolute inset-0 m-auto" size={22} />}</span></span><span className="mt-1 block truncate text-[11px] font-medium">{item.titulo}</span></button>
+  return <button type="button" onClick={onClick} className={`w-[76px] shrink-0 text-center transition-opacity ${item.storySeen ? 'opacity-50' : 'opacity-100'}`}><span className="mx-auto grid size-16 place-items-center overflow-hidden rounded-full p-[3px]" style={{ background: item.storySeen ? 'var(--border)' : 'var(--accent)' }}><span className="relative block size-full overflow-hidden rounded-full border-2" style={{ borderColor: 'var(--bg-card)', background: 'var(--bg-secondary)' }}>{image ? <Image src={image} alt="" fill unoptimized sizes="64px" className="object-cover" /> : <ImageIcon className="absolute inset-0 m-auto" size={22} />}</span></span><span className="mt-1 block truncate text-[11px] font-medium">{item.titulo}</span></button>
 }
 
 function StoryMedia({ item }: { item: PortalFeedItemDTO }) {
