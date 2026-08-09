@@ -1783,6 +1783,10 @@ function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], se
           })),
       }))
 
+    const percentualEtapa = subs.length
+      ? Math.round(subs.reduce((total, sub) => total + sub.percentual_executado, 0) / subs.length)
+      : etapa.percentual_executado ?? 0
+
     return {
       id: etapa.id,
       nome: etapa.nome,
@@ -1790,7 +1794,7 @@ function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], se
       nivel: 1 as const,
       data_inicio: etapa.data_inicio,
       data_fim: etapa.data_fim,
-      percentual_executado: etapa.percentual_executado ?? 0,
+      percentual_executado: percentualEtapa,
       status: etapa.status,
       is_marco: etapa.is_marco ?? false,
       children: subs,
@@ -1808,13 +1812,10 @@ function rollupObraGantt(node: ObraGanttNode, map: Map<string, GanttEff>): Gantt
   const childEffs = node.children.map(child => rollupObraGantt(child, map))
   const inicios = [node.data_inicio, ...childEffs.map(e => e.inicio)].filter(Boolean) as string[]
   const fims = [node.data_fim, ...childEffs.map(e => e.fim)].filter(Boolean) as string[]
-  const pct = childEffs.length
-    ? Math.round(childEffs.reduce((sum, e) => sum + e.pct, 0) / childEffs.length)
-    : node.percentual_executado ?? 0
   const eff = {
     inicio: inicios.length ? inicios.reduce((a, b) => (a < b ? a : b)) : node.data_inicio,
     fim: fims.length ? fims.reduce((a, b) => (a > b ? a : b)) : node.data_fim,
-    pct,
+    pct: node.percentual_executado ?? 0,
   }
   map.set(node.id, eff)
   return eff
@@ -1878,7 +1879,7 @@ function ObraGanttView({
   }, [])
   const today = new Date()
   const scrollRef = useRef<HTMLDivElement>(null)
-  const nameColW = isMobile ? (showDatesMobile ? 320 : 168) : GANTT_LEFT_W
+  const nameColW = isMobile ? 168 : GANTT_LEFT_W
   const fullLeftW = isMobile ? nameColW : showDateCols ? nameColW + GANTT_DATE_COL_W * 2 + GANTT_DUR_COL_W : nameColW
 
   const effMap = new Map<string, GanttEff>()
@@ -1958,12 +1959,12 @@ function ObraGanttView({
       node,
       inicio: node.data_inicio ?? eff.inicio,
       fim: node.data_fim ?? eff.fim,
-      pct: eff.pct,
+      pct: node.percentual_executado ?? 0,
       hasKids: node.children.length > 0,
     })),
   ]
 
-  const rowH = isMobile && showDatesMobile ? 94 : GANTT_ROW_H
+  const rowH = isMobile && showDatesMobile ? 58 : GANTT_ROW_H
   const svgH = GANTT_HDR_H + rows.length * rowH + 4
   const months: { label: string; x: number; w: number }[] = []
   let cursor = startOfMonthCrono(minDate)
@@ -2007,10 +2008,7 @@ function ObraGanttView({
           onClick={() => isMobile ? setShowDatesMobile(v => !v) : setShowDateCols(v => !v)}
           title={(isMobile ? showDatesMobile : showDateCols) ? 'Ocultar datas' : 'Mostrar datas'}
         >
-          <span className="inline-flex items-center gap-1">
-            <Calendar size={11} />
-            {(isMobile ? showDatesMobile : showDateCols) ? 'Ocultar datas' : 'Mostrar datas'}
-          </span>
+          {(isMobile ? showDatesMobile : showDateCols) ? '◂ Datas' : '▸ Datas'}
         </button>
         <div className="flex rounded border overflow-hidden ml-auto" style={{ borderColor: 'var(--border)' }}>
           {(['dia', 'semana', 'mes'] as const).map(level => (
@@ -2080,49 +2078,10 @@ function ObraGanttView({
                         </div>
                       ) : null
                     })()}
-                    {isMobile && showDatesMobile && !row.isTotal && node && (
-                      <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_54px_minmax(0,1fr)] gap-1.5">
-                        <label className="min-w-0">
-                          <span className="block text-[8px] uppercase mb-0.5" style={{ color: 'var(--text-secondary)' }}>Início</span>
-                          <input
-                            type="date"
-                            value={node.data_inicio ?? ''}
-                            onChange={e => onUpdateDate(node.table, node.id, 'data_inicio', e.target.value)}
-                            className="w-full min-h-8 rounded-md border px-1 text-[10px] outline-none"
-                            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                          />
-                        </label>
-                        <label className="min-w-0">
-                          <span className="block text-center text-[8px] uppercase mb-0.5" style={{ color: 'var(--text-secondary)' }}>Dias</span>
-                          <input
-                            type="number"
-                            min={0}
-                            value={calcDurCronoStandalone(node.data_inicio, node.data_fim) ?? ''}
-                            onChange={e => {
-                              const duration = Number.parseInt(e.target.value)
-                              if (node.data_inicio && Number.isFinite(duration) && duration >= 0) {
-                                onUpdateDate(node.table, node.id, 'data_fim', addDaysCronoStrStandalone(node.data_inicio, duration))
-                              }
-                            }}
-                            className="w-full min-h-8 rounded-md border px-1 text-center text-[10px] outline-none"
-                            style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                          />
-                        </label>
-                        <label className="min-w-0">
-                          <span className="block text-[8px] uppercase mb-0.5" style={{ color: atrasado ? '#EF4444' : 'var(--text-secondary)' }}>Fim</span>
-                          <input
-                            type="date"
-                            value={node.data_fim ?? ''}
-                            onChange={e => onUpdateDate(node.table, node.id, 'data_fim', e.target.value)}
-                            className="w-full min-h-8 rounded-md border px-1 text-[10px] outline-none"
-                            style={{ background: 'var(--bg-secondary)', borderColor: atrasado ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }}
-                          />
-                        </label>
-                      </div>
-                    )}
-                    {isMobile && showDatesMobile && row.isTotal && (
-                      <div className="mt-1 text-[10px]" style={{ color: 'var(--text-secondary)', paddingLeft: 20 }}>
-                        {fmtGanttDate(row.inicio)} - {fmtGanttDate(row.fim)}
+                    {isMobile && showDatesMobile && (
+                      <div className="mt-1 truncate text-[9px]" style={{ color: atrasado ? '#EF4444' : 'var(--text-secondary)', paddingLeft: row.isTotal ? 20 : 21 }}>
+                        {fmtGanttDate(row.inicio)} → {fmtGanttDate(row.fim)}
+                        {row.inicio && row.fim ? ` · ${calcDurCronoStandalone(row.inicio, row.fim) ?? 0}d` : ''}
                       </div>
                     )}
                   </div>
