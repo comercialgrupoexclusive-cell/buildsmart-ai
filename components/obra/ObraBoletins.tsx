@@ -34,7 +34,7 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('medicoes').select('*').eq('obra_id', obraId).order('numero', { ascending: false, nullsFirst: false }).order('periodo_fim', { ascending: false })
+    const { data } = await supabase.from('medicoes').select('*').eq('obra_id', obraId).eq('eixo', 'fisico').order('numero', { ascending: false, nullsFirst: false }).order('periodo_fim', { ascending: false })
     setBoletins((data || []) as Medicao[])
     setLoading(false)
   }, [obraId, supabase])
@@ -56,10 +56,10 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
   // ── Cria o boletim (rascunho) ───────────────────────────────────────────────
   async function criar() {
     setSaving(true)
-    const { data: max } = await supabase.from('medicoes').select('numero').eq('obra_id', obraId).order('numero', { ascending: false, nullsFirst: false }).limit(1)
+    const { data: max } = await supabase.from('medicoes').select('numero').eq('obra_id', obraId).eq('eixo', 'fisico').order('numero', { ascending: false, nullsFirst: false }).limit(1)
     const numero = ((max?.[0]?.numero as number) || 0) + 1
     const { error } = await supabase.from('medicoes').insert({
-      obra_id: obraId, numero, status: 'rascunho',
+      obra_id: obraId, eixo: 'fisico', numero, status: 'rascunho',
       nome: form.nome.trim() || `Medição ${numero}`,
       periodo_inicio: form.periodo_inicio, periodo_fim: form.periodo_fim,
       percentual_executado: 0, fotos: [], updated_at: new Date().toISOString(),
@@ -81,6 +81,7 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
       .from('medicao_itens')
       .select('item_id, pct_atual, medicao_id, medicoes!inner(obra_id, status, periodo_fim)')
       .eq('medicoes.obra_id', obraId)
+      .eq('medicoes.eixo', 'fisico')
       .eq('medicoes.status', 'fechada')
     const anteriorPorEtapa: Record<string, number> = {}
     ;((anterioresRows || []) as { item_id: string; pct_atual: number }[]).forEach(r => {

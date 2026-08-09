@@ -10,6 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ServicoProg = { id: string; nome: string; percentual: number }
+export type AvancoEixo = 'fisico' | 'mao_obra'
 export type SubetapaProg = { id: string; nome: string; percentual: number; servicos: ServicoProg[] }
 export type EtapaProg = {
   id: string
@@ -40,14 +41,18 @@ const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0)
 export async function loadObraProgresso(
   supabase: SupabaseClient,
   obraId: string,
+  eixo: AvancoEixo = 'fisico',
+  orcamentoIds?: string[],
 ): Promise<ObraProgresso> {
   const [{ data: etapasData }, { data: orcamentos }] = await Promise.all([
     supabase
       .from('etapas')
-      .select('id, nome, ordem, percentual_executado, data_inicio, data_fim, subetapas_cronograma(id, nome, percentual_executado, ordem, servicos_cronograma(id, nome, percentual_executado, ordem))')
+      .select('id, nome, ordem, percentual_executado, percentual_mao_obra, data_inicio, data_fim, subetapas_cronograma(id, nome, percentual_executado, percentual_mao_obra, ordem, servicos_cronograma(id, nome, percentual_executado, percentual_mao_obra, ordem))')
       .eq('obra_id', obraId)
       .order('ordem'),
-    supabase.from('orcamentos').select('id').eq('obra_id', obraId),
+    orcamentoIds
+      ? Promise.resolve({ data: orcamentoIds.map(id => ({ id })) })
+      : supabase.from('orcamentos').select('id').eq('obra_id', obraId),
   ])
 
   // Valor contratado por etapa = Σ (quantidade × preço unit) dos itens do orçamento
@@ -56,26 +61,30 @@ export async function loadObraProgresso(
   if (orcIds.length > 0) {
     const { data: itens } = await supabase
       .from('orcamento_itens')
-      .select('etapa_id, quantidade, preco_unitario_snapshot')
+      .select('etapa_id, quantidade, preco_unitario_snapshot, classificacao_snapshot')
       .in('orcamento_id', orcIds)
-    ;((itens || []) as { etapa_id: string | null; quantidade: number; preco_unitario_snapshot: number }[])
+    ;((itens || []) as { etapa_id: string | null; quantidade: number; preco_unitario_snapshot: number; classificacao_snapshot: string | null }[])
       .forEach(it => {
         if (!it.etapa_id) return
+        if (eixo === 'mao_obra' && normalizarClassificacao(it.classificacao_snapshot) !== 'MAO_DE_OBRA') return
         valorPorEtapa[it.etapa_id] = (valorPorEtapa[it.etapa_id] || 0) + num(it.quantidade) * num(it.preco_unitario_snapshot)
       })
   }
 
   type RawEtapa = {
-    id: string; nome: string; ordem: number; percentual_executado: number
+    id: string; nome: string; ordem: number; percentual_executado: number; percentual_mao_obra: number
     data_inicio: string | null; data_fim: string | null
-    subetapas_cronograma: { id: string; nome: string; percentual_executado: number; ordem: number; servicos_cronograma: { id: string; nome: string; percentual_executado: number; ordem: number }[] }[]
+    subetapas_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; ordem: number; servicos_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; ordem: number }[] }[]
   }
+
+  const percentualDe = (item: { percentual_executado: number; percentual_mao_obra: number }) =>
+    num(eixo === 'mao_obra' ? item.percentual_mao_obra : item.percentual_executado)
 
   const etapas: EtapaProg[] = ((etapasData || []) as RawEtapa[]).map(e => ({
     id: e.id,
     nome: e.nome,
     ordem: e.ordem,
-    percentual: num(e.percentual_executado),
+    percentual: percentualDe(e),
     valorContratado: valorPorEtapa[e.id] || 0,
     data_inicio: e.data_inicio,
     data_fim: e.data_fim,
@@ -84,10 +93,10 @@ export async function loadObraProgresso(
       .map(s => ({
         id: s.id,
         nome: s.nome,
-        percentual: num(s.percentual_executado),
+        percentual: percentualDe(s),
         servicos: (s.servicos_cronograma || [])
           .sort((a, b) => a.ordem - b.ordem)
-          .map(v => ({ id: v.id, nome: v.nome, percentual: num(v.percentual_executado) })),
+          .map(v => ({ id: v.id, nome: v.nome, percentual: percentualDe(v) })),
       })),
   }))
 
@@ -114,6 +123,7 @@ export async function propagarAvancoServicos(
   supabase: SupabaseClient,
   obraId: string,
   updates: { servicoId: string; percentual: number }[],
+  eixo: AvancoEixo = 'fisico',
 ): Promise<void> {
   if (updates.length === 0) return
   const alvo = new Map(updates.map(u => [u.servicoId, clampPct(u.percentual)]))
@@ -121,10 +131,13 @@ export async function propagarAvancoServicos(
   // Carrega a árvore para recalcular os pais afetados
   const { data: etapasData } = await supabase
     .from('etapas')
-    .select('id, percentual_executado, subetapas_cronograma(id, percentual_executado, servicos_cronograma(id, percentual_executado))')
+    .select('id, percentual_executado, percentual_mao_obra, subetapas_cronograma(id, percentual_executado, percentual_mao_obra, servicos_cronograma(id, percentual_executado, percentual_mao_obra))')
     .eq('obra_id', obraId)
 
-  type Raw = { id: string; percentual_executado: number; subetapas_cronograma: { id: string; percentual_executado: number; servicos_cronograma: { id: string; percentual_executado: number }[] }[] }
+  type PctRaw = { percentual_executado: number; percentual_mao_obra: number }
+  type Raw = PctRaw & { id: string; subetapas_cronograma: (PctRaw & { id: string; servicos_cronograma: (PctRaw & { id: string })[] })[] }
+  const campo = eixo === 'mao_obra' ? 'percentual_mao_obra' : 'percentual_executado'
+  const atual = (item: PctRaw) => num(item[campo])
 
   const svcUpdates: { id: string; percentual_executado: number }[] = []
   const subUpdates: { id: string; percentual_executado: number; status: string }[] = []
@@ -142,14 +155,14 @@ export async function propagarAvancoServicos(
       const novosSvc = svcs.map(sv => {
         if (alvo.has(sv.id)) {
           const novo = alvo.get(sv.id)!
-          if (novo !== num(sv.percentual_executado)) { svcUpdates.push({ id: sv.id, percentual_executado: novo }); subTemMudanca = true }
+          if (novo !== atual(sv)) { svcUpdates.push({ id: sv.id, percentual_executado: novo }); subTemMudanca = true }
           return novo
         }
-        return num(sv.percentual_executado)
+        return atual(sv)
       })
-      const subPct = novosSvc.length > 0 ? novosSvc.reduce((a, b) => a + b, 0) / novosSvc.length : num(sub.percentual_executado)
+      const subPct = novosSvc.length > 0 ? novosSvc.reduce((a, b) => a + b, 0) / novosSvc.length : atual(sub)
       subPcts.push(subPct)
-      if (subTemMudanca && subPct !== num(sub.percentual_executado)) {
+      if (subTemMudanca && subPct !== atual(sub)) {
         subUpdates.push({ id: sub.id, percentual_executado: subPct, status: statusDe(subPct) })
         etaTemMudanca = true
       } else if (subTemMudanca) {
@@ -158,7 +171,7 @@ export async function propagarAvancoServicos(
     }
     if (etaTemMudanca && subPcts.length > 0) {
       const etaPct = subPcts.reduce((a, b) => a + b, 0) / subPcts.length
-      if (etaPct !== num(eta.percentual_executado)) {
+      if (etaPct !== atual(eta)) {
         etaUpdates.push({ id: eta.id, percentual_executado: etaPct, status: statusDe(etaPct) })
       }
     }
@@ -166,10 +179,19 @@ export async function propagarAvancoServicos(
 
   // Persiste em paralelo
   await Promise.all([
-    ...svcUpdates.map(u => supabase.from('servicos_cronograma').update({ percentual_executado: u.percentual_executado }).eq('id', u.id)),
-    ...subUpdates.map(u => supabase.from('subetapas_cronograma').update({ percentual_executado: u.percentual_executado, status: u.status }).eq('id', u.id)),
-    ...etaUpdates.map(u => supabase.from('etapas').update({ percentual_executado: u.percentual_executado, status: u.status }).eq('id', u.id)),
+    ...svcUpdates.map(u => supabase.from('servicos_cronograma').update({ [campo]: u.percentual_executado }).eq('id', u.id)),
+    ...subUpdates.map(u => supabase.from('subetapas_cronograma').update(eixo === 'fisico' ? { [campo]: u.percentual_executado, status: u.status } : { [campo]: u.percentual_executado }).eq('id', u.id)),
+    ...etaUpdates.map(u => supabase.from('etapas').update(eixo === 'fisico' ? { [campo]: u.percentual_executado, status: u.status } : { [campo]: u.percentual_executado }).eq('id', u.id)),
   ])
+}
+
+function normalizarClassificacao(value: string | null): string {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_')
 }
 
 /** Cor por percentual — padrão do app. */

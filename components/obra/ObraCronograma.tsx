@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { PredecessorPicker, PredecessoraRef } from '@/components/obra/PredecessorPicker'
 
 type Tab = 'kanban' | 'cascata' | 'gantt'
+type AvancoEixo = 'fisico' | 'mao_obra'
 
 type EtapaForm = { nome: string; data_inicio: string; data_fim: string; status: Etapa['status']; percentual_executado: number; is_marco: boolean }
 type SubForm   = { nome: string; data_inicio: string; data_fim: string; status: SubetapaCronograma['status']; percentual_executado: number; responsavel: string; is_marco: boolean }
@@ -142,6 +143,7 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
   const [editField, setEditField] = useState<EditField>(null)
   const [empreiteiro, setEmpreiteiro] = useState('')
   const [statusFiltro, setStatusFiltro] = useState<CronogramaStatus[]>(['planejada', 'em_andamento', 'atrasada'])
+  const [avancoEixo, setAvancoEixo] = useState<AvancoEixo>('fisico')
 
   const [etapaModal, setEtapaModal] = useState<{ open: boolean; editando: Etapa | null }>({ open: false, editando: null })
   const [subModal,   setSubModal]   = useState<{ open: boolean; etapaId: string | null; editando: SubetapaCronograma | null }>({ open: false, etapaId: null, editando: null })
@@ -406,8 +408,13 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
 
   function progressoEtapa(etapaId: string): number {
     const subs = subsDaEtapa(etapaId)
-    if (subs.length === 0) return etapas.find(e => e.id === etapaId)?.percentual_executado ?? 0
-    return Math.round(subs.reduce((acc, s) => acc + s.percentual_executado, 0) / subs.length)
+    if (subs.length === 0) return percentualDo(etapas.find(e => e.id === etapaId))
+    return Math.round(subs.reduce((acc, s) => acc + percentualDo(s), 0) / subs.length)
+  }
+
+  function percentualDo(item: { percentual_executado: number; percentual_mao_obra?: number } | undefined): number {
+    if (!item) return 0
+    return Number(avancoEixo === 'mao_obra' ? item.percentual_mao_obra : item.percentual_executado) || 0
   }
 
   // ── Predecessoras — helpers ────────────────────────────────────────────────────
@@ -763,12 +770,14 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
   async function updatePct(
     table: 'etapas' | 'subetapas_cronograma' | 'servicos_cronograma',
     id: string,
-    pct: number
+    pct: number,
+    eixoOverride?: AvancoEixo,
   ) {
-    if (table === 'etapas') setEtapas(prev => prev.map(e => e.id === id ? { ...e, percentual_executado: pct } : e))
-    if (table === 'subetapas_cronograma') setSubetapas(prev => prev.map(s => s.id === id ? { ...s, percentual_executado: pct } : s))
-    if (table === 'servicos_cronograma') setServicos(prev => prev.map(s => s.id === id ? { ...s, percentual_executado: pct } : s))
-    const { error } = await supabase.from(table).update({ percentual_executado: pct }).eq('id', id)
+    const campo = (eixoOverride ?? avancoEixo) === 'mao_obra' ? 'percentual_mao_obra' : 'percentual_executado'
+    if (table === 'etapas') setEtapas(prev => prev.map(e => e.id === id ? { ...e, [campo]: pct } : e))
+    if (table === 'subetapas_cronograma') setSubetapas(prev => prev.map(s => s.id === id ? { ...s, [campo]: pct } : s))
+    if (table === 'servicos_cronograma') setServicos(prev => prev.map(s => s.id === id ? { ...s, [campo]: pct } : s))
+    const { error } = await supabase.from(table).update({ [campo]: pct }).eq('id', id)
     if (error) console.error('Erro ao salvar %:', error)
   }
 
@@ -905,6 +914,18 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
       </div>
 
       <div className="card p-3 flex flex-col gap-2">
+        <div className="flex items-center gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          {([
+            { key: 'fisico', label: 'Avanço físico' },
+            { key: 'mao_obra', label: 'Mão de obra' },
+          ] as const).map(eixo => (
+            <button key={eixo.key} onClick={() => setAvancoEixo(eixo.key)}
+              className="px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+              style={avancoEixo === eixo.key ? { background: 'var(--accent)', color: '#fff' } : { color: 'var(--text-secondary)' }}>
+              {eixo.label}
+            </button>
+          ))}
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
             Filtro de status
@@ -962,7 +983,7 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
           subetapas={subetapas}
           servicos={servicos}
           onUpdateStatus={updateStatus}
-          onUpdatePct={updatePct}
+          onUpdatePct={(table, id, pct) => updatePct(table, id, pct, 'fisico')}
           onEditSub={openEditSub}
           onEditEtapa={openEditEtapa}
           onNewSub={openNewSub}
@@ -1133,7 +1154,7 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
                             {STATUS_ETAPA_LABEL[sub.status]}
                           </span>
 
-                          <PctInput value={sub.percentual_executado} onChange={v => updatePct('subetapas_cronograma', sub.id, v)} small />
+                          <PctInput value={percentualDo(sub)} onChange={v => updatePct('subetapas_cronograma', sub.id, v)} small />
 
                           <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
                             <button onClick={() => openNewSvc(sub.id)} className="p-1 rounded hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }}><Plus size={11} /></button>
@@ -1214,7 +1235,7 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
                                 <Flag size={11} style={{ color: svc.is_marco ? '#F59E0B' : 'var(--text-secondary)' }} fill={svc.is_marco ? '#F59E0B' : 'none'} strokeWidth={svc.is_marco ? 2.5 : 1.5} />
                               </button>
 
-                              <PctInput value={svc.percentual_executado} onChange={v => updatePct('servicos_cronograma', svc.id, v)} small />
+                              <PctInput value={percentualDo(svc)} onChange={v => updatePct('servicos_cronograma', svc.id, v)} small />
 
                               <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
                                 <button onClick={() => openEditSvc(svc)} className="p-1 rounded hover:bg-[var(--bg-card)]"><Pencil size={10} style={{ color: 'var(--text-secondary)' }} /></button>
@@ -1299,6 +1320,7 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
           etapas={etapas}
           subetapas={subetapas}
           servicos={servicos}
+          avancoEixo={avancoEixo}
           dependencias={dependencias}
           onUpdateDate={updateDateInline}
           onUpdatePct={updatePct}
@@ -1750,7 +1772,9 @@ function addDaysCronoStrStandalone(date: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], servicos: ServicoCronograma[]) {
+function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], servicos: ServicoCronograma[], eixo: AvancoEixo) {
+  const percentualDe = (item: { percentual_executado: number; percentual_mao_obra?: number }) =>
+    Number(eixo === 'mao_obra' ? item.percentual_mao_obra : item.percentual_executado) || 0
   return etapas.map(etapa => {
     const subs = subetapas
       .filter(sub => sub.etapa_id === etapa.id)
@@ -1762,7 +1786,7 @@ function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], se
         nivel: 2 as const,
         data_inicio: sub.data_inicio,
         data_fim: sub.data_fim,
-        percentual_executado: sub.percentual_executado ?? 0,
+        percentual_executado: percentualDe(sub),
         status: sub.status,
         responsavel: sub.responsavel,
         is_marco: sub.is_marco ?? false,
@@ -1776,7 +1800,8 @@ function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], se
             nivel: 3 as const,
             data_inicio: svc.data_inicio,
             data_fim: svc.data_fim,
-            percentual_executado: svc.percentual_executado ?? 0,
+            percentual_executado: percentualDe(svc),
+            status: svc.percentual_executado >= 100 ? 'concluida' as const : svc.percentual_executado > 0 ? 'em_andamento' as const : 'planejada' as const,
             responsavel: svc.responsavel,
             is_marco: svc.is_marco ?? false,
             children: [],
@@ -1785,7 +1810,7 @@ function buildObraGanttTree(etapas: Etapa[], subetapas: SubetapaCronograma[], se
 
     const percentualEtapa = subs.length
       ? Math.round(subs.reduce((total, sub) => total + sub.percentual_executado, 0) / subs.length)
-      : etapa.percentual_executado ?? 0
+      : percentualDe(etapa)
 
     return {
       id: etapa.id,
@@ -1825,6 +1850,7 @@ function ObraGanttView({
   etapas,
   subetapas,
   servicos,
+  avancoEixo,
   dependencias,
   onUpdateDate,
   onUpdatePct,
@@ -1840,6 +1866,7 @@ function ObraGanttView({
   etapas: Etapa[]
   subetapas: SubetapaCronograma[]
   servicos: ServicoCronograma[]
+  avancoEixo: AvancoEixo
   dependencias: CronogramaDependencia[]
   onUpdateDate: (table: ObraGanttTable, id: string, field: 'data_inicio' | 'data_fim', value: string) => void
   onUpdatePct: (table: ObraGanttTable, id: string, pct: number) => void
@@ -1852,7 +1879,7 @@ function ObraGanttView({
   statusFiltro: CronogramaStatus[]
   onOpenPredecessor?: (tipo: CronogramaItemTipo, id: string) => void
 }) {
-  const rawTree = buildObraGanttTree(etapas, subetapas, servicos)
+  const rawTree = buildObraGanttTree(etapas, subetapas, servicos, avancoEixo)
   const statusDoNode = (node: ObraGanttNode): CronogramaStatus => {
     if (node.status) return node.status
     if ((node.percentual_executado ?? 0) >= 100) return 'concluida'

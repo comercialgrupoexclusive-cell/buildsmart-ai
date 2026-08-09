@@ -13,22 +13,30 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList,
-  NotebookPen, FileBarChart, LineChart, Square, CheckSquare,
+  NotebookPen, FileBarChart, LineChart, Square, CheckSquare, Banknote,
+  Landmark, BriefcaseBusiness,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   loadObraProgresso, propagarAvancoServicos, corPorPercentual, clampPct,
-  type ObraProgresso, type EtapaProg,
+  type ObraProgresso, type EtapaProg, type AvancoEixo,
 } from '@/lib/obra-progresso'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ObraRdo } from '@/components/obra/ObraRdo'
 import { ObraBoletins } from '@/components/obra/ObraBoletins'
 import { ObraCurvaS } from '@/components/obra/ObraCurvaS'
+import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
+import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
+import { ObraMedicaoMaoObra } from '@/components/obra/ObraMedicaoMaoObra'
 
-type SubTab = 'avanco' | 'boletins' | 'diario' | 'curva'
+type SubTab = 'fisico' | 'mao-obra' | 'medicao-mao-obra' | 'financeiro' | 'financiamento' | 'boletins' | 'diario' | 'curva'
 
 const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
-  { id: 'avanco', label: 'Avanço', icon: ClipboardList },
+  { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
+  { id: 'mao-obra', label: 'Avanço M.O.', icon: TrendingUp },
+  { id: 'medicao-mao-obra', label: 'Medição M.O.', icon: BriefcaseBusiness },
+  { id: 'financeiro', label: 'Financeiro', icon: Banknote },
+  { id: 'financiamento', label: 'Financiamento', icon: Landmark },
   { id: 'boletins', label: 'Boletins', icon: FileBarChart },
   { id: 'diario', label: 'Diário (RDO)', icon: NotebookPen },
   { id: 'curva', label: 'Curva S', icon: LineChart },
@@ -38,7 +46,7 @@ const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 
 export function ObraMedicoes({ obraId }: { obraId: string }) {
   const supabase = createClient()
-  const [subTab, setSubTab] = useState<SubTab>('avanco')
+  const [subTab, setSubTab] = useState<SubTab>('fisico')
   const [prog, setProg] = useState<ObraProgresso | null>(null)
   const [loading, setLoading] = useState(true)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -46,20 +54,22 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
   // Filtros da aba Avanço
   const [filtroEtapa, setFiltroEtapa] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'andamento' | 'concluido'>('todas')
+  const eixo: AvancoEixo = subTab === 'mao-obra' ? 'mao_obra' : 'fisico'
+  const campoPct = eixo === 'mao_obra' ? 'percentual_mao_obra' : 'percentual_executado'
 
   const carregar = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
-    const p = await loadObraProgresso(supabase, obraId)
+    const p = await loadObraProgresso(supabase, obraId, eixo)
     setProg(p)
     if (!silent) setLoading(false)
-  }, [obraId, supabase])
+  }, [obraId, supabase, eixo])
 
   useEffect(() => { Promise.resolve().then(() => carregar()) }, [carregar])
 
   // Recarrega o avanço (fonte única) ao voltar para abas que dependem dele —
   // ex.: um RDO lançado no Diário pode ter mexido no % do cronograma.
   useEffect(() => {
-    if (subTab === 'avanco' || subTab === 'boletins' || subTab === 'curva') {
+    if (subTab === 'fisico' || subTab === 'mao-obra' || subTab === 'boletins' || subTab === 'curva') {
       Promise.resolve().then(() => carregar(true))
     }
   }, [subTab, carregar])
@@ -67,7 +77,7 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
   // ── Edição de % que escreve DIRETO no cronograma ────────────────────────────
   async function setServicoPct(servicoId: string, pct: number) {
     setSaving(true)
-    await propagarAvancoServicos(supabase, obraId, [{ servicoId, percentual: clampPct(pct) }])
+    await propagarAvancoServicos(supabase, obraId, [{ servicoId, percentual: clampPct(pct) }], eixo)
     await carregar(); setSaving(false)
   }
 
@@ -76,10 +86,10 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
     const v = clampPct(pct)
     if (sub.servicos.length > 0) {
       // Espalha para os serviços e deixa a propagação recalcular subetapa/etapa
-      await propagarAvancoServicos(supabase, obraId, sub.servicos.map(s => ({ servicoId: s.id, percentual: v })))
+      await propagarAvancoServicos(supabase, obraId, sub.servicos.map(s => ({ servicoId: s.id, percentual: v })), eixo)
     } else {
       const status = v >= 100 ? 'concluida' : v > 0 ? 'em_andamento' : 'planejada'
-      await supabase.from('subetapas_cronograma').update({ percentual_executado: v, status }).eq('id', sub.id)
+      await supabase.from('subetapas_cronograma').update(eixo === 'fisico' ? { [campoPct]: v, status } : { [campoPct]: v }).eq('id', sub.id)
       await recalcEtapaDeSubetapa(sub.id)
     }
     await carregar(); setSaving(false)
@@ -91,9 +101,9 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
     const status = v >= 100 ? 'concluida' : v > 0 ? 'em_andamento' : 'planejada'
     const svcIds = etapa.subetapas.flatMap(s => s.servicos.map(x => x.id))
     await Promise.all([
-      supabase.from('etapas').update({ percentual_executado: v, status }).eq('id', etapa.id),
-      ...etapa.subetapas.map(s => supabase.from('subetapas_cronograma').update({ percentual_executado: v, status }).eq('id', s.id)),
-      ...svcIds.map(id => supabase.from('servicos_cronograma').update({ percentual_executado: v }).eq('id', id)),
+      supabase.from('etapas').update(eixo === 'fisico' ? { [campoPct]: v, status } : { [campoPct]: v }).eq('id', etapa.id),
+      ...etapa.subetapas.map(s => supabase.from('subetapas_cronograma').update(eixo === 'fisico' ? { [campoPct]: v, status } : { [campoPct]: v }).eq('id', s.id)),
+      ...svcIds.map(id => supabase.from('servicos_cronograma').update({ [campoPct]: v }).eq('id', id)),
     ])
     await carregar(); setSaving(false)
   }
@@ -102,12 +112,12 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
     const { data } = await supabase.from('subetapas_cronograma').select('etapa_id').eq('id', subId).maybeSingle()
     const etapaId = (data as { etapa_id: string } | null)?.etapa_id
     if (!etapaId) return
-    const { data: subs } = await supabase.from('subetapas_cronograma').select('percentual_executado').eq('etapa_id', etapaId)
-    const arr = (subs || []) as { percentual_executado: number }[]
+    const { data: subs } = await supabase.from('subetapas_cronograma').select(campoPct).eq('etapa_id', etapaId)
+    const arr = (subs || []) as unknown as Record<string, number>[]
     if (arr.length === 0) return
-    const media = arr.reduce((a, b) => a + Number(b.percentual_executado), 0) / arr.length
+    const media = arr.reduce((a, b) => a + Number(b[campoPct]), 0) / arr.length
     const status = media >= 100 ? 'concluida' : media > 0 ? 'em_andamento' : 'planejada'
-    await supabase.from('etapas').update({ percentual_executado: media, status }).eq('id', etapaId)
+    await supabase.from('etapas').update(eixo === 'fisico' ? { [campoPct]: media, status } : { [campoPct]: media }).eq('id', etapaId)
   }
 
   if (loading) {
@@ -133,8 +143,11 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
       {subTab === 'diario' && <ObraRdo obraId={obraId} />}
       {subTab === 'boletins' && <ObraBoletins obraId={obraId} prog={prog} onMedicaoFechada={carregar} />}
       {subTab === 'curva' && <ObraCurvaS obraId={obraId} prog={prog} />}
+      {subTab === 'financeiro' && <ObraAvancoFinanceiro obraId={obraId} />}
+      {subTab === 'financiamento' && <ObraFinanciamento obraId={obraId} />}
+      {subTab === 'medicao-mao-obra' && <ObraMedicaoMaoObra obraId={obraId} />}
 
-      {subTab === 'avanco' && prog && (
+      {(subTab === 'fisico' || subTab === 'mao-obra') && prog && (
         <>
           {/* Avanço global ponderado por valor */}
           <div className="card p-4 flex flex-col gap-3">
@@ -142,7 +155,7 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
               <TrendingUp size={20} style={{ color: 'var(--accent)' }} />
               <div className="flex-1">
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  Avanço físico global {prog.temValores ? '(ponderado por valor)' : '(média simples)'}
+                  {eixo === 'fisico' ? 'Avanço físico global' : 'Evolução da mão de obra'} {prog.temValores ? '(ponderado pelo orçamento)' : '(média simples)'}
                 </p>
                 <div className="flex items-center gap-3 mt-1">
                   <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
@@ -154,8 +167,8 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
             </div>
             {prog.temValores && (
               <div className="flex items-center gap-4 text-xs pt-1" style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
-                <span>Contratado: <strong style={{ color: 'var(--text-primary)' }}>{brl(prog.valorTotal)}</strong></span>
-                <span>Executado: <strong style={{ color: 'var(--success)' }}>{brl(prog.valorTotal * prog.avancoPonderado / 100)}</strong></span>
+                <span>{eixo === 'fisico' ? 'Orçamento base' : 'Mão de obra orçada'}: <strong style={{ color: 'var(--text-primary)' }}>{brl(prog.valorTotal)}</strong></span>
+                <span>Equivalente executado: <strong style={{ color: 'var(--success)' }}>{brl(prog.valorTotal * prog.avancoPonderado / 100)}</strong></span>
                 <span className="hidden sm:inline">Média simples: {prog.avancoSimples.toFixed(1)}%</span>
               </div>
             )}
@@ -196,7 +209,7 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
                   </div>
                 </div>
                 <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
-                  Ajuste o % de execução em qualquer nível — o valor é gravado direto no cronograma (fonte única). Definir a etapa espalha para baixo; ajustar serviços recalcula a subetapa e a etapa por cima. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
+                  Ajuste o {eixo === 'fisico' ? '% físico' : '% de mão de obra'} em qualquer nível. Os dois controles são independentes; definir a etapa espalha para baixo e ajustar serviços recalcula os pais. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
                 </p>
                 {etapasFiltradas.length === 0 ? (
                   <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma etapa neste filtro.</div>

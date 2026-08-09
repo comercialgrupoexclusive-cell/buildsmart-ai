@@ -1,0 +1,215 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Landmark, Plus, Trash2, WalletCards } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import type { Etapa, FonteRecursoTipo, Medicao, ObraFonteRecurso, ObraReembolso, ReembolsoStatus } from '@/lib/types'
+import { formatCurrency } from '@/lib/utils'
+
+const FONTES: { tipo: FonteRecursoTipo; label: string }[] = [
+  { tipo: 'recursos_proprios', label: 'Recursos próprios' },
+  { tipo: 'financiamento', label: 'Financiamento bancário' },
+  { tipo: 'fgts', label: 'FGTS' },
+]
+
+const STATUS: { value: ReembolsoStatus; label: string }[] = [
+  { value: 'rascunho', label: 'Rascunho' },
+  { value: 'solicitado', label: 'Solicitado' },
+  { value: 'aprovado', label: 'Aprovado' },
+  { value: 'recebido', label: 'Recebido' },
+  { value: 'recusado', label: 'Recusado' },
+]
+
+const emptyForm = {
+  descricao: '', fonte_id: '', etapa_id: '', medicao_id: '', valor_solicitado: '',
+  data_solicitacao: '', observacao: '',
+}
+
+type OrcamentoOpcao = { id: string; nome: string | null; versao: number; status: string }
+
+export function ObraFinanciamento({ obraId }: { obraId: string }) {
+  const supabase = createClient()
+  const [fontes, setFontes] = useState<ObraFonteRecurso[]>([])
+  const [reembolsos, setReembolsos] = useState<ObraReembolso[]>([])
+  const [etapas, setEtapas] = useState<Etapa[]>([])
+  const [medicoes, setMedicoes] = useState<Medicao[]>([])
+  const [orcamentos, setOrcamentos] = useState<OrcamentoOpcao[]>([])
+  const [orcamentoId, setOrcamentoId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState(emptyForm)
+
+  const carregar = useCallback(async () => {
+    setLoading(true)
+    const [fontesRes, reembolsosRes, etapasRes, medicoesRes, orcamentosRes] = await Promise.all([
+      supabase.from('obra_fontes_recursos').select('*').eq('obra_id', obraId).order('tipo'),
+      supabase.from('obra_reembolsos').select('*').eq('obra_id', obraId).order('created_at', { ascending: false }),
+      supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem'),
+      supabase.from('medicoes').select('*').eq('obra_id', obraId).order('periodo_fim', { ascending: false }),
+      supabase.from('orcamentos').select('id,nome,versao,status').eq('obra_id', obraId).order('versao', { ascending: false }),
+    ])
+    setFontes((fontesRes.data || []) as ObraFonteRecurso[])
+    setReembolsos((reembolsosRes.data || []) as ObraReembolso[])
+    setEtapas((etapasRes.data || []) as Etapa[])
+    setMedicoes((medicoesRes.data || []) as Medicao[])
+    const opcoes = (orcamentosRes.data || []) as OrcamentoOpcao[]
+    setOrcamentos(opcoes)
+    setOrcamentoId(atual => atual || opcoes.find(o => o.status === 'ativo')?.id || opcoes[0]?.id || '')
+    setLoading(false)
+  }, [obraId, supabase])
+
+  useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
+
+  const fontesVisiveis = useMemo(() => fontes.filter(f => (f.orcamento_id || '') === orcamentoId), [fontes, orcamentoId])
+  const reembolsosVisiveis = useMemo(() => reembolsos.filter(r => (r.orcamento_id || '') === orcamentoId), [reembolsos, orcamentoId])
+  const medicoesVisiveis = useMemo(() => medicoes.filter(m => !m.orcamento_id || m.orcamento_id === orcamentoId), [medicoes, orcamentoId])
+  const fontePorTipo = useMemo(() => new Map(fontesVisiveis.map(f => [f.tipo, f])), [fontesVisiveis])
+  const totalPrevisto = fontesVisiveis.reduce((sum, f) => sum + Number(f.valor_previsto || 0), 0)
+  const totalSolicitado = reembolsosVisiveis.reduce((sum, r) => sum + Number(r.valor_solicitado || 0), 0)
+  const totalRecebido = reembolsosVisiveis.reduce((sum, r) => sum + Number(r.valor_recebido || 0), 0)
+
+  async function salvarFonte(tipo: FonteRecursoTipo, value: string) {
+    const valor = Math.max(0, Number(value) || 0)
+    const existente = fontePorTipo.get(tipo)
+    const payload = { obra_id: obraId, orcamento_id: orcamentoId || null, tipo, valor_previsto: valor, updated_at: new Date().toISOString() }
+    const query = existente
+      ? supabase.from('obra_fontes_recursos').update(payload).eq('id', existente.id)
+      : supabase.from('obra_fontes_recursos').insert(payload)
+    const { data, error } = await query.select().single()
+    if (error) return alert(`Não foi possível salvar a fonte: ${error.message}`)
+    if (data) setFontes(prev => [...prev.filter(f => f.id !== (data as ObraFonteRecurso).id), data as ObraFonteRecurso])
+    if (!existente && data) setForm(prev => ({ ...prev, fonte_id: prev.fonte_id || data.id }))
+  }
+
+  async function criarReembolso() {
+    if (!form.descricao.trim() || !(Number(form.valor_solicitado) > 0)) return
+    setSaving(true)
+    const { data, error } = await supabase.from('obra_reembolsos').insert({
+      obra_id: obraId,
+      orcamento_id: orcamentoId || null,
+      descricao: form.descricao.trim(),
+      fonte_id: form.fonte_id || null,
+      etapa_id: form.etapa_id || null,
+      medicao_id: form.medicao_id || null,
+      valor_solicitado: Number(form.valor_solicitado),
+      data_solicitacao: form.data_solicitacao || null,
+      observacao: form.observacao.trim() || null,
+    }).select().single()
+    setSaving(false)
+    if (error) return alert(`Não foi possível criar o reembolso: ${error.message}`)
+    if (data) setReembolsos(prev => [data as ObraReembolso, ...prev])
+    setForm(emptyForm)
+    setShowForm(false)
+  }
+
+  function alterarLocal(id: string, patch: Partial<ObraReembolso>) {
+    setReembolsos(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
+  }
+
+  async function salvarReembolso(id: string, patch: Partial<ObraReembolso>) {
+    alterarLocal(id, patch)
+    const { error } = await supabase.from('obra_reembolsos').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id)
+    if (error) alert(`Não foi possível salvar: ${error.message}`)
+  }
+
+  async function remover(id: string) {
+    if (!confirm('Excluir este reembolso?')) return
+    const { error } = await supabase.from('obra_reembolsos').delete().eq('id', id)
+    if (error) return alert(`Não foi possível excluir: ${error.message}`)
+    setReembolsos(prev => prev.filter(r => r.id !== id))
+  }
+
+  if (loading) return <div className="flex justify-center py-16"><div className="w-7 h-7 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>
+
+  return (
+    <div className="flex flex-col gap-4 pb-16">
+      <div className="card p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Orçamento do financiamento</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Fontes e reembolsos ficam separados por orçamento.</p>
+        </div>
+        <select value={orcamentoId} onChange={e => { setOrcamentoId(e.target.value); setForm(emptyForm) }} className="input-base text-sm sm:w-72">
+          <option value="">Geral da obra</option>
+          {orcamentos.map(o => <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`} · {o.status}</option>)}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {FONTES.map(({ tipo, label }) => {
+          const fonte = fontePorTipo.get(tipo)
+          return (
+            <label key={`${orcamentoId || 'geral'}-${tipo}`} className="card p-4 block">
+              <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>R$</span>
+                <input type="number" min={0} step="0.01" defaultValue={fonte?.valor_previsto || ''}
+                  onBlur={e => salvarFonte(tipo, e.target.value)} placeholder="0,00"
+                  className="input-base w-full text-right font-semibold" />
+              </div>
+            </label>
+          )
+        })}
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Resumo label="Total de recursos" valor={totalPrevisto} />
+        <Resumo label="Reembolso solicitado" valor={totalSolicitado} />
+        <Resumo label="Recebido" valor={totalRecebido} destaque />
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Reembolsos do banco</h2>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Acompanhe da solicitação até o recebimento.</p>
+        </div>
+        <button onClick={() => setShowForm(v => !v)} className="btn-primary inline-flex items-center gap-2 px-3 py-2 text-sm"><Plus size={15} /> Novo</button>
+      </div>
+
+      {showForm && (
+        <div className="card p-4 flex flex-col gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Descrição"><input value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} className="input-base w-full" placeholder="Ex.: Medição da infraestrutura" /></Field>
+            <Field label="Valor solicitado"><input type="number" min={0} step="0.01" value={form.valor_solicitado} onChange={e => setForm(f => ({ ...f, valor_solicitado: e.target.value }))} className="input-base w-full" /></Field>
+            <Field label="Fonte"><select value={form.fonte_id} onChange={e => setForm(f => ({ ...f, fonte_id: e.target.value }))} className="input-base w-full"><option value="">Não definida</option>{fontes.map(f => <option key={f.id} value={f.id}>{FONTES.find(x => x.tipo === f.tipo)?.label}</option>)}</select></Field>
+            <Field label="Etapa"><select value={form.etapa_id} onChange={e => setForm(f => ({ ...f, etapa_id: e.target.value }))} className="input-base w-full"><option value="">Todas / não definida</option>{etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></Field>
+            <Field label="Boletim de medição"><select value={form.medicao_id} onChange={e => setForm(f => ({ ...f, medicao_id: e.target.value }))} className="input-base w-full"><option value="">Sem vínculo</option>{medicoesVisiveis.map(m => <option key={m.id} value={m.id}>{m.nome || `Medição ${m.numero || ''}`}</option>)}</select></Field>
+            <Field label="Data da solicitação"><input type="date" value={form.data_solicitacao} onChange={e => setForm(f => ({ ...f, data_solicitacao: e.target.value }))} className="input-base w-full" /></Field>
+          </div>
+          <Field label="Observação"><input value={form.observacao} onChange={e => setForm(f => ({ ...f, observacao: e.target.value }))} className="input-base w-full" /></Field>
+          <div className="flex justify-end gap-2"><button onClick={() => setShowForm(false)} className="px-3 py-2 text-sm">Cancelar</button><button onClick={criarReembolso} disabled={saving} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">{saving ? 'Salvando...' : 'Criar reembolso'}</button></div>
+        </div>
+      )}
+
+      {reembolsosVisiveis.length === 0 ? (
+        <div className="card p-10 text-center"><Landmark size={28} className="mx-auto mb-2" style={{ color: 'var(--text-secondary)' }} /><p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum reembolso cadastrado.</p></div>
+      ) : reembolsosVisiveis.map(r => (
+        <div key={r.id} className="card p-4 flex flex-col gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)' }}><WalletCards size={17} style={{ color: 'var(--accent)' }} /></div>
+            <div className="flex-1 min-w-0"><p className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{r.descricao}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Solicitado {formatCurrency(Number(r.valor_solicitado))}</p></div>
+            <select value={r.status} onChange={e => salvarReembolso(r.id, { status: e.target.value as ReembolsoStatus })} className="input-base text-xs py-1 w-28">{STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+            <button onClick={() => remover(r.id)} className="p-2" title="Excluir"><Trash2 size={14} style={{ color: 'var(--danger)' }} /></button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <MoneyEdit label="Aprovado" value={r.valor_aprovado} onBlur={v => salvarReembolso(r.id, { valor_aprovado: v })} />
+            <MoneyEdit label="Recebido" value={r.valor_recebido} onBlur={v => salvarReembolso(r.id, { valor_recebido: v })} />
+            <Field label="Data do recebimento"><input type="date" value={r.data_recebimento || ''} onChange={e => alterarLocal(r.id, { data_recebimento: e.target.value || null })} onBlur={e => salvarReembolso(r.id, { data_recebimento: e.target.value || null })} className="input-base w-full" /></Field>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Resumo({ label, valor, destaque = false }: { label: string; valor: number; destaque?: boolean }) {
+  return <div className="card p-3 min-w-0"><p className="text-[10px] sm:text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{label}</p><p className="text-sm sm:text-lg font-bold truncate" style={{ color: destaque ? 'var(--success)' : 'var(--text-primary)' }}>{formatCurrency(valor)}</p></div>
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="block"><span className="block text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{label}</span>{children}</label>
+}
+
+function MoneyEdit({ label, value, onBlur }: { label: string; value: number; onBlur: (value: number) => void }) {
+  return <Field label={label}><input type="number" min={0} step="0.01" defaultValue={value || ''} onBlur={e => onBlur(Math.max(0, Number(e.target.value) || 0))} className="input-base w-full" /></Field>
+}

@@ -176,6 +176,7 @@ export type Etapa = {
   data_fim: string | null
   status: 'planejada' | 'em_andamento' | 'concluida' | 'atrasada'
   percentual_executado: number
+  percentual_mao_obra?: number
   ordem: number
   is_marco: boolean
 }
@@ -188,6 +189,7 @@ export type SubetapaCronograma = {
   data_inicio: string | null
   data_fim: string | null
   percentual_executado: number
+  percentual_mao_obra?: number
   status: 'planejada' | 'em_andamento' | 'concluida' | 'atrasada'
   responsavel: string | null
   ordem: number
@@ -204,6 +206,7 @@ export type ServicoCronograma = {
   data_inicio: string | null
   data_fim: string | null
   percentual_executado: number
+  percentual_mao_obra?: number
   responsavel: string | null
   ordem: number
   created_at: string
@@ -247,6 +250,8 @@ export type Material = {
 export type Medicao = {
   id: string
   obra_id: string
+  orcamento_id?: string | null
+  eixo?: 'fisico' | 'mao_obra'
   etapa_id: string | null
   numero: number | null
   status: 'rascunho' | 'fechada'
@@ -356,6 +361,41 @@ export type EtapaCaixa = {
   created_at: string
   updated_at: string
   etapa?: Etapa | null
+}
+
+export type FonteRecursoTipo = 'recursos_proprios' | 'financiamento' | 'fgts'
+
+export type ObraFonteRecurso = {
+  id: string
+  obra_id: string
+  orcamento_id: string | null
+  tipo: FonteRecursoTipo
+  valor_previsto: number
+  observacao: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ReembolsoStatus = 'rascunho' | 'solicitado' | 'aprovado' | 'recebido' | 'recusado'
+
+export type ObraReembolso = {
+  id: string
+  obra_id: string
+  orcamento_id: string | null
+  fonte_id: string | null
+  medicao_id: string | null
+  etapa_id: string | null
+  descricao: string
+  status: ReembolsoStatus
+  valor_solicitado: number
+  valor_aprovado: number
+  valor_recebido: number
+  data_solicitacao: string | null
+  data_aprovacao: string | null
+  data_recebimento: string | null
+  observacao: string | null
+  created_at: string
+  updated_at: string
 }
 
 // ─── Tarefa ───────────────────────────────────────────────────────────────────

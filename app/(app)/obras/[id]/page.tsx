@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
 import { formatDate, formatCurrency, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus, Link2, Unlink } from 'lucide-react'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus, Link2, Unlink, Landmark } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -19,8 +19,9 @@ import { ObraTarefas } from '@/components/obra/ObraTarefas'
 import { ObraAssistenteIA } from '@/components/obra/ObraAssistenteIA'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
+import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'tarefas' | 'ia'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'financiamento' | 'tarefas' | 'ia'
 
 const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
@@ -28,6 +29,7 @@ const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'materiais', label: 'Materiais' },
   { id: 'medicoes', label: 'Diário / Medições' },
+  { id: 'financiamento', label: 'Financiamento', icon: Landmark },
   { id: 'tarefas', label: 'Tarefas' },
   { id: 'ia', label: 'Assistente IA', icon: Sparkles },
 ]
@@ -223,6 +225,8 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         'subetapas_cronograma',
         'compra_itens',
         'etapa_caixa',
+        'obra_reembolsos',
+        'obra_fontes_recursos',
         'cotacoes',
         'requisicao_itens',
         'requisicoes_compra',
@@ -421,6 +425,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'cronograma' && <ObraCronogramasTab obraId={id} obraNome={obra.nome} />}
         {tab === 'materiais' && <ObraMateriais obraId={id} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} />}
+        {tab === 'financiamento' && <ObraFinanciamento obraId={id} />}
         {tab === 'tarefas' && <ObraTarefas obraId={id} />}
         {tab === 'ia' && <ObraAssistenteIA obraId={id} obraNome={obra.nome} obraUf={obra.uf || 'SP'} />}
       </div>
