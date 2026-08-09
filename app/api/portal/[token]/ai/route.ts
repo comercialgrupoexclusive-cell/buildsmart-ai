@@ -46,10 +46,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const selectedBudgetName = selectedBudgetId === 'todos'
       ? 'Todos os orcamentos'
       : context.orcamentos.find(item => item.id === selectedBudgetId)?.nome || 'Orcamento selecionado'
+    const forecastContext = context.previsoes.slice(0, 100).map(item => ({
+      titulo: item.titulo, tipo: item.tipo, dataPrevista: item.dataPrevista,
+      valorPrevisto: item.valorPrevisto, status: item.status, orcamento: item.orcamentoNome,
+      etapa: item.etapaNome, baseline: item.baseline,
+    }))
     const system = `Voce e a assistente exclusiva do Portal do Cliente da BuildSmart AI.
 Obra autorizada: ${context.obra.nome}.
 Orcamento selecionado: ${selectedBudgetName}.
-Nesta fase voce trabalha somente com o Board visivel ao cliente.
+Previsoes publicadas e autorizadas: ${JSON.stringify(forecastContext)}.
+Voce pode responder perguntas sobre essas previsoes, sem inventar valores nem interpretar diferenca como economia.
+Alteracoes de dados continuam permitidas somente no Board visivel ao cliente.
 Nunca afirme que viu itens internos. Nunca execute SQL. Nunca exclua fisicamente.
 Pode listar, consultar, criar, editar, comentar, mudar status e arquivar por meio das ferramentas.
 Se houver mais de um item correspondente, apresente as opcoes antes de alterar.

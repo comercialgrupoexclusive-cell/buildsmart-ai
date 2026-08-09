@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
 import { formatDate, formatCurrency, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus, Link2, Unlink, Landmark, MessageSquareText } from 'lucide-react'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus, Link2, Unlink, Landmark, MessageSquareText, CalendarClock } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -21,9 +21,10 @@ import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
+import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
 import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'financiamento' | 'tarefas' | 'portal' | 'ia'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'financiamento' | 'previsoes' | 'tarefas' | 'portal' | 'ia'
 
 const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
@@ -32,6 +33,7 @@ const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'materiais', label: 'Materiais' },
   { id: 'medicoes', label: 'Diário / Medições' },
   { id: 'financiamento', label: 'Financiamento', icon: Landmark },
+  { id: 'previsoes', label: 'Previsões', icon: CalendarClock },
   { id: 'tarefas', label: 'Tarefas' },
   { id: 'portal', label: 'Portal', icon: MessageSquareText },
   { id: 'ia', label: 'Assistente IA', icon: Sparkles },
@@ -433,6 +435,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'materiais' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'financiamento' && <ObraFinanciamento obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+        {tab === 'previsoes' && <ObraPrevisoes obraId={id} orcamentoId={orcamentoId} />}
         {tab === 'tarefas' && <ObraTarefas obraId={id} />}
         {tab === 'portal' && <ObraPortalBoard obraId={id} />}
         {tab === 'ia' && <ObraAssistenteIA obraId={id} obraNome={obra.nome} obraUf={obra.uf || 'SP'} />}

@@ -17,12 +17,17 @@ export async function getPortalContext(token: string, orcamentoId = 'todos'): Pr
   if (!token || token.length < 24) return null
   const db = portalDb()
   const params = { p_token_hash: hashPortalToken(token), p_orcamento_id: orcamentoId || 'todos' }
-  const [{ data, error }, { data: cronograma, error: scheduleError }] = await Promise.all([
+  const [{ data, error }, { data: cronograma, error: scheduleError }, { data: previsoes, error: forecastsError }] = await Promise.all([
     db.rpc('portal_get_context', params),
     db.rpc('portal_get_schedule', params),
+    db.rpc('portal_get_previsoes', params),
   ])
-  if (error || scheduleError || !data) return null
-  return { ...(data as PortalContextDTO), cronograma: (cronograma || []) as PortalContextDTO['cronograma'] }
+  if (error || scheduleError || forecastsError || !data) return null
+  return {
+    ...(data as PortalContextDTO),
+    cronograma: (cronograma || []) as PortalContextDTO['cronograma'],
+    previsoes: (previsoes || []) as PortalContextDTO['previsoes'],
+  }
 }
 
 export async function verifyPortalAccess(token: string) {

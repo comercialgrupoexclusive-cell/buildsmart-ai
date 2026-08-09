@@ -51,7 +51,7 @@ export function BuildSmartTourViewer({ tour, initialNodeId, initialYaw, initialP
       id: `hotspot:${hotspot.id}`,
       position: { yaw: Number(hotspot.yaw), pitch: Number(hotspot.pitch) },
       circle: 18,
-      svgStyle: { fill: hotspot.boardItemId ? '#176b55' : '#a67c3f', stroke: '#ffffff', strokeWidth: '3px' },
+      svgStyle: { fill: hotspot.boardItemId ? '#3B7BF8' : '#F59E0B', stroke: '#ffffff', strokeWidth: '3px' },
       tooltip: safeText(hotspot.titulo),
       data: { boardItemId: hotspot.boardItemId },
     })),
@@ -108,11 +108,11 @@ export function BuildSmartTourViewer({ tour, initialNodeId, initialYaw, initialP
               onCreateAnnotation({ nodeId: currentNode.id, ambiente: currentNode.ambiente, yaw: pending.yaw, pitch: pending.pitch })
               setPending(null)
             }}
-            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-md bg-[#176b55] px-4 text-sm font-semibold text-white"
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-white"
           >
             <MapPinPlus size={18} /> Criar anotação aqui
           </button>
-          <button type="button" onClick={() => setPending(null)} className="grid size-11 place-items-center rounded-md border border-[#dfe4df]" aria-label="Cancelar ponto"><X size={18} /></button>
+          <button type="button" onClick={() => setPending(null)} className="grid size-11 place-items-center rounded-lg border border-[var(--border)]" aria-label="Cancelar ponto"><X size={18} /></button>
         </div>
       )}
     </div>

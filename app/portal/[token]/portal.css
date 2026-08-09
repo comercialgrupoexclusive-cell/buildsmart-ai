@@ -1,15 +1,7 @@
 .portal-client-root {
-  --portal-ink: #171914;
-  --portal-muted: #68706a;
-  --portal-line: #dfe4df;
-  --portal-surface: #ffffff;
-  --portal-soft: #f2f5f1;
-  --portal-accent: #176b55;
-  --portal-gold: #a67c3f;
   min-height: 100vh;
-  color: var(--portal-ink);
-  background: #f7f8f6;
-  color-scheme: light;
+  color: var(--text-primary);
+  background: var(--bg-primary);
 }
 .portal-client-root input,
 .portal-client-root textarea,
@@ -19,10 +11,14 @@
 }
 
 .portal-client-root select option {
-  color: var(--portal-ink);
-  background: white;
+  color: var(--text-primary);
+  background: var(--bg-card);
 }
 
 .portal-progress-ring {
-  background: conic-gradient(var(--portal-accent) calc(var(--progress) * 1%), #dfe6e0 0);
+  background: conic-gradient(var(--accent) calc(var(--progress) * 1%), var(--border) 0);
+}
+
+.portal-client-root .card {
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.05);
 }

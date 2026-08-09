@@ -74,6 +74,24 @@ export type PortalTourDTO = {
   nodes: PortalTourNodeDTO[]
 }
 
+export type PortalPrevisaoDTO = {
+  id: string
+  orcamentoId: string | null
+  orcamentoNome: string
+  etapaNome: string | null
+  tipo: 'compra_material' | 'desembolso_financeiro' | 'mao_obra' | 'outro'
+  titulo: string
+  descricao: string | null
+  valorPrevisto: number | null
+  dataPrevista: string
+  valorRealizado: number | null
+  dataRealizada: string | null
+  condicaoPagamento: 'pix' | 'boleto' | 'cartao' | 'entrada_saldo' | 'outro' | null
+  status: 'prevista' | 'confirmada' | 'realizada'
+  origem: string
+  baseline: boolean
+}
+
 export type PortalContextDTO = {
   access: { id: string; profileId: string | null }
   obra: {
@@ -105,6 +123,7 @@ export type PortalContextDTO = {
   }>
   boardItems: PortalBoardItemDTO[]
   tours: PortalTourDTO[]
+  previsoes: PortalPrevisaoDTO[]
   documentos: Array<{
     id: string
     nome: string
