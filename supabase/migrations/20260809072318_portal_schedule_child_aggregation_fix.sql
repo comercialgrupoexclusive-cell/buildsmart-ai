@@ -1,0 +1,43 @@
+create or replace function public.portal_get_schedule(p_token_hash text, p_orcamento_id text default 'todos')
+returns jsonb language plpgsql security definer set search_path = '' as $$
+declare acesso public.portal_access_links; budget_id uuid;
+begin
+  acesso := public.portal_authorize(p_token_hash);
+  if p_orcamento_id is not null and p_orcamento_id <> 'todos' then
+    budget_id := p_orcamento_id::uuid;
+    if not exists (select 1 from public.orcamentos where id = budget_id and obra_id = acesso.obra_id) then
+      raise exception 'portal_budget_denied' using errcode = '42501';
+    end if;
+  end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'id', e.id, 'nome', e.nome, 'status', e.status, 'inicio', e.data_inicio,
+      'fim', e.data_fim, 'percentual', coalesce(e.percentual_executado, 0),
+      'filhos', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'id', x.id, 'nome', x.nome, 'status', x.status,
+          'inicio', x.inicio, 'fim', x.fim, 'percentual', x.percentual
+        ) order by x.inicio nulls last, x.nome)
+        from (
+          select min(oi.id::text) id,
+            coalesce(nullif(oi.subetapa, ''), oi.descricao_snapshot, 'Item') nome,
+            case when coalesce(e.percentual_executado, 0) >= 100 then 'concluida' else e.status end status,
+            min(coalesce(oi.data_inicio, e.data_inicio)) inicio,
+            max(coalesce(oi.data_fim, e.data_fim)) fim,
+            coalesce(e.percentual_executado, 0) percentual
+          from public.orcamento_itens oi
+          where oi.etapa_id = e.id and (budget_id is null or oi.orcamento_id = budget_id)
+          group by coalesce(nullif(oi.subetapa, ''), oi.descricao_snapshot, 'Item'), e.status, e.percentual_executado
+        ) x
+      ), '[]'::jsonb)
+    ) order by e.ordem)
+    from public.etapas e
+    where e.obra_id = acesso.obra_id
+      and (budget_id is null or exists (
+        select 1 from public.orcamento_itens oi where oi.orcamento_id = budget_id and oi.etapa_id = e.id
+      ))
+  ), '[]'::jsonb);
+end;
+$$;
+revoke all on function public.portal_get_schedule(text, text) from public;
+grant execute on function public.portal_get_schedule(text, text) to anon, authenticated;

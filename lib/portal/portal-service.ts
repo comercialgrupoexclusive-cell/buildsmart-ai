@@ -34,3 +34,21 @@ export async function verifyPortalAccess(token: string) {
   const context = await getPortalContext(token)
   return context ? { obraId: context.obra.id, profileId: context.access.profileId } : null
 }
+
+export async function getPortalCanvas(token: string) {
+  if (!token || token.length < 24) return null
+  const { data, error } = await portalDb().rpc('portal_board_canvas_get', {
+    p_token_hash: hashPortalToken(token),
+  })
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function savePortalCanvas(token: string, document: unknown, files: unknown[]) {
+  if (!token || token.length < 24) throw new Error('Link do Portal invalido.')
+  const { data, error } = await portalDb().rpc('portal_board_canvas_save', {
+    p_token_hash: hashPortalToken(token), p_document: document, p_files: files,
+  })
+  if (error) throw new Error(error.message)
+  return data
+}

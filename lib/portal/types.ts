@@ -120,6 +120,7 @@ export type PortalContextDTO = {
     inicio: string | null
     fim: string | null
     percentual: number
+    filhos: Array<{ id: string; nome: string; status: string; inicio: string | null; fim: string | null; percentual: number }>
   }>
   boardItems: PortalBoardItemDTO[]
   tours: PortalTourDTO[]

@@ -14,6 +14,7 @@ import { useProfile } from '@/lib/profile-context'
 import { Badge } from '@/components/ui/Badge'
 import { MetricCard, StatusItemCard } from '@/components/ui/InsightCard'
 import { PREVISAO_STATUS_LABEL, PREVISAO_TIPO_LABEL, previsaoPrazo, previsaoTone } from '@/lib/previsoes'
+import { PortalGantt } from './PortalGantt'
 
 const BuildSmartTourViewer = dynamic(
   () => import('./BuildSmartTourViewer').then(module => module.BuildSmartTourViewer),
@@ -200,7 +201,7 @@ function Overview({ context, progress, budgetName, onNavigate }: { context: Port
 }
 
 function ScheduleView({ context }: { context: PortalContextDTO }) {
-  return <section><p className="text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-secondary)' }}>Planejamento</p><h1 className="mt-1 text-3xl font-semibold">Cronograma</h1><div className="card mt-6 divide-y overflow-hidden" style={{ borderColor: 'var(--border)' }}>{context.cronograma.map(item => <div key={item.id} className="grid gap-2 p-4 sm:grid-cols-[1fr_180px_90px] sm:items-center"><div><p className="font-semibold">{item.nome}</p><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{date(item.inicio)} → {date(item.fim)}</p></div><div className="h-2 overflow-hidden rounded-full" style={{ background: 'var(--bg-secondary)' }}><div className="h-full rounded-full" style={{ width: `${Math.min(100, Number(item.percentual))}%`, background: 'var(--accent)' }} /></div><p className="text-sm font-semibold sm:text-right">{Number(item.percentual).toFixed(0)}%</p></div>)}</div></section>
+  return <section><p className="text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-secondary)' }}>Planejamento</p><h1 className="mt-1 text-3xl font-semibold">Cronograma</h1><div className="mt-6"><PortalGantt items={context.cronograma} /></div></section>
 }
 
 function FinancialView({ title, primaryLabel, primary, secondaryLabel, secondary }: { title: string; primaryLabel: string; primary: number; secondaryLabel: string; secondary: number }) {

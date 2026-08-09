@@ -22,9 +22,10 @@ import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
 import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
+import { TourManager } from '@/components/tour/TourManager'
 import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'financiamento' | 'previsoes' | 'tarefas' | 'portal' | 'ia'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'financiamento' | 'previsoes' | 'tarefas' | 'portal' | 'tour' | 'ia'
 
 const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
@@ -36,6 +37,7 @@ const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'previsoes', label: 'Previsões', icon: CalendarClock },
   { id: 'tarefas', label: 'Tarefas' },
   { id: 'portal', label: 'Portal', icon: MessageSquareText },
+  { id: 'tour', label: 'Tour 360°' },
   { id: 'ia', label: 'Assistente IA', icon: Sparkles },
 ]
 
@@ -438,6 +440,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'previsoes' && <ObraPrevisoes obraId={id} orcamentoId={orcamentoId} />}
         {tab === 'tarefas' && <ObraTarefas obraId={id} />}
         {tab === 'portal' && <ObraPortalBoard obraId={id} />}
+        {tab === 'tour' && <TourManager obraId={id} />}
         {tab === 'ia' && <ObraAssistenteIA obraId={id} obraNome={obra.nome} obraUf={obra.uf || 'SP'} />}
       </div>
 

@@ -15,7 +15,9 @@ import { useProfile } from '@/lib/profile-context'
 type Any = any
 
 interface Props {
-  projectId: string
+  projectId?: string
+  obraId?: string
+  portalToken?: string
 }
 
 interface ViewState {
@@ -35,7 +37,7 @@ function zoomValue(appStateZoom: Any): number {
   return typeof appStateZoom === 'number' ? appStateZoom : 1
 }
 
-export function ExcalidrawBoard({ projectId }: Props) {
+export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
   const { currentProfile } = useProfile()
 
   const [initialData, setInitialData]      = useState<Any>(null)
@@ -44,6 +46,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
   const [showNC, setShowNC]                = useState(false)
   const [excalidrawTheme, setExcalidrawTheme] = useState<'light' | 'dark'>('dark')
   const [onlineUsers, setOnlineUsers]      = useState<RemoteUser[]>([])
+  const [boardId, setBoardId]              = useState<string | null>(null)
   const [viewState, setViewState]          = useState<ViewState>({ zoom: 1, scrollX: 0, scrollY: 0 })
 
   const apiRef           = useRef<Any>(null)
@@ -59,7 +62,8 @@ export function ExcalidrawBoard({ projectId }: Props) {
   const persistedFilesRef = useRef<Set<string>>(new Set())
   // Ref para evitar closure stale dentro dos handlers do canal
   const profileRef       = useRef(currentProfile)
-  profileRef.current     = currentProfile
+
+  useEffect(() => { profileRef.current = currentProfile }, [currentProfile])
 
   // ── Sincronizar tema Excalidraw com o sistema BuildSmart ──────────────────
 
@@ -67,10 +71,10 @@ export function ExcalidrawBoard({ projectId }: Props) {
     function readTheme(): 'light' | 'dark' {
       return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'
     }
-    setExcalidrawTheme(readTheme())
+    const timer = window.setTimeout(() => setExcalidrawTheme(readTheme()), 0)
     const obs = new MutationObserver(() => setExcalidrawTheme(readTheme()))
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-    return () => obs.disconnect()
+    return () => { window.clearTimeout(timer); obs.disconnect() }
   }, [])
 
   // ── Carregar board_data + board_files ────────────────────────────────────
@@ -79,10 +83,40 @@ export function ExcalidrawBoard({ projectId }: Props) {
     async function load() {
       try {
         const supabase = createClient()
-        const [{ data: proj }, { data: fileRows }] = await Promise.all([
-          supabase.from('projetos').select('board_data').eq('id', projectId).single(),
-          supabase.from('board_files').select('id, mime_type, data_url, created').eq('projeto_id', projectId),
-        ])
+        let document: Any = null
+        let fileRows: Any[] = []
+        if (projectId) {
+          const [{ data: proj }, { data: rows }] = await Promise.all([
+            supabase.from('projetos').select('board_data').eq('id', projectId).single(),
+            supabase.from('board_files').select('id, mime_type, data_url, created').eq('projeto_id', projectId),
+          ])
+          document = proj?.board_data
+          fileRows = rows ?? []
+        } else if (portalToken) {
+          const response = await fetch(`/api/portal/${portalToken}/canvas`, { cache: 'no-store' })
+          if (!response.ok) throw new Error('Nao foi possivel abrir o Board.')
+          const payload = await response.json()
+          setBoardId(payload.boardId)
+          document = payload.document
+          fileRows = (payload.files ?? []).map((file: Any) => ({
+            id: file.id, mime_type: file.mimeType, data_url: file.dataURL, created: file.created,
+          }))
+        } else if (obraId) {
+          let { data: board } = await supabase.from('boards').select('id,document_data')
+            .eq('obra_id', obraId).eq('scope', 'portal').order('created_at').limit(1).maybeSingle()
+          if (!board) {
+            const created = await supabase.from('boards').insert({
+              obra_id: obraId, name: 'Board do cliente', scope: 'portal', visibility: 'client',
+            }).select('id,document_data').single()
+            board = created.data
+          }
+          if (!board) throw new Error('Nao foi possivel criar o Board da obra.')
+          setBoardId(board.id)
+          document = board.document_data
+          const { data: rows } = await supabase.from('board_files')
+            .select('id, mime_type, data_url, created').eq('board_id', board.id)
+          fileRows = rows ?? []
+        }
 
         // Reconstrói o mapa de arquivos e registra IDs já persistidos
         const filesMap: Any = {}
@@ -98,11 +132,11 @@ export function ExcalidrawBoard({ projectId }: Props) {
         }
 
         const handTool = { type: 'hand', locked: false, lastActiveTool: null, customType: null }
-        if (proj?.board_data) {
+        if (document) {
           setInitialData({
-            ...proj.board_data,
+            ...document,
             files: filesMap,
-            appState: { ...(proj.board_data.appState ?? {}), activeTool: handTool },
+            appState: { ...(document.appState ?? {}), activeTool: handTool },
           })
         } else {
           setInitialData({ files: filesMap, appState: { activeTool: handTool } })
@@ -112,15 +146,17 @@ export function ExcalidrawBoard({ projectId }: Props) {
       }
     }
     load()
-  }, [projectId])
+  }, [projectId, obraId, portalToken])
 
   // ── Supabase Realtime — Broadcast + Presence ──────────────────────────────
 
   useEffect(() => {
     if (!currentProfile) return
 
+    const channelKey = boardId || projectId
+    if (!channelKey) return
     const supabase = createClient()
-    const channel  = supabase.channel(`board:${projectId}`)
+    const channel  = supabase.channel(`board:${channelKey}`)
 
     // Receber canvas de outros usuários
     channel.on('broadcast', { event: 'canvas-update' }, ({ payload }: Any) => {
@@ -152,7 +188,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
       supabase.removeChannel(channel)
       channelRef.current = null
     }
-  }, [projectId, currentProfile?.id])
+  }, [boardId, projectId, currentProfile])
 
   // ── Scroll = zoom (intercepta wheel sem Ctrl e re-despacha com Ctrl) ──────
 
@@ -180,6 +216,38 @@ export function ExcalidrawBoard({ projectId }: Props) {
   }, [loaded])
 
   // ── onChange: seleção + broadcast (300ms) + persist (1500ms) + viewState ──
+
+  const persistScene = useCallback(async (elements: Any, appState: Any, files: Any) => {
+    const document = { elements, appState: sanitiseAppState(appState) }
+    const newEntries = Object.entries(files as Record<string, Any>)
+      .filter(([id]) => !persistedFilesRef.current.has(id))
+    if (portalToken) {
+      const response = await fetch(`/api/portal/${portalToken}/canvas`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document, files: newEntries.map(([id, file]) => ({ id, ...file })) }),
+      })
+      if (!response.ok) throw new Error('Falha ao salvar o Board do cliente.')
+    } else {
+      const supabase = createClient()
+      if (projectId) {
+        const { error } = await supabase.from('projetos').update({ board_data: document }).eq('id', projectId)
+        if (error) throw error
+      } else if (boardId) {
+        const { error } = await supabase.from('boards').update({ document_data: document }).eq('id', boardId)
+        if (error) throw error
+      }
+      if (newEntries.length > 0) {
+        const rows = newEntries.map(([id, file]) => ({
+          id, projeto_id: projectId || null, board_id: boardId,
+          mime_type: file.mimeType ?? 'image/png', data_url: file.dataURL, created: file.created ?? Date.now(),
+        }))
+        const { error } = await supabase.from('board_files')
+          .upsert(rows, { onConflict: projectId ? 'projeto_id,id' : 'board_id,id' })
+        if (error) throw error
+      }
+    }
+    newEntries.forEach(([id]) => persistedFilesRef.current.add(id))
+  }, [boardId, portalToken, projectId])
 
   const handleChange = useCallback(
     (elements: Any, appState: Any, files: Any) => {
@@ -216,36 +284,12 @@ export function ExcalidrawBoard({ projectId }: Props) {
 
       // Persistir no Supabase (1500ms debounce)
       if (debouncer.current) clearTimeout(debouncer.current)
-      debouncer.current = setTimeout(async () => {
-        const supabase = createClient()
-
-        // 1) Salva elementos + appState (sem files — ficam em board_files)
-        const { error } = await supabase
-          .from('projetos')
-          .update({ board_data: { elements, appState: sanitiseAppState(appState) } })
-          .eq('id', projectId)
-        if (error) console.error('[Board] Falha ao salvar elementos:', error.message)
-
-        // 2) Upsert apenas dos arquivos novos (não duplica uploads)
-        const newEntries = Object.entries(files as Record<string, Any>)
-          .filter(([fid]) => !persistedFilesRef.current.has(fid))
-        if (newEntries.length > 0) {
-          const rows = newEntries.map(([fid, f]) => ({
-            id: fid,
-            projeto_id: projectId,
-            mime_type: f.mimeType ?? 'image/png',
-            data_url: f.dataURL,
-            created: f.created ?? Date.now(),
-          }))
-          const { error: fe } = await supabase
-            .from('board_files')
-            .upsert(rows, { onConflict: 'id,projeto_id' })
-          if (fe) console.error('[Board] Falha ao salvar arquivos:', fe.message)
-          else newEntries.forEach(([fid]) => persistedFilesRef.current.add(fid))
-        }
+      debouncer.current = setTimeout(() => {
+        persistScene(elements, appState, files).catch(error =>
+          console.error('[Board] Falha ao salvar:', error instanceof Error ? error.message : error))
       }, 1500)
     },
-    [projectId],
+    [persistScene],
   )
 
   // ── Importar PDF como imagem no canvas ───────────────────────────────────
@@ -304,6 +348,10 @@ export function ExcalidrawBoard({ projectId }: Props) {
     }
     const supabase = createClient()
     const appState = api.getAppState()
+    if (!projectId) {
+      await persistScene(allElements, appState, Object.fromEntries(newFiles.map(file => [file.id, file])))
+      return
+    }
     await supabase
       .from('projetos')
       .update({ board_data: { elements: allElements, appState: sanitiseAppState(appState) } })
@@ -424,7 +472,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
               </button>
 
               {/* Botão NCs */}
-              <button
+              {projectId && <button
                 title="Painel de não-conformidades"
                 onClick={() => setShowNC(v => !v)}
                 className="board-topbtn"
@@ -438,7 +486,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
                 }}
               >
                 <AlertTriangle size={14} /> <span className="board-btn-label">NCs</span>
-              </button>
+              </button>}
 
               {/* Tela cheia */}
               <FullscreenButton />
@@ -450,9 +498,9 @@ export function ExcalidrawBoard({ projectId }: Props) {
             <MainMenu.Item onSelect={() => fileInputRef.current?.click()} icon={<FileText size={16} />}>
               Importar PDF
             </MainMenu.Item>
-            <MainMenu.Item onSelect={() => setShowNC(v => !v)} icon={<AlertTriangle size={16} />}>
+            {projectId && <MainMenu.Item onSelect={() => setShowNC(v => !v)} icon={<AlertTriangle size={16} />}>
               Não-conformidades
-            </MainMenu.Item>
+            </MainMenu.Item>}
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ClearCanvas />
             <MainMenu.DefaultItems.Export />
@@ -468,7 +516,7 @@ export function ExcalidrawBoard({ projectId }: Props) {
       </div>
 
       {/* Painel lateral de NCs — overlay para não cobrir a biblioteca */}
-      {showNC && (
+      {showNC && projectId && (
         <div className="board-nc-panel" style={{
           position: 'absolute', top: 0, right: 0, bottom: 0,
           width: 300, zIndex: 30,

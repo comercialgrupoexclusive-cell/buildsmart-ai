@@ -1,9 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Archive, ChevronDown, ChevronUp, MapPin, MessageCircle, Plus, Send, X } from 'lucide-react'
+import dynamic from 'next/dynamic'
+import { Archive, ChevronDown, ChevronUp, LayoutDashboard, ListChecks, MapPin, MessageCircle, Plus, Send, X } from 'lucide-react'
 import type { PortalBoardItemDTO, PortalBoardStatus, PortalCategoria, PortalTourPosition } from '@/lib/portal/types'
 import { Button } from '@/components/ui/Button'
+
+const ExcalidrawBoard = dynamic(() => import('@/components/board/ExcalidrawBoard').then(module => module.ExcalidrawBoard), { ssr: false })
 
 const CATEGORIAS: Array<{ value: PortalCategoria; label: string }> = [
   { value: 'observacao', label: 'Observação' },
@@ -34,6 +37,7 @@ type Props = {
 }
 
 export function PortalBoard({ token, orcamentoId, items, draftTour, focusItemId, onDraftConsumed, onChanged, onOpenTour }: Props) {
+  const [mode, setMode] = useState<'canvas' | 'items'>(draftTour || focusItemId ? 'items' : 'canvas')
   const [showForm, setShowForm] = useState(Boolean(draftTour))
   const [expandedId, setExpandedId] = useState<string | null>(focusItemId || null)
   const [saving, setSaving] = useState(false)
@@ -95,8 +99,15 @@ export function PortalBoard({ token, orcamentoId, items, draftTour, focusItemId,
           <p className="text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-secondary)' }}>Decisões e pendências</p>
           <h2 className="mt-1 text-2xl font-semibold">Board da obra</h2>
         </div>
-        <Button type="button" onClick={() => setShowForm(true)} icon={<Plus size={18} />}><span className="hidden sm:inline">Nova anotação</span><span className="sm:hidden">Nova</span></Button>
+        <Button type="button" onClick={() => { setMode('items'); setShowForm(true) }} icon={<Plus size={18} />}><span className="hidden sm:inline">Nova anotação</span><span className="sm:hidden">Nova</span></Button>
       </div>
+
+      <div className="flex w-full rounded-lg p-1 sm:w-fit" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+        <button type="button" onClick={() => setMode('canvas')} className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium sm:flex-none" style={mode === 'canvas' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}><LayoutDashboard size={16} /> Quadro visual</button>
+        <button type="button" onClick={() => setMode('items')} className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium sm:flex-none" style={mode === 'items' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}><ListChecks size={16} /> Pendências</button>
+      </div>
+
+      {mode === 'canvas' ? <div className="card overflow-hidden" style={{ height: 'min(70vh, 740px)', minHeight: 560 }}><ExcalidrawBoard portalToken={token} /></div> : <>
 
       {showForm && (
         <form onSubmit={createItem} className="card p-4">
@@ -153,6 +164,7 @@ export function PortalBoard({ token, orcamentoId, items, draftTour, focusItemId,
           })}
         </div>
       )}
+      </>}
     </section>
   )
 }

@@ -9,6 +9,7 @@ import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemDependencia, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
 import { ProjetoAssistenteIA } from '@/components/projeto/ProjetoAssistenteIA'
+import { TourManager } from '@/components/tour/TourManager'
 import dynamic from 'next/dynamic'
 
 const ExcalidrawBoard = dynamic(
@@ -49,8 +50,8 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
   const [dependencias, setDependencias] = useState<ProjetoItemDependencia[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'board' | 'ia'>(
-    (searchParams.get('tab') as 'estrutura' | 'dados' | 'cronograma' | 'board' | 'ia') ?? 'estrutura'
+  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia'>(
+    (searchParams.get('tab') as 'estrutura' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia') ?? 'estrutura'
   )
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
@@ -307,6 +308,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           { key: 'estrutura',  label: 'Estrutura',    icon: LayoutList },
           { key: 'cronograma', label: 'Cronograma',   icon: CalendarDays },
           { key: 'board',      label: 'Board',        icon: LayoutDashboard },
+          { key: 'tour',       label: 'Tour 360°',    icon: ImagePlus },
           { key: 'dados',      label: 'Dados Gerais', icon: Info },
           { key: 'ia',         label: 'Assistente IA', icon: Sparkles },
         ] as const).map(({ key, label, icon: Icon }) => (
@@ -375,6 +377,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           <ExcalidrawBoard projectId={projeto.id} />
         </div>
       )}
+      {tab === 'tour' && <TourManager projectId={projeto.id} obraId={projeto.obra_id} />}
 
       {tab === 'ia' && (
         <ProjetoAssistenteIA projeto={projeto} itens={itens} onReload={loadData} />
