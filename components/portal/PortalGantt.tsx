@@ -11,12 +11,15 @@ function shortDate(value: string | null) { return value ? new Intl.DateTimeForma
 
 export function PortalGantt({ items }: { items: Item[] }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [today] = useState(() => Date.now())
+  const [today] = useState(() => {
+    const value = new Date()
+    value.setUTCHours(12, 0, 0, 0)
+    return value.getTime()
+  })
   const domain = useMemo(() => {
     const dates = items.flatMap(item => [stamp(item.inicio), stamp(item.fim), ...(item.filhos || []).flatMap(child => [stamp(child.inicio), stamp(child.fim)])]).filter((value): value is number => value !== null)
-    const today = new Date(); today.setHours(12, 0, 0, 0)
-    return dates.length ? { start: Math.min(...dates, today.getTime()), end: Math.max(...dates, today.getTime()) } : { start: today.getTime() - 7 * DAY, end: today.getTime() + 30 * DAY }
-  }, [items])
+    return dates.length ? { start: Math.min(...dates, today), end: Math.max(...dates, today) } : { start: today - 7 * DAY, end: today + 30 * DAY }
+  }, [items, today])
   const total = Math.max(DAY, domain.end - domain.start)
   const todayLeft = Math.min(100, Math.max(0, ((today - domain.start) / total) * 100))
   const rows = items.flatMap(item => [{ ...item, filhos: item.filhos || [], level: 0 }, ...(expanded.has(item.id) ? (item.filhos || []).map(child => ({ ...child, filhos: [], level: 1 })) : [])])
@@ -26,7 +29,7 @@ export function PortalGantt({ items }: { items: Item[] }) {
   return <div className="card overflow-hidden">
     <div className="flex items-center justify-between gap-3 border-b px-4 py-3" style={{ borderColor: 'var(--border)' }}><div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Linha do tempo</p><p className="mt-0.5 text-sm font-medium">{shortDate(domainStart)} a {shortDate(domainEnd)}</p></div><span className="rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)' }}>Hoje</span></div>
     <div className="relative">
-      <div className="pointer-events-none absolute inset-y-0 z-10 w-px border-l border-dashed" style={{ left: `${todayLeft}%`, borderColor: 'var(--accent)' }} />
+      <div className="pointer-events-none absolute inset-y-0 z-10 w-px border-l border-dashed" style={{ left: `${todayLeft.toFixed(4)}%`, borderColor: 'var(--accent)' }} />
       {rows.map(row => {
         const start = stamp(row.inicio); const end = stamp(row.fim)
         const left = start === null ? 0 : ((start - domain.start) / total) * 100

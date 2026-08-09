@@ -4,8 +4,8 @@ import dynamic from 'next/dynamic'
 import Image from 'next/image'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
-  BarChart3, Bot, CalendarRange, Camera, ChevronRight, CircleDollarSign, ClipboardList,
-  FileText, Landmark, LayoutDashboard, Menu, MessageSquare, PanelsTopLeft, X, CalendarClock, Moon, Sun,
+  BarChart3, Bot, CalendarRange, Camera, CircleDollarSign, ClipboardList,
+  FileText, Landmark, LayoutDashboard, MessageSquare, PanelsTopLeft, CalendarClock, Moon, Sun,
 } from 'lucide-react'
 import { PortalBoard } from './PortalBoard'
 import { PortalAssistant } from './PortalAssistant'
@@ -62,7 +62,6 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
     || NAV.find(item => initialContext.visibility[item.id])?.id
     || 'overview'
   const [view, setView] = useState<View>(initialVisibleView)
-  const [menuOpen, setMenuOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [draftTour, setDraftTour] = useState<PortalTourPosition | null>(null)
   const [focusBoardItemId, setFocusBoardItemId] = useState<string | null>(null)
@@ -109,7 +108,6 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
 
   function navigate(next: View) {
     setView(next)
-    setMenuOpen(false)
     window.history.replaceState(null, '', `/portal/${token}?budget=${encodeURIComponent(context.selectedOrcamentoId)}&view=${next}`)
   }
 
@@ -129,7 +127,6 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 border-b backdrop-blur" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--bg-primary) 94%, transparent)' }}>
         <div className="mx-auto flex h-16 max-w-[1480px] items-center gap-3 px-4 sm:px-6">
-          <button type="button" onClick={() => setMenuOpen(true)} className="grid size-11 place-items-center rounded-lg border lg:hidden" style={{ borderColor: 'var(--border)' }} aria-label="Abrir navegação"><Menu size={20} /></button>
           <div className="grid size-9 place-items-center rounded-lg font-bold text-white" style={{ background: 'var(--accent)' }}>B</div>
           <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">BuildSmart</p><p className="truncate text-[11px]" style={{ color: 'var(--text-secondary)' }}>{context.obra.nome} · Portal do Cliente</p></div>
           <button type="button" onClick={handleTheme} className="grid size-10 place-items-center rounded-lg hover:bg-[var(--bg-secondary)]" style={{ color: 'var(--text-secondary)' }} title={activeTheme === 'dark' ? 'Modo claro' : 'Modo escuro'}>{activeTheme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
@@ -137,18 +134,13 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
         </div>
       </header>
 
-      {menuOpen && <div className="fixed inset-0 z-50 bg-black/30 lg:hidden" onClick={() => setMenuOpen(false)}>
-        <nav className="h-full w-[min(86vw,330px)] p-4 shadow-2xl" style={{ background: 'var(--bg-card)' }} onClick={event => event.stopPropagation()}>
-          <div className="mb-5 flex items-center justify-between"><span className="font-semibold">Navegação</span><button type="button" onClick={() => setMenuOpen(false)} className="grid size-10 place-items-center"><X size={20} /></button></div>
-          <div className="space-y-1">{visibleNav.map(item => <NavButton key={item.id} item={item} active={view === item.id} onClick={() => navigate(item.id)} />)}</div>
+      <div className="sticky top-16 z-30 border-b" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+        <nav role="tablist" aria-label="Seções do Portal" className="mx-auto flex max-w-[1480px] overflow-x-auto px-3 sm:px-5">
+          {visibleNav.map(item => <PortalTab key={item.id} item={item} active={view === item.id} onClick={() => navigate(item.id)} />)}
         </nav>
-      </div>}
+      </div>
 
-      <div className="mx-auto grid max-w-[1480px] lg:grid-cols-[230px_minmax(0,1fr)]">
-        <aside className="hidden min-h-[calc(100vh-64px)] border-r px-3 py-5 lg:block" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-          <nav className="sticky top-20 space-y-1">{visibleNav.map(item => <NavButton key={item.id} item={item} active={view === item.id} onClick={() => navigate(item.id)} />)}</nav>
-        </aside>
-
+      <div className="mx-auto max-w-[1320px]">
         <main className="min-w-0 px-4 py-5 sm:px-6 sm:py-7 lg:px-10">
           <div className="mb-5 sm:hidden"><label><span className="mb-1 block text-[11px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Orçamento</span><select value={context.selectedOrcamentoId} onChange={event => refresh(event.target.value)} className="input-base min-h-12 w-full font-medium" disabled={loading}><option value="todos">Todos os orçamentos</option>{context.orcamentos.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label></div>
           {loading && <div className="mb-3 h-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}><div className="h-full w-1/2 animate-pulse" style={{ background: 'var(--accent)' }} /></div>}
@@ -176,9 +168,9 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
   )
 }
 
-function NavButton({ item, active, onClick }: { item: typeof NAV[number]; active: boolean; onClick: () => void }) {
+function PortalTab({ item, active, onClick }: { item: typeof NAV[number]; active: boolean; onClick: () => void }) {
   const Icon = item.icon
-  return <button type="button" onClick={onClick} className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium hover:bg-[var(--bg-secondary)]" style={active ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}><Icon size={18} /><span className="flex-1">{item.label}</span>{active && <ChevronRight size={15} />}</button>
+  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className="relative flex min-h-13 shrink-0 items-center gap-2 px-3 text-sm font-medium transition-colors hover:bg-[var(--bg-secondary)] sm:px-4" style={{ color: active ? 'var(--accent)' : 'var(--text-secondary)' }}><Icon size={17} /><span>{item.label}</span><span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full" style={{ background: active ? 'var(--accent)' : 'transparent' }} /></button>
 }
 
 function Overview({ context, progress, budgetName, visibility, onNavigate }: { context: PortalContextDTO; progress: number; budgetName: string; visibility: PortalVisibility; onNavigate: (view: View) => void }) {
