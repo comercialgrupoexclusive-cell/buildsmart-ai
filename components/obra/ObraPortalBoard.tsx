@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bell, CheckCircle2, LayoutDashboard, ListChecks, MessageSquareText, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { PortalBoardStatus, PortalCategoria } from '@/lib/portal/types'
+import { PortalAccessLinks } from './PortalAccessLinks'
 
 const ExcalidrawBoard = dynamic(() => import('@/components/board/ExcalidrawBoard').then(module => module.ExcalidrawBoard), { ssr: false })
 
@@ -43,8 +44,9 @@ export function ObraPortalBoard({ obraId }: { obraId: string }) {
   const pending = items.filter(item => !['resolvido', 'arquivado'].includes(item.status)).length
 
   return <section className="space-y-4">
+    <PortalAccessLinks obraId={obraId} />
     <div className="flex flex-wrap items-end justify-between gap-3">
-      <div><div className="flex items-center gap-2"><h2 className="text-xl font-semibold">Board do Cliente</h2>{pending > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-1 text-xs font-semibold text-red-400"><Bell size={13} /> {pending}</span>}</div><p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>O quadro visual e as pendencias abaixo sao compartilhados com o Portal.</p></div>
+      <div><div className="flex items-center gap-2"><h2 className="text-xl font-semibold">Board</h2>{pending > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-1 text-xs font-semibold text-red-400"><Bell size={13} /> {pending}</span>}</div><p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>O quadro visual e as pendências abaixo são compartilhados com o cliente.</p></div>
       <div className="flex rounded-lg p-1" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
         <button type="button" onClick={() => setMode('canvas')} className="flex min-h-9 items-center gap-2 rounded-md px-3 text-sm font-medium" style={mode === 'canvas' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}><LayoutDashboard size={15} /> Quadro</button>
         <button type="button" onClick={() => setMode('items')} className="flex min-h-9 items-center gap-2 rounded-md px-3 text-sm font-medium" style={mode === 'items' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}><ListChecks size={15} /> Pendencias</button>

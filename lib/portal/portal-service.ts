@@ -23,8 +23,10 @@ export async function getPortalContext(token: string, orcamentoId = 'todos'): Pr
     db.rpc('portal_get_previsoes', params),
   ])
   if (error || scheduleError || forecastsError || !data) return null
+  const context = data as PortalContextDTO
   return {
-    ...(data as PortalContextDTO),
+    ...context,
+    orcamentos: context.orcamentos.filter(item => item.status !== 'arquivado'),
     cronograma: (cronograma || []) as PortalContextDTO['cronograma'],
     previsoes: (previsoes || []) as PortalContextDTO['previsoes'],
   }

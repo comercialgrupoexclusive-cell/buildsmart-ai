@@ -257,6 +257,7 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
       if (newId !== selectedIdRef.current) {
         selectedIdRef.current = newId
         setSelectedId(newId)
+        if (projectId && newId) setShowNC(true)
       }
 
       // Atualizar viewState para RemoteCursors — só quando os valores mudam (throttle 200ms)
@@ -289,7 +290,7 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
           console.error('[Board] Falha ao salvar:', error instanceof Error ? error.message : error))
       }, 1500)
     },
-    [persistScene],
+    [persistScene, projectId],
   )
 
   // ── Importar PDF como imagem no canvas ───────────────────────────────────

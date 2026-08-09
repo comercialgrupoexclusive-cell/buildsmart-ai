@@ -47,7 +47,7 @@ export type Orcamento = {
   obra_id: string
   tipo: 'executivo' | 'parametrico'
   bdi_percentual: number
-  status: 'rascunho' | 'ativo' | 'finalizado'
+  status: 'rascunho' | 'ativo' | 'finalizado' | 'arquivado'
   versao: number
   created_at: string
 }

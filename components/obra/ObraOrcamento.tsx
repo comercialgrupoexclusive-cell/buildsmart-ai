@@ -2099,7 +2099,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     nomesEtapasExibidos.add(chave)
     return true
   })
-  const isReadonly = orcamento?.status === 'finalizado'
+  const isReadonly = orcamento?.status === 'finalizado' || orcamento?.status === 'arquivado'
   const etapasVisiveis = filtroEtapaId === 'todas'
     ? etapas
     : etapas.filter(etapa => etapa.id === filtroEtapaId)

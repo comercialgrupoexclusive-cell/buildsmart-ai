@@ -81,24 +81,24 @@ export default function ObrasPage() {
 
   async function loadObras() {
     setLoading(true)
-    const [{ data }, { data: profs }, { data: props }] = await Promise.all([
+    const [{ data }, { data: profs }, { data: props }, { data: avancos }] = await Promise.all([
       supabase.from('obras').select('*').order('created_at', { ascending: false }),
       supabase.from('profiles').select('id,name').order('name'),
       supabase.from('proprietarios').select('id,name,phone,email').order('name'),
+      supabase.rpc('obras_avanco_fisico_ativo'),
     ])
     setUsuarios((profs || []) as { id: string; name: string }[])
     setProprietarios((props || []) as Proprietario[])
     const lista = (data || []) as Obra[]
 
     // Avanço físico: última medição registrada de cada obra
-    const comAvanco = await Promise.all(lista.map(async (obra): Promise<ObraComAvanco> => {
-      const { data: meds } = await supabase
-        .from('medicoes')
-        .select('percentual_executado')
-        .eq('obra_id', obra.id)
-        .order('periodo_inicio', { ascending: false })
-        .limit(1)
-      return { ...obra, avanco: meds && meds.length > 0 ? (meds[0].percentual_executado ?? 0) : 0 }
+    const avancoPorObra = new Map(
+      ((avancos || []) as { obra_id: string; avanco_fisico: number }[])
+        .map(item => [item.obra_id, Number(item.avanco_fisico || 0)])
+    )
+    const comAvanco = lista.map((obra): ObraComAvanco => ({
+      ...obra,
+      avanco: avancoPorObra.get(obra.id) ?? 0,
     }))
 
     setObras(comAvanco)

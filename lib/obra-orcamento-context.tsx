@@ -77,6 +77,7 @@ export function ObraOrcamentoProvider({ children }: { children: ReactNode }) {
       .from('orcamentos')
       .select('id,nome,versao,status')
       .eq('obra_id', obraId)
+      .neq('status', 'arquivado')
       .order('versao', { ascending: false })
     const list = (data || []) as OrcamentoSelecao[]
     setOrcamentos(list)

@@ -36,7 +36,7 @@ const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'financiamento', label: 'Financiamento', icon: Landmark },
   { id: 'previsoes', label: 'Previsões', icon: CalendarClock },
   { id: 'tarefas', label: 'Tarefas' },
-  { id: 'portal', label: 'Portal', icon: MessageSquareText },
+  { id: 'portal', label: 'Board', icon: MessageSquareText },
   { id: 'tour', label: 'Tour 360°' },
   { id: 'ia', label: 'Assistente IA', icon: Sparkles },
 ]
@@ -584,7 +584,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
 
 /* ─── Aba Orçamentos da Obra ─── */
 
-type OrcSelectItem = { id: string; nome: string | null; versao: number }
+type OrcSelectItem = { id: string; nome: string | null; versao: number; status: 'rascunho' | 'ativo' | 'finalizado' | 'arquivado' }
 
 function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onSelect, onRefresh }: { obraId: string; obraNome: string; obraUf?: string; obraArea?: number | null; selectedId: string; onSelect: (id: string) => void; onRefresh: () => Promise<void> }) {
   const supabase = createClient()
@@ -605,8 +605,9 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
     setLoading(true)
     const { data: orcs } = await supabase
       .from('orcamentos')
-      .select('id, nome, versao')
+      .select('id, nome, versao, status')
       .eq('obra_id', obraId)
+      .neq('status', 'arquivado')
       .order('versao', { ascending: false })
     const list = (orcs || []) as OrcSelectItem[]
     setOrcamentos(list)
@@ -658,11 +659,19 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
     await onRefresh()
   }
 
+  async function handleStatus(status: OrcSelectItem['status']) {
+    if (!selectedId || selectedId === TODOS_ORCAMENTOS) return
+    await supabase.from('orcamentos').update({ status }).eq('id', selectedId)
+    await load()
+    await onRefresh()
+  }
+
   async function openVincular() {
     const { data } = await supabase
       .from('orcamentos')
-      .select('id, nome, versao')
+      .select('id, nome, versao, status')
       .is('obra_id', null)
+      .neq('status', 'arquivado')
       .order('created_at', { ascending: false })
     setDisponiveis((data || []) as OrcSelectItem[])
     setVinculoId('')
@@ -724,6 +733,17 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
                 </p>
               </div>
               {selectedId !== TODOS_ORCAMENTOS && selectedOrc && <>
+                <select
+                  value={selectedOrc.status}
+                  onChange={event => void handleStatus(event.target.value as OrcSelectItem['status'])}
+                  className="input-base min-h-9 w-auto py-1 text-xs font-medium"
+                  aria-label="Status do orçamento"
+                >
+                  <option value="rascunho">Rascunho</option>
+                  <option value="ativo">Ativo</option>
+                  <option value="finalizado">Finalizado</option>
+                  <option value="arquivado">Arquivar</option>
+                </select>
                 <button
                   onClick={() => { setEditName(selectedOrc.nome || ''); setEditingName(true) }}
                   className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
@@ -1083,7 +1103,7 @@ function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => void }) {
         supabase.from('etapas').select('*').eq('obra_id', obra.id),
         supabase.from('fornecedores').select('*').or(`obra_id.is.null,obra_id.eq.${obra.id}`).order('nome'),
         supabase.from('obra_fornecedores').select('*, fornecedor:fornecedores(*)').eq('obra_id', obra.id),
-        supabase.from('orcamentos').select('id, nome, versao, status, bdi_percentual').eq('obra_id', obra.id).order('versao', { ascending: false }),
+        supabase.from('orcamentos').select('id, nome, versao, status, bdi_percentual').eq('obra_id', obra.id).neq('status', 'arquivado').order('versao', { ascending: false }),
       ])
       if (!active) return
       setEtapas((etapasRes.data || []) as Etapa[])

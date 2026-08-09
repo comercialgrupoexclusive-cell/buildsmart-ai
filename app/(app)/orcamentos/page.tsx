@@ -39,6 +39,7 @@ export default function OrcamentosPage() {
     rascunho: '#3B82F6',
     ativo: '#10B981',
     finalizado: '#6B7280',
+    arquivado: '#475569',
   }
   const [projetos, setProjetos] = useState<{ id: string; nome: string }[]>([])
   const [aba, setAba] = useState<'orcamentos' | 'composicoes' | 'insumos' | 'base'>('orcamentos')
@@ -152,13 +153,14 @@ export default function OrcamentosPage() {
     rascunho: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
     ativo:    'bg-green-500/20 text-green-400 border-green-500/30',
     finalizado: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+    arquivado: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
   }
   const STATUS_ORC_LABEL: Record<string, string> = {
-    rascunho: 'Rascunho', ativo: 'Ativo', finalizado: 'Finalizado',
+    rascunho: 'Rascunho', ativo: 'Ativo', finalizado: 'Finalizado', arquivado: 'Arquivado',
   }
 
   const filtrados = filtro === 'todos'
-    ? orcamentos
+    ? orcamentos.filter(o => o.status !== 'arquivado')
     : orcamentos.filter(o => o.status === filtro)
 
   return (
@@ -193,7 +195,7 @@ export default function OrcamentosPage() {
       <>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex gap-1 p-1 rounded-lg flex-wrap" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          {(['todos', 'rascunho', 'ativo', 'finalizado'] as const).map(s => (
+          {(['todos', 'rascunho', 'ativo', 'finalizado', 'arquivado'] as const).map(s => (
             <button
               key={s}
               onClick={() => setFiltro(s)}
@@ -350,7 +352,16 @@ export default function OrcamentosPage() {
                         className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                         style={{ color: '#6B7280' }}
                       >
-                        <Archive size={15} /> Finalizado
+                        <CheckCircle size={15} /> Finalizado
+                      </button>
+                    )}
+                    {orc.status !== 'arquivado' && (
+                      <button
+                        onClick={() => handleStatusChange(orc, 'arquivado')}
+                        className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                        style={{ color: '#64748B' }}
+                      >
+                        <Archive size={15} /> Arquivar
                       </button>
                     )}
 

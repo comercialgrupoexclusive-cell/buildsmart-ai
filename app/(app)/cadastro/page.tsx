@@ -23,6 +23,7 @@ const STATUS_ORC = {
   rascunho:   { label: 'Rascunho',   color: '#F59E0B' },
   ativo:      { label: 'Ativo',      color: '#10B981' },
   finalizado: { label: 'Finalizado', color: '#6B7280' },
+  arquivado:  { label: 'Arquivado',  color: '#475569' },
 }
 
 type TabKey = 'projetos' | 'obras' | 'orcamentos'
@@ -71,7 +72,7 @@ export default function CadastroPage() {
       { data: obs },
       { data: orcs },
       { data: items },
-      { data: meds },
+      { data: avancos },
       { data: tmpls },
       { data: profs },
     ] = await Promise.all([
@@ -80,17 +81,17 @@ export default function CadastroPage() {
       supabase.from('orcamentos').select('*, obras(nome, foto_url)').order('created_at', { ascending: false }),
       supabase.from('projeto_itens').select('projeto_id, concluido'),
       // Uma única query para medições — aggregação em JS
-      supabase.from('medicoes').select('obra_id, percentual_executado, periodo_inicio, created_at').order('periodo_inicio', { ascending: false }),
+      supabase.rpc('obras_avanco_fisico_ativo'),
       supabase.from('projeto_templates').select('id, nome').order('nome'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
     ])
 
     // Última medição por obra (já ordenado desc, primeiro hit = mais recente)
-    const latestMed: Record<string, number> = {}
-    ;(meds ?? []).forEach((m: { obra_id: string; percentual_executado: number }) => {
-      if (!(m.obra_id in latestMed)) latestMed[m.obra_id] = m.percentual_executado
-    })
-    const obraComAvanco = ((obs ?? []) as ObraRow[]).map(o => ({ ...o, avanco: latestMed[o.id] ?? 0 }))
+    const avancoPorObra = new Map(
+      ((avancos ?? []) as { obra_id: string; avanco_fisico: number }[])
+        .map(item => [item.obra_id, Number(item.avanco_fisico || 0)])
+    )
+    const obraComAvanco = ((obs ?? []) as ObraRow[]).map(o => ({ ...o, avanco: avancoPorObra.get(o.id) ?? 0 }))
 
     // Progresso de projetos
     const byProj: Record<string, { total: number; done: number }> = {}
@@ -132,7 +133,7 @@ export default function CadastroPage() {
   const filtroStatusOptions: Record<TabKey, string[]> = {
     projetos:   ['todos', 'em_andamento', 'concluido', 'suspenso'],
     obras:      ['todos', 'orcamento', 'ativa', 'concluida', 'paralisada'],
-    orcamentos: ['todos', 'rascunho', 'ativo', 'finalizado'],
+    orcamentos: ['todos', 'rascunho', 'ativo', 'finalizado', 'arquivado'],
   }
   const filtroStatusLabel: Record<TabKey, Record<string, string>> = {
     projetos:   { todos: 'Todos', ...Object.fromEntries(Object.entries(STATUS_PROJETO).map(([k, v]) => [k, v.label])) },
@@ -150,7 +151,7 @@ export default function CadastroPage() {
     return matchStatus && (!busca || o.nome.toLowerCase().includes(busca.toLowerCase()))
   })
   const orcFiltrados = orcamentos.filter(o => {
-    const matchStatus = filtroStatus === 'todos' || o.status === filtroStatus
+    const matchStatus = filtroStatus === 'todos' ? o.status !== 'arquivado' : o.status === filtroStatus
     return matchStatus && (!busca || (o.obras?.nome ?? '').toLowerCase().includes(busca.toLowerCase()))
   })
 
