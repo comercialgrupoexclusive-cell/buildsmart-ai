@@ -94,6 +94,64 @@ export type PortalPrevisaoDTO = {
   baseline: boolean
 }
 
+export type PortalPresentationDTO = {
+  axes: {
+    physical: number
+    labor: number
+    financial: number
+    financing: number
+  }
+  stages: Array<{
+    id: string
+    name: string
+    status: string
+    start: string | null
+    end: string | null
+    physical: number
+    labor: number
+    budget: number
+  }>
+  financial: {
+    budget: number
+    realized: number
+    paid: number
+    balance: number
+    timeline: Array<{ month: string; realized: number; paid: number }>
+    recent: Array<{
+      id: string
+      title: string
+      data: string
+      value: number
+      stage: string
+      budget_name: string
+      payment_status: string
+    }>
+  }
+  financing: {
+    expected: number
+    requested: number
+    approved: number
+    received: number
+    balance: number
+    sources: Array<{
+      id: string
+      type: 'recursos_proprios' | 'financiamento' | 'fgts'
+      value: number
+      note: string | null
+      budgetName: string
+    }>
+    reimbursements: Array<{
+      id: string
+      title: string
+      status: string
+      requested: number
+      approved: number
+      received: number
+      date: string | null
+    }>
+  }
+}
+
 export type PortalContextDTO = {
   access: { id: string; profileId: string | null }
   visibility: PortalVisibility
@@ -128,6 +186,7 @@ export type PortalContextDTO = {
   boardItems: PortalBoardItemDTO[]
   tours: PortalTourDTO[]
   previsoes: PortalPrevisaoDTO[]
+  presentation: PortalPresentationDTO
   documentos: Array<{
     id: string
     nome: string

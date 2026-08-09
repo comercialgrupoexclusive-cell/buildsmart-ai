@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
   BarChart3, Bot, CalendarRange, Camera, CircleDollarSign, ClipboardList,
-  FileText, Landmark, LayoutDashboard, MessageSquare, PanelsTopLeft, CalendarClock, Moon, Sun,
+  Download, FileText, Landmark, LayoutDashboard, MessageSquare, PanelsTopLeft, CalendarClock, Moon, Sun,
 } from 'lucide-react'
 import { PortalBoard } from './PortalBoard'
 import { PortalAssistant } from './PortalAssistant'
@@ -16,6 +16,7 @@ import { MetricCard, StatusItemCard } from '@/components/ui/InsightCard'
 import { PREVISAO_STATUS_LABEL, PREVISAO_TIPO_LABEL, previsaoPrazo, previsaoTone } from '@/lib/previsoes'
 import { PortalGantt } from './PortalGantt'
 import type { PortalSectionId, PortalVisibility } from '@/lib/portal/sections'
+import { EvolutionView, FinancialDetailView, FinancingDetailView } from './PortalPresentation'
 
 const BuildSmartTourViewer = dynamic(
   () => import('./BuildSmartTourViewer').then(module => module.BuildSmartTourViewer),
@@ -146,11 +147,11 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
           {loading && <div className="mb-3 h-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}><div className="h-full w-1/2 animate-pulse" style={{ background: 'var(--accent)' }} /></div>}
 
           {view === 'overview' && <Overview context={context} progress={progress} budgetName={budgetName} visibility={context.visibility} onNavigate={navigate} />}
-          {view === 'evolucao' && <FoundationView title="Evolução da obra" description="A base já separa avanço físico, financeiro, mão de obra e financiamento. As curvas completas entram na próxima fase." icon={BarChart3} />}
+          {view === 'evolucao' && <EvolutionView context={context} />}
           {view === 'cronograma' && <ScheduleView context={context} />}
-          {view === 'financeiro' && <FinancialView title="Financeiro" primaryLabel="Realizado" primary={context.summary.realizadoFinanceiro} secondaryLabel="Pago" secondary={context.summary.pago} />}
+          {view === 'financeiro' && <FinancialDetailView context={context} />}
           {view === 'previsoes' && <ForecastView context={context} />}
-          {view === 'financiamento' && <FinancialView title="Financiamento" primaryLabel="Previsto" primary={context.summary.financiamentoPrevisto} secondaryLabel="Recebido" secondary={context.summary.financiamentoRecebido} />}
+          {view === 'financiamento' && <FinancingDetailView context={context} />}
           {view === 'tour' && (
             <section className="space-y-4">
               <div><p className="text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-secondary)' }}>Ambientes imersivos</p><h1 className="mt-1 text-3xl font-semibold">Tour Virtual</h1></div>
@@ -159,8 +160,8 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
             </section>
           )}
           {view === 'board' && <PortalBoard key={`${draftTour?.nodeId || 'board'}:${focusBoardItemId || ''}`} token={token} orcamentoId={context.selectedOrcamentoId} items={context.boardItems} draftTour={draftTour} focusItemId={focusBoardItemId} onDraftConsumed={() => setDraftTour(null)} onChanged={() => refresh()} onOpenTour={openTour} />}
-          {view === 'fotos' && <FoundationView title="Fotos da obra" description="A galeria consumirá apenas registros publicados pela equipe. Nenhuma foto interna é exposta automaticamente." icon={Camera} />}
-          {view === 'relatorios' && <FoundationView title="Relatórios publicados" description="A estrutura está reservada para os snapshots mensais imutáveis da próxima fase." icon={FileText} />}
+          {view === 'fotos' && <PublishedFilesView context={context} mode="photos" />}
+          {view === 'relatorios' && <PublishedFilesView context={context} mode="reports" />}
           {view === 'ia' && <PortalAssistant token={token} orcamentoId={context.selectedOrcamentoId} onBoardChanged={() => refresh()} />}
         </main>
       </div>
@@ -175,9 +176,10 @@ function PortalTab({ item, active, onClick }: { item: typeof NAV[number]; active
 
 function Overview({ context, progress, budgetName, visibility, onNavigate }: { context: PortalContextDTO; progress: number; budgetName: string; visibility: PortalVisibility; onNavigate: (view: View) => void }) {
   return <div className="space-y-8">
-    <section className="relative min-h-[330px] overflow-hidden rounded-lg bg-[#303631] sm:min-h-[410px]">
+    <section className="relative min-h-[330px] overflow-hidden rounded-lg sm:min-h-[410px]" style={{ background: context.obra.fotoUrl ? '#303631' : 'var(--accent)' }}>
       {context.obra.fotoUrl && <Image src={context.obra.fotoUrl} alt={context.obra.nome} fill sizes="(min-width: 1024px) 70vw, 100vw" unoptimized className="object-cover" />}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/5" />
+      {context.obra.fotoUrl && <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/5" />}
+      {!context.obra.fotoUrl && <div className="absolute right-6 top-7 text-right text-white/90 sm:right-9 sm:top-9"><p className="text-xs font-semibold uppercase text-white/70">Avanço físico</p><p className="mt-1 text-5xl font-semibold tabular-nums sm:text-7xl">{progress.toFixed(1)}%</p></div>}
       <div className="absolute inset-x-0 bottom-0 p-6 text-white sm:p-9">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/70">{budgetName}</p>
         <h1 className="mt-2 max-w-3xl text-3xl font-semibold sm:text-5xl">{context.obra.nome}</h1>
@@ -204,10 +206,6 @@ function Overview({ context, progress, budgetName, visibility, onNavigate }: { c
 
 function ScheduleView({ context }: { context: PortalContextDTO }) {
   return <section><p className="text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-secondary)' }}>Planejamento</p><h1 className="mt-1 text-3xl font-semibold">Cronograma</h1><div className="mt-6"><PortalGantt items={context.cronograma} /></div></section>
-}
-
-function FinancialView({ title, primaryLabel, primary, secondaryLabel, secondary }: { title: string; primaryLabel: string; primary: number; secondaryLabel: string; secondary: number }) {
-  return <section><p className="text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-secondary)' }}>Visão permitida</p><h1 className="mt-1 text-3xl font-semibold">{title}</h1><div className="mt-8 grid gap-3 sm:grid-cols-2"><MetricCard label={primaryLabel} value={money(primary)} /><MetricCard label={secondaryLabel} value={money(secondary)} tone="success" /></div><p className="mt-5 max-w-2xl text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>Esta base já respeita o orçamento selecionado. Séries históricas e gráficos detalhados serão adicionados na fase analítica.</p></section>
 }
 
 function ForecastSummary({ context, onNavigate }: { context: PortalContextDTO; onNavigate: (view: View) => void }) {
@@ -242,8 +240,15 @@ function PortalForecastCard({ item }: { item: PortalContextDTO['previsoes'][numb
   return <StatusItemCard title={item.titulo} eyebrow={`${PREVISAO_TIPO_LABEL[item.tipo]} · ${item.orcamentoNome}`} value={item.valorPrevisto == null ? undefined : money(item.valorPrevisto)} detail={previsaoPrazo(item.dataPrevista, item.status)} tone={tone} badge={<Badge variant={tone === 'success' ? 'success' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>{PREVISAO_STATUS_LABEL[item.status]}</Badge>} meta={<div className="flex flex-wrap gap-x-4 gap-y-1"><span>{date(item.dataPrevista)}</span>{item.etapaNome && <span>{item.etapaNome}</span>}{item.baseline && <span>Baseline</span>}</div>} />
 }
 
-function FoundationView({ title, description, icon: Icon }: { title: string; description: string; icon: typeof Camera }) {
-  return <section><Icon size={28} style={{ color: 'var(--accent)' }} /><h1 className="mt-4 text-3xl font-semibold">{title}</h1><p className="mt-3 max-w-xl text-base leading-7" style={{ color: 'var(--text-secondary)' }}>{description}</p></section>
+function PublishedFilesView({ context, mode }: { context: PortalContextDTO; mode: 'photos' | 'reports' }) {
+  const isImage = (item: PortalContextDTO['documentos'][number]) => item.categoria === 'imagem' || item.tipo.startsWith('image/')
+  const items = context.documentos.filter(item => mode === 'photos' ? isImage(item) : !isImage(item))
+  const Icon = mode === 'photos' ? Camera : FileText
+  const title = mode === 'photos' ? 'Fotos da obra' : 'Relatórios e documentos'
+  return <section className="space-y-6">
+    <div><Icon size={24} style={{ color: 'var(--accent)' }} /><h1 className="mt-3 text-3xl font-semibold">{title}</h1><p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>Conteúdo selecionado e publicado pela equipe da obra.</p></div>
+    {items.length === 0 ? <Empty title={mode === 'photos' ? 'Nenhuma foto publicada' : 'Nenhum relatório publicado'} description={mode === 'photos' ? 'Os registros fotográficos aparecerão aqui assim que forem liberados pela equipe.' : 'Os documentos e relatórios liberados para o cliente aparecerão aqui.'} /> : mode === 'photos' ? <div className="grid grid-cols-2 gap-3 md:grid-cols-3">{items.map(item => <a key={item.id} href={item.url || undefined} target="_blank" rel="noreferrer" className="group relative aspect-[4/3] overflow-hidden rounded-lg bg-[var(--bg-secondary)]">{item.url && <Image src={item.url} alt={item.nome} fill unoptimized sizes="(min-width: 768px) 30vw, 50vw" className="object-cover transition-transform group-hover:scale-[1.02]" />}<div className="absolute inset-x-0 bottom-0 bg-black/65 p-3 text-white"><p className="truncate text-sm font-medium">{item.nome}</p><p className="mt-0.5 text-[11px] text-white/70">{new Date(item.createdAt).toLocaleDateString('pt-BR')}</p></div></a>)}</div> : <div className="space-y-3">{items.map(item => <article key={item.id} className="card flex items-center gap-3 p-4"><div className="grid size-10 shrink-0 place-items-center rounded-lg bg-[var(--bg-secondary)]"><FileText size={19} style={{ color: 'var(--accent)' }} /></div><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.nome}</p><p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{item.categoria} · {new Date(item.createdAt).toLocaleDateString('pt-BR')}</p></div>{item.url && <a href={item.url} target="_blank" rel="noreferrer" className="grid size-10 shrink-0 place-items-center rounded-lg" style={{ border: '1px solid var(--border)', color: 'var(--accent)' }} title="Abrir documento"><Download size={18} /></a>}</article>)}</div>}
+  </section>
 }
 
 function Empty({ title, description }: { title: string; description: string }) {
