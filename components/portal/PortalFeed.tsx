@@ -14,13 +14,14 @@ type Props = {
 export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
   const [items, setItems] = useState(initialItems)
   const [storyId, setStoryId] = useState<string | null>(null)
+  const [viewedStoryIds, setViewedStoryIds] = useState<string[]>([])
   const [showArchive, setShowArchive] = useState(false)
   const stories = useMemo(() => items.filter(item => item.isStory), [items])
   const highlighted = stories.filter(item => !item.storySeen)
   const archived = stories.filter(item => item.storySeen)
   const activeStories = showArchive ? archived : highlighted
   const activeStoryIndex = activeStories.findIndex(item => item.id === storyId)
-  const activeStory = activeStoryIndex >= 0 ? activeStories[activeStoryIndex] : null
+  const activeStory = stories.find(item => item.id === storyId) || null
 
   useEffect(() => {
     const postId = new URLSearchParams(window.location.search).get('post')
@@ -30,12 +31,18 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
   async function openStory(item: PortalFeedItemDTO) {
     setStoryId(item.id)
     if (!item.storySeen) {
-      setItems(current => current.map(candidate => candidate.id === item.id ? { ...candidate, storySeen: true } : candidate))
+      setViewedStoryIds(current => current.includes(item.id) ? current : [...current, item.id])
       await fetch(`/api/portal/${token}/feed`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'view_story', itemId: item.id }),
       })
     }
+  }
+
+  function closeStory() {
+    setItems(current => current.map(item => viewedStoryIds.includes(item.id) ? { ...item, storySeen: true } : item))
+    setViewedStoryIds([])
+    setStoryId(null)
   }
 
   async function toggleLike(itemId: string) {
@@ -102,7 +109,7 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
       {activeStory && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-3" role="dialog" aria-modal="true" aria-label={activeStory.titulo}>
           <article className="relative flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-lg bg-[#101318] text-white shadow-2xl">
-            <button type="button" onClick={() => setStoryId(null)} className="absolute right-3 top-3 z-20 grid size-10 place-items-center rounded-full bg-black/50" title="Fechar"><X size={20} /></button>
+            <button type="button" onClick={closeStory} className="absolute right-3 top-3 z-20 grid size-10 place-items-center rounded-full bg-black/50" title="Fechar"><X size={20} /></button>
             <StoryMedia item={activeStory} />
             <div className="p-5"><p className="text-xs text-white/60">{formatDate(activeStory.publicadoEm)}</p><h2 className="mt-1 text-xl font-semibold">{activeStory.titulo}</h2>{activeStory.conteudo && <p className="mt-2 text-sm leading-6 text-white/75">{activeStory.conteudo}</p>}</div>
             {activeStories.length > 1 && <><button type="button" onClick={() => setStoryId(activeStories[(activeStoryIndex - 1 + activeStories.length) % activeStories.length].id)} className="absolute left-2 top-1/2 grid size-10 place-items-center rounded-full bg-black/45" title="Anterior"><ChevronLeft /></button><button type="button" onClick={() => setStoryId(activeStories[(activeStoryIndex + 1) % activeStories.length].id)} className="absolute right-2 top-1/2 grid size-10 place-items-center rounded-full bg-black/45" title="Proximo"><ChevronRight /></button></>}
