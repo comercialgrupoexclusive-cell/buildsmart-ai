@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/Badge'
 import { MetricCard, StatusItemCard } from '@/components/ui/InsightCard'
 import { PREVISAO_STATUS_LABEL, PREVISAO_TIPO_LABEL, previsaoPrazo, previsaoTone } from '@/lib/previsoes'
 import { PortalGantt } from './PortalGantt'
+import type { PortalSectionId, PortalVisibility } from '@/lib/portal/sections'
 
 const BuildSmartTourViewer = dynamic(
   () => import('./BuildSmartTourViewer').then(module => module.BuildSmartTourViewer),
@@ -35,7 +36,7 @@ const NAV = [
   { id: 'ia', label: 'Pergunte à IA', icon: Bot },
 ] as const
 
-type View = typeof NAV[number]['id']
+type View = PortalSectionId
 
 type Props = {
   token: string
@@ -57,7 +58,10 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
   const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false)
   const [portalTheme, setPortalTheme] = useState<'dark' | 'light'>('light')
   const [context, setContext] = useState(initialContext)
-  const [view, setView] = useState<View>(NAV.some(item => item.id === initialView) ? initialView as View : 'overview')
+  const initialVisibleView = NAV.find(item => item.id === initialView && initialContext.visibility[item.id])?.id
+    || NAV.find(item => initialContext.visibility[item.id])?.id
+    || 'overview'
+  const [view, setView] = useState<View>(initialVisibleView)
   const [menuOpen, setMenuOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [draftTour, setDraftTour] = useState<PortalTourPosition | null>(null)
@@ -71,6 +75,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
 
   const selectedTour = context.tours.find(tour => tour.id === selectedTourId) || context.tours[0]
   const progress = Math.max(0, Math.min(100, Number(context.summary.avancoFisico || 0)))
+  const visibleNav = useMemo(() => NAV.filter(item => context.visibility[item.id]), [context.visibility])
 
   useEffect(() => {
     if (!currentProfile) document.documentElement.setAttribute('data-theme', 'light')
@@ -93,7 +98,9 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
       if (!response.ok) throw new Error('Não foi possível atualizar o Portal.')
       const next = await response.json() as PortalContextDTO
       setContext(next)
-      window.history.replaceState(null, '', `/portal/${token}?budget=${encodeURIComponent(nextBudget)}&view=${view}`)
+      const nextView = next.visibility[view] ? view : NAV.find(item => next.visibility[item.id])?.id || 'overview'
+      if (nextView !== view) setView(nextView)
+      window.history.replaceState(null, '', `/portal/${token}?budget=${encodeURIComponent(nextBudget)}&view=${nextView}`)
       if (!next.tours.some(tour => tour.id === selectedTourId)) setSelectedTourId(next.tours[0]?.id || '')
     } finally {
       setLoading(false)
@@ -133,20 +140,20 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
       {menuOpen && <div className="fixed inset-0 z-50 bg-black/30 lg:hidden" onClick={() => setMenuOpen(false)}>
         <nav className="h-full w-[min(86vw,330px)] p-4 shadow-2xl" style={{ background: 'var(--bg-card)' }} onClick={event => event.stopPropagation()}>
           <div className="mb-5 flex items-center justify-between"><span className="font-semibold">Navegação</span><button type="button" onClick={() => setMenuOpen(false)} className="grid size-10 place-items-center"><X size={20} /></button></div>
-          <div className="space-y-1">{NAV.map(item => <NavButton key={item.id} item={item} active={view === item.id} onClick={() => navigate(item.id)} />)}</div>
+          <div className="space-y-1">{visibleNav.map(item => <NavButton key={item.id} item={item} active={view === item.id} onClick={() => navigate(item.id)} />)}</div>
         </nav>
       </div>}
 
       <div className="mx-auto grid max-w-[1480px] lg:grid-cols-[230px_minmax(0,1fr)]">
         <aside className="hidden min-h-[calc(100vh-64px)] border-r px-3 py-5 lg:block" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-          <nav className="sticky top-20 space-y-1">{NAV.map(item => <NavButton key={item.id} item={item} active={view === item.id} onClick={() => navigate(item.id)} />)}</nav>
+          <nav className="sticky top-20 space-y-1">{visibleNav.map(item => <NavButton key={item.id} item={item} active={view === item.id} onClick={() => navigate(item.id)} />)}</nav>
         </aside>
 
         <main className="min-w-0 px-4 py-5 sm:px-6 sm:py-7 lg:px-10">
           <div className="mb-5 sm:hidden"><label><span className="mb-1 block text-[11px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Orçamento</span><select value={context.selectedOrcamentoId} onChange={event => refresh(event.target.value)} className="input-base min-h-12 w-full font-medium" disabled={loading}><option value="todos">Todos os orçamentos</option>{context.orcamentos.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label></div>
           {loading && <div className="mb-3 h-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}><div className="h-full w-1/2 animate-pulse" style={{ background: 'var(--accent)' }} /></div>}
 
-          {view === 'overview' && <Overview context={context} progress={progress} budgetName={budgetName} onNavigate={navigate} />}
+          {view === 'overview' && <Overview context={context} progress={progress} budgetName={budgetName} visibility={context.visibility} onNavigate={navigate} />}
           {view === 'evolucao' && <FoundationView title="Evolução da obra" description="A base já separa avanço físico, financeiro, mão de obra e financiamento. As curvas completas entram na próxima fase." icon={BarChart3} />}
           {view === 'cronograma' && <ScheduleView context={context} />}
           {view === 'financeiro' && <FinancialView title="Financeiro" primaryLabel="Realizado" primary={context.summary.realizadoFinanceiro} secondaryLabel="Pago" secondary={context.summary.pago} />}
@@ -174,7 +181,7 @@ function NavButton({ item, active, onClick }: { item: typeof NAV[number]; active
   return <button type="button" onClick={onClick} className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium hover:bg-[var(--bg-secondary)]" style={active ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}><Icon size={18} /><span className="flex-1">{item.label}</span>{active && <ChevronRight size={15} />}</button>
 }
 
-function Overview({ context, progress, budgetName, onNavigate }: { context: PortalContextDTO; progress: number; budgetName: string; onNavigate: (view: View) => void }) {
+function Overview({ context, progress, budgetName, visibility, onNavigate }: { context: PortalContextDTO; progress: number; budgetName: string; visibility: PortalVisibility; onNavigate: (view: View) => void }) {
   return <div className="space-y-8">
     <section className="relative min-h-[330px] overflow-hidden rounded-lg bg-[#303631] sm:min-h-[410px]">
       {context.obra.fotoUrl && <Image src={context.obra.fotoUrl} alt={context.obra.nome} fill sizes="(min-width: 1024px) 70vw, 100vw" unoptimized className="object-cover" />}
@@ -186,17 +193,20 @@ function Overview({ context, progress, budgetName, onNavigate }: { context: Port
       </div>
     </section>
 
-    <section className="grid gap-5 md:grid-cols-[220px_1fr] md:items-center">
-      <div className="card flex items-center gap-5 p-5"><div className="portal-progress-ring grid size-24 shrink-0 place-items-center rounded-full" style={{ '--progress': progress } as React.CSSProperties}><div className="grid size-[4.5rem] place-items-center rounded-full" style={{ background: 'var(--bg-card)' }}><span className="text-lg font-semibold">{progress.toFixed(1)}%</span></div></div><div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Avanço físico</p><p className="mt-1 text-lg font-semibold">Evolução em campo</p></div></div>
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><MetricCard label="Valor orçado" value={money(context.summary.valorOrcado)} /><MetricCard label="Realizado" value={money(context.summary.realizadoFinanceiro)} tone="warning" /><MetricCard label="Pago" value={money(context.summary.pago)} tone="success" /><MetricCard label="Financiamento recebido" value={money(context.summary.financiamentoRecebido)} /></div>
-    </section>
+    {(visibility.evolucao || visibility.financeiro || visibility.financiamento) && <section className={`grid gap-5 ${visibility.evolucao ? 'md:grid-cols-[220px_1fr]' : ''} md:items-center`}>
+      {visibility.evolucao && <div className="card flex items-center gap-5 p-5"><div className="portal-progress-ring grid size-24 shrink-0 place-items-center rounded-full" style={{ '--progress': progress } as React.CSSProperties}><div className="grid size-[4.5rem] place-items-center rounded-full" style={{ background: 'var(--bg-card)' }}><span className="text-lg font-semibold">{progress.toFixed(1)}%</span></div></div><div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Avanço físico</p><p className="mt-1 text-lg font-semibold">Evolução em campo</p></div></div>}
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {visibility.financeiro && <><MetricCard label="Valor orçado" value={money(context.summary.valorOrcado)} /><MetricCard label="Realizado" value={money(context.summary.realizadoFinanceiro)} tone="warning" /><MetricCard label="Pago" value={money(context.summary.pago)} tone="success" /></>}
+        {visibility.financiamento && <MetricCard label="Financiamento recebido" value={money(context.summary.financiamentoRecebido)} />}
+      </div>
+    </section>}
 
-    {context.previsoes.length > 0 && <ForecastSummary context={context} onNavigate={onNavigate} />}
+    {visibility.previsoes && context.previsoes.length > 0 && <ForecastSummary context={context} onNavigate={onNavigate} />}
 
-    <section className="grid gap-6 md:grid-cols-2">
-      <button type="button" onClick={() => onNavigate('cronograma')} className="group min-h-44 rounded-lg p-6 text-left text-white" style={{ background: 'var(--accent)' }}><CalendarRange size={24} /><h2 className="mt-8 text-2xl font-semibold">Cronograma executivo</h2><p className="mt-2 text-sm text-white/75">{context.cronograma.filter(item => item.status !== 'concluida').length} etapas em acompanhamento</p></button>
-      <button type="button" onClick={() => onNavigate('board')} className="card group min-h-44 p-6 text-left"><MessageSquare size={24} style={{ color: 'var(--accent)' }} /><h2 className="mt-8 text-2xl font-semibold">Decisões e pendências</h2><p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>{context.boardItems.length} itens compartilhados com você</p></button>
-    </section>
+    {(visibility.cronograma || visibility.board) && <section className="grid gap-6 md:grid-cols-2">
+      {visibility.cronograma && <button type="button" onClick={() => onNavigate('cronograma')} className="group min-h-44 rounded-lg p-6 text-left text-white" style={{ background: 'var(--accent)' }}><CalendarRange size={24} /><h2 className="mt-8 text-2xl font-semibold">Cronograma executivo</h2><p className="mt-2 text-sm text-white/75">{context.cronograma.filter(item => item.status !== 'concluida').length} etapas em acompanhamento</p></button>}
+      {visibility.board && <button type="button" onClick={() => onNavigate('board')} className="card group min-h-44 p-6 text-left"><MessageSquare size={24} style={{ color: 'var(--accent)' }} /><h2 className="mt-8 text-2xl font-semibold">Decisões e pendências</h2><p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>{context.boardItems.length} itens compartilhados com você</p></button>}
+    </section>}
   </div>
 }
 

@@ -94,7 +94,7 @@ export function PortalAccessLinks({ obraId }: { obraId: string }) {
             </span>
           </div>
           <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Este é o único link desta obra. Ele permanece o mesmo e não exige senha.
+            Este é o único link desta obra. Ele permanece o mesmo e abre exatamente a visão do cliente.
           </p>
           <p className="mt-3 break-all rounded-lg px-3 py-2 text-sm" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
             {url || 'Preparando link...'}
@@ -109,7 +109,7 @@ export function PortalAccessLinks({ obraId }: { obraId: string }) {
           {copied ? <Check size={15} /> : <Copy size={15} />} {copied ? 'Copiado' : 'Copiar link'}
         </button>
         <a href={url || undefined} target="_blank" rel="noreferrer" aria-disabled={!url} className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-white" style={{ background: 'var(--accent)', opacity: url ? 1 : 0.5, pointerEvents: url ? 'auto' : 'none' }}>
-          {ready ? <ExternalLink size={15} /> : <Loader2 size={15} className="animate-spin" />} Abrir Portal
+          {ready ? <ExternalLink size={15} /> : <Loader2 size={15} className="animate-spin" />} Ver como cliente
         </a>
       </div>
     </section>

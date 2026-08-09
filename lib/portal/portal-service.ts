@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
 import type { PortalContextDTO } from './types'
+import { normalizePortalVisibility } from './sections'
 
 function portalDb() {
   return createClient(supabaseUrl(), supabaseAnonKey(), {
@@ -17,15 +18,17 @@ export async function getPortalContext(token: string, orcamentoId = 'todos'): Pr
   if (!token || token.length < 24) return null
   const db = portalDb()
   const params = { p_token_hash: hashPortalToken(token), p_orcamento_id: orcamentoId || 'todos' }
-  const [{ data, error }, { data: cronograma, error: scheduleError }, { data: previsoes, error: forecastsError }] = await Promise.all([
+  const [{ data, error }, { data: cronograma, error: scheduleError }, { data: previsoes, error: forecastsError }, { data: visibility }] = await Promise.all([
     db.rpc('portal_get_context', params),
     db.rpc('portal_get_schedule', params),
     db.rpc('portal_get_previsoes', params),
+    db.rpc('portal_get_visibility', { p_token_hash: params.p_token_hash }),
   ])
   if (error || scheduleError || forecastsError || !data) return null
   const context = data as PortalContextDTO
   return {
     ...context,
+    visibility: normalizePortalVisibility(visibility as PortalContextDTO['visibility'] | null),
     orcamentos: context.orcamentos.filter(item => item.status !== 'arquivado'),
     cronograma: (cronograma || []) as PortalContextDTO['cronograma'],
     previsoes: (previsoes || []) as PortalContextDTO['previsoes'],

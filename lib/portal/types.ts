@@ -1,3 +1,5 @@
+import type { PortalVisibility } from './sections'
+
 export type PortalCategoria = 'observacao' | 'duvida' | 'aprovacao' | 'alteracao' | 'pendencia' | 'nao_conformidade'
 export type PortalBoardStatus = 'aberto' | 'em_analise' | 'aguardando_cliente' | 'aguardando_equipe' | 'resolvido' | 'arquivado'
 
@@ -94,6 +96,7 @@ export type PortalPrevisaoDTO = {
 
 export type PortalContextDTO = {
   access: { id: string; profileId: string | null }
+  visibility: PortalVisibility
   obra: {
     id: string
     nome: string
