@@ -58,16 +58,23 @@ export async function loadObraProgresso(
   // Valor contratado por etapa = Σ (quantidade × preço unit) dos itens do orçamento
   const orcIds = ((orcamentos || []) as { id: string }[]).map(o => o.id)
   const valorPorEtapa: Record<string, number> = {}
+  const subetapasMaoObraPorEtapa = new Map<string, Set<string>>()
   if (orcIds.length > 0) {
     const { data: itens } = await supabase
       .from('orcamento_itens')
-      .select('etapa_id, quantidade, preco_unitario_snapshot, classificacao_snapshot')
+      .select('etapa_id, subetapa, descricao_snapshot, quantidade, preco_unitario_snapshot, classificacao_snapshot')
       .in('orcamento_id', orcIds)
-    ;((itens || []) as { etapa_id: string | null; quantidade: number; preco_unitario_snapshot: number; classificacao_snapshot: string | null }[])
+    ;((itens || []) as { etapa_id: string | null; subetapa: string | null; descricao_snapshot: string | null; quantidade: number; preco_unitario_snapshot: number; classificacao_snapshot: string | null }[])
       .forEach(it => {
         if (!it.etapa_id) return
-        if (eixo === 'mao_obra' && normalizarClassificacao(it.classificacao_snapshot) !== 'MAO_DE_OBRA') return
+        const itemMaoObra = normalizarClassificacao(it.classificacao_snapshot) === 'MAO_DE_OBRA' || descricaoMaoObra(it.descricao_snapshot)
+        if (eixo === 'mao_obra' && !itemMaoObra) return
         valorPorEtapa[it.etapa_id] = (valorPorEtapa[it.etapa_id] || 0) + num(it.quantidade) * num(it.preco_unitario_snapshot)
+        if (eixo === 'mao_obra' && it.subetapa) {
+          const nomes = subetapasMaoObraPorEtapa.get(it.etapa_id) || new Set<string>()
+          nomes.add(normalizarNome(it.subetapa))
+          subetapasMaoObraPorEtapa.set(it.etapa_id, nomes)
+        }
       })
   }
 
@@ -90,15 +97,17 @@ export async function loadObraProgresso(
     data_fim: e.data_fim,
     subetapas: (e.subetapas_cronograma || [])
       .sort((a, b) => a.ordem - b.ordem)
+      .filter(s => eixo === 'fisico' || subetapasMaoObraPorEtapa.get(e.id)?.has(normalizarNome(s.nome)) || s.servicos_cronograma.some(v => descricaoMaoObra(v.nome)))
       .map(s => ({
         id: s.id,
         nome: s.nome,
         percentual: percentualDe(s),
         servicos: (s.servicos_cronograma || [])
           .sort((a, b) => a.ordem - b.ordem)
+          .filter(v => eixo === 'fisico' || descricaoMaoObra(v.nome))
           .map(v => ({ id: v.id, nome: v.nome, percentual: percentualDe(v) })),
       })),
-  }))
+  })).filter(e => eixo === 'fisico' || e.valorContratado > 0)
 
   const valorTotal = etapas.reduce((acc, e) => acc + e.valorContratado, 0)
   const temValores = valorTotal > 0
@@ -192,6 +201,14 @@ function normalizarClassificacao(value: string | null): string {
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '_')
+}
+
+function normalizarNome(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase()
+}
+
+function descricaoMaoObra(value: string | null): boolean {
+  return /mao\s+de\s+obra/i.test(normalizarNome(value || ''))
 }
 
 /** Cor por percentual — padrão do app. */

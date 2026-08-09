@@ -30,6 +30,7 @@ import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ObraMedicaoMaoObra } from '@/components/obra/ObraMedicaoMaoObra'
 
 type SubTab = 'fisico' | 'mao-obra' | 'medicao-mao-obra' | 'financeiro' | 'financiamento' | 'boletins' | 'diario' | 'curva'
+type OrcamentoOpcao = { id: string; nome: string | null; versao: number; status: string }
 
 const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
@@ -51,6 +52,8 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
   const [loading, setLoading] = useState(true)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
+  const [orcamentos, setOrcamentos] = useState<OrcamentoOpcao[]>([])
+  const [orcamentoId, setOrcamentoId] = useState('')
   // Filtros da aba Avanço
   const [filtroEtapa, setFiltroEtapa] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'andamento' | 'concluido'>('todas')
@@ -59,10 +62,19 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
 
   const carregar = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
-    const p = await loadObraProgresso(supabase, obraId, eixo)
+    const p = await loadObraProgresso(supabase, obraId, eixo, orcamentoId ? [orcamentoId] : undefined)
     setProg(p)
     if (!silent) setLoading(false)
-  }, [obraId, supabase, eixo])
+  }, [obraId, supabase, eixo, orcamentoId])
+
+  useEffect(() => {
+    Promise.resolve().then(async () => {
+      const { data } = await supabase.from('orcamentos').select('id,nome,versao,status').eq('obra_id', obraId).order('versao', { ascending: false })
+      const opcoes = (data || []) as OrcamentoOpcao[]
+      setOrcamentos(opcoes)
+      setOrcamentoId(atual => atual || opcoes.find(o => o.status === 'ativo')?.id || opcoes[0]?.id || '')
+    })
+  }, [obraId, supabase])
 
   useEffect(() => { Promise.resolve().then(() => carregar()) }, [carregar])
 
@@ -149,6 +161,17 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
 
       {(subTab === 'fisico' || subTab === 'mao-obra') && prog && (
         <>
+          <div className="card p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Orçamento acompanhado</p>
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Os valores e itens exibidos pertencem ao orçamento selecionado.</p>
+            </div>
+            <select value={orcamentoId} onChange={e => setOrcamentoId(e.target.value)} className="input-base text-sm sm:w-72">
+              {orcamentos.length === 0 && <option value="">Nenhum orçamento vinculado</option>}
+              {orcamentos.map(o => <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`} · {o.status}</option>)}
+            </select>
+          </div>
+
           {/* Avanço global ponderado por valor */}
           <div className="card p-4 flex flex-col gap-3">
             <div className="flex items-center gap-4">
@@ -293,28 +316,26 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
 // ─── Campo de % com presets + input ──────────────────────────────────────────
 function CampoPct({ valor, onChange, tamanho = 'md' }: { valor: number; onChange: (v: number) => void; tamanho?: 'md' | 'sm' }) {
   const presets = [
-    { label: 'Pendente', value: 0, active: valor <= 0 },
-    { label: 'Andamento', value: 50, active: valor > 0 && valor < 100 },
-    { label: 'Concluído', value: 100, active: valor >= 100 },
+    { label: 'Pendente', value: 0, active: valor <= 0, editable: true },
+    { label: 'Andamento', value: null, active: valor > 0 && valor < 100, editable: false },
+    { label: 'Concluído', value: 100, active: valor >= 100, editable: true },
   ]
   return (
     <div className="flex flex-col gap-2 flex-shrink-0 w-full sm:w-auto" onClick={e => e.stopPropagation()}>
       <div className="grid grid-cols-3 gap-1.5">
         {presets.map(p => (
-          <button key={p.label} type="button" onClick={() => onChange(p.value)}
+          <button key={p.label} type="button" onClick={() => p.editable && p.value != null && onChange(p.value)}
+            aria-pressed={p.active} title={p.editable ? `Marcar como ${p.label.toLowerCase()}` : 'O andamento acompanha o percentual informado'}
             className="min-h-9 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-all"
-            style={p.active ? { background: 'var(--accent)', color: 'white', border: '1px solid var(--accent)' } : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+            style={p.active ? { background: 'var(--accent)', color: 'white', border: '1px solid var(--accent)' } : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)', cursor: p.editable ? 'pointer' : 'default' }}>
             {p.active ? <CheckSquare size={14} /> : <Square size={14} />}
             <span className={tamanho === 'sm' ? 'hidden min-[420px]:inline' : ''}>{p.label}</span>
           </button>
         ))}
       </div>
       <div className="flex items-center gap-2">
-        <div className="flex-1 min-w-16" style={{ height: tamanho === 'md' ? 6 : 5 }}>
-          <div className="h-full rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
-            <div className="h-full rounded-full transition-all duration-300" style={{ width: `${Math.min(100, valor)}%`, background: corPorPercentual(valor) }} />
-          </div>
-        </div>
+        <input type="range" min={0} max={100} step={1} value={Math.round(valor)} onChange={e => onChange(Number(e.target.value))}
+          className="flex-1 min-w-16 accent-[var(--accent)]" aria-label="Percentual de execução" />
         <div className="relative flex items-center">
           <input type="number" min={0} max={100} step={0.5} value={Number(valor.toFixed(1)) || 0}
             onChange={e => onChange(parseFloat(e.target.value))}

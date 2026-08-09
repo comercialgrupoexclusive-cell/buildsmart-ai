@@ -1480,13 +1480,14 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       const grupoImportado = String(linha.valores.grupo ?? linha.valores.categoriaGrupo ?? '').trim()
       const categoriaSubetapaImportada = String(linha.valores.categoriaSubetapa ?? linha.valores.categoria_subetapa ?? '').trim()
       const classificacaoTexto = String(linha.valores.classificacao ?? '').trim().toUpperCase()
+      const descricaoEhMaoObra = /m[aã]o\s+de\s+obra/i.test(descricaoImportada)
       const classificacaoImportada: ClassificacaoInsumo | null = classificacaoTexto === 'EQUIPAMENTO'
         ? 'EQUIPAMENTO'
         : classificacaoTexto === 'MAO_DE_OBRA' || classificacaoTexto === 'MÃO DE OBRA' || classificacaoTexto === 'MAO DE OBRA'
           ? 'MAO_DE_OBRA'
           : classificacaoTexto === 'MATERIAL_SERVICOS' || classificacaoTexto === 'MATERIAL E SERVIÇOS' || classificacaoTexto === 'MATERIAL E SERVICOS'
             ? 'MATERIAL_SERVICOS'
-            : null
+            : descricaoEhMaoObra ? 'MAO_DE_OBRA' : null
       const statusExecucaoImportado = mapStatusExecucao(linha.valores.statusExecucao)
       const statusCompraImportado = mapStatusCompra(linha.valores.statusMaterial)
       const insumosAntigos = Array.isArray(linha.valores.insumos)

@@ -28,7 +28,8 @@ type ItemOrcamento = {
 type LinhaMaoObra = { id: string; tipo: 'orcamento_item' | 'orcamento_insumo'; nome: string; unidade: string; quantidade: number; valor: number }
 
 const hoje = () => new Date().toISOString().slice(0, 10)
-const isMaoObra = (valor: string | null) => (valor || '').toUpperCase() === 'MAO_DE_OBRA'
+const isMaoObra = (valor: string | null, descricao = '') =>
+  (valor || '').toUpperCase() === 'MAO_DE_OBRA' || /m[aã]o\s+de\s+obra/i.test(descricao)
 
 export function ObraMedicaoMaoObra({ obraId }: { obraId: string }) {
   const supabase = createClient()
@@ -67,11 +68,11 @@ export function ObraMedicaoMaoObra({ obraId }: { obraId: string }) {
     if (error) throw error
     const linhas: LinhaMaoObra[] = []
     for (const item of (data || []) as ItemOrcamento[]) {
-      if (isMaoObra(item.classificacao_snapshot)) {
+      if (isMaoObra(item.classificacao_snapshot, item.descricao_snapshot || '')) {
         linhas.push({ id: item.id, tipo: 'orcamento_item', nome: item.descricao_snapshot || 'Mão de obra', unidade: item.unidade_snapshot || 'un', quantidade: Number(item.quantidade || 0), valor: Number(item.quantidade || 0) * Number(item.preco_unitario_snapshot || 0) })
         continue
       }
-      for (const i of (item.orcamento_item_insumos || []).filter(insumo => isMaoObra(insumo.classificacao_snapshot))) {
+      for (const i of (item.orcamento_item_insumos || []).filter(insumo => isMaoObra(insumo.classificacao_snapshot, insumo.descricao_snapshot || ''))) {
         const quantidade = Number(i.quantidade_adotada ?? i.quantidade_calculada ?? 0)
         linhas.push({ id: i.id, tipo: 'orcamento_insumo', nome: i.descricao_snapshot || 'Mão de obra', unidade: i.unidade_snapshot || 'un', quantidade, valor: quantidade * Number(i.preco_unitario_snapshot || 0) })
       }
