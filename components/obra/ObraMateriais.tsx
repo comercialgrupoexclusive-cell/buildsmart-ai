@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/Input'
 import { ObraFornecedores } from '@/components/obra/ObraFornecedores'
 import { ObraRequisicoes } from '@/components/obra/ObraRequisicoes'
 import { ComprasLancamentos, PrefillLancamento } from '@/components/obra/ComprasLancamentos'
+import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 const STATUS_LABEL: Record<string, string> = {
   nao_comprado: 'Não comprado',
@@ -34,6 +35,7 @@ const STATUS_DOT: Record<string, string> = {
 type MaterialRow = {
   id: string
   obra_id: string
+  orcamento_id: string | null
   etapa_id: string | null
   subetapa: string | null
   insumo_id?: string | null
@@ -53,6 +55,7 @@ type MateriaisSchema = 'snapshot' | 'insumo_id'
 type MaterialBancoInsumoId = {
   id: string
   obra_id: string
+  orcamento_id: string | null
   etapa_id: string | null
   subetapa?: string | null
   insumo_id: string | null
@@ -80,6 +83,7 @@ type StatusLista = 'aberta' | 'enviada' | 'concluida'
 
 type ListaCompra = {
   id: string
+  orcamentoId: string | null
   nome: string
   fornecedorId: string | null
   itens: ListaCompraItem[]
@@ -117,7 +121,7 @@ function statusOperacional(material: MaterialRow) {
   return 'pendente'
 }
 
-export function ObraMateriais({ obraId }: { obraId: string }) {
+export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = createClient()
   const [materiais, setMateriais] = useState<MaterialRow[]>([])
   const [etapas, setEtapas] = useState<{ id: string; nome: string }[]>([])
@@ -142,6 +146,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   const [prefillLancamento, setPrefillLancamento] = useState<PrefillLancamento>(null)
   const [listas, setListas] = useState<ListaCompra[]>([])
   const [listasCarregadas, setListasCarregadas] = useState(false)
+  const consolidado = orcamentoId === TODOS_ORCAMENTOS
 
   // ── Orçamentos vinculados ──
   const [orcamentosVinculados, setOrcamentosVinculados] = useState<{ id: string; nome: string }[]>([])
@@ -202,6 +207,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     return {
       id: row.id,
       obra_id: row.obra_id,
+      orcamento_id: row.orcamento_id,
       etapa_id: row.etapa_id,
       subetapa: row.subetapa ?? null,
       insumo_id: row.insumo_id,
@@ -233,7 +239,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         .order('data_necessidade', { ascending: true, nullsFirst: false })
       : supabase
         .from('materiais')
-        .select('id, obra_id, etapa_id, subetapa, insumo_id, quantidade_total, quantidade_comprada, status_compra, data_necessidade, data_recebimento, etapas(nome), insumo:sinapi_insumos(codigo,descricao,unidade)')
+        .select('id, obra_id, orcamento_id, etapa_id, subetapa, insumo_id, quantidade_total, quantidade_comprada, status_compra, data_necessidade, data_recebimento, etapas(nome), insumo:sinapi_insumos(codigo,descricao,unidade)')
         .eq('obra_id', obraId)
         .order('data_necessidade', { ascending: true, nullsFirst: false })
     const [matsRes, etapasRes, fornecedoresRes, subetapasRes] = await Promise.all([
@@ -249,14 +255,17 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         .select('id, orcamento_itens(etapa_id, subetapa)')
         .eq('obra_id', obraId),
     ])
-    setMateriais(schemaMateriais === 'snapshot'
+    const materiaisCarregados = schemaMateriais === 'snapshot'
       ? (matsRes.data || []) as MaterialRow[]
-      : ((matsRes.data || []) as unknown as MaterialBancoInsumoId[]).map(normalizarMaterialInsumoId))
+      : ((matsRes.data || []) as unknown as MaterialBancoInsumoId[]).map(normalizarMaterialInsumoId)
+    setMateriais(materiaisCarregados.filter(material => consolidado
+      ? (!material.orcamento_id || orcamentoIds.includes(material.orcamento_id))
+      : material.orcamento_id === orcamentoId))
     setEtapas(etapasRes.data || [])
     setFornecedores(fornecedoresRes.data || [])
     const subMap: Record<string, string[]> = {}
-    const orcs = (subetapasRes.data || []) as { orcamento_itens?: { etapa_id: string | null; subetapa: string | null }[] }[]
-    orcs.forEach(orc => (orc.orcamento_itens || []).forEach(item => {
+    const orcs = (subetapasRes.data || []) as { id: string; orcamento_itens?: { etapa_id: string | null; subetapa: string | null }[] }[]
+    orcs.filter(orc => orcamentoIds.includes(orc.id)).forEach(orc => (orc.orcamento_itens || []).forEach(item => {
       if (!item.etapa_id || !item.subetapa?.trim()) return
       if (!subMap[item.etapa_id]) subMap[item.etapa_id] = []
       if (!subMap[item.etapa_id].includes(item.subetapa.trim())) subMap[item.etapa_id].push(item.subetapa.trim())
@@ -268,11 +277,14 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   async function loadListas() {
     const { data } = await supabase
       .from('listas_compra')
-      .select('id, nome, fornecedor_id, itens, status, criado_em')
+      .select('id, orcamento_id, nome, fornecedor_id, itens, status, criado_em')
       .eq('obra_id', obraId)
       .order('criado_em', { ascending: false })
-    setListas(((data ?? []) as { id: string; nome: string; fornecedor_id: string | null; itens: ListaCompraItem[]; status: StatusLista; criado_em: string }[]).map((r) => ({
+    setListas(((data ?? []) as { id: string; orcamento_id: string | null; nome: string; fornecedor_id: string | null; itens: ListaCompraItem[]; status: StatusLista; criado_em: string }[])
+      .filter(r => consolidado ? (!r.orcamento_id || orcamentoIds.includes(r.orcamento_id)) : r.orcamento_id === orcamentoId)
+      .map((r) => ({
       id: r.id,
+      orcamentoId: r.orcamento_id,
       nome: r.nome,
       fornecedorId: r.fornecedor_id,
       itens: r.itens ?? [],
@@ -291,13 +303,15 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   // a própria composição como material — garante que o dado sempre "puxe".
   async function importarDoOrcamento(silencioso = false) {
     if (importando) return
+    if (consolidado) {
+      if (!silencioso) alert('Selecione um orçamento específico para sincronizar os materiais.')
+      return
+    }
     setImportando(true)
     try {
-      // 1) Orçamentos da obra
-      const { data: orcs, error: erroOrcs } = await supabase.from('orcamentos').select('id').eq('obra_id', obraId)
-      if (erroOrcs) { if (!silencioso) alert(`Não foi possível ler os orçamentos da obra.\n\nErro: ${erroOrcs.message}`); return }
-      const orcamentoIds = ((orcs || []) as { id: string }[]).map(o => o.id)
-      if (orcamentoIds.length === 0) {
+      // 1) Usa somente o orçamento global selecionado (ou todos, no consolidado).
+      const idsSelecionados = orcamentoIds
+      if (idsSelecionados.length === 0) {
         if (!silencioso) alert('Esta obra ainda não tem orçamento. Crie um orçamento na aba "Orçamento" primeiro — os materiais são derivados dele.')
         return
       }
@@ -305,6 +319,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       // 2) Itens do orçamento — consulta ENXUTA (sem embeds pesados, evita
       // joins aninhados caros que travam/expiram quando há muitos itens).
       type ItemLean = {
+        orcamento_id: string
         etapa_id: string | null
         subetapa: string | null
         composicao_id: string | null
@@ -316,8 +331,8 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       }
       const { data: itensRaw, error: erroItens } = await supabase
         .from('orcamento_itens')
-        .select('etapa_id, subetapa, composicao_id, sinapi_composicao_id, quantidade, descricao_snapshot, codigo_snapshot, unidade_snapshot')
-        .in('orcamento_id', orcamentoIds)
+        .select('orcamento_id, etapa_id, subetapa, composicao_id, sinapi_composicao_id, quantidade, descricao_snapshot, codigo_snapshot, unidade_snapshot')
+        .in('orcamento_id', idsSelecionados)
 
       if (erroItens) {
         if (!silencioso) alert(`Não foi possível ler os itens do orçamento.\n\nErro: ${erroItens.message}`)
@@ -389,10 +404,10 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       // 6) Acumula em memória — sem nenhum round-trip ao banco aqui dentro
       type Acc = { qtd: number; descricao: string; unidade: string }
       const mapa = new Map<string, Acc>()
-      const acumular = (etapaId: string | null, subetapaOriginal: string | null, codigo: string, descricao: string, unidade: string, qtd: number) => {
+      const acumular = (orcId: string, etapaId: string | null, subetapaOriginal: string | null, codigo: string, descricao: string, unidade: string, qtd: number) => {
         if (!codigo || codigo === '—' || qtd <= 0) return
         const subetapa = temSubetapa ? subetapaOriginal : null
-        const key = `${etapaId ?? 'null'}|${subetapa ?? 'null'}|${codigo}`
+        const key = `${orcId}|${etapaId ?? 'null'}|${subetapa ?? 'null'}|${codigo}`
         const atual = mapa.get(key)
         if (atual) atual.qtd += qtd
         else mapa.set(key, { qtd, descricao, unidade })
@@ -410,28 +425,28 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         if (sc) {
           const lista = analiticosPorCodigo.get(sc.codigo) || []
           if (lista.length === 0) {
-            acumular(item.etapa_id, item.subetapa, codigo, descricao, unidade, qtd)
+            acumular(item.orcamento_id, item.etapa_id, item.subetapa, codigo, descricao, unidade, qtd)
           } else {
             for (const ins of lista) {
               if (!ins.item_codigo) continue
-              acumular(item.etapa_id, item.subetapa, ins.item_codigo, ins.item_descricao || ins.item_codigo, ins.item_unidade || 'UN', qtd * ins.coeficiente)
+              acumular(item.orcamento_id, item.etapa_id, item.subetapa, ins.item_codigo, ins.item_descricao || ins.item_codigo, ins.item_unidade || 'UN', qtd * ins.coeficiente)
             }
           }
         } else if (cp) {
           const lista = cp.composicao_insumos || []
           if (lista.length === 0) {
-            acumular(item.etapa_id, item.subetapa, codigo, descricao, unidade, qtd)
+            acumular(item.orcamento_id, item.etapa_id, item.subetapa, codigo, descricao, unidade, qtd)
           } else {
             for (const ins of lista) {
               const di = ins.insumo || ins.insumo_proprio
               if (!di?.codigo) continue
-              acumular(item.etapa_id, item.subetapa, di.codigo, di.descricao, di.unidade, qtd * ins.coeficiente)
+              acumular(item.orcamento_id, item.etapa_id, item.subetapa, di.codigo, di.descricao, di.unidade, qtd * ins.coeficiente)
             }
           }
         } else if (codigo !== '—') {
           // Item lançado manualmente no orçamento (sem composição vinculada),
           // mas com código/descrição próprios — ainda assim lança como material.
-          acumular(item.etapa_id, item.subetapa, codigo, descricao, unidade, qtd)
+          acumular(item.orcamento_id, item.etapa_id, item.subetapa, codigo, descricao, unidade, qtd)
         }
       }
 
@@ -445,27 +460,27 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       const existentesQuery = schemaMateriais === 'snapshot'
         ? supabase
           .from('materiais')
-          .select(temSubetapa ? 'id, etapa_id, subetapa, sinapi_codigo, quantidade_total' : 'id, etapa_id, sinapi_codigo, quantidade_total')
+          .select(temSubetapa ? 'id, orcamento_id, etapa_id, subetapa, sinapi_codigo, quantidade_total' : 'id, orcamento_id, etapa_id, sinapi_codigo, quantidade_total')
           .eq('obra_id', obraId)
         : supabase
           .from('materiais')
-          .select(temSubetapa ? 'id, etapa_id, subetapa, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)' : 'id, etapa_id, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)')
+          .select(temSubetapa ? 'id, orcamento_id, etapa_id, subetapa, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)' : 'id, orcamento_id, etapa_id, insumo_id, quantidade_total, insumo:sinapi_insumos(codigo)')
           .eq('obra_id', obraId)
       const { data: existentesRaw, error: erroExistentes } = await existentesQuery
       if (erroExistentes) { if (!silencioso) alert(`Nao foi possivel ler os materiais ja cadastrados.\n\nErro: ${erroExistentes.message}`); return }
       const existentesMap = new Map<string, { id: string; quantidade_total: number }>()
-      for (const e of (existentesRaw || []) as { id: string; etapa_id: string | null; subetapa?: string | null; sinapi_codigo?: string | null; insumo_id?: string | null; quantidade_total: number; insumo?: { codigo: string } | null }[]) {
+      for (const e of (existentesRaw || []) as { id: string; orcamento_id: string | null; etapa_id: string | null; subetapa?: string | null; sinapi_codigo?: string | null; insumo_id?: string | null; quantidade_total: number; insumo?: { codigo: string } | null }[]) {
         const codigoExistente = schemaMateriais === 'snapshot' ? e.sinapi_codigo : e.insumo?.codigo
         if (!codigoExistente) continue
         const subetapaChave = temSubetapa ? (e.subetapa ?? 'null') : 'null'
-        const key = `${e.etapa_id ?? 'null'}|${subetapaChave}|${codigoExistente}`
+        const key = `${e.orcamento_id ?? 'null'}|${e.etapa_id ?? 'null'}|${subetapaChave}|${codigoExistente}`
         existentesMap.set(key, { id: e.id, quantidade_total: e.quantidade_total })
       }
       let criados = 0
       let atualizados = 0
       const errosDb: string[] = []
       for (const [key, acc] of mapa) {
-        const [etapaIdRaw, subetapaRaw, codigo] = key.split('|')
+        const [orcId, etapaIdRaw, subetapaRaw, codigo] = key.split('|')
         const etapaId = etapaIdRaw === 'null' ? null : etapaIdRaw
         const subetapa = subetapaRaw === 'null' ? null : subetapaRaw
         const qtdArred = Math.round(acc.qtd * 10000) / 10000
@@ -478,12 +493,12 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         } else {
           const novoMaterial: Record<string, unknown> = schemaMateriais === 'snapshot'
             ? {
-              obra_id: obraId, etapa_id: etapaId,
+              obra_id: obraId, orcamento_id: orcId, etapa_id: etapaId,
               sinapi_codigo: codigo, descricao: acc.descricao, unidade: acc.unidade,
               quantidade_total: qtdArred, quantidade_comprada: 0, status_compra: 'nao_comprado',
             }
             : {
-              obra_id: obraId, etapa_id: etapaId,
+              obra_id: obraId, orcamento_id: orcId, etapa_id: etapaId,
               insumo_id: await resolverInsumoIdPorCodigo(codigo),
               quantidade_total: qtdArred, quantidade_comprada: 0, status_compra: 'nao_comprado',
             }
@@ -527,19 +542,19 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
   useEffect(() => {
     void Promise.all([loadMateriais(), loadListas(), loadOrcamentos()]).then(async () => {
-      const { data: orcs } = await supabase.from('orcamentos').select('id').eq('obra_id', obraId).limit(1)
-      if (orcs && orcs.length > 0) {
+      if (!consolidado && orcamentoId) {
         await importarDoOrcamento(true)
         await loadMateriais()
       }
     })
-  }, [obraId])
+  }, [obraId, orcamentoId, orcamentoIds])
 
   async function handleSave() {
-    if (!form.descricao.trim() || !form.quantidade_total) return
+    if (consolidado || !orcamentoId || !form.descricao.trim() || !form.quantidade_total) return
     setSaving(true)
     const payloadCompleto = {
       obra_id: obraId,
+      orcamento_id: editando?.orcamento_id || orcamentoId,
       etapa_id: form.etapa_id || null,
       subetapa: form.subetapa.trim() || null,
       sinapi_codigo: form.sinapi_codigo.trim() || null,
@@ -635,6 +650,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   }
 
   function openNew() {
+    if (consolidado || !orcamentoId) return
     setEditando(null)
     resetForm()
     setShowModal(true)
@@ -758,7 +774,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
   }
 
   async function salvarLista() {
-    if (!nomeLista.trim() || itensSelecionados.length === 0) return
+    if (consolidado || !orcamentoId || !nomeLista.trim() || itensSelecionados.length === 0) return
     setSalvandoLista(true)
     const itensLista: ListaCompraItem[] = itensSelecionados
       .map(m => ({
@@ -777,6 +793,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
 
     const { data: nova } = await supabase.from('listas_compra').insert({
       obra_id: obraId,
+      orcamento_id: orcamentoId,
       nome: nomeLista.trim(),
       fornecedor_id: fornecedorLista || null,
       itens: itensLista,
@@ -784,7 +801,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
     }).select().single()
     if (nova) {
       setListas(prev => [{
-        id: nova.id, nome: nova.nome, fornecedorId: nova.fornecedor_id,
+        id: nova.id, orcamentoId: nova.orcamento_id, nome: nova.nome, fornecedorId: nova.fornecedor_id,
         itens: itensLista, status: 'aberta', criadoEm: nova.criado_em,
       }, ...prev])
 
@@ -796,6 +813,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
         const numero = `RC-${String((count ?? 0) + 1).padStart(3, '0')}`
         const { data: req } = await supabase.from('requisicoes_compra').insert({
           obra_id: obraId,
+          orcamento_id: orcamentoId,
           numero,
           data_solicitacao: new Date().toISOString().slice(0, 10),
           status: 'aberta',
@@ -947,6 +965,8 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       {subView === 'lancamentos' ? (
         <ComprasLancamentos
           obraId={obraId}
+          orcamentoId={orcamentoId}
+          orcamentoIds={orcamentoIds}
           prefill={prefillLancamento}
           onPrefillConsumed={() => setPrefillLancamento(null)}
         />
@@ -955,6 +975,8 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
       ) : subView === 'requisicoes' ? (
         <ObraRequisicoes
           obraId={obraId}
+          orcamentoId={orcamentoId}
+          orcamentoIds={orcamentoIds}
           onLancarComoCompra={dados => { setPrefillLancamento(dados); setSubView('lancamentos') }}
         />
       ) : subView === 'compras' ? (
@@ -1008,13 +1030,13 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           <option value="todos">Todos</option>
         </select>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="secondary" icon={<Zap size={14} />} loading={importando} onClick={() => importarDoOrcamento(false)}>
+          <Button size="sm" variant="secondary" icon={<Zap size={14} />} loading={importando} onClick={() => importarDoOrcamento(false)} disabled={consolidado}>
             Sincronizar orçamento
           </Button>
           <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={() => setSubView('compras')}>
             Listas salvas{listas.length > 0 ? ` (${listas.length})` : ''}
           </Button>
-          <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>
+          <Button size="sm" icon={<Plus size={14} />} onClick={openNew} disabled={consolidado}>
             Adicionar
           </Button>
         </div>
@@ -1044,8 +1066,8 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           description={'Os materiais vêm das composições do orçamento. Se o orçamento já tem itens e ainda não apareceu nada, sincronize uma vez ou confira se os itens possuem composição/insumos vinculados.'}
           action={
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="secondary" icon={<Zap size={14} />} loading={importando} onClick={() => importarDoOrcamento(false)}>Sincronizar orçamento</Button>
-              <Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Adicionar material</Button>
+              <Button size="sm" variant="secondary" icon={<Zap size={14} />} loading={importando} onClick={() => importarDoOrcamento(false)} disabled={consolidado}>Sincronizar orçamento</Button>
+              <Button size="sm" icon={<Plus size={14} />} onClick={openNew} disabled={consolidado}>Adicionar material</Button>
             </div>
           }
         />
@@ -1120,7 +1142,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
           >
             <X size={14} style={{ color: 'var(--text-secondary)' }} />
           </button>
-          <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={abrirListaCompras}>
+          <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={abrirListaCompras} disabled={consolidado}>
             Gerar lista de compras
           </Button>
         </div>
@@ -1200,7 +1222,7 @@ export function ObraMateriais({ obraId }: { obraId: string }) {
               variant="secondary"
               icon={<ClipboardList size={14} />}
               loading={salvandoLista}
-              disabled={!nomeLista.trim() || itensSelecionados.length === 0}
+              disabled={consolidado || !nomeLista.trim() || itensSelecionados.length === 0}
               onClick={salvarLista}
             >
               Salvar lista de compras

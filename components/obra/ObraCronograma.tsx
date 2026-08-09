@@ -132,7 +132,7 @@ function DurCellCrono({ inicio, fim, onCommit }: { inicio: string | null | undef
   )
 }
 
-export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: string; projetoId?: string; cronogramaId?: string }) {
+export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }: { obraId?: string; projetoId?: string; cronogramaId?: string; orcamentoIds?: string[] }) {
   const supabase = createClient()
   const [tab, setTab] = useState<Tab>('gantt')
   const [etapas, setEtapas] = useState<Etapa[]>([])
@@ -171,13 +171,13 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
   const [realizadoPorSubetapa, setRealizadoPorSubetapa] = useState<Map<string, number>>(new Map())
   const [realizadoPorServico, setRealizadoPorServico] = useState<Map<string, number>>(new Map())
 
-  useEffect(() => { loadData() }, [obraId, projetoId, cronogramaId])
+  useEffect(() => { loadData() }, [obraId, projetoId, cronogramaId, orcamentoIds])
 
   useEffect(() => {
     function onDataChanged() { loadData() }
     window.addEventListener('buildsmart:obra-data-changed', onDataChanged)
     return () => window.removeEventListener('buildsmart:obra-data-changed', onDataChanged)
-  }, [obraId, projetoId, cronogramaId])
+  }, [obraId, projetoId, cronogramaId, orcamentoIds])
 
   useEffect(() => {
     if (!obraId) return
@@ -190,23 +190,23 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
     if (!mostrarFinanceiro || !obraId) return
     loadFinanceiro()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mostrarFinanceiro, obraId])
+  }, [mostrarFinanceiro, obraId, orcamentoIds])
 
   async function loadFinanceiro() {
-    const [orcRes, compRes] = await Promise.all([
-      supabase.from('orcamentos')
+    let orcQuery = supabase.from('orcamentos')
         .select('bdi_percentual, orcamento_itens(etapa_id, quantidade, preco_unitario_snapshot)')
-        .eq('obra_id', obraId).order('versao', { ascending: false }).limit(1),
-      supabase.from('compra_itens').select('etapa_id, subetapa_id, servico_id, valor_total').eq('obra_id', obraId),
-    ])
-    const orc = (orcRes.data || [])[0] as { bdi_percentual: number; orcamento_itens: { etapa_id: string | null; quantidade: number; preco_unitario_snapshot: number }[] } | undefined
-    const bdi = orc?.bdi_percentual ?? 25
+        .eq('obra_id', obraId)
+    if (orcamentoIds?.length) orcQuery = orcQuery.in('id', orcamentoIds)
+    let compQuery = supabase.from('compra_itens').select('etapa_id, subetapa_id, servico_id, valor_total, orcamento_id').eq('obra_id', obraId)
+    if (orcamentoIds?.length) compQuery = compQuery.in('orcamento_id', orcamentoIds)
+    const [orcRes, compRes] = await Promise.all([orcQuery, compQuery])
+    const orcs = (orcRes.data || []) as { bdi_percentual: number; orcamento_itens: { etapa_id: string | null; quantidade: number; preco_unitario_snapshot: number }[] }[]
     const orcMap = new Map<string, number>()
-    ;(orc?.orcamento_itens ?? []).forEach(i => {
-      if (!i.etapa_id) return
-      const subtotal = (i.quantidade || 0) * (i.preco_unitario_snapshot || 0)
-      orcMap.set(i.etapa_id, (orcMap.get(i.etapa_id) || 0) + subtotal * (1 + bdi / 100))
-    })
+    orcs.forEach(orc => (orc.orcamento_itens ?? []).forEach(i => {
+        if (!i.etapa_id) return
+        const subtotal = (i.quantidade || 0) * (i.preco_unitario_snapshot || 0)
+        orcMap.set(i.etapa_id, (orcMap.get(i.etapa_id) || 0) + subtotal * (1 + Number(orc.bdi_percentual ?? 25) / 100))
+      }))
 
     const etapaMap = new Map<string, number>()
     const subMap = new Map<string, number>()
@@ -276,20 +276,16 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId }: { obraId?: s
   ) {
     if (!obraId) return { subetapas: subsAtuais, servicos: svcsAtuais }
 
-    const { data: orc } = await supabase
-      .from('orcamentos')
-      .select('id')
-      .eq('obra_id', obraId)
-      .order('versao', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    if (!orc?.id) return { subetapas: subsAtuais, servicos: svcsAtuais }
+    let orcQuery = supabase.from('orcamentos').select('id').eq('obra_id', obraId)
+    if (orcamentoIds?.length) orcQuery = orcQuery.in('id', orcamentoIds)
+    const { data: orcs } = await orcQuery
+    const ids = ((orcs || []) as { id: string }[]).map(o => o.id)
+    if (ids.length === 0) return { subetapas: subsAtuais, servicos: svcsAtuais }
 
     const { data: itensOrcamento } = await supabase
       .from('orcamento_itens')
       .select('etapa_id, subetapa, descricao_snapshot, composicoes_proprias(descricao), sinapi_composicoes(descricao)')
-      .eq('orcamento_id', orc.id)
+      .in('orcamento_id', ids)
 
     const itensValidos = ((itensOrcamento ?? []) as OrcamentoCronogramaItem[])
       .filter(item => item.etapa_id && item.subetapa?.trim())

@@ -1,14 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { FileText, Download, Search, BarChart3, CalendarDays, Package, ShoppingCart, type LucideIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { CompraItem, Etapa, Material, Obra, ServicoCronograma, SubetapaCronograma } from '@/lib/types'
 import { formatCurrency, STATUS_ETAPA_LABEL, TIPO_CUSTO_LABEL_CURTO } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
-import { Input, Select } from '@/components/ui/Input'
+import { Input } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { gerarRelatorioClientePdf } from '@/lib/pdf/relatorio-cliente'
+import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
 
 function primeiroDiaMes() {
   const d = new Date()
@@ -25,6 +26,7 @@ function dataBR(iso: string | null) {
 
 type ListaCompraResumo = {
   id: string
+  orcamento_id: string | null
   nome: string
   status: 'aberta' | 'enviada' | 'concluida'
   itens: { id: string; descricao: string; quantidade: number; unidade: string }[]
@@ -32,6 +34,7 @@ type ListaCompraResumo = {
 }
 
 type OrcamentoResumo = {
+  id: string
   bdi_percentual: number
   orcamento_itens: { quantidade: number; preco_unitario_snapshot: number }[]
 }
@@ -51,8 +54,7 @@ function statusServico(svc: ServicoCronograma): Etapa['status'] {
 
 export function RelatorioCliente() {
   const supabase = createClient()
-  const [obras, setObras] = useState<Obra[]>([])
-  const [obraId, setObraId] = useState('')
+  const { obraId, orcamentoId, orcamentoIds } = useObraOrcamento()
   const [inicio, setInicio] = useState(primeiroDiaMes())
   const [fim, setFim] = useState(ultimoDiaMes())
 
@@ -67,17 +69,6 @@ export function RelatorioCliente() {
   const [gerado, setGerado] = useState(false)
   const [loading, setLoading] = useState(false)
   const [baixando, setBaixando] = useState(false)
-
-  useEffect(() => {
-    supabase.from('obras').select('*').order('created_at', { ascending: false }).then(({ data }: { data: Obra[] | null }) => {
-      const lista = (data || []) as Obra[]
-      setObras(lista)
-      if (lista.length > 0 && !obraId) {
-        const ativa = lista.find(o => o.status === 'ativa')
-        setObraId((ativa || lista[0]).id)
-      }
-    })
-  }, [supabase])
 
   async function gerar() {
     if (!obraId) return
@@ -94,10 +85,9 @@ export function RelatorioCliente() {
       supabase.from('materiais').select('*, etapa:etapas(*)').eq('obra_id', obraId),
       supabase.from('listas_compra').select('*').eq('obra_id', obraId).order('criado_em', { ascending: false }),
       supabase.from('orcamentos')
-        .select('bdi_percentual, orcamento_itens(quantidade, preco_unitario_snapshot)')
+        .select('id, bdi_percentual, orcamento_itens(quantidade, preco_unitario_snapshot)')
         .eq('obra_id', obraId)
-        .order('versao', { ascending: false })
-        .limit(1),
+        .order('versao', { ascending: false }),
     ])
     const etapasData = (etapasRes.data || []) as Etapa[]
     const etapaIds = etapasData.map(e => e.id)
@@ -120,19 +110,26 @@ export function RelatorioCliente() {
         svcsData = (svcs || []) as ServicoCronograma[]
       }
     }
-    const orcamentoAtual = ((orcRes.data || []) as OrcamentoResumo[])[0]
-    const subtotal = (orcamentoAtual?.orcamento_itens || []).reduce((sum, item) => (
-      sum + (item.quantidade || 0) * (item.preco_unitario_snapshot || 0)
-    ), 0)
-    const bdi = orcamentoAtual?.bdi_percentual ?? 0
+    const orcamentosVisiveis = ((orcRes.data || []) as OrcamentoResumo[]).filter(orc => orcamentoIds.includes(orc.id))
+    const totalOrcado = orcamentosVisiveis.reduce((total, orc) => {
+      const subtotal = (orc.orcamento_itens || []).reduce((sum, item) => sum + (item.quantidade || 0) * (item.preco_unitario_snapshot || 0), 0)
+      return total + subtotal * (1 + Number(orc.bdi_percentual || 0) / 100)
+    }, 0)
     setObra(obraRes.data as Obra)
-    setItens((itensRes.data || []) as CompraItem[])
+    const compras = (itensRes.data || []) as CompraItem[]
+    setItens(compras.filter(item => orcamentoId === TODOS_ORCAMENTOS
+      ? (!item.orcamento_id || orcamentoIds.includes(item.orcamento_id))
+      : item.orcamento_id === orcamentoId))
     setEtapas(etapasData)
     setSubetapas(subsData)
     setServicos(svcsData)
-    setMateriais((materiaisRes.data || []) as Material[])
-    setListas((listasRes.data || []) as ListaCompraResumo[])
-    setOrcamentoTotal(subtotal * (1 + bdi / 100))
+    setMateriais(((materiaisRes.data || []) as (Material & { orcamento_id: string | null })[]).filter(item => orcamentoId === TODOS_ORCAMENTOS
+      ? (!item.orcamento_id || orcamentoIds.includes(item.orcamento_id))
+      : item.orcamento_id === orcamentoId))
+    setListas(((listasRes.data || []) as ListaCompraResumo[]).filter(lista => orcamentoId === TODOS_ORCAMENTOS
+      ? (!lista.orcamento_id || orcamentoIds.includes(lista.orcamento_id))
+      : lista.orcamento_id === orcamentoId))
+    setOrcamentoTotal(totalOrcado)
     setGerado(true)
     setLoading(false)
   }
@@ -184,12 +181,7 @@ export function RelatorioCliente() {
       {/* Filtros */}
       <div className="card p-5 flex flex-col gap-4">
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <div className="sm:col-span-2">
-            <Select label="Obra" value={obraId} onChange={e => { setObraId(e.target.value); setGerado(false) }}>
-              {obras.length === 0 && <option value="">Nenhuma obra</option>}
-              {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-            </Select>
-          </div>
+          <div className="sm:col-span-2 flex items-end text-sm" style={{ color: 'var(--text-secondary)' }}>A obra e o orçamento são definidos no seletor global acima.</div>
           <Input label="De" type="date" value={inicio} onChange={e => { setInicio(e.target.value); setGerado(false) }} />
           <Input label="Até" type="date" value={fim} onChange={e => { setFim(e.target.value); setGerado(false) }} />
         </div>

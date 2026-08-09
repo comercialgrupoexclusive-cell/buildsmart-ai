@@ -1,0 +1,28 @@
+.portal-client-root {
+  --portal-ink: #171914;
+  --portal-muted: #68706a;
+  --portal-line: #dfe4df;
+  --portal-surface: #ffffff;
+  --portal-soft: #f2f5f1;
+  --portal-accent: #176b55;
+  --portal-gold: #a67c3f;
+  min-height: 100vh;
+  color: var(--portal-ink);
+  background: #f7f8f6;
+  color-scheme: light;
+}
+.portal-client-root input,
+.portal-client-root textarea,
+.portal-client-root select,
+.portal-client-root button {
+  color: inherit;
+}
+
+.portal-client-root select option {
+  color: var(--portal-ink);
+  background: white;
+}
+
+.portal-progress-ring {
+  background: conic-gradient(var(--portal-accent) calc(var(--progress) * 1%), #dfe6e0 0);
+}

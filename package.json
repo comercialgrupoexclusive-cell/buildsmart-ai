@@ -13,6 +13,10 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
     "@excalidraw/excalidraw": "^0.18.1",
+    "@photo-sphere-viewer/core": "^5.15.0",
+    "@photo-sphere-viewer/gallery-plugin": "^5.15.0",
+    "@photo-sphere-viewer/markers-plugin": "^5.15.0",
+    "@photo-sphere-viewer/virtual-tour-plugin": "^5.15.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.107.0",
     "clsx": "^2.1.1",

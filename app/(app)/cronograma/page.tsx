@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { NovoCadastroModal } from '@/components/cadastro/NovoCadastroModal'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
+import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
 type ObraOption = { id: string; nome: string }
 type CronoOption = { id: string; nome: string; obra_id: string | null }
@@ -15,7 +16,7 @@ export default function CronogramaPage() {
   const [obras, setObras] = useState<ObraOption[]>([])
   const [projetos, setProjetos] = useState<ObraOption[]>([])
   const [cronogramas, setCronogramas] = useState<CronoOption[]>([])
-  const [selectedObraId, setSelectedObraId] = useState<string>('')
+  const { obraId: selectedObraId, orcamentoIds } = useObraOrcamento()
   const [selectedCronoId, setSelectedCronoId] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [showNovoModal, setShowNovoModal] = useState(false)
@@ -36,54 +37,27 @@ export default function CronogramaPage() {
     setCronogramas(cronosList)
 
     if (cronosList.length > 0) {
-      if (!selectedObraId && !selectedCronoId) {
-        const first = cronosList[0]
-        setSelectedObraId(first.obra_id || '')
-        setSelectedCronoId(first.id)
-      }
+      const first = cronosList.find(c => c.obra_id === selectedObraId) || cronosList[0]
+      if (!selectedCronoId && first) setSelectedCronoId(first.id)
     }
     setLoading(false)
-  }
-
-  function handleObraChange(obraId: string) {
-    setSelectedObraId(obraId)
-    const filtered = obraId
-      ? cronogramas.filter(c => c.obra_id === obraId)
-      : cronogramas
-    if (filtered.length > 0) {
-      setSelectedCronoId(filtered[0].id)
-    } else {
-      setSelectedCronoId('')
-    }
   }
 
   const cronosFiltered = selectedObraId
     ? cronogramas.filter(c => c.obra_id === selectedObraId)
     : cronogramas
+  const activeCronoId = cronosFiltered.some(c => c.id === selectedCronoId) ? selectedCronoId : (cronosFiltered[0]?.id || '')
 
-  const selectedCrono = cronogramas.find(c => c.id === selectedCronoId)
+  const selectedCrono = cronogramas.find(c => c.id === activeCronoId)
 
   return (
     <div className="flex flex-col gap-5">
       {/* Toolbar: dropdowns cascata + ações */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex items-center gap-3 flex-wrap flex-1">
-          {/* Dropdown obra */}
-          <select
-            value={selectedObraId}
-            onChange={e => handleObraChange(e.target.value)}
-            className="input-base text-sm font-medium"
-            style={{ minWidth: 200, maxWidth: 300 }}
-          >
-            <option value="">Todas as obras</option>
-            {obras.map(o => (
-              <option key={o.id} value={o.id}>{o.nome}</option>
-            ))}
-          </select>
-
           {/* Dropdown cronograma */}
           <select
-            value={selectedCronoId}
+            value={activeCronoId}
             onChange={e => setSelectedCronoId(e.target.value)}
             className="input-base text-sm font-medium"
             style={{ minWidth: 220, maxWidth: 400 }}
@@ -108,11 +82,12 @@ export default function CronogramaPage() {
         <div className="flex justify-center py-16">
           <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
         </div>
-      ) : selectedCronoId ? (
+      ) : activeCronoId ? (
         <ObraCronograma
-          key={selectedCronoId}
-          cronogramaId={selectedCronoId}
+          key={`${activeCronoId}-${orcamentoIds.join(',')}`}
+          cronogramaId={activeCronoId}
           obraId={selectedCrono?.obra_id || undefined}
+          orcamentoIds={orcamentoIds}
         />
       ) : (
         <div className="card p-12 text-center">

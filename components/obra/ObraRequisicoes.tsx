@@ -3,17 +3,19 @@
 import { useEffect, useState } from 'react'
 import {
   Plus, Trash2, ChevronDown, ChevronRight, AlertCircle,
-  Check, Building2, Calendar, FileText, ShoppingCart,
+  Check, Building2, Calendar, ShoppingCart,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 type Requisicao = {
   id: string
   obra_id: string
+  orcamento_id: string | null
   numero: string | null
   data_solicitacao: string
   status: 'aberta' | 'aprovada' | 'comprada' | 'cancelada'
@@ -59,9 +61,11 @@ const EMPTY_ITEM = { descricao: '', quantidade: '', unidade: '', urgente: false,
 const EMPTY_COT = { fornecedor_id: '', fornecedor_nome: '', data_cotacao: new Date().toISOString().slice(0, 10), validade: '', valor_total: '', observacao: '' }
 
 export function ObraRequisicoes({
-  obraId, onLancarComoCompra,
+  obraId, orcamentoId, orcamentoIds, onLancarComoCompra,
 }: {
   obraId: string
+  orcamentoId: string
+  orcamentoIds: string[]
   onLancarComoCompra?: (dados: { fornecedorNome?: string; valorTotal?: number; descricao?: string }) => void
 }) {
   const supabase = createClient()
@@ -81,8 +85,7 @@ export function ObraRequisicoes({
   const [cotModal, setCotModal] = useState<string | null>(null) // requisicao_id
   const [cotForm, setCotForm] = useState(EMPTY_COT)
   const [savingCot, setSavingCot] = useState(false)
-
-  useEffect(() => { loadData() }, [obraId])
+  const consolidado = orcamentoId === TODOS_ORCAMENTOS
 
   async function loadData() {
     setLoading(true)
@@ -92,14 +95,22 @@ export function ObraRequisicoes({
       supabase.from('cotacoes').select('*').order('created_at', { ascending: false }),
       supabase.from('fornecedores').select('id, nome').or(`obra_id.is.null,obra_id.eq.${obraId}`).order('nome'),
     ])
-    setRequisicoes((reqs ?? []) as Requisicao[])
+    const requisicoesVisiveis = ((reqs ?? []) as Requisicao[]).filter(req => consolidado
+      ? (!req.orcamento_id || orcamentoIds.includes(req.orcamento_id))
+      : req.orcamento_id === orcamentoId)
+    setRequisicoes(requisicoesVisiveis)
     // filtrar por requisicoes desta obra
-    const reqIds = new Set((reqs ?? []).map((r: any) => r.id))
+    const reqIds = new Set(requisicoesVisiveis.map(r => r.id))
     setItens(((its ?? []) as ReqItem[]).filter(i => reqIds.has(i.requisicao_id)))
     setCotacoes(((cots ?? []) as Cotacao[]).filter(c => reqIds.has(c.requisicao_id)))
     setFornecedores((fors ?? []) as Fornecedor[])
     setLoading(false)
   }
+
+  useEffect(() => {
+    void Promise.resolve().then(loadData)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obraId, orcamentoId, orcamentoIds])
 
   // ── Requisição ────────────────────────────────────────────────────────────
 
@@ -109,10 +120,12 @@ export function ObraRequisicoes({
   }
 
   async function saveReq() {
+    if (consolidado || !orcamentoId) return
     setSavingReq(true)
     const numero = reqForm.numero.trim() || gerarNumero()
     const { data: req, error } = await supabase.from('requisicoes_compra').insert({
       obra_id: obraId,
+      orcamento_id: orcamentoId,
       numero,
       data_solicitacao: reqForm.data_solicitacao,
       status: reqForm.status,
@@ -219,7 +232,7 @@ export function ObraRequisicoes({
             {requisicoes.length} {requisicoes.length === 1 ? 'requisição formal' : 'requisições formais'} para aprovação, cotação e compra.
           </p>
         </div>
-        <Button icon={<Plus size={15} />} size="sm" onClick={() => { setReqForm({ ...EMPTY_REQ, numero: gerarNumero() }); setReqModal(true) }}>
+        <Button icon={<Plus size={15} />} size="sm" disabled={consolidado} onClick={() => { setReqForm({ ...EMPTY_REQ, numero: gerarNumero() }); setReqModal(true) }}>
           Nova Requisição
         </Button>
       </div>
@@ -229,7 +242,7 @@ export function ObraRequisicoes({
           icon={ShoppingCart}
           title="Nenhuma requisição"
           description="Crie uma requisição de compra para controlar o que precisa ser adquirido para esta obra."
-          action={<Button icon={<Plus size={14} />} size="sm" onClick={() => setReqModal(true)}>Nova Requisição</Button>}
+          action={consolidado ? undefined : <Button icon={<Plus size={14} />} size="sm" onClick={() => setReqModal(true)}>Nova Requisição</Button>}
         />
       ) : (
         <div className="flex flex-col gap-3">

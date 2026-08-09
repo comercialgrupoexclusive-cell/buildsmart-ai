@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
 import { formatDate, formatCurrency, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus, Link2, Unlink, Landmark } from 'lucide-react'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus, Link2, Unlink, Landmark, MessageSquareText } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -20,8 +20,10 @@ import { ObraAssistenteIA } from '@/components/obra/ObraAssistenteIA'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
+import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
+import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'financiamento' | 'tarefas' | 'ia'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'financiamento' | 'tarefas' | 'portal' | 'ia'
 
 const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
@@ -31,6 +33,7 @@ const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'medicoes', label: 'Diário / Medições' },
   { id: 'financiamento', label: 'Financiamento', icon: Landmark },
   { id: 'tarefas', label: 'Tarefas' },
+  { id: 'portal', label: 'Portal', icon: MessageSquareText },
   { id: 'ia', label: 'Assistente IA', icon: Sparkles },
 ]
 
@@ -41,6 +44,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   const supabase = createClient()
   const { theme } = useProfile()
   const { canDelete } = usePermission()
+  const { orcamentoId, orcamentoIds, setObraId, setOrcamentoId, refreshOrcamentos } = useObraOrcamento()
   const [obra, setObra] = useState<Obra | null>(null)
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab') as Tab | null
@@ -99,10 +103,6 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   }
 
   useEffect(() => {
-    loadObra()
-  }, [id])
-
-  useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
     }
@@ -120,6 +120,13 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     setUsuarios((profs || []) as { id: string; name: string }[])
     setLoading(false)
   }
+
+  useEffect(() => {
+    setObraId(id)
+    void Promise.resolve().then(loadObra)
+    // loadObra is intentionally scoped to the current route id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, setObraId])
 
   async function updateStatus(status: Obra['status']) {
     await supabase.from('obras').update({ status }).eq('id', id)
@@ -421,12 +428,13 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       <div className="animate-enter">
         {tab === 'visao-geral' && <ObraVisaoGeral obra={obra} onEdit={openEdit} />}
         {tab === 'arquivos' && <ObraArquivos obraId={id} />}
-        {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} />}
-        {tab === 'cronograma' && <ObraCronogramasTab obraId={id} obraNome={obra.nome} />}
-        {tab === 'materiais' && <ObraMateriais obraId={id} />}
-        {tab === 'medicoes' && <ObraMedicoes obraId={id} />}
-        {tab === 'financiamento' && <ObraFinanciamento obraId={id} />}
+        {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} onSelect={setOrcamentoId} onRefresh={refreshOrcamentos} />}
+        {tab === 'cronograma' && <ObraCronogramasTab obraId={id} obraNome={obra.nome} orcamentoIds={orcamentoIds} />}
+        {tab === 'materiais' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+        {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+        {tab === 'financiamento' && <ObraFinanciamento obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'tarefas' && <ObraTarefas obraId={id} />}
+        {tab === 'portal' && <ObraPortalBoard obraId={id} />}
         {tab === 'ia' && <ObraAssistenteIA obraId={id} obraNome={obra.nome} obraUf={obra.uf || 'SP'} />}
       </div>
 
@@ -572,10 +580,9 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
 
 type OrcSelectItem = { id: string; nome: string | null; versao: number }
 
-function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: string; obraNome: string; obraUf?: string; obraArea?: number | null }) {
+function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onSelect, onRefresh }: { obraId: string; obraNome: string; obraUf?: string; obraArea?: number | null; selectedId: string; onSelect: (id: string) => void; onRefresh: () => Promise<void> }) {
   const supabase = createClient()
   const [orcamentos, setOrcamentos] = useState<OrcSelectItem[]>([])
-  const [selectedId, setSelectedId] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [showVincular, setShowVincular] = useState(false)
   const [disponiveis, setDisponiveis] = useState<OrcSelectItem[]>([])
@@ -597,10 +604,10 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
       .order('versao', { ascending: false })
     const list = (orcs || []) as OrcSelectItem[]
     setOrcamentos(list)
-    if (list.length > 0 && (!selectedId || !list.find(o => o.id === selectedId))) {
-      setSelectedId(list[0].id)
+    if (list.length > 0 && (selectedId !== TODOS_ORCAMENTOS && !list.find(o => o.id === selectedId))) {
+      onSelect(list[0].id)
     }
-    if (list.length === 0) setSelectedId('')
+    if (list.length === 0) onSelect('')
     setLoading(false)
   }
 
@@ -632,7 +639,8 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
     setNovoNome('')
     if (novo) {
       await load()
-      setSelectedId(novo.id)
+      onSelect(novo.id)
+      await onRefresh()
     }
   }
 
@@ -640,7 +648,8 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
     if (!editName.trim() || !selectedId) return
     await supabase.from('orcamentos').update({ nome: editName.trim() }).eq('id', selectedId)
     setEditingName(false)
-    load()
+    await load()
+    await onRefresh()
   }
 
   async function openVincular() {
@@ -671,16 +680,18 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
 
     await supabase.from('orcamentos').update(update).eq('id', vinculoId)
     setShowVincular(false)
-    setSelectedId(vinculoId)
-    load()
+    onSelect(vinculoId)
+    await load()
+    await onRefresh()
   }
 
   async function handleDesvincular() {
     if (!selectedId) return
     if (!confirm('Desvincular este orçamento da obra? Ele continuará existindo em Orçamentos.')) return
     await supabase.from('orcamentos').update({ obra_id: null }).eq('id', selectedId)
-    setSelectedId('')
-    load()
+    onSelect('')
+    await load()
+    await onRefresh()
   }
 
   const selectedOrc = orcamentos.find(o => o.id === selectedId)
@@ -700,32 +711,30 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
         <div className="flex items-center gap-3 flex-1 min-w-0">
           {orcamentos.length > 0 ? (
             <>
-              <select
-                value={selectedId}
-                onChange={e => setSelectedId(e.target.value)}
-                className="input-base text-sm font-medium"
-                style={{ minWidth: 220, maxWidth: 400 }}
-              >
-                {orcamentos.map(o => (
-                  <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => { setEditName(selectedOrc?.nome || ''); setEditingName(true) }}
-                className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                title="Renomear"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                <Pencil size={13} />
-              </button>
-              <button
-                onClick={handleDesvincular}
-                className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                title="Desvincular da obra"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                <Unlink size={13} />
-              </button>
+              <div className="min-w-0">
+                <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Orçamento em uso</p>
+                <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                  {selectedId === TODOS_ORCAMENTOS ? 'Todos os orçamentos' : (selectedOrc?.nome || `Orçamento v${selectedOrc?.versao || 1}`)}
+                </p>
+              </div>
+              {selectedId !== TODOS_ORCAMENTOS && selectedOrc && <>
+                <button
+                  onClick={() => { setEditName(selectedOrc.nome || ''); setEditingName(true) }}
+                  className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                  title="Renomear"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  onClick={handleDesvincular}
+                  className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
+                  title="Desvincular da obra"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <Unlink size={13} />
+                </button>
+              </>}
             </>
           ) : (
             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum orçamento vinculado</span>
@@ -742,8 +751,10 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
       </div>
 
       {/* Editor inline do orçamento selecionado */}
-      {selectedId ? (
+      {selectedId && selectedId !== TODOS_ORCAMENTOS ? (
         <ObraOrcamento key={selectedId} orcamentoId={selectedId} obraId={obraId} obraName={obraNome} obraUf={obraUf} areaM2={obraArea} />
+      ) : selectedId === TODOS_ORCAMENTOS ? (
+        <div className="card p-8 text-center"><p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Selecione um orçamento específico para editar.</p><p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>A visão consolidada permanece disponível nos módulos de acompanhamento.</p></div>
       ) : (
         <div className="card p-8 text-center">
           <FileText size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />
@@ -825,7 +836,7 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea }: { obraId: str
 
 type CronoSelectItem = { id: string; nome: string }
 
-function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: string }) {
+function ObraCronogramasTab({ obraId, obraNome, orcamentoIds }: { obraId: string; obraNome: string; orcamentoIds: string[] }) {
   const supabase = createClient()
   const [cronogramas, setCronogramas] = useState<CronoSelectItem[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
@@ -968,7 +979,7 @@ function ObraCronogramasTab({ obraId, obraNome }: { obraId: string; obraNome: st
 
       {/* Editor inline do cronograma selecionado */}
       {selectedId ? (
-        <ObraCronograma key={selectedId} cronogramaId={selectedId} obraId={obraId} />
+        <ObraCronograma key={`${selectedId}-${orcamentoIds.join(',')}`} cronogramaId={selectedId} obraId={obraId} orcamentoIds={orcamentoIds} />
       ) : (
         <div className="card p-8 text-center">
           <Calendar size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />

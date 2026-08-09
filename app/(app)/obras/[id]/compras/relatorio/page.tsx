@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useEffect, useState } from 'react'
+import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ChevronLeft, Download, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -8,19 +8,19 @@ import { CompraItem, Etapa, Obra } from '@/lib/types'
 import { formatCurrency, formatDate, FORMA_PAGAMENTO_LABEL, STATUS_ETAPA_LABEL } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { gerarRelatorioComprasPdf } from '@/lib/pdf/relatorio-compras'
+import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
 
 export default function RelatorioComprasPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const supabase = createClient()
+  const { orcamentoId, orcamentoIds, setObraId } = useObraOrcamento()
   const [obra, setObra] = useState<Obra | null>(null)
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [itens, setItens] = useState<CompraItem[]>([])
   const [loading, setLoading] = useState(true)
   const [gerando, setGerando] = useState(false)
 
-  useEffect(() => { loadDados() }, [id])
-
-  async function loadDados() {
+  const loadDados = useCallback(async () => {
     setLoading(true)
     const [obraRes, etapasRes, itensRes] = await Promise.all([
       supabase.from('obras').select('*').eq('id', id).single(),
@@ -29,9 +29,17 @@ export default function RelatorioComprasPage({ params }: { params: Promise<{ id:
     ])
     setObra(obraRes.data as Obra)
     setEtapas((etapasRes.data || []) as Etapa[])
-    setItens((itensRes.data || []) as CompraItem[])
+    const todos = (itensRes.data || []) as CompraItem[]
+    setItens(todos.filter(item => orcamentoId === TODOS_ORCAMENTOS
+      ? (!item.orcamento_id || orcamentoIds.includes(item.orcamento_id))
+      : item.orcamento_id === orcamentoId))
     setLoading(false)
-  }
+  }, [id, orcamentoId, orcamentoIds, supabase])
+
+  useEffect(() => {
+    setObraId(id)
+    void Promise.resolve().then(loadDados)
+  }, [id, loadDados, setObraId])
 
   async function handleDownload() {
     if (!obra) return

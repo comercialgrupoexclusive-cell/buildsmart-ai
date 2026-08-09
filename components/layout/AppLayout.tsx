@@ -8,6 +8,7 @@ import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { WelcomeGuide } from './WelcomeGuide'
 import { LuiziaFloatingChat } from './LuiziaFloatingChat'
+import { GlobalObraOrcamentoBar } from './GlobalObraOrcamentoBar'
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { currentProfile, setCurrentProfile } = useProfile()
@@ -133,6 +134,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <WelcomeGuide />
       <main className="md:ml-14 pt-16 min-h-screen">
         <div className="p-3 sm:p-6 max-w-full overflow-x-hidden">
+          <GlobalObraOrcamentoBar />
           {children}
         </div>
       </main>

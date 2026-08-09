@@ -28,9 +28,9 @@ import { ObraCurvaS } from '@/components/obra/ObraCurvaS'
 import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ObraMedicaoMaoObra } from '@/components/obra/ObraMedicaoMaoObra'
+import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 type SubTab = 'fisico' | 'mao-obra' | 'medicao-mao-obra' | 'financeiro' | 'financiamento' | 'boletins' | 'diario' | 'curva'
-type OrcamentoOpcao = { id: string; nome: string | null; versao: number; status: string }
 
 const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
@@ -45,15 +45,13 @@ const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
-export function ObraMedicoes({ obraId }: { obraId: string }) {
+export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = createClient()
   const [subTab, setSubTab] = useState<SubTab>('fisico')
   const [prog, setProg] = useState<ObraProgresso | null>(null)
   const [loading, setLoading] = useState(true)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
-  const [orcamentos, setOrcamentos] = useState<OrcamentoOpcao[]>([])
-  const [orcamentoId, setOrcamentoId] = useState('')
   // Filtros da aba Avanço
   const [filtroEtapa, setFiltroEtapa] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'andamento' | 'concluido'>('todas')
@@ -62,19 +60,10 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
 
   const carregar = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
-    const p = await loadObraProgresso(supabase, obraId, eixo, orcamentoId ? [orcamentoId] : undefined)
+    const p = await loadObraProgresso(supabase, obraId, eixo, orcamentoIds.length ? orcamentoIds : undefined)
     setProg(p)
     if (!silent) setLoading(false)
-  }, [obraId, supabase, eixo, orcamentoId])
-
-  useEffect(() => {
-    Promise.resolve().then(async () => {
-      const { data } = await supabase.from('orcamentos').select('id,nome,versao,status').eq('obra_id', obraId).order('versao', { ascending: false })
-      const opcoes = (data || []) as OrcamentoOpcao[]
-      setOrcamentos(opcoes)
-      setOrcamentoId(atual => atual || opcoes.find(o => o.status === 'ativo')?.id || opcoes[0]?.id || '')
-    })
-  }, [obraId, supabase])
+  }, [obraId, supabase, eixo, orcamentoIds])
 
   useEffect(() => { Promise.resolve().then(() => carregar()) }, [carregar])
 
@@ -153,25 +142,16 @@ export function ObraMedicoes({ obraId }: { obraId: string }) {
       </div>
 
       {subTab === 'diario' && <ObraRdo obraId={obraId} />}
-      {subTab === 'boletins' && <ObraBoletins obraId={obraId} prog={prog} onMedicaoFechada={carregar} />}
-      {subTab === 'curva' && <ObraCurvaS obraId={obraId} prog={prog} />}
-      {subTab === 'financeiro' && <ObraAvancoFinanceiro obraId={obraId} />}
-      {subTab === 'financiamento' && <ObraFinanciamento obraId={obraId} />}
-      {subTab === 'medicao-mao-obra' && <ObraMedicaoMaoObra obraId={obraId} />}
+      {subTab === 'boletins' && <ObraBoletins obraId={obraId} prog={prog} onMedicaoFechada={carregar} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+      {subTab === 'curva' && <ObraCurvaS obraId={obraId} prog={prog} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+      {subTab === 'financeiro' && <ObraAvancoFinanceiro obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+      {subTab === 'financiamento' && <ObraFinanciamento obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+      {subTab === 'medicao-mao-obra' && (orcamentoId === TODOS_ORCAMENTOS
+        ? <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione um orçamento específico para criar ou editar uma medição de mão de obra.</div>
+        : <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />)}
 
       {(subTab === 'fisico' || subTab === 'mao-obra') && prog && (
         <>
-          <div className="card p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Orçamento acompanhado</p>
-              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Os valores e itens exibidos pertencem ao orçamento selecionado.</p>
-            </div>
-            <select value={orcamentoId} onChange={e => setOrcamentoId(e.target.value)} className="input-base text-sm sm:w-72">
-              {orcamentos.length === 0 && <option value="">Nenhum orçamento vinculado</option>}
-              {orcamentos.map(o => <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`} · {o.status}</option>)}
-            </select>
-          </div>
-
           {/* Avanço global ponderado por valor */}
           <div className="card p-4 flex flex-col gap-3">
             <div className="flex items-center gap-4">

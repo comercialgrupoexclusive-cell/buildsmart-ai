@@ -1,12 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { BriefcaseBusiness, ChevronDown, ChevronRight, Lock, Plus, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Medicao, MedicaoItem } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 
-type OrcamentoOpcao = { id: string; nome: string | null; versao: number; status: string }
 type InsumoLinha = {
   id: string
   descricao_snapshot: string | null
@@ -31,10 +30,8 @@ const hoje = () => new Date().toISOString().slice(0, 10)
 const isMaoObra = (valor: string | null, descricao = '') =>
   (valor || '').toUpperCase() === 'MAO_DE_OBRA' || /m[aã]o\s+de\s+obra/i.test(descricao)
 
-export function ObraMedicaoMaoObra({ obraId }: { obraId: string }) {
+export function ObraMedicaoMaoObra({ obraId, orcamentoId }: { obraId: string; orcamentoId: string }) {
   const supabase = createClient()
-  const [orcamentos, setOrcamentos] = useState<OrcamentoOpcao[]>([])
-  const [orcamentoId, setOrcamentoId] = useState('')
   const [medicoes, setMedicoes] = useState<Medicao[]>([])
   const [itens, setItens] = useState<Record<string, MedicaoItem[]>>({})
   const [loading, setLoading] = useState(true)
@@ -43,22 +40,14 @@ export function ObraMedicaoMaoObra({ obraId }: { obraId: string }) {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ nome: '', inicio: hoje(), fim: hoje() })
 
-  const carregar = useCallback(async () => {
-    setLoading(true)
-    const { data: orcs } = await supabase.from('orcamentos').select('id,nome,versao,status').eq('obra_id', obraId).order('versao', { ascending: false })
-    const opcoes = (orcs || []) as OrcamentoOpcao[]
-    setOrcamentos(opcoes)
-    setOrcamentoId(atual => atual || opcoes.find(o => o.status === 'ativo')?.id || opcoes[0]?.id || '')
-    setLoading(false)
-  }, [obraId, supabase])
-
   const carregarMedicoes = useCallback(async () => {
-    if (!orcamentoId) { setMedicoes([]); return }
+    setLoading(true)
+    if (!orcamentoId) { setMedicoes([]); setLoading(false); return }
     const { data } = await supabase.from('medicoes').select('*').eq('obra_id', obraId).eq('orcamento_id', orcamentoId).eq('eixo', 'mao_obra').order('numero', { ascending: false })
     setMedicoes((data || []) as Medicao[])
+    setLoading(false)
   }, [obraId, orcamentoId, supabase])
 
-  useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
   useEffect(() => { Promise.resolve().then(carregarMedicoes) }, [carregarMedicoes])
 
   async function linhasDoOrcamento(): Promise<LinhaMaoObra[]> {
@@ -147,20 +136,15 @@ export function ObraMedicaoMaoObra({ obraId }: { obraId: string }) {
     setMedicoes(atual => atual.filter(m => m.id !== id))
   }
 
-  const selecionado = useMemo(() => orcamentos.find(o => o.id === orcamentoId), [orcamentos, orcamentoId])
   if (loading) return <div className="flex justify-center py-12"><div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>
 
   return <div className="flex flex-col gap-3 pb-16">
     <div className="card p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
       <div><p className="text-sm font-semibold">Medição de mão de obra</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Somente itens classificados como Mão de Obra.</p></div>
-      <select value={orcamentoId} onChange={e => { setOrcamentoId(e.target.value); setAberta(null); setItens({}) }} className="input-base text-sm sm:w-72">
-        {orcamentos.length === 0 && <option value="">Nenhum orçamento vinculado</option>}
-        {orcamentos.map(o => <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`} · {o.status}</option>)}
-      </select>
     </div>
 
     <div className="flex items-center justify-between gap-3">
-      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{selecionado ? `Controle independente de ${selecionado.nome || `orçamento v${selecionado.versao}`}.` : 'Vincule um orçamento para medir.'}</p>
+      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Controle independente para o orçamento selecionado.</p>
       <button onClick={() => setShowForm(v => !v)} disabled={!orcamentoId} className="btn-primary px-3 py-2 text-sm inline-flex items-center gap-2 disabled:opacity-50"><Plus size={15} /> Nova medição</button>
     </div>
 

@@ -5,10 +5,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Banknote, CheckCircle2, Clock3, Wallet } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
+import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
-type CompraResumo = { valor_total: number; status_valor: string; status_pagamento: string; tipo_custo: string | null }
+type CompraResumo = { valor_total: number; status_valor: string; status_pagamento: string; tipo_custo: string | null; orcamento_id: string | null }
 
-export function ObraAvancoFinanceiro({ obraId }: { obraId: string }) {
+export function ObraAvancoFinanceiro({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
   const [base, setBase] = useState(0)
@@ -17,19 +18,27 @@ export function ObraAvancoFinanceiro({ obraId }: { obraId: string }) {
   useEffect(() => {
     Promise.resolve().then(async () => {
       setLoading(true)
+      let orcQuery = supabase.from('orcamentos').select('bdi_percentual, orcamento_itens(quantidade, preco_unitario_snapshot)').eq('obra_id', obraId)
+      if (orcamentoIds.length) orcQuery = orcQuery.in('id', orcamentoIds)
       const [obraRes, orcRes, comprasRes] = await Promise.all([
         supabase.from('obras').select('valor_contrato').eq('id', obraId).single(),
-        supabase.from('orcamentos').select('bdi_percentual, orcamento_itens(quantidade, preco_unitario_snapshot)').eq('obra_id', obraId).order('versao', { ascending: false }).limit(1),
-        supabase.from('compra_itens').select('valor_total,status_valor,status_pagamento,tipo_custo').eq('obra_id', obraId),
+        orcQuery,
+        supabase.from('compra_itens').select('valor_total,status_valor,status_pagamento,tipo_custo,orcamento_id').eq('obra_id', obraId),
       ])
       const contrato = Number(obraRes.data?.valor_contrato || 0)
-      const orc = orcRes.data?.[0] as { bdi_percentual: number; orcamento_itens: { quantidade: number; preco_unitario_snapshot: number }[] } | undefined
-      const subtotal = (orc?.orcamento_itens || []).reduce((sum, i) => sum + Number(i.quantidade || 0) * Number(i.preco_unitario_snapshot || 0), 0)
-      setBase(contrato > 0 ? contrato : subtotal * (1 + Number(orc?.bdi_percentual || 0) / 100))
-      setCompras((comprasRes.data || []) as CompraResumo[])
+      const orcs = (orcRes.data || []) as { bdi_percentual: number; orcamento_itens: { quantidade: number; preco_unitario_snapshot: number }[] }[]
+      const totalOrcamentos = orcs.reduce((total, orc) => {
+        const subtotal = (orc.orcamento_itens || []).reduce((sum, i) => sum + Number(i.quantidade || 0) * Number(i.preco_unitario_snapshot || 0), 0)
+        return total + subtotal * (1 + Number(orc.bdi_percentual || 0) / 100)
+      }, 0)
+      setBase(totalOrcamentos > 0 ? totalOrcamentos : contrato)
+      const compras = (comprasRes.data || []) as CompraResumo[]
+      setCompras(compras.filter(c => orcamentoId === TODOS_ORCAMENTOS
+        ? (!c.orcamento_id || orcamentoIds.includes(c.orcamento_id))
+        : c.orcamento_id === orcamentoId))
       setLoading(false)
     })
-  }, [obraId, supabase])
+  }, [obraId, supabase, orcamentoId, orcamentoIds])
 
   const dados = useMemo(() => {
     const confirmado = compras.filter(c => c.status_valor === 'confirmado').reduce((s, c) => s + Number(c.valor_total || 0), 0)

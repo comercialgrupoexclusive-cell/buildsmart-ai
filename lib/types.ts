@@ -326,6 +326,7 @@ export type TipoCusto =
 export type CompraItem = {
   id: string
   obra_id: string
+  orcamento_id: string | null
   etapa_id: string | null
   subetapa_id: string | null          // detalhamento fino opcional (nível 2)
   servico_id: string | null           // detalhamento fino opcional (nível 3)

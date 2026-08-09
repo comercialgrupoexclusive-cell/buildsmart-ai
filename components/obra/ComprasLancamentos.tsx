@@ -13,6 +13,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
+import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 const STATUS_VALOR_LABEL: Record<CompraItem['status_valor'], string> = {
   confirmado: 'Confirmado',
@@ -40,9 +41,11 @@ export type PrefillLancamento = {
  * na mesma tela — sem sub-abas escondendo uma coisa atrás da outra.
  */
 export function ComprasLancamentos({
-  obraId, prefill, onPrefillConsumed,
+  obraId, orcamentoId, orcamentoIds, prefill, onPrefillConsumed,
 }: {
   obraId: string
+  orcamentoId: string
+  orcamentoIds: string[]
   prefill?: PrefillLancamento
   onPrefillConsumed?: () => void
 }) {
@@ -76,10 +79,11 @@ export function ComprasLancamentos({
 
   const [cotacaoItem, setCotacaoItem] = useState<CompraItem | null>(null)
   const [cotacaoLinhas, setCotacaoLinhas] = useState<CotacaoLinha[]>([])
+  const consolidado = orcamentoId === TODOS_ORCAMENTOS
 
   useEffect(() => {
     void loadDados()
-  }, [obraId])
+  }, [obraId, orcamentoId, orcamentoIds])
 
   async function loadDados() {
     setLoading(true)
@@ -88,7 +92,10 @@ export function ComprasLancamentos({
       supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem'),
       supabase.from('fornecedores').select('*').or(`obra_id.is.null,obra_id.eq.${obraId}`).order('nome'),
     ])
-    setItens((itensRes.data || []) as CompraItem[])
+    const todos = (itensRes.data || []) as CompraItem[]
+    setItens(todos.filter(item => consolidado
+      ? (!item.orcamento_id || orcamentoIds.includes(item.orcamento_id))
+      : item.orcamento_id === orcamentoId))
     const etapasData = (etapasRes.data || []) as Etapa[]
     setEtapas(etapasData)
     setFornecedores((fornecedoresRes.data || []) as Fornecedor[])
@@ -122,6 +129,7 @@ export function ComprasLancamentos({
   }
 
   function openNew() {
+    if (consolidado || !orcamentoId) return
     setEditando(null)
     resetForm()
     setShowModal(true)
@@ -151,6 +159,7 @@ export function ComprasLancamentos({
     setSaving(true)
     const payload = {
       obra_id: obraId,
+      orcamento_id: editando?.orcamento_id || orcamentoId,
       etapa_id: form.etapa_id || null,
       subetapa_id: form.subetapa_id || null,
       servico_id: form.servico_id || null,
@@ -269,9 +278,12 @@ export function ComprasLancamentos({
         </div>
       </div>
 
-      {/* Formulário de lançamento rápido — sempre visível */}
-      <LancamentoRapidoForm
+      {/* O consolidado é consulta; um novo lançamento sempre exige orçamento específico. */}
+      {consolidado ? (
+        <div className="card p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione um orçamento específico para criar lançamentos.</div>
+      ) : <LancamentoRapidoForm
         obraId={obraId}
+        orcamentoId={orcamentoId}
         etapas={etapas}
         subetapas={subetapas}
         servicos={servicos}
@@ -279,7 +291,7 @@ export function ComprasLancamentos({
         prefill={prefill}
         onPrefillConsumed={onPrefillConsumed}
         onSaved={item => setItens(prev => [item, ...prev])}
-      />
+      />}
 
       {/* Barra de ações da lista */}
       <div className="flex flex-wrap items-center gap-2 justify-between pt-2">
@@ -295,7 +307,7 @@ export function ComprasLancamentos({
           <Link href={`/obras/${obraId}/compras/relatorio`}>
             <Button size="sm" variant="secondary" icon={<FileText size={14} />}>Relatório</Button>
           </Link>
-          <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={openNew}>Item detalhado</Button>
+          <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={openNew} disabled={consolidado}>Item detalhado</Button>
         </div>
       </div>
 
@@ -563,9 +575,10 @@ function formInicial() {
 }
 
 function LancamentoRapidoForm({
-  obraId, etapas, subetapas, servicos, fornecedores, prefill, onPrefillConsumed, onSaved,
+  obraId, orcamentoId, etapas, subetapas, servicos, fornecedores, prefill, onPrefillConsumed, onSaved,
 }: {
   obraId: string
+  orcamentoId: string
   etapas: Etapa[]
   subetapas: SubetapaCronograma[]
   servicos: ServicoCronograma[]
@@ -605,6 +618,7 @@ function LancamentoRapidoForm({
       : fornecedores.find(f => f.id === form.fornecedor_id)?.nome
     const payload = {
       obra_id: obraId,
+      orcamento_id: orcamentoId,
       etapa_id: form.etapa_id || null,
       subetapa_id: form.subetapa_id || null,
       servico_id: form.servico_id || null,

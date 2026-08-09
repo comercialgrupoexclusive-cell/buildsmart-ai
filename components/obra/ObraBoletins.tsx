@@ -13,15 +13,18 @@ import { createClient } from '@/lib/supabase/client'
 import type { ObraProgresso } from '@/lib/obra-progresso'
 import type { Medicao, MedicaoItem } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 const brl = (v: number) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 const fmt = (d: string) => new Date(d + 'T12:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' })
 const hoje = () => new Date().toISOString().slice(0, 10)
 
-export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
+export function ObraBoletins({ obraId, prog, onMedicaoFechada, orcamentoId, orcamentoIds }: {
   obraId: string
   prog: ObraProgresso | null
   onMedicaoFechada: () => void
+  orcamentoId: string
+  orcamentoIds: string[]
 }) {
   const supabase = createClient()
   const [boletins, setBoletins] = useState<Medicao[]>([])
@@ -31,13 +34,17 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
   const [form, setForm] = useState({ nome: '', periodo_inicio: hoje(), periodo_fim: hoje() })
   const [saving, setSaving] = useState(false)
   const [expandido, setExpandido] = useState<string | null>(null)
+  const consolidado = orcamentoId === TODOS_ORCAMENTOS
 
   const carregar = useCallback(async () => {
     setLoading(true)
     const { data } = await supabase.from('medicoes').select('*').eq('obra_id', obraId).eq('eixo', 'fisico').order('numero', { ascending: false, nullsFirst: false }).order('periodo_fim', { ascending: false })
-    setBoletins((data || []) as Medicao[])
+    const todos = (data || []) as Medicao[]
+    setBoletins(todos.filter(b => consolidado
+      ? (!b.orcamento_id || orcamentoIds.includes(b.orcamento_id))
+      : b.orcamento_id === orcamentoId))
     setLoading(false)
-  }, [obraId, supabase])
+  }, [obraId, supabase, orcamentoId, orcamentoIds, consolidado])
 
   useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
 
@@ -55,11 +62,12 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
 
   // ── Cria o boletim (rascunho) ───────────────────────────────────────────────
   async function criar() {
+    if (consolidado || !orcamentoId) return
     setSaving(true)
-    const { data: max } = await supabase.from('medicoes').select('numero').eq('obra_id', obraId).eq('eixo', 'fisico').order('numero', { ascending: false, nullsFirst: false }).limit(1)
+    const { data: max } = await supabase.from('medicoes').select('numero').eq('obra_id', obraId).eq('orcamento_id', orcamentoId).eq('eixo', 'fisico').order('numero', { ascending: false, nullsFirst: false }).limit(1)
     const numero = ((max?.[0]?.numero as number) || 0) + 1
     const { error } = await supabase.from('medicoes').insert({
-      obra_id: obraId, eixo: 'fisico', numero, status: 'rascunho',
+      obra_id: obraId, orcamento_id: orcamentoId, eixo: 'fisico', numero, status: 'rascunho',
       nome: form.nome.trim() || `Medição ${numero}`,
       periodo_inicio: form.periodo_inicio, periodo_fim: form.periodo_fim,
       percentual_executado: 0, fotos: [], updated_at: new Date().toISOString(),
@@ -81,6 +89,7 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
       .from('medicao_itens')
       .select('item_id, pct_atual, medicao_id, medicoes!inner(obra_id, status, periodo_fim)')
       .eq('medicoes.obra_id', obraId)
+      .eq('medicoes.orcamento_id', orcamentoId)
       .eq('medicoes.eixo', 'fisico')
       .eq('medicoes.status', 'fechada')
     const anteriorPorEtapa: Record<string, number> = {}
@@ -152,7 +161,7 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada }: {
           <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Boletins de medição</p>
           <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>Um boletim mede um período. Você cria com nome e datas; ao <strong>fechar</strong>, ele congela o avanço atual do cronograma e calcula quanto avançou no período (saldo e valor).</p>
         </div>
-        {!showForm && <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2 text-sm px-4 py-2 flex-shrink-0"><Plus size={15} /> Novo boletim</button>}
+        {!showForm && <button onClick={() => setShowForm(true)} disabled={consolidado} className="btn-primary flex items-center gap-2 text-sm px-4 py-2 flex-shrink-0 disabled:opacity-50"><Plus size={15} /> Novo boletim</button>}
       </div>
 
       {showForm && (

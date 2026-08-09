@@ -11,10 +11,11 @@ import { createClient } from '@/lib/supabase/client'
 import { CompraItem, Etapa, EtapaCaixa, Obra } from '@/lib/types'
 import { formatCurrency, formatPercent, TIPO_CUSTO_LABEL_CURTO, TIPO_CUSTO_COLOR } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { Select } from '@/components/ui/Input'
 import { CaixaRealTable } from '@/components/relatorios/CaixaRealTable'
+import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
 
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
+type OrcamentoFinanceiro = { id: string; bdi_percentual: number; orcamento_itens: { quantidade: number; preco_unitario_snapshot: number }[] }
 
 function mesLabel(iso: string) {
   // iso = 'YYYY-MM'
@@ -24,26 +25,13 @@ function mesLabel(iso: string) {
 
 export function ControleFinanceiro() {
   const supabase = createClient()
-  const [obras, setObras] = useState<Obra[]>([])
-  const [obraId, setObraId] = useState<string>('')
+  const { obraId, orcamentoId, orcamentoIds } = useObraOrcamento()
   const [obra, setObra] = useState<Obra | null>(null)
   const [itens, setItens] = useState<CompraItem[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [caixas, setCaixas] = useState<EtapaCaixa[]>([])
   const [totalOrcado, setTotalOrcado] = useState(0)
   const [loading, setLoading] = useState(false)
-
-  // Lista de obras (default: primeira ativa, senão a primeira).
-  useEffect(() => {
-    supabase.from('obras').select('*').order('created_at', { ascending: false }).then(({ data }: { data: Obra[] | null }) => {
-      const lista = (data || []) as Obra[]
-      setObras(lista)
-      if (lista.length > 0 && !obraId) {
-        const ativa = lista.find(o => o.status === 'ativa')
-        setObraId((ativa || lista[0]).id)
-      }
-    })
-  }, [supabase])
 
   const loadDados = useCallback(async (id: string) => {
     setLoading(true)
@@ -52,25 +40,28 @@ export function ControleFinanceiro() {
       supabase.from('compra_itens').select('*, fornecedor:fornecedores(nome)').eq('obra_id', id),
       supabase.from('etapas').select('*').eq('obra_id', id).order('ordem'),
       supabase.from('orcamentos')
-        .select('bdi_percentual, orcamento_itens(quantidade, preco_unitario_snapshot)')
-        .eq('obra_id', id).order('versao', { ascending: false }).limit(1),
+        .select('id, bdi_percentual, orcamento_itens(quantidade, preco_unitario_snapshot)')
+        .eq('obra_id', id),
       supabase.from('etapa_caixa').select('*').eq('obra_id', id),
     ])
     setObra(obraRes.data as Obra)
-    setItens((itensRes.data || []) as CompraItem[])
+    const compras = (itensRes.data || []) as CompraItem[]
+    setItens(compras.filter(item => orcamentoId === TODOS_ORCAMENTOS
+      ? (!item.orcamento_id || orcamentoIds.includes(item.orcamento_id))
+      : item.orcamento_id === orcamentoId))
     setEtapas((etapasRes.data || []) as Etapa[])
     setCaixas((caixaRes.data || []) as EtapaCaixa[])
 
-    const orc = (orcRes.data || [])[0] as any
-    const bdi = orc?.bdi_percentual ?? 25
-    const orcItens = orc?.orcamento_itens || []
-    const subtotal = orcItens.reduce((a: number, i: any) => a + i.quantidade * i.preco_unitario_snapshot, 0)
-    setTotalOrcado(subtotal * (1 + bdi / 100))
+    const orcs = ((orcRes.data || []) as OrcamentoFinanceiro[]).filter(orc => orcamentoIds.includes(orc.id) || orcamentoIds.length === 0)
+    setTotalOrcado(orcs.reduce((total, orc) => {
+      const subtotal = (orc.orcamento_itens || []).reduce((a, i) => a + i.quantidade * i.preco_unitario_snapshot, 0)
+      return total + subtotal * (1 + Number(orc.bdi_percentual ?? 25) / 100)
+    }, 0))
     setLoading(false)
-  }, [supabase])
+  }, [supabase, orcamentoId, orcamentoIds])
 
   useEffect(() => {
-    if (obraId) loadDados(obraId)
+    if (obraId) void Promise.resolve().then(() => loadDados(obraId))
   }, [obraId, loadDados])
 
   // ─── Agregações ──────────────────────────────────────────────────────────
@@ -131,16 +122,6 @@ export function ControleFinanceiro() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Seletor de obra */}
-      <div className="flex items-end gap-3 flex-wrap">
-        <div className="w-full sm:w-80">
-          <Select label="Obra" value={obraId} onChange={e => setObraId(e.target.value)}>
-            {obras.length === 0 && <option value="">Nenhuma obra</option>}
-            {obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}
-          </Select>
-        </div>
-      </div>
-
       {loading ? (
         <div className="flex justify-center py-16">
           <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />

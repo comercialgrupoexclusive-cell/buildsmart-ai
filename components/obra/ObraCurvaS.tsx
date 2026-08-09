@@ -14,12 +14,13 @@ import { createClient } from '@/lib/supabase/client'
 import type { ObraProgresso } from '@/lib/obra-progresso'
 import type { Medicao } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 const DAY = 86400000
 const toTs = (d: string) => new Date(d + 'T12:00').getTime()
 const fmtMes = (ts: number) => new Date(ts).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
 
-export function ObraCurvaS({ obraId, prog }: { obraId: string; prog: ObraProgresso | null }) {
+export function ObraCurvaS({ obraId, prog, orcamentoId, orcamentoIds }: { obraId: string; prog: ObraProgresso | null; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = createClient()
   const [boletins, setBoletins] = useState<Medicao[]>([])
   const [loading, setLoading] = useState(true)
@@ -28,10 +29,13 @@ export function ObraCurvaS({ obraId, prog }: { obraId: string; prog: ObraProgres
     Promise.resolve().then(async () => {
       setLoading(true)
       const { data } = await supabase.from('medicoes').select('*').eq('obra_id', obraId).eq('status', 'fechada').order('periodo_fim')
-      setBoletins((data || []) as Medicao[])
+      const todos = (data || []) as Medicao[]
+      setBoletins(todos.filter(b => orcamentoId === TODOS_ORCAMENTOS
+        ? (!b.orcamento_id || orcamentoIds.includes(b.orcamento_id))
+        : b.orcamento_id === orcamentoId))
       setLoading(false)
     })
-  }, [obraId, supabase])
+  }, [obraId, supabase, orcamentoId, orcamentoIds])
 
   const dados = useMemo(() => {
     if (!prog) return null

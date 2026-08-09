@@ -5,6 +5,7 @@ import { Landmark, Plus, Trash2, WalletCards } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Etapa, FonteRecursoTipo, Medicao, ObraFonteRecurso, ObraReembolso, ReembolsoStatus } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
+import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 const FONTES: { tipo: FonteRecursoTipo; label: string }[] = [
   { tipo: 'recursos_proprios', label: 'Recursos próprios' },
@@ -25,16 +26,12 @@ const emptyForm = {
   data_solicitacao: '', observacao: '',
 }
 
-type OrcamentoOpcao = { id: string; nome: string | null; versao: number; status: string }
-
-export function ObraFinanciamento({ obraId }: { obraId: string }) {
+export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = createClient()
   const [fontes, setFontes] = useState<ObraFonteRecurso[]>([])
   const [reembolsos, setReembolsos] = useState<ObraReembolso[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [medicoes, setMedicoes] = useState<Medicao[]>([])
-  const [orcamentos, setOrcamentos] = useState<OrcamentoOpcao[]>([])
-  const [orcamentoId, setOrcamentoId] = useState('')
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -42,34 +39,32 @@ export function ObraFinanciamento({ obraId }: { obraId: string }) {
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const [fontesRes, reembolsosRes, etapasRes, medicoesRes, orcamentosRes] = await Promise.all([
+    const [fontesRes, reembolsosRes, etapasRes, medicoesRes] = await Promise.all([
       supabase.from('obra_fontes_recursos').select('*').eq('obra_id', obraId).order('tipo'),
       supabase.from('obra_reembolsos').select('*').eq('obra_id', obraId).order('created_at', { ascending: false }),
       supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem'),
       supabase.from('medicoes').select('*').eq('obra_id', obraId).order('periodo_fim', { ascending: false }),
-      supabase.from('orcamentos').select('id,nome,versao,status').eq('obra_id', obraId).order('versao', { ascending: false }),
     ])
     setFontes((fontesRes.data || []) as ObraFonteRecurso[])
     setReembolsos((reembolsosRes.data || []) as ObraReembolso[])
     setEtapas((etapasRes.data || []) as Etapa[])
     setMedicoes((medicoesRes.data || []) as Medicao[])
-    const opcoes = (orcamentosRes.data || []) as OrcamentoOpcao[]
-    setOrcamentos(opcoes)
-    setOrcamentoId(atual => atual || opcoes.find(o => o.status === 'ativo')?.id || opcoes[0]?.id || '')
     setLoading(false)
   }, [obraId, supabase])
 
   useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
 
-  const fontesVisiveis = useMemo(() => fontes.filter(f => (f.orcamento_id || '') === orcamentoId), [fontes, orcamentoId])
-  const reembolsosVisiveis = useMemo(() => reembolsos.filter(r => (r.orcamento_id || '') === orcamentoId), [reembolsos, orcamentoId])
-  const medicoesVisiveis = useMemo(() => medicoes.filter(m => !m.orcamento_id || m.orcamento_id === orcamentoId), [medicoes, orcamentoId])
+  const isTodos = orcamentoId === TODOS_ORCAMENTOS
+  const fontesVisiveis = useMemo(() => fontes.filter(f => isTodos ? (!f.orcamento_id || orcamentoIds.includes(f.orcamento_id)) : f.orcamento_id === orcamentoId), [fontes, isTodos, orcamentoId, orcamentoIds])
+  const reembolsosVisiveis = useMemo(() => reembolsos.filter(r => isTodos ? (!r.orcamento_id || orcamentoIds.includes(r.orcamento_id)) : r.orcamento_id === orcamentoId), [reembolsos, isTodos, orcamentoId, orcamentoIds])
+  const medicoesVisiveis = useMemo(() => medicoes.filter(m => isTodos ? (!m.orcamento_id || orcamentoIds.includes(m.orcamento_id)) : m.orcamento_id === orcamentoId), [medicoes, isTodos, orcamentoId, orcamentoIds])
   const fontePorTipo = useMemo(() => new Map(fontesVisiveis.map(f => [f.tipo, f])), [fontesVisiveis])
   const totalPrevisto = fontesVisiveis.reduce((sum, f) => sum + Number(f.valor_previsto || 0), 0)
   const totalSolicitado = reembolsosVisiveis.reduce((sum, r) => sum + Number(r.valor_solicitado || 0), 0)
   const totalRecebido = reembolsosVisiveis.reduce((sum, r) => sum + Number(r.valor_recebido || 0), 0)
 
   async function salvarFonte(tipo: FonteRecursoTipo, value: string) {
+    if (isTodos || !orcamentoId) return
     const valor = Math.max(0, Number(value) || 0)
     const existente = fontePorTipo.get(tipo)
     const payload = { obra_id: obraId, orcamento_id: orcamentoId || null, tipo, valor_previsto: valor, updated_at: new Date().toISOString() }
@@ -83,7 +78,7 @@ export function ObraFinanciamento({ obraId }: { obraId: string }) {
   }
 
   async function criarReembolso() {
-    if (!form.descricao.trim() || !(Number(form.valor_solicitado) > 0)) return
+    if (isTodos || !orcamentoId || !form.descricao.trim() || !(Number(form.valor_solicitado) > 0)) return
     setSaving(true)
     const { data, error } = await supabase.from('obra_reembolsos').insert({
       obra_id: obraId,
@@ -129,10 +124,7 @@ export function ObraFinanciamento({ obraId }: { obraId: string }) {
           <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Orçamento do financiamento</p>
           <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Fontes e reembolsos ficam separados por orçamento.</p>
         </div>
-        <select value={orcamentoId} onChange={e => { setOrcamentoId(e.target.value); setForm(emptyForm) }} className="input-base text-sm sm:w-72">
-          <option value="">Geral da obra</option>
-          {orcamentos.map(o => <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`} · {o.status}</option>)}
-        </select>
+        {isTodos && <p className="text-xs" style={{ color: 'var(--warning)' }}>Visão consolidada somente para leitura. Selecione um orçamento para editar.</p>}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -143,7 +135,7 @@ export function ObraFinanciamento({ obraId }: { obraId: string }) {
               <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</span>
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>R$</span>
-                <input type="number" min={0} step="0.01" defaultValue={fonte?.valor_previsto || ''}
+                <input type="number" min={0} step="0.01" defaultValue={fonte?.valor_previsto || ''} disabled={isTodos}
                   onBlur={e => salvarFonte(tipo, e.target.value)} placeholder="0,00"
                   className="input-base w-full text-right font-semibold" />
               </div>
@@ -163,7 +155,7 @@ export function ObraFinanciamento({ obraId }: { obraId: string }) {
           <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Reembolsos do banco</h2>
           <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Acompanhe da solicitação até o recebimento.</p>
         </div>
-        <button onClick={() => setShowForm(v => !v)} className="btn-primary inline-flex items-center gap-2 px-3 py-2 text-sm"><Plus size={15} /> Novo</button>
+        <button onClick={() => setShowForm(v => !v)} disabled={isTodos || !orcamentoId} className="btn-primary inline-flex items-center gap-2 px-3 py-2 text-sm disabled:opacity-50"><Plus size={15} /> Novo</button>
       </div>
 
       {showForm && (
@@ -188,13 +180,13 @@ export function ObraFinanciamento({ obraId }: { obraId: string }) {
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)' }}><WalletCards size={17} style={{ color: 'var(--accent)' }} /></div>
             <div className="flex-1 min-w-0"><p className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{r.descricao}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Solicitado {formatCurrency(Number(r.valor_solicitado))}</p></div>
-            <select value={r.status} onChange={e => salvarReembolso(r.id, { status: e.target.value as ReembolsoStatus })} className="input-base text-xs py-1 w-28">{STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
-            <button onClick={() => remover(r.id)} className="p-2" title="Excluir"><Trash2 size={14} style={{ color: 'var(--danger)' }} /></button>
+            <select value={r.status} disabled={isTodos} onChange={e => salvarReembolso(r.id, { status: e.target.value as ReembolsoStatus })} className="input-base text-xs py-1 w-28 disabled:opacity-60">{STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+            {!isTodos && <button onClick={() => remover(r.id)} className="p-2" title="Excluir"><Trash2 size={14} style={{ color: 'var(--danger)' }} /></button>}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <MoneyEdit label="Aprovado" value={r.valor_aprovado} onBlur={v => salvarReembolso(r.id, { valor_aprovado: v })} />
-            <MoneyEdit label="Recebido" value={r.valor_recebido} onBlur={v => salvarReembolso(r.id, { valor_recebido: v })} />
-            <Field label="Data do recebimento"><input type="date" value={r.data_recebimento || ''} onChange={e => alterarLocal(r.id, { data_recebimento: e.target.value || null })} onBlur={e => salvarReembolso(r.id, { data_recebimento: e.target.value || null })} className="input-base w-full" /></Field>
+            <MoneyEdit label="Aprovado" value={r.valor_aprovado} disabled={isTodos} onBlur={v => salvarReembolso(r.id, { valor_aprovado: v })} />
+            <MoneyEdit label="Recebido" value={r.valor_recebido} disabled={isTodos} onBlur={v => salvarReembolso(r.id, { valor_recebido: v })} />
+            <Field label="Data do recebimento"><input type="date" value={r.data_recebimento || ''} disabled={isTodos} onChange={e => alterarLocal(r.id, { data_recebimento: e.target.value || null })} onBlur={e => salvarReembolso(r.id, { data_recebimento: e.target.value || null })} className="input-base w-full disabled:opacity-60" /></Field>
           </div>
         </div>
       ))}
@@ -210,6 +202,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="block"><span className="block text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{label}</span>{children}</label>
 }
 
-function MoneyEdit({ label, value, onBlur }: { label: string; value: number; onBlur: (value: number) => void }) {
-  return <Field label={label}><input type="number" min={0} step="0.01" defaultValue={value || ''} onBlur={e => onBlur(Math.max(0, Number(e.target.value) || 0))} className="input-base w-full" /></Field>
+function MoneyEdit({ label, value, disabled = false, onBlur }: { label: string; value: number; disabled?: boolean; onBlur: (value: number) => void }) {
+  return <Field label={label}><input type="number" min={0} step="0.01" defaultValue={value || ''} disabled={disabled} onBlur={e => onBlur(Math.max(0, Number(e.target.value) || 0))} className="input-base w-full disabled:opacity-60" /></Field>
 }
