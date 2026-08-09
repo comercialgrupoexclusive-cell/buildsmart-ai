@@ -39,11 +39,12 @@ export async function getPortalContext(token: string, orcamentoId = 'todos'): Pr
   }
 }
 
-export async function markPortalStoryViewed(token: string, itemId: string) {
-  const { error } = await portalDb().rpc('feed_portal_mark_story_viewed', {
-    p_token_hash: hashPortalToken(token), p_item_id: itemId,
+export async function markPortalStoryViewed(token: string, itemId: string, fileId?: string | null) {
+  const { data, error } = await portalDb().rpc('feed_portal_mark_story_slide_viewed', {
+    p_token_hash: hashPortalToken(token), p_item_id: itemId, p_file_id: fileId || null,
   })
   if (error) throw new Error(error.message)
+  return data as string
 }
 
 export async function togglePortalFeedLike(token: string, itemId: string) {

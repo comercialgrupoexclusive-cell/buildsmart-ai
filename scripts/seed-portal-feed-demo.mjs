@@ -56,7 +56,7 @@ const publications = [
   {
     sourceId: `${demoKey}-feed-semana`, title: 'DEMO - Atualizacao semanal da obra',
     content: 'Publicacao de teste: nesta semana as frentes de estrutura e instalacoes seguiram conforme o planejamento. As imagens abaixo sao ficticias e servem apenas para validar o Portal.',
-    story: false, files: storedFiles.map(file => file.id),
+    story: true, files: storedFiles.map(file => file.id),
   },
   {
     sourceId: `${demoKey}-feed-eletrica`, title: 'DEMO - Instalacoes eletricas em execucao',

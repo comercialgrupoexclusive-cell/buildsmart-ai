@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { commentPortalFeed, markPortalStoryViewed, togglePortalFeedLike } from '@/lib/portal/portal-service'
 
 type FeedAction =
-  | { action: 'view_story'; itemId: string }
+  | { action: 'view_story'; itemId: string; fileId?: string | null }
   | { action: 'toggle_like'; itemId: string }
   | { action: 'comment'; itemId: string; texto: string }
 
@@ -13,8 +13,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   try {
     if (body.action === 'view_story') {
-      await markPortalStoryViewed(token, body.itemId)
-      return NextResponse.json({ ok: true })
+      const viewedAt = await markPortalStoryViewed(token, body.itemId, body.fileId)
+      return NextResponse.json({ ok: true, viewedAt })
     }
     if (body.action === 'toggle_like') {
       return NextResponse.json({ liked: await togglePortalFeedLike(token, body.itemId) })

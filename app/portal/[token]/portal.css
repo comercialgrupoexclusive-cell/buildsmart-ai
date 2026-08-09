@@ -22,3 +22,26 @@
 .portal-client-root .card {
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.05);
 }
+
+@keyframes story-progress-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes story-ring-arrive {
+  0% { transform: rotate(-30deg) scale(0.92); opacity: 0.45; }
+  70% { transform: rotate(8deg) scale(1.04); opacity: 1; }
+  100% { transform: rotate(0deg) scale(1); opacity: 1; }
+}
+
+.portal-client-root .story-progress {
+  animation: story-progress-fill 6s linear forwards;
+}
+
+.portal-client-root .story-ring-intro {
+  animation: story-ring-arrive 700ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-client-root .story-ring-intro { animation: none; }
+}

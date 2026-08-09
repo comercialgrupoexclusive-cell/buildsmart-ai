@@ -11,18 +11,32 @@ type Props = {
   obraNome: string
 }
 
+type StoryFile = PortalFeedItemDTO['files'][number]
+type StorySlide = {
+  id: string
+  item: PortalFeedItemDTO
+  file: StoryFile | null
+  viewedAt: string | null
+}
+
 export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
   const [items, setItems] = useState(initialItems)
-  const [storyId, setStoryId] = useState<string | null>(null)
+  const [playback, setPlayback] = useState<StorySlide[]>([])
+  const [storyIndex, setStoryIndex] = useState(-1)
   const [showArchive, setShowArchive] = useState(false)
   const [now, setNow] = useState(() => Date.now())
-  const stories = useMemo(() => items.filter(item => item.isStory), [items])
   const cutoff = now - 24 * 60 * 60 * 1000
-  const recentStories = stories.filter(item => !item.storyViewedAt || new Date(item.storyViewedAt).getTime() > cutoff)
-  const archived = stories.filter(item => item.storyViewedAt && new Date(item.storyViewedAt).getTime() <= cutoff)
-  const activeStories = showArchive ? archived : recentStories
-  const activeStoryIndex = activeStories.findIndex(item => item.id === storyId)
-  const activeStory = stories.find(item => item.id === storyId) || null
+  const storySlides = useMemo<StorySlide[]>(() => items.filter(item => item.isStory).flatMap<StorySlide>(item => {
+    const photos = item.files.filter(file => file.url)
+    if (!photos.length) return [{ id: `${item.id}:text`, item, file: null, viewedAt: item.storyViewedAt }]
+    return photos.map(file => ({ id: `${item.id}:${file.id}`, item, file, viewedAt: file.storyViewedAt || null }))
+  }), [items])
+  const recentStories = storySlides
+    .filter(slide => !slide.viewedAt || new Date(slide.viewedAt).getTime() > cutoff)
+    .toSorted((a, b) => Number(Boolean(a.viewedAt)) - Number(Boolean(b.viewedAt)))
+  const archived = storySlides.filter(slide => slide.viewedAt && new Date(slide.viewedAt).getTime() <= cutoff)
+  const visibleStories = showArchive ? archived : recentStories
+  const activeStory = storyIndex >= 0 ? playback[storyIndex] || null : null
 
   useEffect(() => {
     const postId = new URLSearchParams(window.location.search).get('post')
@@ -31,20 +45,39 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
     return () => window.clearInterval(timer)
   }, [])
 
-  async function openStory(item: PortalFeedItemDTO) {
-    setStoryId(item.id)
-    if (!item.storySeen) {
-      const viewedAt = new Date().toISOString()
-      setItems(current => current.map(currentItem => currentItem.id === item.id ? { ...currentItem, storySeen: true, storyViewedAt: viewedAt } : currentItem))
-      await fetch(`/api/portal/${token}/feed`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'view_story', itemId: item.id }),
-      })
-    }
+  function openStory(slide: StorySlide) {
+    const start = visibleStories.findIndex(item => item.id === slide.id)
+    const ordered = [...visibleStories.slice(start), ...visibleStories.slice(0, start)]
+    setPlayback(ordered)
+    setStoryIndex(0)
+    void markStoryViewed(ordered[0])
   }
 
   function closeStory() {
-    setStoryId(null)
+    setPlayback([])
+    setStoryIndex(-1)
+  }
+
+  function changeStory(nextIndex: number) {
+    if (nextIndex < 0) return
+    if (nextIndex >= playback.length) { closeStory(); return }
+    setStoryIndex(nextIndex)
+    void markStoryViewed(playback[nextIndex])
+  }
+
+  async function markStoryViewed(slide: StorySlide) {
+    if (slide.viewedAt) return
+    const viewedAt = new Date().toISOString()
+    setPlayback(current => current.map(item => item.id === slide.id ? { ...item, viewedAt } : item))
+    setItems(current => current.map(item => {
+      if (item.id !== slide.item.id) return item
+      if (!slide.file) return { ...item, storySeen: true, storyViewedAt: viewedAt }
+      return { ...item, files: item.files.map(file => file.id === slide.file?.id ? { ...file, storyViewedAt: viewedAt } : file) }
+    }))
+    await fetch(`/api/portal/${token}/feed`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'view_story', itemId: slide.item.id, fileId: slide.file?.id || null }),
+    })
   }
 
   async function toggleLike(itemId: string) {
@@ -84,15 +117,15 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
         <h1 className="mt-1 text-3xl font-semibold">Feed</h1>
       </div>
 
-      {stories.length > 0 && (
+      {storySlides.length > 0 && (
         <div className="card p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div><p className="text-sm font-semibold">Stories</p><p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Depois de vistos, permanecem aqui por 24 horas.</p></div>
             {archived.length > 0 && <button type="button" onClick={() => setShowArchive(value => !value)} className="flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}><Archive size={14} />{showArchive ? 'Novidades' : `Arquivo (${archived.length})`}</button>}
           </div>
-          {activeStories.length > 0 ? (
+          {visibleStories.length > 0 ? (
             <div className="flex gap-3 overflow-x-auto pb-1">
-              {activeStories.map(item => <StoryButton key={item.id} item={item} onClick={() => openStory(item)} />)}
+              {visibleStories.map(slide => <StoryButton key={slide.id} slide={slide} onClick={() => openStory(slide)} />)}
             </div>
           ) : <p className="py-3 text-sm" style={{ color: 'var(--text-secondary)' }}>{showArchive ? 'Nenhum Story arquivado.' : 'Nenhum Story recente.'}</p>}
         </div>
@@ -109,27 +142,30 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
       )}
 
       {activeStory && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-3" role="dialog" aria-modal="true" aria-label={activeStory.titulo}>
-          <article className="relative flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-lg bg-[#101318] text-white shadow-2xl">
-            <button type="button" onClick={closeStory} className="absolute right-3 top-3 z-20 grid size-10 place-items-center rounded-full bg-black/50" title="Fechar"><X size={20} /></button>
-            <StoryMedia item={activeStory} />
-            <div className="p-5"><p className="text-xs text-white/60">{formatDate(activeStory.publicadoEm)}</p><h2 className="mt-1 text-xl font-semibold">{activeStory.titulo}</h2>{activeStory.conteudo && <p className="mt-2 text-sm leading-6 text-white/75">{activeStory.conteudo}</p>}</div>
-            {activeStories.length > 1 && <><button type="button" onClick={() => setStoryId(activeStories[(activeStoryIndex - 1 + activeStories.length) % activeStories.length].id)} className="absolute left-2 top-1/2 grid size-10 place-items-center rounded-full bg-black/45" title="Anterior"><ChevronLeft /></button><button type="button" onClick={() => setStoryId(activeStories[(activeStoryIndex + 1) % activeStories.length].id)} className="absolute right-2 top-1/2 grid size-10 place-items-center rounded-full bg-black/45" title="Proximo"><ChevronRight /></button></>}
-          </article>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/85 p-0 sm:p-3" role="dialog" aria-modal="true" aria-label={activeStory.item.titulo}>
+          <StoryViewer key={activeStory.id} slide={activeStory} index={storyIndex} total={playback.length} onClose={closeStory} onPrevious={() => changeStory(storyIndex - 1)} onNext={() => changeStory(storyIndex + 1)} />
         </div>
       )}
     </section>
   )
 }
 
-function StoryButton({ item, onClick }: { item: PortalFeedItemDTO; onClick: () => void }) {
-  const image = item.files.find(file => file.url)?.url
-  return <button type="button" onClick={onClick} className={`w-[76px] shrink-0 text-center transition-opacity ${item.storySeen ? 'opacity-50' : 'opacity-100'}`}><span className="mx-auto grid size-16 place-items-center overflow-hidden rounded-full p-[3px]" style={{ background: item.storySeen ? 'var(--border)' : 'var(--accent)' }}><span className="relative block size-full overflow-hidden rounded-full border-2" style={{ borderColor: 'var(--bg-card)', background: 'var(--bg-secondary)' }}>{image ? <Image src={image} alt="" fill unoptimized sizes="64px" className="object-cover" /> : <ImageIcon className="absolute inset-0 m-auto" size={22} />}</span></span><span className="mt-1 block truncate text-[11px] font-medium">{item.titulo}</span></button>
+function StoryButton({ slide, onClick }: { slide: StorySlide; onClick: () => void }) {
+  const image = slide.file?.url
+  const seen = Boolean(slide.viewedAt)
+  return <button type="button" onClick={onClick} className={`w-[76px] shrink-0 text-center transition-opacity ${seen ? 'opacity-50' : 'opacity-100'}`}><span className={`mx-auto grid size-16 place-items-center overflow-hidden rounded-full p-[3px] ${seen ? '' : 'story-ring-intro'}`} style={{ background: seen ? 'var(--border)' : 'conic-gradient(from 0deg, var(--accent), #22c55e, var(--accent))' }}><span className="relative block size-full overflow-hidden rounded-full border-2" style={{ borderColor: 'var(--bg-card)', background: 'var(--bg-secondary)' }}>{image ? <Image src={image} alt="" fill unoptimized sizes="64px" className="object-cover" /> : <ImageIcon className="absolute inset-0 m-auto" size={22} />}</span></span><span className="mt-1 block truncate text-[11px] font-medium">{slide.item.titulo}</span></button>
 }
 
-function StoryMedia({ item }: { item: PortalFeedItemDTO }) {
-  const image = item.files.find(file => file.url)?.url
-  return <div className="relative aspect-[4/5] max-h-[62vh] bg-black">{image ? <Image src={image} alt={item.titulo} fill unoptimized sizes="430px" className="object-contain" /> : <div className="grid h-full place-items-center"><ImageIcon size={38} className="text-white/40" /></div>}</div>
+function StoryViewer({ slide, index, total, onClose, onPrevious, onNext }: { slide: StorySlide; index: number; total: number; onClose: () => void; onPrevious: () => void; onNext: () => void }) {
+  const image = slide.file?.url
+  return <article className="relative flex h-[100dvh] w-full max-w-md flex-col overflow-hidden bg-[#101318] text-white shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-lg">
+    <div className="absolute inset-x-3 top-3 z-30 flex gap-1" aria-label={`Story ${index + 1} de ${total}`}>{Array.from({ length: total }, (_, position) => <span key={position} className="h-1 flex-1 overflow-hidden rounded-full bg-white/25"><span className={`block h-full origin-left rounded-full bg-white ${position < index ? 'w-full' : position === index ? 'story-progress w-full' : 'w-0'}`} onAnimationEnd={position === index ? onNext : undefined} /></span>)}</div>
+    <button type="button" onClick={onClose} className="absolute right-3 top-7 z-30 grid size-10 place-items-center rounded-full bg-black/50" title="Fechar"><X size={20} /></button>
+    <div className="relative min-h-0 flex-1 bg-black sm:aspect-[4/5] sm:flex-none">{image ? <Image src={image} alt={slide.item.titulo} fill unoptimized sizes="430px" className="object-contain" priority /> : <div className="grid h-full min-h-[65vh] place-items-center"><ImageIcon size={38} className="text-white/40" /></div>}</div>
+    <div className="shrink-0 p-5"><p className="text-xs text-white/60">{formatDate(slide.item.publicadoEm)}</p><h2 className="mt-1 text-xl font-semibold">{slide.item.titulo}</h2>{slide.item.conteudo && <p className="mt-2 line-clamp-3 text-sm leading-6 text-white/75">{slide.item.conteudo}</p>}</div>
+    {index > 0 && <button type="button" onClick={onPrevious} className="absolute left-2 top-1/2 z-20 grid size-11 place-items-center rounded-full bg-black/40" title="Anterior"><ChevronLeft /></button>}
+    <button type="button" onClick={onNext} className="absolute right-2 top-1/2 z-20 grid size-11 place-items-center rounded-full bg-black/40" title={index + 1 === total ? 'Fechar Stories' : 'Proximo'}><ChevronRight /></button>
+  </article>
 }
 
 function FeedCard({ item, onLike, onComment, onCopy }: { item: PortalFeedItemDTO; onLike: () => void; onComment: (texto: string) => Promise<void>; onCopy: () => void }) {

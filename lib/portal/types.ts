@@ -27,7 +27,7 @@ export type PortalFeedItemDTO = {
   publicadoEm: string
   archivedAt: string | null
   autor: string
-  files: Array<{ id: string; nome: string; tipo: string; url: string | null; editedAt?: string | null }>
+  files: Array<{ id: string; nome: string; tipo: string; url: string | null; editedAt?: string | null; storyViewedAt?: string | null }>
   likes: number
   likedByMe: boolean
   comments: PortalFeedCommentDTO[]
