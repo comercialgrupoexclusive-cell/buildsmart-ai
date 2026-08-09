@@ -2,18 +2,19 @@
 
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bell, CheckCircle2, Eye, ListChecks, MessageSquareText, RefreshCw, ScanLine } from 'lucide-react'
+import { Bell, CheckCircle2, Eye, ListChecks, MessageSquareText, Newspaper, RefreshCw, ScanLine } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { PortalBoardStatus, PortalCategoria } from '@/lib/portal/types'
 import { PortalAccessLinks } from './PortalAccessLinks'
 import { PortalVisibilitySettings } from './PortalVisibilitySettings'
+import { ObraFeedManager } from './ObraFeedManager'
 
 const TourManager = dynamic(
   () => import('@/components/tour/TourManager').then(module => module.TourManager),
   { ssr: false },
 )
 
-type PortalMode = 'conteudo' | 'pendencias' | 'tour'
+type PortalMode = 'feed' | 'conteudo' | 'pendencias' | 'tour'
 type TeamBoardItem = {
   id: string
   titulo: string | null
@@ -45,7 +46,7 @@ const CATEGORY_LABEL: Record<PortalCategoria, string> = {
 
 export function ObraPortalBoard({ obraId }: { obraId: string }) {
   const supabase = useMemo(() => createClient(), [])
-  const [mode, setMode] = useState<PortalMode>('conteudo')
+  const [mode, setMode] = useState<PortalMode>('feed')
   const [items, setItems] = useState<TeamBoardItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -100,6 +101,7 @@ export function ObraPortalBoard({ obraId }: { obraId: string }) {
 
   const pending = items.filter(item => !['resolvido', 'arquivado'].includes(item.status)).length
   const modes: Array<{ id: PortalMode; label: string; icon: typeof ListChecks }> = [
+    { id: 'feed', label: 'Feed', icon: Newspaper },
     { id: 'conteudo', label: 'Conteúdo', icon: Eye },
     { id: 'pendencias', label: 'Pendências', icon: ListChecks },
     { id: 'tour', label: 'Tour 360°', icon: ScanLine },
@@ -143,6 +145,7 @@ export function ObraPortalBoard({ obraId }: { obraId: string }) {
       </div>
 
       {mode === 'tour' && <TourManager obraId={obraId} />}
+      {mode === 'feed' && <ObraFeedManager obraId={obraId} />}
       {mode === 'conteudo' && <PortalVisibilitySettings obraId={obraId} />}
       {mode === 'pendencias' && (
         <>

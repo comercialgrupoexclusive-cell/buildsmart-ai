@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
   BarChart3, Bot, CalendarRange, Camera, CircleDollarSign, ClipboardList,
-  Download, FileText, Landmark, LayoutDashboard, MessageSquare, PanelsTopLeft, CalendarClock, Moon, Sun,
+  Download, FileText, Landmark, LayoutDashboard, MessageSquare, PanelsTopLeft, CalendarClock, Moon, Newspaper, Sun,
 } from 'lucide-react'
 import { PortalBoard } from './PortalBoard'
 import { PortalAssistant } from './PortalAssistant'
@@ -17,6 +17,7 @@ import { PREVISAO_STATUS_LABEL, PREVISAO_TIPO_LABEL, previsaoPrazo, previsaoTone
 import { PortalGantt } from './PortalGantt'
 import type { PortalSectionId, PortalVisibility } from '@/lib/portal/sections'
 import { EvolutionView, FinancialDetailView, FinancingDetailView } from './PortalPresentation'
+import { PortalFeed } from './PortalFeed'
 
 const BuildSmartTourViewer = dynamic(
   () => import('./BuildSmartTourViewer').then(module => module.BuildSmartTourViewer),
@@ -24,6 +25,7 @@ const BuildSmartTourViewer = dynamic(
 )
 
 const NAV = [
+  { id: 'feed', label: 'Feed', icon: Newspaper },
   { id: 'overview', label: 'Visão Geral', icon: LayoutDashboard },
   { id: 'evolucao', label: 'Evolução', icon: BarChart3 },
   { id: 'cronograma', label: 'Cronograma', icon: CalendarRange },
@@ -61,7 +63,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
   const [context, setContext] = useState(initialContext)
   const initialVisibleView = NAV.find(item => item.id === initialView && initialContext.visibility[item.id])?.id
     || NAV.find(item => initialContext.visibility[item.id])?.id
-    || 'overview'
+    || 'feed'
   const [view, setView] = useState<View>(initialVisibleView)
   const [loading, setLoading] = useState(false)
   const [draftTour, setDraftTour] = useState<PortalTourPosition | null>(null)
@@ -98,7 +100,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
       if (!response.ok) throw new Error('Não foi possível atualizar o Portal.')
       const next = await response.json() as PortalContextDTO
       setContext(next)
-      const nextView = next.visibility[view] ? view : NAV.find(item => next.visibility[item.id])?.id || 'overview'
+      const nextView = next.visibility[view] ? view : NAV.find(item => next.visibility[item.id])?.id || 'feed'
       if (nextView !== view) setView(nextView)
       window.history.replaceState(null, '', `/portal/${token}?budget=${encodeURIComponent(nextBudget)}&view=${nextView}`)
       if (!next.tours.some(tour => tour.id === selectedTourId)) setSelectedTourId(next.tours[0]?.id || '')
@@ -146,6 +148,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
           <div className="mb-5 sm:hidden"><label><span className="mb-1 block text-[11px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Orçamento</span><select value={context.selectedOrcamentoId} onChange={event => refresh(event.target.value)} className="input-base min-h-12 w-full font-medium" disabled={loading}><option value="todos">Todos os orçamentos</option>{context.orcamentos.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label></div>
           {loading && <div className="mb-3 h-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}><div className="h-full w-1/2 animate-pulse" style={{ background: 'var(--accent)' }} /></div>}
 
+          {view === 'feed' && <PortalFeed key={context.selectedOrcamentoId} token={token} items={context.feed} obraNome={context.obra.nome} />}
           {view === 'overview' && <Overview context={context} progress={progress} budgetName={budgetName} visibility={context.visibility} onNavigate={navigate} />}
           {view === 'evolucao' && <EvolutionView context={context} />}
           {view === 'cronograma' && <ScheduleView context={context} />}

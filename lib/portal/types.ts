@@ -3,6 +3,35 @@ import type { PortalVisibility } from './sections'
 export type PortalCategoria = 'observacao' | 'duvida' | 'aprovacao' | 'alteracao' | 'pendencia' | 'nao_conformidade'
 export type PortalBoardStatus = 'aberto' | 'em_analise' | 'aguardando_cliente' | 'aguardando_equipe' | 'resolvido' | 'arquivado'
 
+export type PortalFeedCommentDTO = {
+  id: string
+  texto: string
+  authorType: 'equipe' | 'cliente' | 'ia'
+  autor: string
+  createdAt: string
+}
+
+export type PortalFeedItemDTO = {
+  id: string
+  obraId: string
+  orcamentoId: string | null
+  sourceType: 'manual' | 'diario' | 'comunicado' | 'board' | 'relatorio' | 'album' | 'etapa'
+  sourceId: string | null
+  titulo: string
+  conteudo: string | null
+  visibility: 'internal' | 'client' | 'shared'
+  isStory: boolean
+  storySeen: boolean
+  albumNome: string | null
+  publicadoEm: string
+  archivedAt: string | null
+  autor: string
+  files: Array<{ id: string; nome: string; tipo: string; url: string | null }>
+  likes: number
+  likedByMe: boolean
+  comments: PortalFeedCommentDTO[]
+}
+
 export type PortalOrcamentoDTO = {
   id: string
   nome: string
@@ -185,6 +214,7 @@ export type PortalContextDTO = {
   }>
   boardItems: PortalBoardItemDTO[]
   tours: PortalTourDTO[]
+  feed: PortalFeedItemDTO[]
   previsoes: PortalPrevisaoDTO[]
   presentation: PortalPresentationDTO
   documentos: Array<{

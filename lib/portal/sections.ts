@@ -1,4 +1,5 @@
 export const PORTAL_SECTIONS = [
+  { id: 'feed', label: 'Feed', description: 'Publicacoes, fotos, destaques e conversas da obra.' },
   { id: 'overview', label: 'Visão Geral', description: 'Resumo executivo, avanço e destaques da obra.' },
   { id: 'evolucao', label: 'Evolução', description: 'Indicadores e evolução física da execução.' },
   { id: 'cronograma', label: 'Cronograma', description: 'Etapas, datas e andamento planejado.' },
