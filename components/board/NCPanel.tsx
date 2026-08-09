@@ -15,12 +15,11 @@ const STATUS_COLOR: Record<string, string> = {
 interface Props {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   api: React.RefObject<any>
-  projectId: string
   selectedElementId: string | null
   onClose?: () => void
 }
 
-export function NCPanel({ api, projectId: _projectId, selectedElementId, onClose }: Props) {
+export function NCPanel({ api, selectedElementId, onClose }: Props) {
   const [refresh, setRefresh] = useState(0)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

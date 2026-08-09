@@ -10,7 +10,7 @@
 // - Diário:   RDO unificado (mesmo do campo).
 // - Curva S:  previsto × realizado.
 // ═══════════════════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList,
   NotebookPen, FileBarChart, LineChart, Square, CheckSquare, Banknote,
@@ -19,7 +19,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import {
   loadObraProgresso, propagarAvancoServicos, corPorPercentual, clampPct,
-  type ObraProgresso, type EtapaProg, type AvancoEixo,
+  type ObraProgresso, type EtapaProg,
 } from '@/lib/obra-progresso'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ObraRdo } from '@/components/obra/ObraRdo'
@@ -28,16 +28,19 @@ import { ObraCurvaS } from '@/components/obra/ObraCurvaS'
 import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ObraMedicaoMaoObra } from '@/components/obra/ObraMedicaoMaoObra'
+import { ObraMateriais } from '@/components/obra/ObraMateriais'
+import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
-type SubTab = 'fisico' | 'mao-obra' | 'medicao-mao-obra' | 'financeiro' | 'financiamento' | 'boletins' | 'diario' | 'curva'
+type SubTab = 'fisico' | 'mao-obra' | 'materiais' | 'financeiro' | 'financiamento' | 'previsoes' | 'boletins' | 'diario' | 'curva'
 
 const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
-  { id: 'mao-obra', label: 'Avanço M.O.', icon: TrendingUp },
-  { id: 'medicao-mao-obra', label: 'Medição M.O.', icon: BriefcaseBusiness },
+  { id: 'mao-obra', label: 'Mão de obra', icon: BriefcaseBusiness },
+  { id: 'materiais', label: 'Materiais', icon: ListChecks },
   { id: 'financeiro', label: 'Financeiro', icon: Banknote },
   { id: 'financiamento', label: 'Financiamento', icon: Landmark },
+  { id: 'previsoes', label: 'Previsões', icon: TrendingUp },
   { id: 'boletins', label: 'Boletins', icon: FileBarChart },
   { id: 'diario', label: 'Diário (RDO)', icon: NotebookPen },
   { id: 'curva', label: 'Curva S', icon: LineChart },
@@ -55,8 +58,8 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   // Filtros da aba Avanço
   const [filtroEtapa, setFiltroEtapa] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'andamento' | 'concluido'>('todas')
-  const eixo: AvancoEixo = subTab === 'mao-obra' ? 'mao_obra' : 'fisico'
-  const campoPct = eixo === 'mao_obra' ? 'percentual_mao_obra' : 'percentual_executado'
+  const eixo = 'fisico' as const
+  const campoPct = 'percentual_executado'
 
   const carregar = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -70,7 +73,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   // Recarrega o avanço (fonte única) ao voltar para abas que dependem dele —
   // ex.: um RDO lançado no Diário pode ter mexido no % do cronograma.
   useEffect(() => {
-    if (subTab === 'fisico' || subTab === 'mao-obra' || subTab === 'boletins' || subTab === 'curva') {
+    if (subTab === 'fisico' || subTab === 'boletins' || subTab === 'curva') {
       Promise.resolve().then(() => carregar(true))
     }
   }, [subTab, carregar])
@@ -79,7 +82,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   async function setServicoPct(servicoId: string, pct: number) {
     setSaving(true)
     await propagarAvancoServicos(supabase, obraId, [{ servicoId, percentual: clampPct(pct) }], eixo)
-    await carregar(); setSaving(false)
+    await carregar(true); setSaving(false)
   }
 
   async function setSubetapaPct(sub: EtapaProg['subetapas'][number], pct: number) {
@@ -93,7 +96,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
       await supabase.from('subetapas_cronograma').update(eixo === 'fisico' ? { [campoPct]: v, status } : { [campoPct]: v }).eq('id', sub.id)
       await recalcEtapaDeSubetapa(sub.id)
     }
-    await carregar(); setSaving(false)
+    await carregar(true); setSaving(false)
   }
 
   async function setEtapaPct(etapa: EtapaProg, pct: number) {
@@ -106,7 +109,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
       ...etapa.subetapas.map(s => supabase.from('subetapas_cronograma').update(eixo === 'fisico' ? { [campoPct]: v, status } : { [campoPct]: v }).eq('id', s.id)),
       ...svcIds.map(id => supabase.from('servicos_cronograma').update({ [campoPct]: v }).eq('id', id)),
     ])
-    await carregar(); setSaving(false)
+    await carregar(true); setSaving(false)
   }
 
   async function recalcEtapaDeSubetapa(subId: string) {
@@ -146,11 +149,13 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
       {subTab === 'curva' && <ObraCurvaS obraId={obraId} prog={prog} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
       {subTab === 'financeiro' && <ObraAvancoFinanceiro obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
       {subTab === 'financiamento' && <ObraFinanciamento obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-      {subTab === 'medicao-mao-obra' && (orcamentoId === TODOS_ORCAMENTOS
+      {subTab === 'materiais' && <ObraMateriais obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+      {subTab === 'previsoes' && <ObraPrevisoes obraId={obraId} orcamentoId={orcamentoId} />}
+      {subTab === 'mao-obra' && (orcamentoId === TODOS_ORCAMENTOS
         ? <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione um orçamento específico para criar ou editar uma medição de mão de obra.</div>
         : <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />)}
 
-      {(subTab === 'fisico' || subTab === 'mao-obra') && prog && (
+      {subTab === 'fisico' && prog && (
         <>
           {/* Avanço global ponderado por valor */}
           <div className="card p-4 flex flex-col gap-3">
@@ -158,7 +163,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
               <TrendingUp size={20} style={{ color: 'var(--accent)' }} />
               <div className="flex-1">
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  {eixo === 'fisico' ? 'Avanço físico global' : 'Evolução da mão de obra'} {prog.temValores ? '(ponderado pelo orçamento)' : '(média simples)'}
+                  Avanço físico global {prog.temValores ? '(ponderado pelo orçamento)' : '(média simples)'}
                 </p>
                 <div className="flex items-center gap-3 mt-1">
                   <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
@@ -170,7 +175,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
             </div>
             {prog.temValores && (
               <div className="flex items-center gap-4 text-xs pt-1" style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
-                <span>{eixo === 'fisico' ? 'Orçamento base' : 'Mão de obra orçada'}: <strong style={{ color: 'var(--text-primary)' }}>{brl(prog.valorTotal)}</strong></span>
+                <span>Orçamento base: <strong style={{ color: 'var(--text-primary)' }}>{brl(prog.valorTotal)}</strong></span>
                 <span>Equivalente executado: <strong style={{ color: 'var(--success)' }}>{brl(prog.valorTotal * prog.avancoPonderado / 100)}</strong></span>
                 <span className="hidden sm:inline">Média simples: {prog.avancoSimples.toFixed(1)}%</span>
               </div>
@@ -212,7 +217,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
                   </div>
                 </div>
                 <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
-                  Ajuste o {eixo === 'fisico' ? '% físico' : '% de mão de obra'} em qualquer nível. Os dois controles são independentes; definir a etapa espalha para baixo e ajustar serviços recalcula os pais. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
+                  Ajuste o avanço físico em qualquer nível. O valor é salvo ao soltar a barra ou sair do campo; definir a etapa espalha para baixo e ajustar serviços recalcula os pais. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
                 </p>
                 {etapasFiltradas.length === 0 ? (
                   <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma etapa neste filtro.</div>
@@ -295,16 +300,35 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
 
 // ─── Campo de % com presets + input ──────────────────────────────────────────
 function CampoPct({ valor, onChange, tamanho = 'md' }: { valor: number; onChange: (v: number) => void; tamanho?: 'md' | 'sm' }) {
+  return <CampoPctControl key={valor} valor={valor} onChange={onChange} tamanho={tamanho} />
+}
+
+function CampoPctControl({ valor, onChange, tamanho }: { valor: number; onChange: (v: number) => void; tamanho: 'md' | 'sm' }) {
+  const [draft, setDraft] = useState(valor)
+  const submittedRef = useRef<number | null>(null)
+
+  function commit(next = draft) {
+    const normalized = clampPct(Number(next) || 0)
+    setDraft(normalized)
+    if (Math.abs(normalized - valor) < 0.01 || submittedRef.current === normalized) return
+    submittedRef.current = normalized
+    onChange(normalized)
+  }
+
   const presets = [
-    { label: 'Pendente', value: 0, active: valor <= 0, editable: true },
-    { label: 'Andamento', value: null, active: valor > 0 && valor < 100, editable: false },
-    { label: 'Concluído', value: 100, active: valor >= 100, editable: true },
+    { label: 'Pendente', value: 0, active: draft <= 0, editable: true },
+    { label: 'Andamento', value: null, active: draft > 0 && draft < 100, editable: false },
+    { label: 'Concluído', value: 100, active: draft >= 100, editable: true },
   ]
   return (
     <div className="flex flex-col gap-2 flex-shrink-0 w-full sm:w-auto" onClick={e => e.stopPropagation()}>
       <div className="grid grid-cols-3 gap-1.5">
         {presets.map(p => (
-          <button key={p.label} type="button" onClick={() => p.editable && p.value != null && onChange(p.value)}
+          <button key={p.label} type="button" onClick={() => {
+            if (!p.editable || p.value == null) return
+            setDraft(p.value)
+            commit(p.value)
+          }}
             aria-pressed={p.active} title={p.editable ? `Marcar como ${p.label.toLowerCase()}` : 'O andamento acompanha o percentual informado'}
             className="min-h-9 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-all"
             style={p.active ? { background: 'var(--accent)', color: 'white', border: '1px solid var(--accent)' } : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)', cursor: p.editable ? 'pointer' : 'default' }}>
@@ -314,13 +338,16 @@ function CampoPct({ valor, onChange, tamanho = 'md' }: { valor: number; onChange
         ))}
       </div>
       <div className="flex items-center gap-2">
-        <input type="range" min={0} max={100} step={1} value={Math.round(valor)} onChange={e => onChange(Number(e.target.value))}
+        <input type="range" min={0} max={100} step={1} value={Math.round(draft)}
+          onChange={e => setDraft(Number(e.target.value))}
+          onPointerUp={() => commit()} onTouchEnd={() => commit()} onKeyUp={() => commit()} onBlur={() => commit()}
           className="flex-1 min-w-16 accent-[var(--accent)]" aria-label="Percentual de execução" />
         <div className="relative flex items-center">
-          <input type="number" min={0} max={100} step={0.5} value={Number(valor.toFixed(1)) || 0}
-            onChange={e => onChange(parseFloat(e.target.value))}
+          <input type="number" min={0} max={100} step={0.5} value={Number(draft.toFixed(1)) || 0}
+            onChange={e => setDraft(clampPct(parseFloat(e.target.value)))} onBlur={() => commit()}
+            onKeyDown={e => { if (e.key === 'Enter') commit() }}
             className="input-base py-1 text-sm text-right tabular-nums"
-            style={{ width: tamanho === 'md' ? 84 : 72, color: corPorPercentual(valor), fontWeight: 600, paddingRight: 24 }} />
+            style={{ width: tamanho === 'md' ? 84 : 72, color: corPorPercentual(draft), fontWeight: 600, paddingRight: 24 }} />
           <span className="absolute right-2 text-sm pointer-events-none" style={{ color: 'var(--text-secondary)' }}>%</span>
         </div>
       </div>

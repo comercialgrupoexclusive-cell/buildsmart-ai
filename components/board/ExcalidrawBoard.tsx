@@ -39,6 +39,7 @@ function zoomValue(appStateZoom: Any): number {
 
 export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
   const { currentProfile } = useProfile()
+  const supportsNC = Boolean(projectId || obraId)
 
   const [initialData, setInitialData]      = useState<Any>(null)
   const [loaded, setLoaded]                = useState(false)
@@ -257,7 +258,7 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
       if (newId !== selectedIdRef.current) {
         selectedIdRef.current = newId
         setSelectedId(newId)
-        if (projectId && newId) setShowNC(true)
+        if (supportsNC && newId) setShowNC(true)
       }
 
       // Atualizar viewState para RemoteCursors — só quando os valores mudam (throttle 200ms)
@@ -290,7 +291,7 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
           console.error('[Board] Falha ao salvar:', error instanceof Error ? error.message : error))
       }, 1500)
     },
-    [persistScene, projectId],
+    [persistScene, supportsNC],
   )
 
   // ── Importar PDF como imagem no canvas ───────────────────────────────────
@@ -473,7 +474,7 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
               </button>
 
               {/* Botão NCs */}
-              {projectId && <button
+              {supportsNC && <button
                 title="Painel de não-conformidades"
                 onClick={() => setShowNC(v => !v)}
                 className="board-topbtn"
@@ -499,7 +500,7 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
             <MainMenu.Item onSelect={() => fileInputRef.current?.click()} icon={<FileText size={16} />}>
               Importar PDF
             </MainMenu.Item>
-            {projectId && <MainMenu.Item onSelect={() => setShowNC(v => !v)} icon={<AlertTriangle size={16} />}>
+            {supportsNC && <MainMenu.Item onSelect={() => setShowNC(v => !v)} icon={<AlertTriangle size={16} />}>
               Não-conformidades
             </MainMenu.Item>}
             <MainMenu.Separator />
@@ -517,7 +518,7 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
       </div>
 
       {/* Painel lateral de NCs — overlay para não cobrir a biblioteca */}
-      {showNC && projectId && (
+      {showNC && supportsNC && (
         <div className="board-nc-panel" style={{
           position: 'absolute', top: 0, right: 0, bottom: 0,
           width: 300, zIndex: 30,
@@ -528,7 +529,6 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
         }}>
           <NCPanel
             api={apiRef}
-            projectId={projectId}
             selectedElementId={selectedElementId}
             onClose={() => setShowNC(false)}
           />

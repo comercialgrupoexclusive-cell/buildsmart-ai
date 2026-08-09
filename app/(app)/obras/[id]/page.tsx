@@ -5,40 +5,32 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
 import { formatDate, formatCurrency, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus, Link2, Unlink, Landmark, MessageSquareText, CalendarClock } from 'lucide-react'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, Sparkles, FileText, Plus, Link2, Unlink, LayoutDashboard, MessageSquareText } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { useProfile } from '@/lib/profile-context'
 import { usePermission } from '@/lib/permissions'
-import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { ObraArquivos } from '@/components/obra/ObraArquivos'
 import { ObraTarefas } from '@/components/obra/ObraTarefas'
 import { ObraAssistenteIA } from '@/components/obra/ObraAssistenteIA'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
-import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
+import { ObraBoard } from '@/components/obra/ObraBoard'
 import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
-import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
-import { TourManager } from '@/components/tour/TourManager'
 import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'materiais' | 'medicoes' | 'financiamento' | 'previsoes' | 'tarefas' | 'portal' | 'tour' | 'ia'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'tarefas' | 'board' | 'portal' | 'ia'
 
 const TABS: { id: Tab; label: string; icon?: typeof Sparkles }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
   { id: 'cronograma', label: 'Cronograma' },
-  { id: 'materiais', label: 'Materiais' },
-  { id: 'medicoes', label: 'Diário / Medições' },
-  { id: 'financiamento', label: 'Financiamento', icon: Landmark },
-  { id: 'previsoes', label: 'Previsões', icon: CalendarClock },
-  { id: 'tarefas', label: 'Tarefas' },
-  { id: 'portal', label: 'Board', icon: MessageSquareText },
-  { id: 'tour', label: 'Tour 360°' },
-  { id: 'ia', label: 'Assistente IA', icon: Sparkles },
+  { id: 'medicoes', label: 'Medições' },
+  { id: 'board', label: 'Board', icon: LayoutDashboard },
+  { id: 'portal', label: 'Portal do Cliente', icon: MessageSquareText },
 ]
 
 export default function ObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -415,16 +407,20 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
               {label}
             </button>
           ))}
-          <button
-            onClick={() => setTab('arquivos')}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
-            style={tab === 'arquivos'
-              ? { background: 'var(--accent)', color: 'white' }
-              : { color: 'var(--text-secondary)' }
-            }
+          <select
+            aria-label="Mais módulos da obra"
+            value={['arquivos', 'tarefas', 'ia'].includes(tab) ? tab : ''}
+            onChange={event => event.target.value && setTab(event.target.value as Tab)}
+            className="rounded-lg px-3 py-2 text-sm font-medium outline-none"
+            style={['arquivos', 'tarefas', 'ia'].includes(tab)
+              ? { background: 'var(--accent)', color: 'white', border: '1px solid var(--accent)' }
+              : { background: 'transparent', color: 'var(--text-secondary)', border: '1px solid transparent' }}
           >
-            Arquivos
-          </button>
+            <option value="" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Mais</option>
+            <option value="arquivos" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Arquivos</option>
+            <option value="tarefas" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Tarefas</option>
+            <option value="ia" style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>Assistente IA</option>
+          </select>
         </div>
       </div>
 
@@ -434,13 +430,10 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'arquivos' && <ObraArquivos obraId={id} />}
         {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} onSelect={setOrcamentoId} onRefresh={refreshOrcamentos} />}
         {tab === 'cronograma' && <ObraCronogramasTab obraId={id} obraNome={obra.nome} orcamentoIds={orcamentoIds} />}
-        {tab === 'materiais' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-        {tab === 'financiamento' && <ObraFinanciamento obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-        {tab === 'previsoes' && <ObraPrevisoes obraId={id} orcamentoId={orcamentoId} />}
         {tab === 'tarefas' && <ObraTarefas obraId={id} />}
+        {tab === 'board' && <ObraBoard obraId={id} />}
         {tab === 'portal' && <ObraPortalBoard obraId={id} />}
-        {tab === 'tour' && <TourManager obraId={id} />}
         {tab === 'ia' && <ObraAssistenteIA obraId={id} obraNome={obra.nome} obraUf={obra.uf || 'SP'} />}
       </div>
 
