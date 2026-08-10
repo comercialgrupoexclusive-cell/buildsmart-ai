@@ -693,10 +693,23 @@ function ObraCronogramasTab({ obraId, obraNome, orcamentoIds }: { obraId: string
     setLoading(true)
     const { data } = await supabase
       .from('cronogramas')
-      .select('id, nome')
+      .select('id, nome, created_at')
       .eq('obra_id', obraId)
       .order('created_at', { ascending: false })
-    const list = (data || []) as CronoSelectItem[]
+    const cronos = (data || []) as (CronoSelectItem & { created_at: string })[]
+    const ids = cronos.map(crono => crono.id)
+    const { data: etapasVinculadas } = ids.length
+      ? await supabase.from('etapas').select('cronograma_id').in('cronograma_id', ids)
+      : { data: [] as { cronograma_id: string | null }[] }
+    const quantidadeEtapas = new Map<string, number>()
+    ;((etapasVinculadas || []) as { cronograma_id: string | null }[]).forEach(etapa => {
+      if (etapa.cronograma_id) quantidadeEtapas.set(etapa.cronograma_id, (quantidadeEtapas.get(etapa.cronograma_id) || 0) + 1)
+    })
+    // Cronogramas antigos vazios podem continuar vinculados. O cronograma operacional,
+    // que possui a cascata da obra, deve ser sempre a primeira escolha.
+    const list = [...cronos]
+      .sort((a, b) => (quantidadeEtapas.get(b.id) || 0) - (quantidadeEtapas.get(a.id) || 0) || b.created_at.localeCompare(a.created_at))
+      .map(({ id, nome }) => ({ id, nome }))
     setCronogramas(list)
     if (list.length > 0 && (!selectedId || !list.find(c => c.id === selectedId))) {
       setSelectedId(list[0].id)

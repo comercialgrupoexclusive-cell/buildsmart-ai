@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BriefcaseBusiness, ChevronDown, ChevronRight, Lock, Plus, Trash2, WalletCards } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Medicao, MedicaoItem } from '@/lib/types'
@@ -9,27 +9,42 @@ import { formatCurrency } from '@/lib/utils'
 type InsumoLinha = {
   id: string
   descricao_snapshot: string | null
-  unidade_snapshot: string | null
   quantidade_adotada: number | null
   quantidade_calculada: number | null
   preco_unitario_snapshot: number | null
   classificacao_snapshot: string | null
 }
+
 type ItemOrcamento = {
   id: string
+  etapa_id: string | null
+  subetapa: string | null
+  tipo_linha: string
   descricao_snapshot: string | null
-  unidade_snapshot: string | null
   quantidade: number
   preco_unitario_snapshot: number
   classificacao_snapshot: string | null
+  subetapa_valor_manual: number | null
+  subetapa_valor_manual_ativo: boolean
   orcamento_item_insumos: InsumoLinha[]
 }
-type LinhaMaoObra = { id: string; tipo: 'subetapa'; nome: string; unidade: string; quantidade: number; valor: number }
+
+type LinhaMedicao = {
+  id: string
+  tipo: 'subetapa'
+  nome: string
+  valor: number
+}
+
+type LinhaVisual = { item: MedicaoItem; nome: string }
+type SubetapaVisual = { nome: string; itens: LinhaVisual[]; valor: number; percentual: number; percentualMinimo: number }
+type EtapaVisual = { nome: string; subetapas: SubetapaVisual[]; valor: number; percentual: number; percentualMinimo: number }
 
 const hoje = () => new Date().toISOString().slice(0, 10)
 const SEPARADOR_HIERARQUIA = '|||'
 const isMaoObra = (valor: string | null, descricao = '') =>
   (valor || '').toUpperCase() === 'MAO_DE_OBRA' || /m[aã]o\s+de\s+obra/i.test(descricao)
+const clamp = (valor: number, minimo = 0) => Math.max(minimo, Math.min(100, Number(valor) || 0))
 
 export function ObraMedicaoMaoObra({ obraId, orcamentoId, eixo = 'mao_obra' }: { obraId: string; orcamentoId: string; eixo?: 'mao_obra' | 'gerenciamento' }) {
   const supabase = useMemo(() => createClient(), [])
@@ -39,101 +54,89 @@ export function ObraMedicaoMaoObra({ obraId, orcamentoId, eixo = 'mao_obra' }: {
   const [saving, setSaving] = useState(false)
   const [aberta, setAberta] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [gerenciamentoPercentual, setGerenciamentoPercentual] = useState(0)
   const [form, setForm] = useState({ nome: '', inicio: hoje(), fim: hoje() })
 
   const carregarMedicoes = useCallback(async () => {
     setLoading(true)
     if (!orcamentoId) { setMedicoes([]); setLoading(false); return }
-    const { data } = await supabase.from('medicoes').select('*').eq('obra_id', obraId).eq('orcamento_id', orcamentoId).eq('eixo', eixo).order('numero', { ascending: false })
+    const [{ data }, { data: orcamento }] = await Promise.all([
+      supabase.from('medicoes').select('*').eq('obra_id', obraId).eq('orcamento_id', orcamentoId).eq('eixo', eixo).order('numero', { ascending: false }),
+      supabase.from('orcamentos').select('gerenciamento_percentual').eq('id', orcamentoId).maybeSingle(),
+    ])
     setMedicoes((data || []) as Medicao[])
+    setGerenciamentoPercentual(Number(orcamento?.gerenciamento_percentual || 0))
     setLoading(false)
   }, [obraId, orcamentoId, supabase, eixo])
 
   useEffect(() => { Promise.resolve().then(carregarMedicoes) }, [carregarMedicoes])
 
-  async function linhasDoOrcamento(): Promise<LinhaMaoObra[]> {
-    type OrcRow = ItemOrcamento & {
-      etapa_id: string | null
-      subetapa: string | null
-      tipo_linha: string
-      subetapa_valor_manual: number | null
-      subetapa_valor_manual_ativo: boolean
-    }
+  async function linhasDoOrcamento(): Promise<LinhaMedicao[]> {
     const [{ data: orc, error: orcError }, { data, error }] = await Promise.all([
       supabase.from('orcamentos').select('gerenciamento_percentual').eq('id', orcamentoId).single(),
       supabase.from('orcamento_itens')
-        .select('id,etapa_id,subetapa,tipo_linha,descricao_snapshot,unidade_snapshot,quantidade,preco_unitario_snapshot,classificacao_snapshot,subetapa_valor_manual,subetapa_valor_manual_ativo,orcamento_item_insumos(*)')
+        .select('id,etapa_id,subetapa,tipo_linha,descricao_snapshot,quantidade,preco_unitario_snapshot,classificacao_snapshot,subetapa_valor_manual,subetapa_valor_manual_ativo,orcamento_item_insumos(id,descricao_snapshot,quantidade_adotada,quantidade_calculada,preco_unitario_snapshot,classificacao_snapshot)')
         .eq('orcamento_id', orcamentoId),
     ])
     if (orcError) throw orcError
     if (error) throw error
 
-    const percentualGerenciamento = Number(orc?.gerenciamento_percentual || 0)
-    if (eixo === 'gerenciamento' && percentualGerenciamento <= 0) return []
-
-    const rows = (data || []) as OrcRow[]
+    const rows = (data || []) as ItemOrcamento[]
     const etapaIds = [...new Set(rows.map(item => item.etapa_id).filter((id): id is string => Boolean(id)))]
     const { data: etapas } = etapaIds.length
-      ? await supabase.from('etapas').select('id,nome').in('id', etapaIds)
-      : { data: [] as { id: string; nome: string }[] }
+      ? await supabase.from('etapas').select('id,nome,ordem').in('id', etapaIds)
+      : { data: [] as { id: string; nome: string; ordem: number }[] }
     const nomesEtapa = new Map(((etapas || []) as { id: string; nome: string }[]).map(etapa => [etapa.id, etapa.nome]))
+    const nomeEtapa = (item: ItemOrcamento) => item.etapa_id ? nomesEtapa.get(item.etapa_id) || 'Etapa' : 'Sem etapa'
+    const nomeSubetapa = (item: ItemOrcamento) => item.subetapa?.trim() || 'Sem subetapa'
 
-    type Grupo = { id: string; etapaId: string; subetapa: string; valor: number }
-    const grupos = new Map<string, Grupo>()
-    const manuais = new Map<string, { id: string; valor: number }>()
-    const chaveDe = (item: OrcRow) => `${item.etapa_id || 'sem-etapa'}::${item.subetapa?.trim() || 'Sem subetapa'}`
-    const somar = (key: string, id: string, etapaId: string, subetapa: string, valor: number) => {
-      const atual = grupos.get(key)
-      if (atual) atual.valor += valor
-      else grupos.set(key, { id, etapaId, subetapa, valor })
-    }
-
-    for (const item of rows) {
-      const key = chaveDe(item)
-      const etapaId = item.etapa_id || 'sem-etapa'
-      const subetapa = item.subetapa?.trim() || 'Sem subetapa'
-      if (item.tipo_linha === 'subetapa') {
-        if (item.subetapa_valor_manual_ativo) manuais.set(key, { id: item.id, valor: Number(item.subetapa_valor_manual || 0) })
-        continue
-      }
-
-      if (eixo === 'gerenciamento') {
-        somar(key, item.id, etapaId, subetapa, Number(item.quantidade || 0) * Number(item.preco_unitario_snapshot || 0))
-        continue
-      }
-
-      if (isMaoObra(item.classificacao_snapshot, item.descricao_snapshot || '')) {
-        somar(key, item.id, etapaId, subetapa, Number(item.quantidade || 0) * Number(item.preco_unitario_snapshot || 0))
-        continue
-      }
-      for (const insumo of (item.orcamento_item_insumos || []).filter(i => isMaoObra(i.classificacao_snapshot, i.descricao_snapshot || ''))) {
-        const quantidade = Number(insumo.quantidade_adotada ?? insumo.quantidade_calculada ?? 0)
-        somar(key, insumo.id, etapaId, subetapa, quantidade * Number(insumo.preco_unitario_snapshot || 0))
-      }
-    }
-
-    if (eixo === 'gerenciamento') {
-      for (const [key, manual] of manuais) {
-        const [etapaId, subetapa] = key.split('::')
-        grupos.set(key, { id: manual.id, etapaId, subetapa, valor: manual.valor })
-      }
-    }
-
-    return [...grupos.values()]
-      .map(grupo => {
-        const etapa = grupo.etapaId === 'sem-etapa' ? 'Sem etapa' : (nomesEtapa.get(grupo.etapaId) || 'Etapa')
-        const valor = eixo === 'gerenciamento' ? grupo.valor * percentualGerenciamento / 100 : grupo.valor
-        return {
-          id: grupo.id,
-          tipo: 'subetapa' as const,
-          nome: `${etapa}${SEPARADOR_HIERARQUIA}${grupo.subetapa}`,
-          unidade: '%',
-          quantidade: 1,
-          valor,
+    if (eixo === 'mao_obra') {
+      const linhas: LinhaMedicao[] = []
+      for (const item of rows) {
+        if (item.tipo_linha === 'subetapa') continue
+        if (isMaoObra(item.classificacao_snapshot, item.descricao_snapshot || '')) {
+          linhas.push({
+            id: item.id,
+            tipo: 'subetapa',
+            nome: [nomeEtapa(item), nomeSubetapa(item), item.descricao_snapshot || 'Mão de obra'].join(SEPARADOR_HIERARQUIA),
+            valor: Number(item.quantidade || 0) * Number(item.preco_unitario_snapshot || 0),
+          })
         }
-      })
-      .filter(linha => linha.valor > 0)
-      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+        for (const insumo of (item.orcamento_item_insumos || []).filter(linha => isMaoObra(linha.classificacao_snapshot, linha.descricao_snapshot || ''))) {
+          linhas.push({
+            id: insumo.id,
+            tipo: 'subetapa',
+            nome: [nomeEtapa(item), nomeSubetapa(item), insumo.descricao_snapshot || 'Mão de obra'].join(SEPARADOR_HIERARQUIA),
+            valor: Number(insumo.quantidade_adotada ?? insumo.quantidade_calculada ?? 0) * Number(insumo.preco_unitario_snapshot || 0),
+          })
+        }
+      }
+      return linhas.filter(linha => linha.valor > 0).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+    }
+
+    const percentual = Number(orc?.gerenciamento_percentual || 0)
+    const valores = new Map<string, { id: string; etapa: string; subetapa: string; valor: number }>()
+    const manuais = new Map<string, { id: string; etapa: string; subetapa: string; valor: number }>()
+    for (const item of rows) {
+      const etapa = nomeEtapa(item)
+      const subetapa = nomeSubetapa(item)
+      const chave = `${etapa}${SEPARADOR_HIERARQUIA}${subetapa}`
+      if (item.tipo_linha === 'subetapa') {
+        if (item.subetapa_valor_manual_ativo) manuais.set(chave, { id: item.id, etapa, subetapa, valor: Number(item.subetapa_valor_manual || 0) })
+        continue
+      }
+      const atual = valores.get(chave)
+      const valor = Number(item.quantidade || 0) * Number(item.preco_unitario_snapshot || 0)
+      if (atual) atual.valor += valor
+      else valores.set(chave, { id: item.id, etapa, subetapa, valor })
+    }
+    for (const [chave, manual] of manuais) valores.set(chave, manual)
+    return [...valores.values()].map(grupo => ({
+      id: grupo.id,
+      tipo: 'subetapa' as const,
+      nome: [grupo.etapa, grupo.subetapa].join(SEPARADOR_HIERARQUIA),
+      valor: grupo.valor * percentual / 100,
+    })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }
 
   async function criar() {
@@ -143,7 +146,7 @@ export function ObraMedicaoMaoObra({ obraId, orcamentoId, eixo = 'mao_obra' }: {
       const linhas = await linhasDoOrcamento()
       if (linhas.length === 0) {
         alert(eixo === 'gerenciamento'
-          ? 'Configure um percentual de gerenciamento maior que zero neste orçamento.'
+          ? 'O orçamento ainda não possui etapas e subetapas com valores para distribuir o gerenciamento.'
           : 'Este orçamento não possui itens classificados como Mão de Obra.')
         return
       }
@@ -160,14 +163,17 @@ export function ObraMedicaoMaoObra({ obraId, orcamentoId, eixo = 'mao_obra' }: {
         .select('item_id,pct_atual,medicoes!inner(obra_id,orcamento_id,eixo,status)')
         .eq('medicoes.obra_id', obraId).eq('medicoes.orcamento_id', orcamentoId).eq('medicoes.eixo', eixo).eq('medicoes.status', 'fechada')
       const anterior = new Map<string, number>()
-      ;((anteriores || []) as { item_id: string; pct_atual: number }[]).forEach(i => anterior.set(i.item_id, Math.max(anterior.get(i.item_id) || 0, Number(i.pct_atual || 0))))
-      const snapshots = linhas.map(l => ({ medicao_id: medicao.id, item_tipo: l.tipo, item_id: l.id, nome: l.nome, valor_contratado: l.valor, pct_anterior: anterior.get(l.id) || 0, pct_atual: anterior.get(l.id) || 0, valor_periodo: 0, valor_pago: 0 }))
+      ;((anteriores || []) as { item_id: string; pct_atual: number }[]).forEach(item => anterior.set(item.item_id, Math.max(anterior.get(item.item_id) || 0, Number(item.pct_atual || 0))))
+      const snapshots = linhas.map(linha => ({ medicao_id: medicao.id, item_tipo: linha.tipo, item_id: linha.id, nome: linha.nome, valor_contratado: linha.valor, pct_anterior: anterior.get(linha.id) || 0, pct_atual: anterior.get(linha.id) || 0, valor_periodo: 0, valor_pago: 0 }))
       const { error: itensError } = await supabase.from('medicao_itens').insert(snapshots)
       if (itensError) { await supabase.from('medicoes').delete().eq('id', medicao.id); throw itensError }
-      setShowForm(false); setForm({ nome: '', inicio: hoje(), fim: hoje() }); setAberta(medicao.id)
-      await carregarMedicoes(); await carregarItens(medicao.id, true)
+      setShowForm(false)
+      setForm({ nome: '', inicio: hoje(), fim: hoje() })
+      setAberta(medicao.id)
+      await carregarMedicoes()
+      await carregarItens(medicao.id, true)
     } catch (error) {
-      alert(`Não foi possível criar a medição: ${error instanceof Error ? error.message : eixo === 'gerenciamento' ? 'configure o percentual de gerenciamento no orçamento' : 'erro inesperado'}`)
+      alert(`Não foi possível criar a medição: ${error instanceof Error ? error.message : 'erro inesperado'}`)
     } finally { setSaving(false) }
   }
 
@@ -184,47 +190,29 @@ export function ObraMedicaoMaoObra({ obraId, orcamentoId, eixo = 'mao_obra' }: {
   }
 
   async function salvarPercentual(medicaoId: string, item: MedicaoItem, valor: number) {
-    const pct = Math.max(Number(item.pct_anterior || 0), Math.min(100, Number(valor) || 0))
+    const pct = clamp(valor, Number(item.pct_anterior || 0))
     const valorPeriodo = (pct - Number(item.pct_anterior || 0)) / 100 * Number(item.valor_contratado || 0)
-    setItens(atual => ({ ...atual, [medicaoId]: (atual[medicaoId] || []).map(i => i.id === item.id ? { ...i, pct_atual: pct, valor_periodo: valorPeriodo } : i) }))
+    setItens(atual => ({ ...atual, [medicaoId]: (atual[medicaoId] || []).map(linha => linha.id === item.id ? { ...linha, pct_atual: pct, valor_periodo: valorPeriodo } : linha) }))
     await supabase.from('medicao_itens').update({ pct_atual: pct, valor_periodo: valorPeriodo }).eq('id', item.id)
   }
 
-  async function salvarPercentualEtapa(medicaoId: string, linhas: MedicaoItem[], valor: number) {
-    const atualizacoes = linhas.map(item => {
-      const pct = Math.max(Number(item.pct_anterior || 0), Math.min(100, Number(valor) || 0))
-      return {
-        id: item.id,
-        pct,
-        valorPeriodo: (pct - Number(item.pct_anterior || 0)) / 100 * Number(item.valor_contratado || 0),
-      }
-    })
-    setItens(atual => ({
-      ...atual,
-      [medicaoId]: (atual[medicaoId] || []).map(item => {
-        const update = atualizacoes.find(candidate => candidate.id === item.id)
-        return update ? { ...item, pct_atual: update.pct, valor_periodo: update.valorPeriodo } : item
-      }),
-    }))
-    await Promise.all(atualizacoes.map(update => supabase
-      .from('medicao_itens')
-      .update({ pct_atual: update.pct, valor_periodo: update.valorPeriodo })
-      .eq('id', update.id)))
+  async function salvarPercentualGrupo(medicaoId: string, linhas: MedicaoItem[], valor: number) {
+    await Promise.all(linhas.map(item => salvarPercentual(medicaoId, item, valor)))
   }
 
   async function salvarPago(medicaoId: string, item: MedicaoItem, valor: number) {
     const pago = Math.max(0, Math.min(Number(item.valor_contratado || 0), Number(valor) || 0))
-    setItens(atual => ({ ...atual, [medicaoId]: (atual[medicaoId] || []).map(i => i.id === item.id ? { ...i, valor_pago: pago } : i) }))
+    setItens(atual => ({ ...atual, [medicaoId]: (atual[medicaoId] || []).map(linha => linha.id === item.id ? { ...linha, valor_pago: pago } : linha) }))
     await supabase.from('medicao_itens').update({ valor_pago: pago }).eq('id', item.id)
   }
 
   async function fechar(medicao: Medicao) {
     const linhas = itens[medicao.id] || []
     if (!linhas.length || !confirm(`Fechar esta medição de ${eixo === 'gerenciamento' ? 'gerenciamento' : 'mão de obra'}?`)) return
-    const base = linhas.reduce((s, i) => s + Number(i.valor_contratado || 0), 0)
-    const valorPeriodo = linhas.reduce((s, i) => s + Number(i.valor_periodo || 0), 0)
-    const valorAcumulado = linhas.reduce((s, i) => s + Number(i.valor_contratado || 0) * Number(i.pct_atual || 0) / 100, 0)
-    const acumulado = base > 0 ? valorAcumulado / base * 100 : linhas.reduce((s, i) => s + Number(i.pct_atual || 0), 0) / linhas.length
+    const base = linhas.reduce((soma, item) => soma + Number(item.valor_contratado || 0), 0)
+    const valorPeriodo = linhas.reduce((soma, item) => soma + Number(item.valor_periodo || 0), 0)
+    const valorAcumulado = linhas.reduce((soma, item) => soma + Number(item.valor_contratado || 0) * Number(item.pct_atual || 0) / 100, 0)
+    const acumulado = base > 0 ? valorAcumulado / base * 100 : linhas.reduce((soma, item) => soma + Number(item.pct_atual || 0), 0) / linhas.length
     const periodo = base > 0 ? valorPeriodo / base * 100 : 0
     await supabase.from('medicoes').update({ status: 'fechada', percentual_executado: acumulado, avanco_acumulado: acumulado, avanco_periodo: periodo, valor_periodo: valorPeriodo, valor_acumulado: valorAcumulado }).eq('id', medicao.id)
     await carregarMedicoes()
@@ -233,129 +221,157 @@ export function ObraMedicaoMaoObra({ obraId, orcamentoId, eixo = 'mao_obra' }: {
   async function remover(id: string) {
     if (!confirm(`Excluir esta medição de ${eixo === 'gerenciamento' ? 'gerenciamento' : 'mão de obra'}?`)) return
     await supabase.from('medicoes').delete().eq('id', id)
-    setMedicoes(atual => atual.filter(m => m.id !== id))
+    setMedicoes(atual => atual.filter(medicao => medicao.id !== id))
   }
 
   if (loading) return <div className="flex justify-center py-12"><div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>
 
   return <div className="flex flex-col gap-3 pb-16">
     <div className="card p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
-      <div><p className="text-sm font-semibold">Medição de {eixo === 'gerenciamento' ? 'gerenciamento' : 'mão de obra'}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{eixo === 'gerenciamento' ? 'Gerenciamento do orçamento distribuído por etapa e subetapa.' : 'Somente valores classificados como Mão de Obra, organizados por etapa e subetapa.'}</p></div>
+      <div>
+        <p className="text-sm font-semibold">Medição de {eixo === 'gerenciamento' ? 'gerenciamento' : 'mão de obra'}</p>
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+          {eixo === 'gerenciamento'
+            ? `Etapas do orçamento com gerenciamento de ${gerenciamentoPercentual.toLocaleString('pt-BR')}%.`
+            : 'Itens classificados como Mão de Obra, na mesma cascata do orçamento.'}
+        </p>
+      </div>
     </div>
 
     <div className="flex items-center justify-between gap-3">
-      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Controle independente alimentado pelo orçamento da obra.</p>
-      <button onClick={() => setShowForm(v => !v)} disabled={!orcamentoId} className="btn-primary px-3 py-2 text-sm inline-flex items-center gap-2 disabled:opacity-50"><Plus size={15} /> Nova medição</button>
+      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Peso e avanço aparecem juntos; a barra salva somente ao ser solta.</p>
+      <button onClick={() => setShowForm(valor => !valor)} disabled={!orcamentoId} className="btn-primary px-3 py-2 text-sm inline-flex items-center gap-2 disabled:opacity-50"><Plus size={15} /> Nova medição</button>
     </div>
 
     {showForm && <div className="card p-4 flex flex-col gap-3">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Field label="Nome"><input value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} className="input-base w-full" placeholder="Ex.: Equipe de julho" /></Field>
-        <Field label="Início"><input type="date" value={form.inicio} onChange={e => setForm(f => ({ ...f, inicio: e.target.value }))} className="input-base w-full" /></Field>
-        <Field label="Fim"><input type="date" value={form.fim} onChange={e => setForm(f => ({ ...f, fim: e.target.value }))} className="input-base w-full" /></Field>
+        <Field label="Nome"><input value={form.nome} onChange={event => setForm(atual => ({ ...atual, nome: event.target.value }))} className="input-base w-full" placeholder="Ex.: Medição de agosto" /></Field>
+        <Field label="Início"><input type="date" value={form.inicio} onChange={event => setForm(atual => ({ ...atual, inicio: event.target.value }))} className="input-base w-full" /></Field>
+        <Field label="Fim"><input type="date" value={form.fim} onChange={event => setForm(atual => ({ ...atual, fim: event.target.value }))} className="input-base w-full" /></Field>
       </div>
       <div className="flex justify-end gap-2"><button onClick={() => setShowForm(false)} className="px-3 py-2 text-sm">Cancelar</button><button onClick={criar} disabled={saving} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">{saving ? 'Criando...' : 'Criar medição'}</button></div>
     </div>}
 
-    {medicoes.length === 0 && !showForm ? <div className="card p-10 text-center">{eixo === 'gerenciamento' ? <WalletCards className="mx-auto mb-2" size={28} style={{ color: 'var(--text-secondary)' }} /> : <BriefcaseBusiness className="mx-auto mb-2" size={28} style={{ color: 'var(--text-secondary)' }} />}<p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma medição de {eixo === 'gerenciamento' ? 'gerenciamento' : 'mão de obra'} neste orçamento.</p></div> : medicoes.map(m => {
-      const expandida = aberta === m.id
-      const fechada = m.status === 'fechada'
-      const linhas = itens[m.id] || []
-      const gruposLinhas = agruparPorEtapa(linhas)
-      return <div key={m.id} className="card overflow-hidden">
-        <div className="p-4 flex items-center gap-3 cursor-pointer" onClick={() => toggle(m.id)}>
+    {medicoes.length === 0 && !showForm ? <Empty eixo={eixo} /> : medicoes.map(medicao => {
+      const expandida = aberta === medicao.id
+      const fechada = medicao.status === 'fechada'
+      const linhas = itens[medicao.id] || []
+      const grupos = agruparPorEtapa(linhas)
+      const total = grupos.reduce((soma, grupo) => soma + grupo.valor, 0)
+      return <div key={medicao.id} className="card overflow-hidden">
+        <div className="p-4 flex items-center gap-3 cursor-pointer" onClick={() => toggle(medicao.id)}>
           {expandida ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          <div className="flex-1 min-w-0"><p className="text-sm font-semibold truncate">{m.nome}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{m.periodo_inicio} → {m.periodo_fim}{fechada ? ` · ${Number(m.avanco_acumulado || 0).toFixed(1)}% acumulado` : ' · rascunho'}</p></div>
+          <div className="flex-1 min-w-0"><p className="text-sm font-semibold truncate">{medicao.nome}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{medicao.periodo_inicio} → {medicao.periodo_fim}{fechada ? ` · ${Number(medicao.avanco_acumulado || 0).toFixed(1)}% acumulado` : ' · em edição'}</p></div>
           {fechada && <Lock size={14} style={{ color: 'var(--success)' }} />}
-          {!fechada && <button onClick={e => { e.stopPropagation(); remover(m.id) }} className="p-2" title="Excluir"><Trash2 size={14} style={{ color: 'var(--danger)' }} /></button>}
+          {!fechada && <button onClick={event => { event.stopPropagation(); remover(medicao.id) }} className="p-2" title="Excluir"><Trash2 size={14} style={{ color: 'var(--danger)' }} /></button>}
         </div>
-        {expandida && <div className="p-3 flex flex-col gap-2" style={{ borderTop: '1px solid var(--border)' }}>
-          {gruposLinhas.map(grupo => (
-            <div key={grupo.etapa} className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-              <div className="px-3 py-2.5 flex items-center gap-3" style={{ background: 'var(--bg-secondary)' }}>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold truncate">{grupo.etapa}</p>
-                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    {grupo.itens.length} subetapa(s) · {formatCurrency(grupo.valor)}
-                  </p>
-                </div>
-                {fechada ? (
-                  <strong className="text-sm" style={{ color: 'var(--accent)' }}>{grupo.percentual.toFixed(1)}%</strong>
-                ) : (
-                  <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    Etapa
-                    <input type="number" min={grupo.percentualMinimo} max={100} defaultValue={Number(grupo.percentual.toFixed(1))}
-                      onBlur={event => salvarPercentualEtapa(m.id, grupo.itens.map(linha => linha.item), Number(event.target.value))}
-                      className="input-base w-20 py-1 text-right" aria-label={`Percentual da etapa ${grupo.etapa}`} />
-                  </label>
-                )}
-              </div>
-              <div className="flex flex-col">
-                {grupo.itens.map(({ item, subetapa }) => eixo === 'gerenciamento' ? (
-                  <div key={item.id} className="p-3" style={{ borderTop: '1px solid var(--border)' }}>
-                    <p className="text-sm font-medium mb-2">{subetapa}</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <Metric label="Previsto" value={formatCurrency(Number(item.valor_contratado || 0))} />
-                      <label className="rounded-md p-2" style={{ background: 'var(--bg-card)' }}>
-                        <span className="block text-[10px] uppercase mb-1" style={{ color: 'var(--text-secondary)' }}>Medido</span>
-                        <span className="block text-xs font-semibold mb-1">{formatCurrency(Number(item.valor_contratado || 0) * Number(item.pct_atual || 0) / 100)}</span>
-                        {fechada ? <span className="text-xs" style={{ color: 'var(--accent)' }}>{Number(item.pct_atual || 0).toFixed(1)}%</span> : (
-                          <input type="number" min={Number(item.pct_anterior || 0)} max={100} defaultValue={item.pct_atual}
-                            onBlur={event => salvarPercentual(m.id, item, Number(event.target.value))}
-                            className="input-base w-full py-1 text-right text-xs" aria-label={`Percentual medido de ${subetapa}`} />
-                        )}
-                      </label>
-                      <label className="rounded-md p-2" style={{ background: 'var(--bg-card)' }}>
-                        <span className="block text-[10px] uppercase mb-1" style={{ color: 'var(--text-secondary)' }}>Pago</span>
-                        <input type="number" min={0} max={Number(item.valor_contratado || 0)} defaultValue={Number(item.valor_pago || 0)}
-                          onBlur={event => salvarPago(m.id, item, Number(event.target.value))}
-                          className="input-base w-full py-1 text-right text-xs" aria-label={`Valor pago de ${subetapa}`} />
-                      </label>
-                      <Metric label="Saldo" value={formatCurrency(Math.max(0, Number(item.valor_contratado || 0) - Number(item.valor_pago || 0)))} />
-                    </div>
-                  </div>
-                ) : (
-                  <div key={item.id} className="p-3 grid grid-cols-[minmax(0,1fr)_88px] gap-3 items-center" style={{ borderTop: '1px solid var(--border)' }}>
-                    <div className="min-w-0"><p className="text-sm font-medium truncate">{subetapa}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{formatCurrency(Number(item.valor_contratado || 0))} · anterior {Number(item.pct_anterior || 0).toFixed(1)}%</p></div>
-                    {fechada ? <strong className="text-right text-sm" style={{ color: 'var(--accent)' }}>{Number(item.pct_atual || 0).toFixed(1)}%</strong> : <input type="number" min={Number(item.pct_anterior || 0)} max={100} defaultValue={item.pct_atual} onBlur={event => salvarPercentual(m.id, item, Number(event.target.value))} className="input-base w-full text-right" aria-label={`Percentual de ${subetapa}`} />}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-          {!fechada && linhas.length > 0 && <div className="flex justify-end"><button onClick={() => fechar(m)} className="btn-primary px-4 py-2 text-sm inline-flex items-center gap-2"><Lock size={14} /> Fechar medição</button></div>}
+        {expandida && <div className="p-2 sm:p-3 flex flex-col gap-3" style={{ borderTop: '1px solid var(--border)' }}>
+          {grupos.map(grupo => <EtapaMedicao key={grupo.nome} grupo={grupo} total={total} fechada={fechada} eixo={eixo}
+            onSetEtapa={valor => salvarPercentualGrupo(medicao.id, grupo.subetapas.flatMap(sub => sub.itens.map(linha => linha.item)), valor)}
+            onSetSub={(sub, valor) => salvarPercentualGrupo(medicao.id, sub.itens.map(linha => linha.item), valor)}
+            onSetItem={(item, valor) => salvarPercentual(medicao.id, item, valor)}
+            onSetPago={(item, valor) => salvarPago(medicao.id, item, valor)} />)}
+          {!fechada && linhas.length > 0 && <div className="flex justify-end"><button onClick={() => fechar(medicao)} className="btn-primary px-4 py-2 text-sm inline-flex items-center gap-2"><Lock size={14} /> Fechar medição</button></div>}
         </div>}
       </div>
     })}
   </div>
 }
 
-function agruparPorEtapa(linhas: MedicaoItem[]) {
-  const grupos = new Map<string, { etapa: string; itens: { item: MedicaoItem; subetapa: string }[] }>()
-  for (const item of linhas) {
-    const [etapaOriginal, subetapaOriginal] = (item.nome || 'Itens').split(SEPARADOR_HIERARQUIA)
-    const etapa = subetapaOriginal ? etapaOriginal : 'Itens anteriores'
-    const subetapa = subetapaOriginal || item.nome || 'Item'
-    const grupo = grupos.get(etapa) || { etapa, itens: [] }
-    grupo.itens.push({ item, subetapa })
-    grupos.set(etapa, grupo)
+function EtapaMedicao({ grupo, total, fechada, eixo, onSetEtapa, onSetSub, onSetItem, onSetPago }: {
+  grupo: EtapaVisual
+  total: number
+  fechada: boolean
+  eixo: 'mao_obra' | 'gerenciamento'
+  onSetEtapa: (valor: number) => void
+  onSetSub: (sub: SubetapaVisual, valor: number) => void
+  onSetItem: (item: MedicaoItem, valor: number) => void
+  onSetPago: (item: MedicaoItem, valor: number) => void
+}) {
+  const [aberta, setAberta] = useState(true)
+  const peso = total > 0 ? grupo.valor / total * 100 : 0
+  return <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+    <div className="px-3 py-3 flex flex-col gap-2 sm:flex-row sm:items-center" style={{ background: 'var(--bg-secondary)' }}>
+      <button onClick={() => setAberta(valor => !valor)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+        {aberta ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        <span className="text-sm font-semibold truncate">{grupo.nome}</span>
+        <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>peso {peso.toFixed(1)}%</span>
+      </button>
+      <PctBar key={grupo.percentual} valor={grupo.percentual} minimo={grupo.percentualMinimo} disabled={fechada} onChange={onSetEtapa} />
+    </div>
+    {aberta && grupo.subetapas.map(sub => {
+      const pesoSub = grupo.valor > 0 ? sub.valor / grupo.valor * 100 : 0
+      return <div key={sub.nome} style={{ borderTop: '1px solid var(--border)' }}>
+        <div className="pl-7 pr-3 py-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex-1 min-w-0 flex items-center gap-2"><span className="text-sm font-medium truncate">{sub.nome}</span><span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>peso {pesoSub.toFixed(1)}%</span></div>
+          <PctBar key={sub.percentual} valor={sub.percentual} minimo={sub.percentualMinimo} disabled={fechada} onChange={valor => onSetSub(sub, valor)} small />
+        </div>
+        {sub.itens.filter(linha => linha.nome).map(({ item, nome }) => <div key={item.id} className="pl-10 pr-3 py-3" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex-1 min-w-0"><p className="text-xs font-medium truncate">{nome}</p><p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>{formatCurrency(Number(item.valor_contratado || 0))} · anterior {Number(item.pct_anterior || 0).toFixed(1)}%</p></div>
+            <PctBar key={Number(item.pct_atual || 0)} valor={Number(item.pct_atual || 0)} minimo={Number(item.pct_anterior || 0)} disabled={fechada} onChange={valor => onSetItem(item, valor)} small />
+          </div>
+          {eixo === 'gerenciamento' && <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+            <span>Medido <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(Number(item.valor_contratado || 0) * Number(item.pct_atual || 0) / 100)}</strong></span>
+            <label className="flex items-center gap-1">Pago <input type="number" min={0} max={Number(item.valor_contratado || 0)} defaultValue={Number(item.valor_pago || 0)} disabled={fechada} onBlur={event => onSetPago(item, Number(event.target.value))} className="input-base w-28 py-1 text-right text-xs" /></label>
+            <span>Saldo <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(Math.max(0, Number(item.valor_contratado || 0) - Number(item.valor_pago || 0)))}</strong></span>
+          </div>}
+        </div>)}
+      </div>
+    })}
+  </div>
+}
+
+function PctBar({ valor, minimo, disabled, onChange, small = false }: { valor: number; minimo: number; disabled: boolean; onChange: (valor: number) => void; small?: boolean }) {
+  const [draft, setDraft] = useState(valor)
+  const ultimoEnviado = useRef<number | null>(null)
+  function commit() {
+    const normalizado = clamp(draft, minimo)
+    setDraft(normalizado)
+    if (disabled || Math.abs(normalizado - valor) < 0.01 || ultimoEnviado.current === normalizado) return
+    ultimoEnviado.current = normalizado
+    onChange(normalizado)
   }
-  return [...grupos.values()].map(grupo => {
-    const valor = grupo.itens.reduce((total, linha) => total + Number(linha.item.valor_contratado || 0), 0)
-    const medido = grupo.itens.reduce((total, linha) => total + Number(linha.item.valor_contratado || 0) * Number(linha.item.pct_atual || 0) / 100, 0)
-    return {
-      ...grupo,
-      valor,
-      percentual: valor > 0 ? medido / valor * 100 : 0,
-      percentualMinimo: Math.max(0, ...grupo.itens.map(linha => Number(linha.item.pct_anterior || 0))),
-    }
+  return <div className={`flex items-center gap-2 ${small ? 'sm:w-64' : 'sm:w-72'} w-full flex-shrink-0`} onClick={event => event.stopPropagation()}>
+    <input type="range" min={minimo} max={100} step={1} value={Math.round(draft)} disabled={disabled}
+      onChange={event => setDraft(Number(event.target.value))} onPointerUp={commit} onTouchEnd={commit} onKeyUp={commit} onBlur={commit}
+      className="flex-1 min-w-20 accent-[var(--accent)] disabled:opacity-60" aria-label="Percentual medido" />
+    <div className="relative flex items-center">
+      <input type="number" min={minimo} max={100} step={0.5} value={Number(draft.toFixed(1)) || 0} disabled={disabled}
+        onChange={event => setDraft(clamp(Number(event.target.value), minimo))} onBlur={commit} onKeyDown={event => { if (event.key === 'Enter') commit() }}
+        className="input-base py-1 text-sm text-right tabular-nums disabled:opacity-70" style={{ width: 76, paddingRight: 22, fontWeight: 600 }} />
+      <span className="absolute right-2 text-xs pointer-events-none" style={{ color: 'var(--text-secondary)' }}>%</span>
+    </div>
+  </div>
+}
+
+function agruparPorEtapa(linhas: MedicaoItem[]): EtapaVisual[] {
+  const etapas = new Map<string, Map<string, LinhaVisual[]>>()
+  for (const item of linhas) {
+    const partes = (item.nome || 'Itens').split(SEPARADOR_HIERARQUIA)
+    const etapa = partes.length >= 2 ? partes[0] : 'Itens anteriores'
+    const subetapa = partes.length >= 2 ? partes[1] : (item.nome || 'Item')
+    // Snapshots antigos eram agregados por subetapa e não possuíam o terceiro nível.
+    // Eles continuam editáveis na própria linha da subetapa, sem repetir o nome abaixo.
+    const nome = partes.length >= 3 ? partes.slice(2).join(' / ') : ''
+    const subs = etapas.get(etapa) || new Map<string, LinhaVisual[]>()
+    const itens = subs.get(subetapa) || []
+    itens.push({ item, nome })
+    subs.set(subetapa, itens)
+    etapas.set(etapa, subs)
+  }
+  return [...etapas.entries()].map(([nome, subs]) => {
+    const subetapas = [...subs.entries()].map(([nomeSub, linhasSub]) => {
+      const valor = linhasSub.reduce((soma, linha) => soma + Number(linha.item.valor_contratado || 0), 0)
+      const medido = linhasSub.reduce((soma, linha) => soma + Number(linha.item.valor_contratado || 0) * Number(linha.item.pct_atual || 0) / 100, 0)
+      return { nome: nomeSub, itens: linhasSub, valor, percentual: valor > 0 ? medido / valor * 100 : media(linhasSub.map(linha => Number(linha.item.pct_atual || 0))), percentualMinimo: Math.max(0, ...linhasSub.map(linha => Number(linha.item.pct_anterior || 0))) }
+    })
+    const valor = subetapas.reduce((soma, sub) => soma + sub.valor, 0)
+    const medido = subetapas.reduce((soma, sub) => soma + sub.valor * sub.percentual / 100, 0)
+    return { nome, subetapas, valor, percentual: valor > 0 ? medido / valor * 100 : media(subetapas.map(sub => sub.percentual)), percentualMinimo: Math.max(0, ...subetapas.map(sub => sub.percentualMinimo)) }
   })
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label><span className="block text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{label}</span>{children}</label>
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-md p-2" style={{ background: 'var(--bg-card)' }}><span className="block text-[10px] uppercase mb-1" style={{ color: 'var(--text-secondary)' }}>{label}</span><strong className="text-xs">{value}</strong></div>
-}
+function media(valores: number[]) { return valores.length ? valores.reduce((soma, valor) => soma + valor, 0) / valores.length : 0 }
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label><span className="block text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{label}</span>{children}</label> }
+function Empty({ eixo }: { eixo: 'mao_obra' | 'gerenciamento' }) { return <div className="card p-10 text-center">{eixo === 'gerenciamento' ? <WalletCards className="mx-auto mb-2" size={28} style={{ color: 'var(--text-secondary)' }} /> : <BriefcaseBusiness className="mx-auto mb-2" size={28} style={{ color: 'var(--text-secondary)' }} />}<p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma medição de {eixo === 'gerenciamento' ? 'gerenciamento' : 'mão de obra'} neste orçamento.</p></div> }

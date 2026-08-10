@@ -268,10 +268,12 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
             {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
           </span>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</p>
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</p>
+              {temValores && etapa.valorContratado > 0 && <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>peso {peso.toFixed(1)}%</span>}
+            </div>
             <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
               {temFilhos ? `${etapa.subetapas.length} subetapa(s)` : 'sem subetapas'}
-              {temValores && etapa.valorContratado > 0 ? ` · peso ${peso.toFixed(0)}%` : ''}
             </p>
           </div>
         </div>
@@ -284,7 +286,10 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
             <div key={sub.id}>
               <div className="flex flex-col gap-2 pl-9 pr-4 py-3 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)' }}>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{sub.nome}</p>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{sub.nome}</p>
+                    {temValores && etapa.valorContratado > 0 && sub.valorContratado > 0 && <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>peso {(sub.valorContratado / etapa.valorContratado * 100).toFixed(1)}%</span>}
+                  </div>
                   <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                     {sub.servicos.length > 0 ? `${sub.servicos.length} serviço(s)` : 'sem serviços'}
                     {temValores && sub.valorContratado > 0 ? ` · ${brl(sub.valorContratado)}` : ''}

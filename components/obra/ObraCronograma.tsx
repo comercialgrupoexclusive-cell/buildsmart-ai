@@ -1887,9 +1887,9 @@ function ObraGanttView({
       .map(node => ({ ...node, children: filtrarTree(node.children) }))
       .filter(node => statusFiltro.includes(statusDoNode(node)) || node.children.length > 0)
   const tree = filtrarTree(rawTree)
-  const [collapsed, setCollapsed] = useState<Set<string>>(
-    () => new Set(tree.flatMap(etapa => [etapa.id, ...etapa.children.map(sub => sub.id)]))
-  )
+  // A cascata do orçamento é a informação principal do cronograma. Começa aberta
+  // para que etapas, subetapas e itens não pareçam ausentes.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [zoomLevel, setZoomLevel] = useState<'dia' | 'semana' | 'mes'>('semana')
   const [showDateCols, setShowDateCols] = useState(true)
   const [showDatesMobile, setShowDatesMobile] = useState(false)
