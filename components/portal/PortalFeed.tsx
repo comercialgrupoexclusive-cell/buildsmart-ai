@@ -2,13 +2,18 @@
 
 import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, ChevronLeft, ChevronRight, Copy, Heart, ImageIcon, MessageCircle, X } from 'lucide-react'
-import type { PortalFeedCommentDTO, PortalFeedItemDTO } from '@/lib/portal/types'
+import { Archive, ChevronLeft, ChevronRight, Copy, Heart, ImageIcon, MessageCircle, MessageSquareText, Newspaper, X } from 'lucide-react'
+import type { PortalFeedCommentDTO, PortalFeedItemDTO, PortalMessageDTO } from '@/lib/portal/types'
+import { PortalMessages } from './PortalMessages'
 
 type Props = {
   token: string
   items: PortalFeedItemDTO[]
   obraNome: string
+  messages: PortalMessageDTO[]
+  showStories: boolean
+  showPosts: boolean
+  showMessages: boolean
 }
 
 type StoryFile = PortalFeedItemDTO['files'][number]
@@ -19,12 +24,13 @@ type StorySlide = {
   viewedAt: string | null
 }
 
-export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
+export function PortalFeed({ token, items: initialItems, obraNome, messages, showStories, showPosts, showMessages }: Props) {
   const [items, setItems] = useState(initialItems)
   const [playback, setPlayback] = useState<StorySlide[]>([])
   const [storyIndex, setStoryIndex] = useState(-1)
   const [showArchive, setShowArchive] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  const [mode, setMode] = useState<'updates' | 'messages'>(showPosts || showStories ? 'updates' : 'messages')
   const cutoff = now - 24 * 60 * 60 * 1000
   const storySlides = useMemo<StorySlide[]>(() => items.filter(item => item.isStory).flatMap<StorySlide>(item => {
     const photos = item.files.filter(file => file.url)
@@ -117,7 +123,13 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
         <h1 className="mt-1 text-3xl font-semibold">Feed</h1>
       </div>
 
-      {storySlides.length > 0 && (
+      {showMessages && (showPosts || showStories) && <div className="flex gap-1 rounded-lg p-1" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}><button type="button" onClick={() => setMode('updates')} className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-md text-sm font-medium" style={mode === 'updates' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}><Newspaper size={16} /> Atualizacoes</button><button type="button" onClick={() => setMode('messages')} className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-md text-sm font-medium" style={mode === 'messages' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}><MessageSquareText size={16} /> Mensagens</button></div>}
+
+      {mode === 'messages' && showMessages && <PortalMessages token={token} initialMessages={messages} />}
+
+      {mode === 'updates' && <>
+
+      {showStories && storySlides.length > 0 && (
         <div className="card p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div><p className="text-sm font-semibold">Stories</p><p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Depois de vistos, permanecem aqui por 24 horas.</p></div>
@@ -131,7 +143,7 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
         </div>
       )}
 
-      {items.length === 0 ? (
+      {showPosts && (items.length === 0 ? (
         <div className="card border-dashed px-6 py-16 text-center">
           <ImageIcon className="mx-auto" style={{ color: 'var(--text-secondary)' }} />
           <p className="mt-3 font-semibold">O Feed de {obraNome} esta pronto</p>
@@ -139,7 +151,8 @@ export function PortalFeed({ token, items: initialItems, obraNome }: Props) {
         </div>
       ) : (
         <div className="space-y-4">{items.map(item => <FeedCard key={item.id} item={item} onLike={() => toggleLike(item.id)} onComment={texto => addComment(item.id, texto)} onCopy={() => copyLink(item.id)} />)}</div>
-      )}
+      ))}
+      </>}
 
       {activeStory && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/85 p-0 sm:p-3" role="dialog" aria-modal="true" aria-label={activeStory.item.titulo}>

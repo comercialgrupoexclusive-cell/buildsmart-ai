@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
-import type { PortalContextDTO, PortalFeedCommentDTO, PortalFeedItemDTO, PortalPresentationDTO } from './types'
-import { normalizePortalVisibility } from './sections'
+import type { PortalContextDTO, PortalFeedCommentDTO, PortalFeedItemDTO, PortalMessageDTO, PortalPresentationDTO } from './types'
+import { normalizePortalContentVisibility, normalizePortalVisibility } from './sections'
 
 function portalDb() {
   return createClient(supabaseUrl(), supabaseAnonKey(), {
@@ -18,28 +18,40 @@ export async function getPortalContext(token: string, orcamentoId = 'todos'): Pr
   if (!token || token.length < 24) return null
   const db = portalDb()
   const params = { p_token_hash: hashPortalToken(token), p_orcamento_id: orcamentoId || 'todos' }
-  const [{ data, error }, { data: cronograma, error: scheduleError }, { data: previsoes, error: forecastsError }, { data: visibility }, { data: presentation, error: presentationError }, { data: feed, error: feedError }] = await Promise.all([
+  const [{ data, error }, { data: cronograma, error: scheduleError }, { data: previsoes, error: forecastsError }, { data: visibility }, { data: presentation, error: presentationError }, { data: feed, error: feedError }, { data: contentVisibility }, { data: messages }, { data: financial, error: financialError }] = await Promise.all([
     db.rpc('portal_get_context', params),
     db.rpc('portal_get_schedule', params),
     db.rpc('portal_get_previsoes', params),
     db.rpc('portal_get_visibility', { p_token_hash: params.p_token_hash }),
     db.rpc('portal_get_presentation', params),
     db.rpc('feed_portal_get', params),
+    db.rpc('portal_get_content_visibility', { p_token_hash: params.p_token_hash }),
+    db.rpc('portal_messages_get', { p_token_hash: params.p_token_hash }),
+    db.rpc('portal_get_financial', params),
   ])
-  if (error || scheduleError || forecastsError || presentationError || feedError || !data || !presentation) return null
+  if (error || scheduleError || forecastsError || presentationError || feedError || financialError || !data || !presentation || !financial) return null
   const context = data as PortalContextDTO
   const visibleBudgets = context.orcamentos.filter(item => item.status !== 'arquivado')
   if ((orcamentoId === 'todos' || !orcamentoId) && visibleBudgets.length === 1) {
     return getPortalContext(token, visibleBudgets[0].id)
   }
+  const normalizedPresentation = { ...(presentation as PortalPresentationDTO), financial: financial as PortalPresentationDTO['financial'] }
   return {
     ...context,
     visibility: normalizePortalVisibility(visibility as PortalContextDTO['visibility'] | null),
+    contentVisibility: normalizePortalContentVisibility(contentVisibility as PortalContextDTO['contentVisibility'] | null),
     orcamentos: visibleBudgets,
     cronograma: (cronograma || []) as PortalContextDTO['cronograma'],
     previsoes: (previsoes || []) as PortalContextDTO['previsoes'],
     feed: (feed || []) as PortalFeedItemDTO[],
-    presentation: presentation as PortalPresentationDTO,
+    messages: (messages || []) as PortalMessageDTO[],
+    presentation: normalizedPresentation,
+    summary: {
+      ...context.summary,
+      valorOrcado: normalizedPresentation.financial.budget,
+      realizadoFinanceiro: normalizedPresentation.financial.realized,
+      pago: normalizedPresentation.financial.paid,
+    },
   }
 }
 
@@ -65,6 +77,14 @@ export async function commentPortalFeed(token: string, itemId: string, texto: st
   })
   if (error) throw new Error(error.message)
   return data as PortalFeedCommentDTO
+}
+
+export async function sendPortalMessage(token: string, texto: string, destinatarioProfileId?: string | null) {
+  const { data, error } = await portalDb().rpc('portal_message_send', {
+    p_token_hash: hashPortalToken(token), p_texto: texto, p_destinatario_profile_id: destinatarioProfileId || null,
+  })
+  if (error) throw new Error(error.message)
+  return data as PortalMessageDTO
 }
 
 export async function verifyPortalAccess(token: string) {

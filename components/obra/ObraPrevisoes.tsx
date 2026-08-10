@@ -1,11 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarClock, Check, Pencil, Plus, X } from 'lucide-react'
+import { BellRing, CalendarClock, Check, Pencil, Plus, Sparkles, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency } from '@/lib/utils'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -21,12 +21,19 @@ type Lookup = { id: string; nome: string; parentId?: string }
 type BudgetRow = { id: string; nome: string | null; versao: number }
 type ChildRow = { id: string; nome: string; etapa_id?: string; subetapa_id?: string }
 type FilterPeriod = 'todos' | '7' | '30' | 'atrasadas'
+type ForecastSuggestion = { key: string; etapaId: string; titulo: string; dataPrevista: string; inicioEtapa: string; valorSugerido: number | null; tipoSugerido: PrevisaoTipo; jaCriada: boolean }
 
 const EMPTY_FORM = {
   orcamentoId: '', etapaId: '', subetapaId: '', servicoId: '', tipo: 'desembolso_financeiro' as PrevisaoTipo,
   titulo: '', descricao: '', valorPrevisto: '', dataPrevista: '', valorRealizado: '', dataRealizada: '',
   condicaoPagamento: '' as CondicaoPagamento | '', status: 'prevista' as PrevisaoStatus,
   origem: 'manual' as PrevisaoOrigem, baseline: false, publicadoCliente: false, observacaoInterna: '',
+  fornecedorNome: '', externalKey: '',
+}
+
+function formatForecastDate(value: string | null) {
+  if (!value) return '—'
+  return new Intl.DateTimeFormat('pt-BR').format(new Date(`${value.slice(0, 10)}T12:00:00`))
 }
 
 export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamentoId: string }) {
@@ -46,6 +53,9 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
   const [typeFilter, setTypeFilter] = useState<'todos' | PrevisaoTipo>('todos')
   const [stageFilter, setStageFilter] = useState('todos')
   const [statusFilter, setStatusFilter] = useState<'ativos' | PrevisaoStatus>('ativos')
+  const [suggestions, setSuggestions] = useState<ForecastSuggestion[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [leadDays, setLeadDays] = useState(7)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -80,6 +90,7 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
   const totals = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0)
     const totalUntil = (days: number) => activeItems.filter(item => {
+      if (!item.dataPrevista) return false
       const due = new Date(`${item.dataPrevista}T00:00:00`)
       return due >= today && due.getTime() <= today.getTime() + days * 86400000
     }).reduce((sum, item) => sum + Number(item.valorPrevisto || 0), 0)
@@ -89,6 +100,7 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
   const visible = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0)
     return items.filter(item => {
+      if (!item.dataPrevista) return period === 'todos' && (typeFilter === 'todos' || item.tipo === typeFilter) && (stageFilter === 'todos' || item.etapaId === stageFilter) && (statusFilter === 'ativos' ? !['realizada', 'cancelada', 'substituida'].includes(item.status) : item.status === statusFilter)
       const due = new Date(`${item.dataPrevista}T00:00:00`)
       if (period === '7' && (due < today || due.getTime() > today.getTime() + 7 * 86400000)) return false
       if (period === '30' && (due < today || due.getTime() > today.getTime() + 30 * 86400000)) return false
@@ -112,9 +124,10 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
     setForm({
       orcamentoId: item.orcamentoId || '', etapaId: item.etapaId || '', subetapaId: item.subetapaId || '', servicoId: item.servicoId || '',
       tipo: item.tipo, titulo: item.titulo, descricao: item.descricao || '', valorPrevisto: item.valorPrevisto == null ? '' : String(item.valorPrevisto),
-      dataPrevista: item.dataPrevista, valorRealizado: item.valorRealizado == null ? '' : String(item.valorRealizado), dataRealizada: item.dataRealizada || '',
+      dataPrevista: item.dataPrevista || '', valorRealizado: item.valorRealizado == null ? '' : String(item.valorRealizado), dataRealizada: item.dataRealizada || '',
       condicaoPagamento: item.condicaoPagamento || '', status: item.status, origem: item.origem, baseline: item.baseline,
       publicadoCliente: item.publicadoCliente, observacaoInterna: item.observacaoInterna || '',
+      fornecedorNome: item.fornecedorNome || '', externalKey: item.externalKey || '',
     })
     setModalOpen(true)
   }
@@ -136,10 +149,23 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
       ...EMPTY_FORM,
       orcamentoId: item.orcamentoId || '', etapaId: item.etapaId || '', subetapaId: item.subetapaId || '', servicoId: item.servicoId || '',
       tipo: item.tipo, titulo: item.titulo, descricao: item.descricao || '', valorPrevisto: item.valorPrevisto == null ? '' : String(item.valorPrevisto),
-      dataPrevista: item.dataPrevista, valorRealizado: status === 'realizada' ? String(item.valorRealizado ?? item.valorPrevisto ?? '') : (item.valorRealizado == null ? '' : String(item.valorRealizado)),
+      dataPrevista: item.dataPrevista || '', valorRealizado: status === 'realizada' ? String(item.valorRealizado ?? item.valorPrevisto ?? '') : (item.valorRealizado == null ? '' : String(item.valorRealizado)),
       dataRealizada: status === 'realizada' ? (item.dataRealizada || today) : (item.dataRealizada || ''), condicaoPagamento: item.condicaoPagamento || '',
       status, origem: item.origem, baseline: item.baseline, publicadoCliente: item.publicadoCliente, observacaoInterna: item.observacaoInterna || '',
+      fornecedorNome: item.fornecedorNome || '', externalKey: item.externalKey || '',
     }, item.id)
+  }
+
+  async function loadSuggestions() {
+    const { data, error } = await supabase.rpc('obra_previsao_sugestoes', { p_obra_id: obraId, p_orcamento_id: orcamentoId || TODOS_ORCAMENTOS, p_antecedencia: leadDays })
+    if (error) { alert(`Não foi possível analisar o cronograma.\n\n${error.message}`); return }
+    setSuggestions((data || []) as ForecastSuggestion[])
+    setShowSuggestions(true)
+  }
+
+  async function createSuggestion(item: ForecastSuggestion, tipo: PrevisaoTipo) {
+    await save({ ...EMPTY_FORM, orcamentoId: orcamentoId === TODOS_ORCAMENTOS ? '' : orcamentoId, etapaId: item.etapaId, tipo, titulo: item.titulo, valorPrevisto: item.valorSugerido == null ? '' : String(item.valorSugerido), dataPrevista: item.dataPrevista, origem: 'cronograma', publicadoCliente: true, externalKey: item.key }, null)
+    await loadSuggestions()
   }
 
   if (loading) return <div className="flex justify-center py-14"><div className="size-7 animate-spin rounded-full border-2" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>
@@ -149,6 +175,14 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Planejamento financeiro e operacional</p><h2 className="mt-1 text-xl font-semibold">Previsões</h2></div>
         <Button icon={<Plus size={16} />} onClick={openNew}>Nova previsão</Button>
+      </div>
+
+      <div className="card p-4 sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}><BellRing size={18} /></div><div><h3 className="font-semibold">Alertas do cronograma</h3><p className="mt-1 text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>O sistema sugere preparações antes das etapas. Você decide se vira compra ou lançamento.</p></div></div>
+          <div className="flex items-end gap-2"><Input label="Antecedência" type="number" min="0" max="60" value={leadDays} onChange={event => setLeadDays(Number(event.target.value || 0))} className="w-28" /><Button variant="secondary" icon={<Sparkles size={16} />} onClick={() => void loadSuggestions()}>Analisar</Button></div>
+        </div>
+        {showSuggestions && <div className="mt-4 space-y-2 border-t pt-4" style={{ borderColor: 'var(--border)' }}>{suggestions.filter(item => !item.jaCriada).length === 0 ? <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma nova sugestão. Os alertas já foram criados ou não há datas futuras.</p> : suggestions.filter(item => !item.jaCriada).map(item => <div key={item.key} className="flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-center" style={{ background: 'var(--bg-secondary)' }}><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{item.titulo}</p><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Avisar em {formatForecastDate(item.dataPrevista)} · etapa inicia em {formatForecastDate(item.inicioEtapa)}</p></div><div className="flex gap-2"><Button size="sm" variant="secondary" onClick={() => void createSuggestion(item, 'desembolso_financeiro')}>Lançamento</Button><Button size="sm" onClick={() => void createSuggestion(item, 'compra_material')}>Compra</Button></div></div>)}</div>}
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -172,9 +206,10 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
           {orcamentoId === TODOS_ORCAMENTOS && <Select label="Orçamento relacionado" value={form.orcamentoId} onChange={event => setForm(current => ({ ...current, orcamentoId: event.target.value }))}><option value="">Geral da obra</option>{orcamentos.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}</Select>}
           <Select label="Tipo" value={form.tipo} onChange={event => setForm(current => ({ ...current, tipo: event.target.value as PrevisaoTipo }))}>{Object.entries(PREVISAO_TIPO_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select>
           <div className={orcamentoId === TODOS_ORCAMENTOS ? 'sm:col-span-2' : 'sm:col-span-2'}><Input label="Título" required value={form.titulo} onChange={event => setForm(current => ({ ...current, titulo: event.target.value }))} placeholder="Ex.: Concreto usinado" /></div>
-          <Input label="Valor previsto" type="number" min="0" step="0.01" value={form.valorPrevisto} onChange={event => setForm(current => ({ ...current, valorPrevisto: event.target.value }))} placeholder="R$ 0,00" />
+          <Input label="Valor previsto (opcional)" type="number" min="0" step="0.01" value={form.valorPrevisto} onChange={event => setForm(current => ({ ...current, valorPrevisto: event.target.value }))} placeholder="Valor a definir" />
           <Input label="Data prevista" type="date" required value={form.dataPrevista} onChange={event => setForm(current => ({ ...current, dataPrevista: event.target.value }))} />
           <Select label="Condição de pagamento" value={form.condicaoPagamento} onChange={event => setForm(current => ({ ...current, condicaoPagamento: event.target.value as CondicaoPagamento | '' }))}><option value="">Não informada</option>{Object.entries(CONDICAO_PAGAMENTO_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select>
+          <Input label="Fornecedor (opcional)" value={form.fornecedorNome} onChange={event => setForm(current => ({ ...current, fornecedorNome: event.target.value }))} placeholder="Ex.: Petter Ferragem" />
           <Select label="Status" value={form.status} onChange={event => setForm(current => ({ ...current, status: event.target.value as PrevisaoStatus }))}>{Object.entries(PREVISAO_STATUS_LABEL).filter(([value]) => value !== 'substituida').map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select>
           <Select label="Etapa (opcional)" value={form.etapaId} onChange={event => setForm(current => ({ ...current, etapaId: event.target.value, subetapaId: '', servicoId: '' }))}><option value="">Sem etapa</option>{etapas.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}</Select>
           <Select label="Subetapa (opcional)" value={form.subetapaId} onChange={event => setForm(current => ({ ...current, subetapaId: event.target.value, servicoId: '' }))} disabled={!form.etapaId}><option value="">Sem subetapa</option>{subetapas.filter(item => item.parentId === form.etapaId).map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}</Select>
@@ -193,12 +228,13 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
 
 function ForecastRow({ item, onEdit, onRealize, onCancel }: { item: ObraPrevisao; onEdit: () => void; onRealize: () => void; onCancel: () => void }) {
   const tone = previsaoTone(item.status, item.dataPrevista)
-  return <StatusItemCard title={item.titulo} eyebrow={`${PREVISAO_TIPO_LABEL[item.tipo]} · ${item.orcamentoNome}`} value={item.valorPrevisto == null ? undefined : formatCurrency(item.valorPrevisto)} detail={previsaoPrazo(item.dataPrevista, item.status)} tone={tone} badge={<Badge variant={tone === 'success' ? 'success' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>{PREVISAO_STATUS_LABEL[item.status]}</Badge>} meta={<div className="flex flex-wrap gap-x-4 gap-y-1"><span>{formatDate(item.dataPrevista)}</span>{item.etapaNome && <span>{item.etapaNome}</span>}{item.condicaoPagamento && <span>{CONDICAO_PAGAMENTO_LABEL[item.condicaoPagamento]}</span>}<span>Origem: {PREVISAO_ORIGEM_LABEL[item.origem]}</span>{item.baseline && <span>Baseline</span>}{item.publicadoCliente && <span>Visível no Portal</span>}</div>} actions={<div className="flex gap-1"><button type="button" onClick={onEdit} className="grid size-9 place-items-center rounded-lg hover:bg-[var(--bg-secondary)]" title="Editar previsão"><Pencil size={15} /></button>{!['realizada', 'cancelada'].includes(item.status) && <><button type="button" onClick={onRealize} className="grid size-9 place-items-center rounded-lg text-green-400 hover:bg-green-500/10" title="Marcar realizada"><Check size={16} /></button><button type="button" onClick={onCancel} className="grid size-9 place-items-center rounded-lg text-red-400 hover:bg-red-500/10" title="Cancelar previsão"><X size={16} /></button></>}</div>} />
+  return <StatusItemCard title={item.titulo} eyebrow={`${PREVISAO_TIPO_LABEL[item.tipo]} · ${item.orcamentoNome}`} value={item.valorPrevisto == null ? 'Valor a definir' : formatCurrency(item.valorPrevisto)} detail={previsaoPrazo(item.dataPrevista, item.status)} tone={tone} badge={<Badge variant={tone === 'success' ? 'success' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>{PREVISAO_STATUS_LABEL[item.status]}</Badge>} meta={<div className="flex flex-wrap gap-x-4 gap-y-1"><span>{item.dataPrevista ? formatForecastDate(item.dataPrevista) : 'Data a definir'}</span>{item.etapaNome && <span>{item.etapaNome}</span>}{item.fornecedorNome && <span>{item.fornecedorNome}</span>}{item.condicaoPagamento && <span>{CONDICAO_PAGAMENTO_LABEL[item.condicaoPagamento]}</span>}<span>Origem: {PREVISAO_ORIGEM_LABEL[item.origem]}</span>{item.baseline && <span>Baseline</span>}{item.publicadoCliente && <span>Visível no Portal</span>}</div>} actions={<div className="flex gap-1"><button type="button" onClick={onEdit} className="grid size-9 place-items-center rounded-lg hover:bg-[var(--bg-secondary)]" title="Editar previsão"><Pencil size={15} /></button>{!['realizada', 'cancelada'].includes(item.status) && <><button type="button" onClick={onRealize} className="grid size-9 place-items-center rounded-lg text-green-400 hover:bg-green-500/10" title="Marcar realizada"><Check size={16} /></button><button type="button" onClick={onCancel} className="grid size-9 place-items-center rounded-lg text-red-400 hover:bg-red-500/10" title="Cancelar previsão"><X size={16} /></button></>}</div>} />
 }
 
 function countUntil(items: ObraPrevisao[], days: number) {
   const today = new Date(); today.setHours(0, 0, 0, 0)
   return items.filter(item => {
+    if (!item.dataPrevista) return false
     const due = new Date(`${item.dataPrevista}T00:00:00`)
     return due >= today && due.getTime() <= today.getTime() + days * 86400000
   }).length

@@ -2,11 +2,12 @@
 
 import Image from 'next/image'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, BookOpen, Check, Crop, ImagePlus, LayoutDashboard, Loader2, Megaphone, Newspaper, Send, Star } from 'lucide-react'
+import { Archive, BookOpen, ChevronDown, Crop, ImagePlus, LayoutDashboard, Loader2, Megaphone, Newspaper, Send, Star, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { PhotoCropEditor } from '@/components/media/PhotoCropEditor'
 import type { PortalFeedItemDTO } from '@/lib/portal/types'
+import { ObraPortalMessages } from './ObraPortalMessages'
 
 type FileOption = {
   id: string
@@ -42,6 +43,7 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
   const [album, setAlbum] = useState('')
   const [isStory, setIsStory] = useState(false)
   const [source, setSource] = useState('manual')
+  const [showPhotoLibrary, setShowPhotoLibrary] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -172,7 +174,7 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
     })
     setSaving(false)
     if (publishError) { setError(publishError.message); return }
-    setTitle(''); setContent(''); setSelectedFiles([]); setAlbum(''); setIsStory(false); setSource('manual')
+    setTitle(''); setContent(''); setSelectedFiles([]); setAlbum(''); setIsStory(false); setSource('manual'); setShowPhotoLibrary(false)
     setMessage('Publicacao criada.')
     await load()
   }
@@ -184,6 +186,7 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
   }
 
   return <section className="space-y-4">
+    <ObraPortalMessages obraId={obraId} />
     <div className="card p-4 sm:p-5">
       <div className="flex items-start gap-3">
         <div className="grid size-10 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}><Newspaper size={19} /></div>
@@ -199,14 +202,17 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" onClick={() => uploadRef.current?.click()} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium" style={{ border: '1px solid var(--border)' }}><ImagePlus size={17} /> Anexar fotos</button>
+        <button type="button" onClick={() => uploadRef.current?.click()} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium" style={{ border: '1px solid var(--border)' }}><ImagePlus size={17} /> Enviar novas fotos</button>
+        <button type="button" onClick={() => setShowPhotoLibrary(value => !value)} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium" style={{ border: '1px solid var(--border)' }}><ChevronDown size={17} className={showPhotoLibrary ? 'rotate-180' : ''} /> Escolher do acervo</button>
         <input ref={uploadRef} type="file" accept="image/*" multiple className="hidden" onChange={event => void uploadImages(event.target.files)} />
         <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm" style={{ border: '1px solid var(--border)', background: isStory ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : undefined }}><input type="checkbox" checked={isStory} onChange={event => setIsStory(event.target.checked)} /><Star size={16} style={{ color: isStory ? 'var(--accent)' : 'var(--text-secondary)' }} /> Destacar como Story</label>
       </div>
 
-      {rdoPhotos.length > 0 && <PhotoStrip title="Fotos recebidas no Diario" hint="Adicione ao acervo para recortar e publicar.">{rdoPhotos.map(photo => <button type="button" key={`${photo.rdoId}:${photo.index}`} onClick={() => void importRdoPhoto(photo)} className="group relative size-24 shrink-0 overflow-hidden rounded-lg" style={{ border: '1px solid var(--border)' }}><Image src={photo.url} alt={photo.titulo} fill unoptimized sizes="96px" className="object-cover" /><span className="absolute inset-x-1 bottom-1 rounded bg-black/75 px-1 py-1 text-[10px] text-white">Adicionar</span></button>)}</PhotoStrip>}
+      {selectedFiles.length > 0 && <PhotoStrip title={`${selectedFiles.length} foto(s) nesta publicacao`} hint="Remova, recorte ou envie ao Board antes de publicar.">{files.filter(file => selectedFiles.includes(file.id)).map(file => <div key={file.id} className="w-24 shrink-0"><div className="relative size-24 overflow-hidden rounded-lg" style={{ border: '2px solid var(--accent)' }}>{file.url && <Image src={file.url} alt={file.nome} fill unoptimized sizes="96px" className="object-cover" />}<button type="button" onClick={() => setSelectedFiles(current => current.filter(id => id !== file.id))} className="absolute right-1 top-1 grid size-7 place-items-center rounded-full bg-black/75 text-white" title="Remover da publicacao"><X size={15} /></button></div><div className="mt-1 grid grid-cols-2 gap-1"><button type="button" onClick={() => setEditingFile(file)} className="grid min-h-9 place-items-center rounded-lg" style={{ border: '1px solid var(--border)' }} title="Recortar foto"><Crop size={15} /></button><button type="button" onClick={() => void sendToBoard(file)} className="grid min-h-9 place-items-center rounded-lg" style={{ border: '1px solid var(--border)' }} title="Enviar ao Board"><LayoutDashboard size={15} /></button></div></div>)}</PhotoStrip>}
 
-      {files.length > 0 && <PhotoStrip title="Fotos da obra" hint="Toque para selecionar. Use os botoes para editar ou enviar ao Board.">{files.map(file => <div key={file.id} className="w-24 shrink-0"><button type="button" onClick={() => setSelectedFiles(current => current.includes(file.id) ? current.filter(id => id !== file.id) : [...current, file.id])} className="relative size-24 overflow-hidden rounded-lg" style={{ border: `2px solid ${selectedFiles.includes(file.id) ? 'var(--accent)' : 'var(--border)'}` }}>{file.url && <Image src={file.url} alt={file.nome} fill unoptimized sizes="96px" className="object-cover" />}{selectedFiles.includes(file.id) && <span className="absolute right-1 top-1 grid size-6 place-items-center rounded-full text-white" style={{ background: 'var(--accent)' }}><Check size={14} /></span>}</button><div className="mt-1 grid grid-cols-2 gap-1"><button type="button" onClick={() => setEditingFile(file)} className="grid min-h-9 place-items-center rounded-lg" style={{ border: '1px solid var(--border)' }} title="Recortar foto"><Crop size={15} /></button><button type="button" onClick={() => void sendToBoard(file)} className="grid min-h-9 place-items-center rounded-lg" style={{ border: '1px solid var(--border)' }} title="Enviar ao Board"><LayoutDashboard size={15} /></button></div></div>)}</PhotoStrip>}
+      {showPhotoLibrary && rdoPhotos.length > 0 && <PhotoStrip title="Fotos recebidas no Diario" hint="Adicione ao acervo para recortar e publicar.">{rdoPhotos.map(photo => <button type="button" key={`${photo.rdoId}:${photo.index}`} onClick={() => void importRdoPhoto(photo)} className="group relative size-24 shrink-0 overflow-hidden rounded-lg" style={{ border: '1px solid var(--border)' }}><Image src={photo.url} alt={photo.titulo} fill unoptimized sizes="96px" className="object-cover" /><span className="absolute inset-x-1 bottom-1 rounded bg-black/75 px-1 py-1 text-[10px] text-white">Adicionar</span></button>)}</PhotoStrip>}
+
+      {showPhotoLibrary && files.some(file => !selectedFiles.includes(file.id)) && <PhotoStrip title="Fotos da obra" hint="Toque para adicionar ao rascunho.">{files.filter(file => !selectedFiles.includes(file.id)).map(file => <button type="button" key={file.id} onClick={() => setSelectedFiles(current => [...current, file.id])} className="relative size-24 shrink-0 overflow-hidden rounded-lg" style={{ border: '1px solid var(--border)' }}>{file.url && <Image src={file.url} alt={file.nome} fill unoptimized sizes="96px" className="object-cover" />}<span className="absolute inset-x-1 bottom-1 rounded bg-black/75 px-1 py-1 text-[10px] text-white">Adicionar</span></button>)}</PhotoStrip>}
 
       {message && <p className="mt-4 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-400">{message}</p>}
       {error && <p className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>}
@@ -216,7 +222,7 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
     <div><h3 className="font-semibold">Publicacoes</h3><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{items.length} no historico</p></div>
     {loading ? <div className="grid min-h-32 place-items-center"><Loader2 className="animate-spin" /></div> : items.length === 0 ? <div className="card border-dashed p-10 text-center"><Megaphone className="mx-auto" style={{ color: 'var(--text-secondary)' }} /><p className="mt-3 font-medium">Nenhuma publicacao ainda</p></div> : <div className="grid gap-3 lg:grid-cols-2">{items.map(item => <article key={item.id} className="card overflow-hidden" style={{ opacity: item.archivedAt ? 0.55 : 1 }}>
       {item.files[0]?.url && <div className="relative aspect-[16/9]"><Image src={item.files[0].url} alt="" fill unoptimized sizes="(max-width: 1024px) 100vw, 50vw" className="object-cover" /><button type="button" onClick={() => setEditingFile(item.files[0] as FileOption)} className="absolute bottom-2 right-2 flex min-h-9 items-center gap-1.5 rounded-lg bg-black/70 px-2.5 text-xs text-white"><Crop size={14} /> Editar foto</button></div>}
-      <div className="p-4"><div className="flex items-start gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}>{item.sourceType === 'diario' ? <BookOpen size={17} /> : <Newspaper size={17} />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-semibold">{item.titulo}</h4>{item.isStory && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}>STORY</span>}</div><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(item.publicadoEm).toLocaleString('pt-BR')} - {item.visibility}</p></div><button type="button" onClick={() => void archive(item.id, !item.archivedAt)} className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }} title={item.archivedAt ? 'Restaurar' : 'Arquivar'}><Archive size={16} /></button></div>{item.conteudo && <p className="mt-3 line-clamp-3 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>{item.conteudo}</p>}<p className="mt-3 text-xs" style={{ color: 'var(--text-secondary)' }}>{item.files.length} foto(s) - {item.likes} curtida(s) - {item.comments.length} comentario(s)</p></div>
+      <div className="p-4"><div className="flex items-start gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}>{item.sourceType === 'diario' ? <BookOpen size={17} /> : <Newspaper size={17} />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="font-semibold">{item.titulo}</h4>{item.isStory && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}>STORY</span>}</div><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{new Date(item.publicadoEm).toLocaleString('pt-BR')} - {item.visibility}</p></div><button type="button" onClick={() => void archive(item.id, !item.archivedAt)} className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs" style={{ border: '1px solid var(--border)', color: item.archivedAt ? 'var(--text-secondary)' : 'var(--danger)' }} title={item.archivedAt ? 'Restaurar' : 'Excluir do Feed'}>{item.archivedAt ? <Archive size={15} /> : <Trash2 size={15} />}{item.archivedAt ? 'Restaurar' : 'Excluir'}</button></div>{item.conteudo && <p className="mt-3 line-clamp-3 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>{item.conteudo}</p>}<p className="mt-3 text-xs" style={{ color: 'var(--text-secondary)' }}>{item.files.length} foto(s) - {item.likes} curtida(s) - {item.comments.length} comentario(s)</p></div>
     </article>)}</div>}
 
     {editingFile?.url && <PhotoCropEditor imageUrl={editingFile.url} imageName={editingFile.nome} onClose={() => setEditingFile(null)} onSave={saveCrop} />}

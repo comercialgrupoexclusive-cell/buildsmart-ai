@@ -2,10 +2,10 @@
 
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import {
   BarChart3, Bot, CalendarRange, Camera, CircleDollarSign, ClipboardList,
-  Download, FileText, Landmark, LayoutDashboard, MessageSquare, PanelsTopLeft, CalendarClock, Moon, Newspaper, Sun,
+  CircleCheckBig, CreditCard, Download, FileText, Landmark, LayoutDashboard, MessageSquare, PanelsTopLeft, CalendarClock, Moon, Newspaper, ReceiptText, Smartphone, Sun,
 } from 'lucide-react'
 import { PortalBoard } from './PortalBoard'
 import { PortalAssistant } from './PortalAssistant'
@@ -13,10 +13,10 @@ import type { PortalBoardItemDTO, PortalContextDTO, PortalTourPosition } from '@
 import { useProfile } from '@/lib/profile-context'
 import { Badge } from '@/components/ui/Badge'
 import { MetricCard, StatusItemCard } from '@/components/ui/InsightCard'
-import { PREVISAO_STATUS_LABEL, PREVISAO_TIPO_LABEL, previsaoPrazo, previsaoTone } from '@/lib/previsoes'
+import { CONDICAO_PAGAMENTO_LABEL, PREVISAO_TIPO_LABEL, previsaoPrazo, previsaoTone } from '@/lib/previsoes'
 import { PortalGantt } from './PortalGantt'
 import type { PortalSectionId, PortalVisibility } from '@/lib/portal/sections'
-import { EvolutionView, FinancialDetailView, FinancingDetailView } from './PortalPresentation'
+import { EvolutionView, FinancialDetailView, FinancingDetailView, ForecastCharts, OverviewCharts } from './PortalPresentation'
 import { PortalFeed } from './PortalFeed'
 
 const BuildSmartTourViewer = dynamic(
@@ -54,6 +54,12 @@ function money(value: number) {
 
 function date(value: string | null) {
   return value ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC' }).format(new Date(`${value}T12:00:00Z`)) : 'A definir'
+}
+
+function forecastDate(value: string | null) {
+  if (!value) return 'Data a definir'
+  return new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${value}T12:00:00Z`))
 }
 
 export function PortalClient({ token, initialContext, initialView, deepLink }: Props) {
@@ -144,7 +150,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
         <main className="min-w-0 px-4 py-5 sm:px-6 sm:py-7 lg:px-10">
           {loading && <div className="mb-3 h-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}><div className="h-full w-1/2 animate-pulse" style={{ background: 'var(--accent)' }} /></div>}
 
-          {view === 'feed' && <PortalFeed key={context.selectedOrcamentoId} token={token} items={context.feed} obraNome={context.obra.nome} />}
+          {view === 'feed' && <PortalFeed key={context.selectedOrcamentoId} token={token} items={context.feed} messages={context.messages} obraNome={context.obra.nome} showStories={context.contentVisibility.feed.stories} showPosts={context.contentVisibility.feed.posts} showMessages={context.contentVisibility.feed.messages} />}
           {view === 'overview' && <Overview context={context} progress={progress} budgetName={budgetName} visibility={context.visibility} onNavigate={navigate} />}
           {view === 'evolucao' && <EvolutionView context={context} />}
           {view === 'cronograma' && <ScheduleView context={context} />}
@@ -175,7 +181,7 @@ function PortalTab({ item, active, onClick }: { item: typeof NAV[number]; active
 
 function Overview({ context, progress, budgetName, visibility, onNavigate }: { context: PortalContextDTO; progress: number; budgetName: string; visibility: PortalVisibility; onNavigate: (view: View) => void }) {
   return <div className="space-y-8">
-    <section className="relative min-h-[330px] overflow-hidden rounded-lg sm:min-h-[410px]" style={{ background: context.obra.fotoUrl ? '#303631' : 'var(--accent)' }}>
+    {context.contentVisibility.overview.hero && <section className="relative min-h-[330px] overflow-hidden rounded-lg sm:min-h-[410px]" style={{ background: context.obra.fotoUrl ? '#303631' : 'var(--accent)' }}>
       {context.obra.fotoUrl && <Image src={context.obra.fotoUrl} alt={context.obra.nome} fill sizes="(min-width: 1024px) 70vw, 100vw" unoptimized className="object-cover" />}
       {context.obra.fotoUrl && <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/5" />}
       {!context.obra.fotoUrl && <div className="absolute right-6 top-7 text-right text-white/90 sm:right-9 sm:top-9"><p className="text-xs font-semibold uppercase text-white/70">Avanço físico</p><p className="mt-1 text-5xl font-semibold tabular-nums sm:text-7xl">{progress.toFixed(1)}%</p></div>}
@@ -184,9 +190,9 @@ function Overview({ context, progress, budgetName, visibility, onNavigate }: { c
         <h1 className="mt-2 max-w-3xl text-3xl font-semibold sm:text-5xl">{context.obra.nome}</h1>
         <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/80"><span>{context.obra.status}</span><span>Previsão: {date(context.obra.dataPrevisao)}</span>{context.obra.endereco && <span>{context.obra.endereco}</span>}</div>
       </div>
-    </section>
+    </section>}
 
-    {(visibility.evolucao || visibility.financeiro || visibility.financiamento) && <section className={`grid gap-5 ${visibility.evolucao ? 'md:grid-cols-[220px_1fr]' : ''} md:items-center`}>
+    {context.contentVisibility.overview.indicators && (visibility.evolucao || visibility.financeiro || visibility.financiamento) && <section className={`grid gap-5 ${visibility.evolucao ? 'md:grid-cols-[220px_1fr]' : ''} md:items-center`}>
       {visibility.evolucao && <div className="card flex items-center gap-5 p-5"><div className="portal-progress-ring grid size-24 shrink-0 place-items-center rounded-full" style={{ '--progress': progress } as React.CSSProperties}><div className="grid size-[4.5rem] place-items-center rounded-full" style={{ background: 'var(--bg-card)' }}><span className="text-lg font-semibold">{progress.toFixed(1)}%</span></div></div><div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Avanço físico</p><p className="mt-1 text-lg font-semibold">Evolução em campo</p></div></div>}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {visibility.financeiro && <><MetricCard label="Valor orçado" value={money(context.summary.valorOrcado)} /><MetricCard label="Realizado" value={money(context.summary.realizadoFinanceiro)} tone="warning" /><MetricCard label="Pago" value={money(context.summary.pago)} tone="success" /></>}
@@ -194,9 +200,10 @@ function Overview({ context, progress, budgetName, visibility, onNavigate }: { c
       </div>
     </section>}
 
-    {visibility.previsoes && context.previsoes.length > 0 && <ForecastSummary context={context} onNavigate={onNavigate} />}
+    {context.contentVisibility.overview.charts && <OverviewCharts context={context} />}
+    {context.contentVisibility.overview.forecasts && visibility.previsoes && context.previsoes.length > 0 && <ForecastSummary context={context} onNavigate={onNavigate} />}
 
-    {(visibility.cronograma || visibility.board) && <section className="grid gap-6 md:grid-cols-2">
+    {context.contentVisibility.overview.quickLinks && (visibility.cronograma || visibility.board) && <section className="grid gap-6 md:grid-cols-2">
       {visibility.cronograma && <button type="button" onClick={() => onNavigate('cronograma')} className="group min-h-44 rounded-lg p-6 text-left text-white" style={{ background: 'var(--accent)' }}><CalendarRange size={24} /><h2 className="mt-8 text-2xl font-semibold">Cronograma executivo</h2><p className="mt-2 text-sm text-white/75">{context.cronograma.filter(item => item.status !== 'concluida').length} etapas em acompanhamento</p></button>}
       {visibility.board && <button type="button" onClick={() => onNavigate('board')} className="card group min-h-44 p-6 text-left"><MessageSquare size={24} style={{ color: 'var(--accent)' }} /><h2 className="mt-8 text-2xl font-semibold">Decisões e pendências</h2><p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>{context.boardItems.length} itens compartilhados com você</p></button>}
     </section>}
@@ -208,35 +215,62 @@ function ScheduleView({ context }: { context: PortalContextDTO }) {
 }
 
 function ForecastSummary({ context, onNavigate }: { context: PortalContextDTO; onNavigate: (view: View) => void }) {
-  const upcoming = context.previsoes.filter(item => !['realizada', 'cancelada'].includes(item.status)).slice(0, 3)
+  const upcoming = context.previsoes.filter(item => item.tipo === 'desembolso_financeiro' && !['realizada', 'cancelada'].includes(item.status)).slice(0, 3)
   if (!upcoming.length) return null
   return <section>
-    <div className="mb-3 flex items-end justify-between gap-3"><div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Planejamento</p><h2 className="mt-1 text-xl font-semibold">Próximos compromissos</h2></div><button type="button" onClick={() => onNavigate('previsoes')} className="text-sm font-medium" style={{ color: 'var(--accent)' }}>Ver todos</button></div>
+    <div className="mb-3 flex items-end justify-between gap-3"><div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Planejamento</p><h2 className="mt-1 text-xl font-semibold">Próximos lançamentos</h2></div><button type="button" onClick={() => onNavigate('previsoes')} className="text-sm font-medium" style={{ color: 'var(--accent)' }}>Ver todos</button></div>
     <div className="grid gap-3 lg:grid-cols-3">{upcoming.map(item => <PortalForecastCard key={item.id} item={item} />)}</div>
   </section>
 }
 
 function ForecastView({ context }: { context: PortalContextDTO }) {
-  const active = context.previsoes.filter(item => !['realizada', 'cancelada'].includes(item.status))
+  const valid = context.previsoes
+  const active = valid.filter(item => item.status !== 'realizada')
+  const launches = valid.filter(item => item.tipo !== 'compra_material')
+  const purchases = valid.filter(item => item.tipo === 'compra_material')
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const within = (days: number) => active.filter(item => {
+    if (!item.dataPrevista) return false
     const due = new Date(`${item.dataPrevista}T00:00:00`)
     return due >= today && due.getTime() <= today.getTime() + days * 86400000
   })
   const seven = within(7)
-  const thirty = within(30)
   const sum = (items: typeof active) => items.reduce((total, item) => total + Number(item.valorPrevisto || 0), 0)
+  const sevenLaunches = seven.filter(item => item.tipo !== 'compra_material')
+  const sevenPurchases = seven.filter(item => item.tipo === 'compra_material')
+  const paid = valid.filter(item => item.status === 'realizada')
+  const totalValue = sum(valid)
+  const paidValue = sum(paid)
+  const paymentGroups = ([
+    { key: 'pix', label: 'PIX', icon: <Smartphone size={18} />, color: '#10b981' },
+    { key: 'cartao', label: 'Cartão', icon: <CreditCard size={18} />, color: 'var(--accent)' },
+    { key: 'boleto', label: 'Boleto / faturado', icon: <ReceiptText size={18} />, color: '#f97316' },
+  ] as const).map(group => {
+    const items = valid.filter(item => item.condicaoPagamento === group.key)
+    return { ...group, items, value: sum(items), paid: sum(items.filter(item => item.status === 'realizada')) }
+  })
   return <section className="space-y-5">
-    <div><p className="text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-secondary)' }}>Planejamento publicado</p><h1 className="mt-1 text-3xl font-semibold">Próximos compromissos</h1></div>
-    <div className="grid gap-3 sm:grid-cols-2"><MetricCard label="Próximos 7 dias" value={money(sum(seven))} detail={`${seven.length} compromisso${seven.length === 1 ? '' : 's'}`} tone="warning" /><MetricCard label="Próximos 30 dias" value={money(sum(thirty))} detail={`${thirty.length} compromisso${thirty.length === 1 ? '' : 's'}`} /></div>
-    {context.previsoes.length === 0 ? <Empty title="Nenhuma previsão publicada" description="A equipe controla o que pode ser visualizado pelo cliente. Novos compromissos aparecerão aqui quando forem publicados." /> : <div className="space-y-3">{context.previsoes.map(item => <PortalForecastCard key={item.id} item={item} />)}</div>}
+    <div><p className="text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-secondary)' }}>Planejamento publicado</p><h1 className="mt-1 text-3xl font-semibold">Previsões da obra</h1></div>
+    {context.contentVisibility.previsoes.indicators && <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Lançamentos · próximos 7 dias" value={money(sum(sevenLaunches))} detail={`${sevenLaunches.length} pendente${sevenLaunches.length === 1 ? '' : 's'}`} tone="warning" /><MetricCard label="Compras · próximos 7 dias" value={money(sum(sevenPurchases))} detail={`${sevenPurchases.length} pendente${sevenPurchases.length === 1 ? '' : 's'}`} tone="accent" /><MetricCard label="Total do mês" value={money(totalValue)} detail={`Pago: ${money(paidValue)} · Pendente: ${money(totalValue - paidValue)}`} /></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><ForecastPaymentCard label="Total pago" value={paidValue} count={paid.length} detail={`${paid.length} ${paid.length === 1 ? 'item pago' : 'itens pagos'}`} color="var(--success)" icon={<CircleCheckBig size={18} />} />{paymentGroups.map(group => <ForecastPaymentCard key={group.key} label={group.label} value={group.value} count={group.items.length} detail={group.paid > 0 ? `${group.items.length} itens · Pago: ${money(group.paid)}` : `${group.items.length} itens · Pendente`} color={group.color} icon={group.icon} />)}</div></>}
+    {context.previsoes.length === 0 ? <Empty title="Nenhuma previsão publicada" description="A equipe controla o que pode ser visualizado pelo cliente." /> : <div className="space-y-6">{context.contentVisibility.previsoes.launches && <ForecastGroup title="Próximos lançamentos" items={launches} />}{context.contentVisibility.previsoes.purchases && <ForecastGroup title="Próximas compras" items={purchases} />}</div>}
+    {context.contentVisibility.previsoes.charts && <ForecastCharts context={context} />}
     <p className="text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>Previsto e realizado são momentos diferentes. Uma diferença não representa automaticamente economia ou estouro de orçamento.</p>
   </section>
 }
 
+function ForecastPaymentCard({ label, value, count, detail, color, icon }: { label: string; value: number; count: number; detail: string; color: string; icon: ReactNode }) {
+  return <article className="card relative min-w-0 overflow-hidden p-4"><span className="absolute inset-y-0 left-0 w-1" style={{ background: color }} /><div className="flex items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color }}>{icon}</span><div className="min-w-0"><p className="text-[10px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>{label}</p><p className="mt-1 break-words text-lg font-bold tabular-nums">{money(value)}</p><p className="mt-1 text-[11px] leading-4" style={{ color: 'var(--text-secondary)' }}>{count === 0 ? 'Nenhum item' : detail}</p></div></div></article>
+}
+
+function ForecastGroup({ title, items }: { title: string; items: PortalContextDTO['previsoes'] }) {
+  if (!items.length) return null
+  return <div><h2 className="mb-3 text-lg font-semibold">{title}</h2><div className="space-y-3">{items.map(item => <PortalForecastCard key={item.id} item={item} />)}</div></div>
+}
+
 function PortalForecastCard({ item }: { item: PortalContextDTO['previsoes'][number] }) {
   const tone = previsaoTone(item.status, item.dataPrevista)
-  return <StatusItemCard title={item.titulo} eyebrow={`${PREVISAO_TIPO_LABEL[item.tipo]} · ${item.orcamentoNome}`} value={item.valorPrevisto == null ? undefined : money(item.valorPrevisto)} detail={previsaoPrazo(item.dataPrevista, item.status)} tone={tone} badge={<Badge variant={tone === 'success' ? 'success' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>{PREVISAO_STATUS_LABEL[item.status]}</Badge>} meta={<div className="flex flex-wrap gap-x-4 gap-y-1"><span>{date(item.dataPrevista)}</span>{item.etapaNome && <span>{item.etapaNome}</span>}{item.baseline && <span>Baseline</span>}</div>} />
+  const paymentLabel = item.condicaoPagamento ? CONDICAO_PAGAMENTO_LABEL[item.condicaoPagamento] : null
+  return <StatusItemCard title={item.titulo} eyebrow={`${PREVISAO_TIPO_LABEL[item.tipo]} · ${item.orcamentoNome}`} value={item.valorPrevisto == null ? 'Valor a definir' : money(item.valorPrevisto)} detail={previsaoPrazo(item.dataPrevista, item.status)} tone={tone} badge={<div className="flex flex-wrap justify-end gap-1.5"><Badge variant={tone === 'success' ? 'success' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>{item.status === 'realizada' ? 'Pago' : 'Pendente'}</Badge>{paymentLabel && <Badge variant="info">{paymentLabel}</Badge>}</div>} meta={<div className="flex flex-wrap gap-x-4 gap-y-1"><span>{forecastDate(item.dataPrevista)}</span>{item.etapaNome && <span>{item.etapaNome}</span>}{item.fornecedorNome && <span>{item.fornecedorNome}</span>}{item.baseline && <span>Baseline</span>}</div>} />
 }
 
 function PublishedFilesView({ context, mode }: { context: PortalContextDTO; mode: 'photos' | 'reports' }) {

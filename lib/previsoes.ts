@@ -20,7 +20,7 @@ export type ObraPrevisao = {
   titulo: string
   descricao: string | null
   valorPrevisto: number | null
-  dataPrevista: string
+  dataPrevista: string | null
   valorRealizado: number | null
   dataRealizada: string | null
   condicaoPagamento: CondicaoPagamento | null
@@ -29,6 +29,8 @@ export type ObraPrevisao = {
   baseline: boolean
   publicadoCliente: boolean
   observacaoInterna: string | null
+  fornecedorNome: string | null
+  externalKey: string | null
   createdAt: string
   updatedAt: string
 }
@@ -66,9 +68,10 @@ export const CONDICAO_PAGAMENTO_LABEL: Record<CondicaoPagamento, string> = {
   outro: 'Outra condição',
 }
 
-export function previsaoTone(status: PrevisaoStatus, dataPrevista: string) {
+export function previsaoTone(status: PrevisaoStatus, dataPrevista: string | null) {
   if (status === 'realizada') return 'success' as const
   if (status === 'cancelada') return 'neutral' as const
+  if (!dataPrevista) return 'neutral' as const
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const due = new Date(`${dataPrevista}T00:00:00`)
   if (due.getTime() < today.getTime()) return 'danger' as const
@@ -76,9 +79,10 @@ export function previsaoTone(status: PrevisaoStatus, dataPrevista: string) {
   return 'accent' as const
 }
 
-export function previsaoPrazo(dataPrevista: string, status: PrevisaoStatus) {
+export function previsaoPrazo(dataPrevista: string | null, status: PrevisaoStatus) {
   if (status === 'realizada') return 'Realizada'
   if (status === 'cancelada') return 'Cancelada'
+  if (!dataPrevista) return 'Data a definir'
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const due = new Date(`${dataPrevista}T00:00:00`)
   const days = Math.round((due.getTime() - today.getTime()) / 86400000)

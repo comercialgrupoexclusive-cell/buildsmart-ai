@@ -1,138 +1,74 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, Eye, EyeOff, Loader2, PanelsTopLeft } from 'lucide-react'
+import { Check, ChevronDown, Eye, EyeOff, Loader2, PanelsTopLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import {
-  DEFAULT_PORTAL_VISIBILITY,
-  PORTAL_SECTIONS,
-  normalizePortalVisibility,
-  type PortalSectionId,
-  type PortalVisibility,
+  DEFAULT_PORTAL_CONTENT_VISIBILITY, DEFAULT_PORTAL_VISIBILITY, PORTAL_CONTENT_ITEMS, PORTAL_SECTIONS,
+  normalizePortalContentVisibility, normalizePortalVisibility, type PortalContentSection,
+  type PortalContentVisibility, type PortalSectionId, type PortalVisibility,
 } from '@/lib/portal/sections'
 
 export function PortalVisibilitySettings({ obraId }: { obraId: string }) {
   const supabase = useMemo(() => createClient(), [])
   const { currentProfile } = useProfile()
   const [visibility, setVisibility] = useState<PortalVisibility>(DEFAULT_PORTAL_VISIBILITY)
+  const [content, setContent] = useState<PortalContentVisibility>(DEFAULT_PORTAL_CONTENT_VISIBILITY)
+  const [expanded, setExpanded] = useState<PortalSectionId | null>('feed')
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState<PortalSectionId | null>(null)
+  const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
     if (!currentProfile) return
     setLoading(true)
-    const { data, error: loadError } = await supabase.rpc('portal_visibility_admin_get', {
-      p_profile_id: currentProfile.id,
-      p_obra_id: obraId,
-    })
+    const [sectionsResult, contentResult] = await Promise.all([
+      supabase.rpc('portal_visibility_admin_get', { p_profile_id: currentProfile.id, p_obra_id: obraId }),
+      supabase.rpc('portal_content_admin_get', { p_profile_id: currentProfile.id, p_obra_id: obraId }),
+    ])
     setLoading(false)
-    if (loadError) {
-      setError('Não foi possível carregar a configuração do Portal.')
-      return
-    }
+    if (sectionsResult.error || contentResult.error) { setError('Nao foi possivel carregar a configuracao do Portal.'); return }
     setError('')
-    setVisibility(normalizePortalVisibility(data as Partial<PortalVisibility>))
+    setVisibility(normalizePortalVisibility(sectionsResult.data as Partial<PortalVisibility>))
+    setContent(normalizePortalContentVisibility(contentResult.data as Partial<PortalContentVisibility>))
   }, [currentProfile, obraId, supabase])
 
   useEffect(() => { void Promise.resolve().then(load) }, [load])
 
-  async function toggle(sectionId: PortalSectionId) {
+  async function toggleSection(sectionId: PortalSectionId) {
     if (!currentProfile || saving) return
-    const nextEnabled = !visibility[sectionId]
+    const next = !visibility[sectionId]
     const previous = visibility
-    setSaving(sectionId)
-    setError('')
-    setVisibility(value => ({ ...value, [sectionId]: nextEnabled }))
-
-    const { data, error: saveError } = await supabase.rpc('portal_visibility_admin_set', {
-      p_profile_id: currentProfile.id,
-      p_obra_id: obraId,
-      p_secao: sectionId,
-      p_habilitada: nextEnabled,
-    })
+    setSaving(sectionId); setVisibility(current => ({ ...current, [sectionId]: next }))
+    const result = await supabase.rpc('portal_visibility_admin_set', { p_profile_id: currentProfile.id, p_obra_id: obraId, p_secao: sectionId, p_habilitada: next })
     setSaving(null)
-    if (saveError) {
-      setVisibility(previous)
-      setError(saveError.code === '23514' ? 'Mantenha pelo menos uma seção visível.' : 'Não foi possível salvar esta alteração.')
-      return
-    }
-    setVisibility(normalizePortalVisibility(data as Partial<PortalVisibility>))
+    if (result.error) { setVisibility(previous); setError(result.error.code === '23514' ? 'Mantenha pelo menos uma secao visivel.' : 'Nao foi possivel salvar.'); return }
+    setVisibility(normalizePortalVisibility(result.data as Partial<PortalVisibility>))
+  }
+
+  async function toggleItem(section: PortalContentSection, item: string) {
+    if (!currentProfile || saving) return
+    const key = `${section}.${item}`
+    const previous = content
+    const next = !content[section][item as keyof (typeof content)[typeof section]]
+    setSaving(key); setContent(current => ({ ...current, [section]: { ...current[section], [item]: next } }))
+    const result = await supabase.rpc('portal_content_admin_set', { p_profile_id: currentProfile.id, p_obra_id: obraId, p_secao: section, p_item: item, p_habilitado: next })
+    setSaving(null)
+    if (result.error) { setContent(previous); setError('Nao foi possivel salvar este conteudo.'); return }
+    setContent(normalizePortalContentVisibility(result.data as Partial<PortalContentVisibility>))
   }
 
   const enabledCount = Object.values(visibility).filter(Boolean).length
-
-  return (
-    <section className="space-y-4">
-      <div className="rounded-lg p-4 sm:p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-        <div className="flex items-start gap-3">
-          <div className="grid size-10 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}>
-            <PanelsTopLeft size={18} />
-          </div>
-          <div>
-            <h3 className="font-semibold">Conteúdo do Portal</h3>
-            <p className="mt-1 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>
-              Escolha o que aparece para o cliente. A alteração é aplicada imediatamente no link permanente.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {error && <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</p>}
-
-      {loading ? (
-        <div className="grid min-h-48 place-items-center rounded-lg" style={{ border: '1px solid var(--border)' }}>
-          <Loader2 size={20} className="animate-spin" style={{ color: 'var(--accent)' }} />
-        </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {PORTAL_SECTIONS.map(section => {
-            const enabled = visibility[section.id]
-            const isSaving = saving === section.id
-            const isLastEnabled = enabled && enabledCount === 1
-            return (
-              <article
-                key={section.id}
-                className={`relative overflow-hidden rounded-lg p-4 transition-all ${enabled ? '' : 'opacity-55'}`}
-                style={{
-                  background: 'var(--bg-card)',
-                  border: `1px ${enabled ? 'solid' : 'dashed'} ${enabled ? 'color-mix(in srgb, var(--accent) 38%, var(--border))' : 'var(--border)'}`,
-                }}
-              >
-                <div className="absolute inset-y-0 left-0 w-1" style={{ background: enabled ? 'var(--accent)' : 'var(--border)' }} />
-                <div className="flex items-start gap-3 pl-1">
-                  <div className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: enabled ? 'var(--accent)' : 'var(--text-secondary)' }}>
-                    {enabled ? <Eye size={17} /> : <EyeOff size={17} />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-3">
-                      <h4 className="font-semibold">{section.label}</h4>
-                      <label className={`relative inline-flex h-7 w-12 shrink-0 items-center ${isLastEnabled ? 'cursor-not-allowed' : 'cursor-pointer'}`} title={isLastEnabled ? 'Mantenha ao menos uma seção visível' : `${enabled ? 'Ocultar' : 'Exibir'} ${section.label}`}>
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={enabled}
-                          disabled={Boolean(saving) || isLastEnabled}
-                          onChange={() => toggle(section.id)}
-                        />
-                        <span className="absolute inset-0 rounded-full transition-colors" style={{ background: enabled ? 'var(--accent)' : 'var(--border)' }} />
-                        <span className={`relative ml-1 grid size-5 place-items-center rounded-full bg-white text-[10px] text-blue-600 shadow transition-transform ${enabled ? 'translate-x-5' : ''}`}>
-                          {isSaving ? <Loader2 size={11} className="animate-spin" /> : enabled ? <Check size={11} strokeWidth={3} /> : null}
-                        </span>
-                      </label>
-                    </div>
-                    <p className="mt-1 text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>{section.description}</p>
-                    <p className="mt-3 text-[11px] font-semibold uppercase" style={{ color: enabled ? 'var(--success)' : 'var(--text-secondary)' }}>
-                      {enabled ? 'Visível para o cliente' : 'Oculto no Portal'}
-                    </p>
-                  </div>
-                </div>
-              </article>
-            )
-          })}
-        </div>
-      )}
-    </section>
-  )
+  return <section className="space-y-4">
+    <div className="card p-4 sm:p-5"><div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}><PanelsTopLeft size={18} /></div><div><h3 className="font-semibold">Conteudo do Portal</h3><p className="mt-1 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>Ative abas inteiras ou abra cada uma para escolher seus cards e blocos.</p></div></div></div>
+    {error && <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</p>}
+    {loading ? <div className="grid min-h-48 place-items-center card"><Loader2 size={20} className="animate-spin" /></div> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{PORTAL_SECTIONS.map(section => {
+      const enabled = visibility[section.id]
+      const hasItems = section.id in PORTAL_CONTENT_ITEMS
+      const isLast = enabled && enabledCount === 1
+      return <article key={section.id} className={`card relative overflow-hidden p-4 transition-opacity ${enabled ? '' : 'opacity-55'}`}><div className="absolute inset-y-0 left-0 w-1" style={{ background: enabled ? 'var(--accent)' : 'var(--border)' }} /><div className="pl-1"><div className="flex items-start gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: enabled ? 'var(--accent)' : 'var(--text-secondary)' }}>{enabled ? <Eye size={17} /> : <EyeOff size={17} />}</div><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><button type="button" onClick={() => hasItems && setExpanded(value => value === section.id ? null : section.id)} className="flex min-w-0 items-center gap-2 text-left"><span className="font-semibold">{section.label}</span>{hasItems && <ChevronDown size={15} className={expanded === section.id ? 'rotate-180' : ''} />}</button><label className={`relative inline-flex h-7 w-12 shrink-0 items-center ${isLast ? 'cursor-not-allowed' : 'cursor-pointer'}`}><input type="checkbox" className="sr-only" checked={enabled} disabled={Boolean(saving) || isLast} onChange={() => void toggleSection(section.id)} /><span className="absolute inset-0 rounded-full" style={{ background: enabled ? 'var(--accent)' : 'var(--border)' }} /><span className={`relative ml-1 grid size-5 place-items-center rounded-full bg-white text-blue-600 shadow transition-transform ${enabled ? 'translate-x-5' : ''}`}>{saving === section.id ? <Loader2 size={11} className="animate-spin" /> : enabled ? <Check size={11} /> : null}</span></label></div><p className="mt-1 text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>{section.description}</p></div></div>
+      {enabled && hasItems && expanded === section.id && <div className="mt-4 space-y-1 border-t pt-3" style={{ borderColor: 'var(--border)' }}>{PORTAL_CONTENT_ITEMS[section.id as PortalContentSection].map(item => { const checked = content[section.id as PortalContentSection][item.id]; const key = `${section.id}.${item.id}`; return <label key={item.id} className="flex min-h-9 cursor-pointer items-center justify-between gap-3 rounded-md px-2 text-xs hover:bg-[var(--bg-secondary)]"><span>{item.label}</span>{saving === key ? <Loader2 size={14} className="animate-spin" /> : <input type="checkbox" checked={checked} onChange={() => void toggleItem(section.id as PortalContentSection, item.id)} />}</label> })}</div>}</div></article>
+    })}</div>}
+  </section>
 }

@@ -1,4 +1,4 @@
-import type { PortalVisibility } from './sections'
+import type { PortalContentVisibility, PortalVisibility } from './sections'
 
 export type PortalCategoria = 'observacao' | 'duvida' | 'aprovacao' | 'alteracao' | 'pendencia' | 'nao_conformidade'
 export type PortalBoardStatus = 'aberto' | 'em_analise' | 'aguardando_cliente' | 'aguardando_equipe' | 'resolvido' | 'arquivado'
@@ -31,6 +31,15 @@ export type PortalFeedItemDTO = {
   likes: number
   likedByMe: boolean
   comments: PortalFeedCommentDTO[]
+}
+
+export type PortalMessageDTO = {
+  id: string
+  authorType: 'equipe' | 'cliente'
+  texto: string
+  autor: string
+  destinatario: string
+  createdAt: string
 }
 
 export type PortalOrcamentoDTO = {
@@ -115,13 +124,14 @@ export type PortalPrevisaoDTO = {
   titulo: string
   descricao: string | null
   valorPrevisto: number | null
-  dataPrevista: string
+  dataPrevista: string | null
   valorRealizado: number | null
   dataRealizada: string | null
   condicaoPagamento: 'pix' | 'boleto' | 'cartao' | 'entrada_saldo' | 'outro' | null
   status: 'prevista' | 'confirmada' | 'realizada'
   origem: string
   baseline: boolean
+  fornecedorNome?: string | null
 }
 
 export type PortalPresentationDTO = {
@@ -147,7 +157,7 @@ export type PortalPresentationDTO = {
     paid: number
     balance: number
     timeline: Array<{ month: string; realized: number; paid: number }>
-    recent: Array<{
+    entries: Array<{
       id: string
       title: string
       data: string
@@ -155,6 +165,8 @@ export type PortalPresentationDTO = {
       stage: string
       budget_name: string
       payment_status: string
+      supplier: string | null
+      payment_method: string | null
     }>
   }
   financing: {
@@ -185,6 +197,7 @@ export type PortalPresentationDTO = {
 export type PortalContextDTO = {
   access: { id: string; profileId: string | null }
   visibility: PortalVisibility
+  contentVisibility: PortalContentVisibility
   obra: {
     id: string
     nome: string
@@ -216,6 +229,7 @@ export type PortalContextDTO = {
   boardItems: PortalBoardItemDTO[]
   tours: PortalTourDTO[]
   feed: PortalFeedItemDTO[]
+  messages: PortalMessageDTO[]
   previsoes: PortalPrevisaoDTO[]
   presentation: PortalPresentationDTO
   documentos: Array<{
