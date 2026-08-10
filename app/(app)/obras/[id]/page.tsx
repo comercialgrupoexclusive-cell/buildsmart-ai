@@ -18,8 +18,7 @@ import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraBoard } from '@/components/obra/ObraBoard'
 import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
-import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
-import { finalizarOrcamento } from '@/lib/project-cycle'
+import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
 type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'board' | 'portal'
 
@@ -40,7 +39,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   const supabase = createClient()
   const { theme } = useProfile()
   const { canDelete } = usePermission()
-  const { orcamentoId, orcamentoIds, setObraId, setOrcamentoId, refreshOrcamentos } = useObraOrcamento()
+  const { orcamentoId, orcamentoIds, setObraId } = useObraOrcamento()
   const [obra, setObra] = useState<Obra | null>(null)
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab') as Tab | null
@@ -255,8 +254,8 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         return
       }
       router.push('/obras')
-    } catch (err: any) {
-      alert(`Erro ao excluir obra: ${err?.message || 'Erro desconhecido'}`)
+    } catch (err: unknown) {
+      alert(`Erro ao excluir obra: ${err instanceof Error ? err.message : 'Erro desconhecido'}`)
       setDeleting(false)
     }
   }
@@ -414,7 +413,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       <div className="animate-enter">
         {tab === 'visao-geral' && <ObraVisaoGeral obra={obra} onEdit={openEdit} />}
         {tab === 'arquivos' && <ObraArquivos obraId={id} />}
-        {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} onSelect={setOrcamentoId} onRefresh={refreshOrcamentos} />}
+        {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} />}
         {tab === 'cronograma' && <ObraCronogramasTab obraId={id} obraNome={obra.nome} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'board' && <ObraBoard obraId={id} />}
@@ -563,16 +562,10 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
 
 type OrcSelectItem = { id: string; nome: string | null; versao: number; status: 'em_projeto' | 'ativo' | 'finalizado' | 'arquivado' }
 
-function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onSelect, onRefresh }: { obraId: string; obraNome: string; obraUf?: string; obraArea?: number | null; selectedId: string; onSelect: (id: string) => void; onRefresh: () => Promise<void> }) {
+function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: { obraId: string; obraNome: string; obraUf?: string; obraArea?: number | null; selectedId: string }) {
   const supabase = createClient()
   const [orcamentos, setOrcamentos] = useState<OrcSelectItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [showVincular, setShowVincular] = useState(false)
-  const [disponiveis, setDisponiveis] = useState<OrcSelectItem[]>([])
-  const [vinculoId, setVinculoId] = useState('')
-  const [showNovo, setShowNovo] = useState(false)
-  const [novoNome, setNovoNome] = useState('')
-  const [creating, setCreating] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [editName, setEditName] = useState('')
 
@@ -584,48 +577,10 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
       .from('orcamentos')
       .select('id, nome, versao, status')
       .eq('obra_id', obraId)
-      .neq('status', 'arquivado')
       .order('versao', { ascending: false })
     const list = (orcs || []) as OrcSelectItem[]
     setOrcamentos(list)
-    if (list.length > 0 && (selectedId !== TODOS_ORCAMENTOS && !list.find(o => o.id === selectedId))) {
-      onSelect(list[0].id)
-    }
-    if (list.length === 0) onSelect('')
     setLoading(false)
-  }
-
-  async function handleCriar() {
-    if (!novoNome.trim()) return
-    setCreating(true)
-    const { data: obra } = await supabase.from('obras').select('uf, endereco, responsavel, area_m2, data_inicio, data_previsao').eq('id', obraId).single()
-    const { data: novo } = await supabase
-      .from('orcamentos')
-      .insert({
-        obra_id: obraId,
-        nome: novoNome.trim(),
-        tipo: 'executivo',
-        bdi_percentual: 25,
-        status: 'em_projeto',
-        versao: (orcamentos.length > 0 ? Math.max(...orcamentos.map(o => o.versao)) : 0) + 1,
-        cliente: null,
-        endereco: obra?.endereco || null,
-        responsavel: obra?.responsavel || null,
-        area_m2: obra?.area_m2 || null,
-        uf: obra?.uf || null,
-        data_inicio: obra?.data_inicio || null,
-        data_previsao: obra?.data_previsao || null,
-      })
-      .select()
-      .single()
-    setCreating(false)
-    setShowNovo(false)
-    setNovoNome('')
-    if (novo) {
-      await load()
-      onSelect(novo.id)
-      await onRefresh()
-    }
   }
 
   async function handleRenomear() {
@@ -633,62 +588,6 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
     await supabase.from('orcamentos').update({ nome: editName.trim() }).eq('id', selectedId)
     setEditingName(false)
     await load()
-    await onRefresh()
-  }
-
-  async function handleStatus(status: OrcSelectItem['status']) {
-    if (!selectedId || selectedId === TODOS_ORCAMENTOS) return
-    if (status === 'ativo') {
-      if (!confirm('Ativar este orçamento na obra? Os valores e insumos serão congelados.')) return
-      await finalizarOrcamento(supabase, selectedId)
-    } else {
-      await supabase.from('orcamentos').update({ status }).eq('id', selectedId)
-    }
-    await load()
-    await onRefresh()
-  }
-
-  async function openVincular() {
-    const { data } = await supabase
-      .from('orcamentos')
-      .select('id, nome, versao, status')
-      .is('obra_id', null)
-      .neq('status', 'arquivado')
-      .order('created_at', { ascending: false })
-    setDisponiveis((data || []) as OrcSelectItem[])
-    setVinculoId('')
-    setShowVincular(true)
-  }
-
-  async function handleVincular() {
-    if (!vinculoId) return
-    const { data: obra } = await supabase.from('obras').select('uf, endereco, responsavel, area_m2, data_inicio, data_previsao').eq('id', obraId).single()
-    const { data: orc } = await supabase.from('orcamentos').select('uf, endereco, responsavel, area_m2, data_inicio, data_previsao').eq('id', vinculoId).single()
-
-    const update: Record<string, any> = { obra_id: obraId }
-    if (obra && orc) {
-      if (!orc.endereco && obra.endereco) update.endereco = obra.endereco
-      if (!orc.responsavel && obra.responsavel) update.responsavel = obra.responsavel
-      if (!orc.area_m2 && obra.area_m2) update.area_m2 = obra.area_m2
-      if (!orc.uf && obra.uf) update.uf = obra.uf
-      if (!orc.data_inicio && obra.data_inicio) update.data_inicio = obra.data_inicio
-      if (!orc.data_previsao && obra.data_previsao) update.data_previsao = obra.data_previsao
-    }
-
-    await supabase.from('orcamentos').update(update).eq('id', vinculoId)
-    setShowVincular(false)
-    onSelect(vinculoId)
-    await load()
-    await onRefresh()
-  }
-
-  async function handleDesvincular() {
-    if (!selectedId) return
-    if (!confirm('Desvincular este orçamento da obra? Ele continuará existindo em Orçamentos.')) return
-    await supabase.from('orcamentos').update({ obra_id: null }).eq('id', selectedId)
-    onSelect('')
-    await load()
-    await onRefresh()
   }
 
   const selectedOrc = orcamentos.find(o => o.id === selectedId)
@@ -703,7 +602,7 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Toolbar: dropdown + ações */}
+      {/* O orçamento nasce antes da obra e passa a ser sua base operacional única. */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           {orcamentos.length > 0 ? (
@@ -711,21 +610,13 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
               <div className="min-w-0">
                 <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Orçamento em uso</p>
                 <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-                  {selectedId === TODOS_ORCAMENTOS ? 'Todos os orçamentos' : (selectedOrc?.nome || `Orçamento v${selectedOrc?.versao || 1}`)}
+                  {selectedOrc?.nome || `Orçamento v${selectedOrc?.versao || 1}`}
                 </p>
               </div>
-              {selectedId !== TODOS_ORCAMENTOS && selectedOrc && <>
-                <select
-                  value={selectedOrc.status}
-                  onChange={event => void handleStatus(event.target.value as OrcSelectItem['status'])}
-                  className="input-base min-h-9 w-auto py-1 text-xs font-medium"
-                  aria-label="Status do orçamento"
-                >
-                  <option value="em_projeto">Em projeto</option>
-                  <option value="ativo">Ativo</option>
-                  <option value="finalizado">Finalizado</option>
-                  <option value="arquivado">Arquivar</option>
-                </select>
+              {selectedOrc && <>
+                <span className="rounded-full px-2.5 py-1 text-xs font-medium" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                  {selectedOrc.status === 'finalizado' ? 'Finalizado' : selectedOrc.status === 'ativo' ? 'Em execução' : selectedOrc.status === 'arquivado' ? 'Arquivado' : 'Em projeto'}
+                </span>
                 <button
                   onClick={() => { setEditName(selectedOrc.nome || ''); setEditingName(true) }}
                   className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
@@ -734,63 +625,22 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
                 >
                   <Pencil size={13} />
                 </button>
-                <button
-                  onClick={handleDesvincular}
-                  className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                  title="Desvincular da obra"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  <Unlink size={13} />
-                </button>
               </>}
             </>
           ) : (
             <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum orçamento vinculado</span>
           )}
         </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <button onClick={openVincular} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-            <Link2 size={13} /> Vincular
-          </button>
-          <button onClick={() => { setNovoNome(`${obraNome} - Orçamento`); setShowNovo(true) }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>
-            <Plus size={13} /> Novo
-          </button>
-        </div>
       </div>
 
       {/* Editor inline do orçamento selecionado */}
-      {selectedId && selectedId !== TODOS_ORCAMENTOS ? (
+      {selectedId ? (
         <ObraOrcamento key={selectedId} orcamentoId={selectedId} obraId={obraId} obraName={obraNome} obraUf={obraUf} areaM2={obraArea} />
-      ) : selectedId === TODOS_ORCAMENTOS ? (
-        <div className="card p-8 text-center"><p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Selecione um orçamento específico para editar.</p><p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>A visão consolidada permanece disponível nos módulos de acompanhamento.</p></div>
       ) : (
         <div className="card p-8 text-center">
           <FileText size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />
           <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Nenhum orçamento vinculado</p>
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Crie um novo ou vincule um orçamento existente a esta obra.</p>
-        </div>
-      )}
-
-      {/* Modal novo orçamento */}
-      {showNovo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowNovo(false)}>
-          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Novo Orçamento</h3>
-            <input
-              value={novoNome}
-              onChange={e => setNovoNome(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleCriar()}
-              placeholder="Nome do orçamento"
-              className="input-base w-full mb-4"
-              autoFocus
-            />
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowNovo(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
-              <button onClick={handleCriar} disabled={!novoNome.trim() || creating} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-                {creating ? 'Criando...' : 'Criar'}
-              </button>
-            </div>
-          </div>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Inicie a obra a partir de um orçamento para habilitar os módulos operacionais.</p>
         </div>
       )}
 
@@ -815,27 +665,6 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
         </div>
       )}
 
-      {/* Modal vincular existente */}
-      {showVincular && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowVincular(false)}>
-          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Vincular orçamento existente</h3>
-            <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
-              Os dados gerais da obra serão copiados para campos vazios do orçamento.
-            </p>
-            <select value={vinculoId} onChange={e => setVinculoId(e.target.value)} className="input-base w-full mb-4">
-              <option value="">Selecione um orçamento...</option>
-              {disponiveis.map(o => (
-                <option key={o.id} value={o.id}>{o.nome || `Orçamento v${o.versao}`}</option>
-              ))}
-            </select>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowVincular(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
-              <button onClick={handleVincular} disabled={!vinculoId} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Vincular</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -21,7 +21,6 @@ type ObraOrcamentoContextValue = {
 }
 
 const STORAGE_OBRA = 'buildsmart_obra_selecionada'
-const STORAGE_ORCAMENTO = 'buildsmart_orcamento_selecionado'
 
 const ObraOrcamentoContext = createContext<ObraOrcamentoContextValue | null>(null)
 
@@ -46,8 +45,6 @@ export function ObraOrcamentoProvider({ children }: { children: ReactNode }) {
 
   const setOrcamentoId = useCallback((id: string) => {
     setOrcamentoIdState(id)
-    if (id) localStorage.setItem(STORAGE_ORCAMENTO, id)
-    else localStorage.removeItem(STORAGE_ORCAMENTO)
   }, [])
 
   useEffect(() => {
@@ -77,32 +74,19 @@ export function ObraOrcamentoProvider({ children }: { children: ReactNode }) {
       .from('orcamentos')
       .select('id,nome,versao,status')
       .eq('obra_id', obraId)
-      .neq('status', 'arquivado')
       .order('versao', { ascending: false })
     const list = (data || []) as OrcamentoSelecao[]
     setOrcamentos(list)
-    const saved = stored(STORAGE_ORCAMENTO)
-    const current = orcamentoId
-    const valid = (value: string) => (value === TODOS_ORCAMENTOS && list.length > 1) || list.some(o => o.id === value)
-    const next = valid(saved)
-      ? saved
-      : valid(current)
-        ? current
-        : list.find(o => o.status === 'ativo')?.id || list[0]?.id || ''
-    setOrcamentoId(next)
+    // Uma obra possui um unico orcamento operacional. A selecao e automatica.
+    setOrcamentoId(list[0]?.id || '')
     setLoading(false)
-  }, [obraId, orcamentoId, setOrcamentoId, supabase])
+  }, [obraId, setOrcamentoId, supabase])
 
   // A troca de obra sincroniza a seleção com os orçamentos persistidos no Supabase.
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void refreshOrcamentos() }, [obraId])
 
-  const orcamentoIds = useMemo(
-    () => orcamentoId === TODOS_ORCAMENTOS
-      ? orcamentos.map(o => o.id)
-      : orcamentoId ? [orcamentoId] : [],
-    [orcamentoId, orcamentos]
-  )
+  const orcamentoIds = useMemo(() => orcamentoId ? [orcamentoId] : [], [orcamentoId])
 
   const value = useMemo(() => ({
     obras, orcamentos, obraId, orcamentoId, orcamentoIds, loading,

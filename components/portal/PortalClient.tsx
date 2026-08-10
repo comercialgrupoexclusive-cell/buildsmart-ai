@@ -93,16 +93,16 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
     else document.documentElement.removeAttribute('data-theme')
   }
 
-  async function refresh(nextBudget = context.selectedOrcamentoId) {
+  async function refresh() {
     setLoading(true)
     try {
-      const response = await fetch(`/api/portal/${token}?budget=${encodeURIComponent(nextBudget)}`, { cache: 'no-store' })
+      const response = await fetch(`/api/portal/${token}`, { cache: 'no-store' })
       if (!response.ok) throw new Error('Não foi possível atualizar o Portal.')
       const next = await response.json() as PortalContextDTO
       setContext(next)
       const nextView = next.visibility[view] ? view : NAV.find(item => next.visibility[item.id])?.id || 'feed'
       if (nextView !== view) setView(nextView)
-      window.history.replaceState(null, '', `/portal/${token}?budget=${encodeURIComponent(nextBudget)}&view=${nextView}`)
+      window.history.replaceState(null, '', `/portal/${token}?view=${nextView}`)
       if (!next.tours.some(tour => tour.id === selectedTourId)) setSelectedTourId(next.tours[0]?.id || '')
     } finally {
       setLoading(false)
@@ -111,7 +111,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
 
   function navigate(next: View) {
     setView(next)
-    window.history.replaceState(null, '', `/portal/${token}?budget=${encodeURIComponent(context.selectedOrcamentoId)}&view=${next}`)
+    window.history.replaceState(null, '', `/portal/${token}?view=${next}`)
   }
 
   function openTour(item: PortalBoardItemDTO) {
@@ -122,9 +122,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
     navigate('tour')
   }
 
-  const budgetName = useMemo(() => context.selectedOrcamentoId === 'todos'
-    ? 'Todos os orçamentos'
-    : context.orcamentos.find(item => item.id === context.selectedOrcamentoId)?.nome || 'Orçamento', [context])
+  const budgetName = useMemo(() => context.orcamentos[0]?.nome || 'Orçamento', [context.orcamentos])
 
   return (
     <div className="min-h-screen">
@@ -133,7 +131,6 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
           <div className="grid size-9 place-items-center rounded-lg font-bold text-white" style={{ background: 'var(--accent)' }}>B</div>
           <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">BuildSmart</p><p className="truncate text-[11px]" style={{ color: 'var(--text-secondary)' }}>{context.obra.nome} · Portal do Cliente</p></div>
           <button type="button" onClick={handleTheme} className="grid size-10 place-items-center rounded-lg hover:bg-[var(--bg-secondary)]" style={{ color: 'var(--text-secondary)' }} title={activeTheme === 'dark' ? 'Modo claro' : 'Modo escuro'}>{activeTheme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
-          <label className="hidden min-w-64 sm:block"><span className="sr-only">Orçamento</span><select value={context.selectedOrcamentoId} onChange={event => refresh(event.target.value)} className="input-base min-h-10 w-full text-sm font-medium" disabled={loading}><option value="todos">Todos os orçamentos</option>{context.orcamentos.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label>
         </div>
       </header>
 
@@ -145,7 +142,6 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
 
       <div className="mx-auto max-w-[1320px]">
         <main className="min-w-0 px-4 py-5 sm:px-6 sm:py-7 lg:px-10">
-          <div className="mb-5 sm:hidden"><label><span className="mb-1 block text-[11px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Orçamento</span><select value={context.selectedOrcamentoId} onChange={event => refresh(event.target.value)} className="input-base min-h-12 w-full font-medium" disabled={loading}><option value="todos">Todos os orçamentos</option>{context.orcamentos.map(item => <option key={item.id} value={item.id}>{item.nome}</option>)}</select></label></div>
           {loading && <div className="mb-3 h-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}><div className="h-full w-1/2 animate-pulse" style={{ background: 'var(--accent)' }} /></div>}
 
           {view === 'feed' && <PortalFeed key={context.selectedOrcamentoId} token={token} items={context.feed} obraNome={context.obra.nome} />}

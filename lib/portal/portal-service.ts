@@ -28,10 +28,14 @@ export async function getPortalContext(token: string, orcamentoId = 'todos'): Pr
   ])
   if (error || scheduleError || forecastsError || presentationError || feedError || !data || !presentation) return null
   const context = data as PortalContextDTO
+  const visibleBudgets = context.orcamentos.filter(item => item.status !== 'arquivado')
+  if ((orcamentoId === 'todos' || !orcamentoId) && visibleBudgets.length === 1) {
+    return getPortalContext(token, visibleBudgets[0].id)
+  }
   return {
     ...context,
     visibility: normalizePortalVisibility(visibility as PortalContextDTO['visibility'] | null),
-    orcamentos: context.orcamentos.filter(item => item.status !== 'arquivado'),
+    orcamentos: visibleBudgets,
     cronograma: (cronograma || []) as PortalContextDTO['cronograma'],
     previsoes: (previsoes || []) as PortalContextDTO['previsoes'],
     feed: (feed || []) as PortalFeedItemDTO[],
