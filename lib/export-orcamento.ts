@@ -67,7 +67,7 @@ export function exportOrcamentoXLSX({
   rows.push(['BuildSmart AI — Orçamento Executivo'])
   rows.push([])
   rows.push(['Obra:', obraName])
-  rows.push(['Versão:', `v${versao} — ${status === 'finalizado' ? 'Finalizado' : 'Rascunho'}`])
+  rows.push(['Versão:', `v${versao} — ${status === 'finalizado' ? 'Finalizado' : status === 'ativo' ? 'Ativo' : 'Em projeto'}`])
   rows.push(['BDI:', pct(bdi)])
   if (areaM2) rows.push(['Área construída:', `${areaM2} m²`])
   rows.push(['Exportado em:', dataExport])

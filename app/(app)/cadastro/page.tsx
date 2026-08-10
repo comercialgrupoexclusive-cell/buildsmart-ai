@@ -9,9 +9,9 @@ import { NovoCadastroModal } from '@/components/cadastro/NovoCadastroModal'
 import type { CadastroTipoNovo } from '@/components/cadastro/NovoCadastroModal'
 
 const STATUS_PROJETO = {
-  em_andamento: { label: 'Em andamento', color: '#3B7BF8' },
-  concluido:    { label: 'Concluído',    color: '#10B981' },
-  suspenso:     { label: 'Suspenso',     color: '#6B7280' },
+  projeto:  { label: 'Projeto',  color: '#3B7BF8' },
+  em_obra:  { label: 'Em obra',  color: '#F59E0B' },
+  entregue: { label: 'Entregue', color: '#10B981' },
 }
 const STATUS_OBRA = {
   orcamento:  { label: 'Orçamento',  color: '#3B7BF8' },
@@ -20,7 +20,7 @@ const STATUS_OBRA = {
   paralisada: { label: 'Paralisada', color: '#EF4444' },
 }
 const STATUS_ORC = {
-  rascunho:   { label: 'Rascunho',   color: '#F59E0B' },
+  em_projeto: { label: 'Em projeto', color: '#F59E0B' },
   ativo:      { label: 'Ativo',      color: '#10B981' },
   finalizado: { label: 'Finalizado', color: '#6B7280' },
   arquivado:  { label: 'Arquivado',  color: '#475569' },
@@ -131,9 +131,9 @@ export default function CadastroPage() {
   }
 
   const filtroStatusOptions: Record<TabKey, string[]> = {
-    projetos:   ['todos', 'em_andamento', 'concluido', 'suspenso'],
+    projetos:   ['todos', 'projeto', 'em_obra', 'entregue'],
     obras:      ['todos', 'orcamento', 'ativa', 'concluida', 'paralisada'],
-    orcamentos: ['todos', 'rascunho', 'ativo', 'finalizado', 'arquivado'],
+    orcamentos: ['todos', 'em_projeto', 'ativo', 'finalizado', 'arquivado'],
   }
   const filtroStatusLabel: Record<TabKey, Record<string, string>> = {
     projetos:   { todos: 'Todos', ...Object.fromEntries(Object.entries(STATUS_PROJETO).map(([k, v]) => [k, v.label])) },

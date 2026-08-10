@@ -3,13 +3,15 @@
 import { useState, useEffect, use } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, HardHat, KeyRound } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemDependencia, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
 import { ProjetoAssistenteIA } from '@/components/projeto/ProjetoAssistenteIA'
 import { TourManager } from '@/components/tour/TourManager'
+import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
+import { entregarObra, iniciarObra, type ProjectPhase } from '@/lib/project-cycle'
 import dynamic from 'next/dynamic'
 
 const ExcalidrawBoard = dynamic(
@@ -28,7 +30,7 @@ type Projeto = {
   endereco: string | null
   data_inicio: string | null
   data_previsao: string | null
-  status: 'aguardando' | 'em_andamento' | 'concluido' | 'suspenso'
+  status: ProjectPhase
   obra_id: string | null
   responsavel: string | null
   foto_url: string | null
@@ -36,10 +38,9 @@ type Projeto = {
 }
 
 const STATUS_OPTIONS = [
-  { value: 'em_andamento', label: 'Em andamento' },
-  { value: 'aguardando',    label: 'Aguardando' },
-  { value: 'concluido',    label: 'Concluído' },
-  { value: 'suspenso',     label: 'Suspenso' },
+  { value: 'projeto', label: 'Em projeto' },
+  { value: 'em_obra', label: 'Em obra' },
+  { value: 'entregue', label: 'Entregue' },
 ]
 
 export default function ProjetoDetalhe({ params }: { params: Promise<{ id: string }> }) {
@@ -50,9 +51,10 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
   const [dependencias, setDependencias] = useState<ProjetoItemDependencia[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia'>(
-    (searchParams.get('tab') as 'estrutura' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia') ?? 'estrutura'
+  const [tab, setTab] = useState<'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia'>(
+    (searchParams.get('tab') as 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia') ?? 'estrutura'
   )
+  const [orcamento, setOrcamento] = useState<{ id: string; obra_id: string | null } | null>(null)
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [editingDados, setEditingDados] = useState(false)
@@ -60,6 +62,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [saving, setSaving] = useState(false)
   const [fotoFile, setFotoFile] = useState<File | null>(null)
   const [fotoPreview, setFotoPreview] = useState<string | null>(null)
+  const [transitioning, setTransitioning] = useState(false)
 
   const allFlat = itens
   const totalItens = allFlat.length
@@ -71,14 +74,16 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    const [{ data: p }, { data: its }, { data: profs }, depsRes] = await Promise.all([
+    const [{ data: p }, { data: its }, { data: profs }, depsRes, orcRes] = await Promise.all([
       supabase.from('projetos').select('*').eq('id', id).single(),
       supabase.from('projeto_itens').select('*').eq('projeto_id', id).order('ordem'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
       supabase.from('projeto_item_dependencias').select('*').eq('projeto_id', id),
+      supabase.from('orcamentos').select('id,obra_id').eq('projeto_id', id).eq('is_principal', true).maybeSingle(),
     ])
     if (!depsRes.error) setDependencias((depsRes.data ?? []) as ProjetoItemDependencia[])
     setProfiles((profs ?? []) as { id: string; name: string; apelido: string | null }[])
+    setOrcamento(orcRes.data as { id: string; obra_id: string | null } | null)
     if (p) {
       setProjeto(p)
       setDadosForm(p)
@@ -241,25 +246,56 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       }
     }
 
+    const faseDesejada = (dadosForm.status ?? projeto.status) as ProjectPhase
     const payload = {
       nome: dadosForm.nome ?? projeto.nome,
       cliente: dadosForm.cliente ?? null,
       endereco: dadosForm.endereco ?? null,
       data_inicio: dadosForm.data_inicio ?? null,
       data_previsao: dadosForm.data_previsao ?? null,
-      status: dadosForm.status ?? projeto.status,
+      status: projeto.status,
       responsavel: dadosForm.responsavel ?? null,
       foto_url,
       updated_at: new Date().toISOString(),
     }
-    const { data } = await supabase.from('projetos').update(payload).eq('id', id).select().single()
+    const { data, error } = await supabase.from('projetos').update(payload).eq('id', id).select().single()
+    if (error) {
+      alert(`Nao foi possivel salvar o projeto: ${error.message}`)
+      setSaving(false)
+      return
+    }
     if (data) {
-      setProjeto(data)
+      try {
+        if (faseDesejada === 'em_obra' && projeto.status === 'projeto') await iniciarObra(supabase, id)
+        if (faseDesejada === 'entregue' && projeto.status === 'em_obra') await entregarObra(supabase, id)
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Nao foi possivel alterar a fase.')
+      }
       setEditingDados(false)
       setFotoFile(null)
       setFotoPreview(null)
     }
     setSaving(false)
+    await loadData()
+  }
+
+  async function handleCycleAction(action: 'iniciar' | 'entregar') {
+    if (!projeto) return
+    const pergunta = action === 'iniciar'
+      ? 'Iniciar a obra usando este mesmo orcamento e cronograma?'
+      : 'Confirmar a entrega das chaves e concluir a obra?'
+    if (!confirm(pergunta)) return
+    setTransitioning(true)
+    try {
+      const supabase = createClient()
+      if (action === 'iniciar') await iniciarObra(supabase, projeto.id)
+      else await entregarObra(supabase, projeto.id)
+      await loadData()
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Nao foi possivel concluir a transicao.')
+    } finally {
+      setTransitioning(false)
+    }
   }
 
   if (loading) {
@@ -290,6 +326,19 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           <h1 className="text-xl font-bold truncate" style={{ color: 'var(--text-primary)' }}>{projeto.nome}</h1>
           {projeto.cliente && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{projeto.cliente}</p>}
         </div>
+        {!isCliente && projeto.status === 'projeto' && (
+          <button onClick={() => handleCycleAction('iniciar')} disabled={transitioning}
+            className="btn-primary hidden sm:inline-flex items-center gap-2 px-3 py-2 text-sm disabled:opacity-50">
+            <HardHat size={16} /> {transitioning ? 'Iniciando...' : 'Iniciar obra'}
+          </button>
+        )}
+        {!isCliente && projeto.status === 'em_obra' && (
+          <button onClick={() => handleCycleAction('entregar')} disabled={transitioning}
+            className="hidden sm:inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border disabled:opacity-50"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+            <KeyRound size={16} /> {transitioning ? 'Concluindo...' : 'Entregar chaves'}
+          </button>
+        )}
         {/* Barra de progresso */}
         {totalItens > 0 && (
           <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
@@ -306,6 +355,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
         <div className="flex items-center gap-1 p-1 rounded-lg w-max" style={{ background: 'var(--bg-secondary)' }}>
         {([
           { key: 'estrutura',  label: 'Estrutura',    icon: LayoutList },
+          { key: 'orcamento',  label: 'Orçamento',    icon: Calculator },
           { key: 'cronograma', label: 'Cronograma',   icon: CalendarDays },
           { key: 'board',      label: 'Board',        icon: LayoutDashboard },
           { key: 'tour',       label: 'Tour 360°',    icon: ImagePlus },
@@ -328,6 +378,37 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       </div>
 
       {/* Conteúdo */}
+      {!isCliente && projeto.status !== 'entregue' && (
+        <div className="sm:hidden">
+          <button
+            onClick={() => handleCycleAction(projeto.status === 'projeto' ? 'iniciar' : 'entregar')}
+            disabled={transitioning}
+            className={projeto.status === 'projeto'
+              ? 'btn-primary w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm'
+              : 'w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm rounded-lg border'}
+            style={projeto.status === 'em_obra' ? { borderColor: 'var(--border)', color: 'var(--text-primary)' } : undefined}
+          >
+            {projeto.status === 'projeto' ? <HardHat size={16} /> : <KeyRound size={16} />}
+            {transitioning ? 'Salvando...' : projeto.status === 'projeto' ? 'Iniciar obra' : 'Entregar chaves'}
+          </button>
+        </div>
+      )}
+
+      {tab === 'orcamento' && (
+        orcamento ? (
+          <ObraOrcamento
+            projetoId={projeto.id}
+            obraId={projeto.obra_id ?? undefined}
+            orcamentoId={orcamento.id}
+            obraName={projeto.nome}
+          />
+        ) : (
+          <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
+            O orçamento principal será criado automaticamente ao recarregar o projeto.
+          </div>
+        )
+      )}
+
       {tab === 'estrutura' && (
         <div className="rounded-xl border p-3 sm:p-4 min-w-0 overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
           {itens.length === 0 ? (
@@ -439,10 +520,13 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
                     <select
                       className="w-full px-3 py-2.5 rounded-lg text-sm border outline-none transition-colors focus:border-[var(--accent)]"
                       style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                      value={dadosForm.status ?? 'em_andamento'}
+                      value={dadosForm.status ?? 'projeto'}
                       onChange={e => setDadosForm(f => ({ ...f, status: e.target.value as Projeto['status'] }))}
                     >
-                      {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {STATUS_OPTIONS.filter(o =>
+                        projeto.status === 'projeto' ? o.value !== 'entregue' :
+                          projeto.status === 'em_obra' ? o.value !== 'projeto' : o.value === 'entregue'
+                      ).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </div>
                 ) : (
@@ -452,12 +536,10 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
                     </label>
                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold"
                       style={{
-                        background: projeto.status === 'em_andamento' ? 'rgba(59,123,248,0.12)' :
-                          projeto.status === 'concluido' ? 'rgba(16,185,129,0.12)' :
-                          projeto.status === 'suspenso' ? 'rgba(239,68,68,0.12)' : 'rgba(107,114,128,0.12)',
-                        color: projeto.status === 'em_andamento' ? '#3B7BF8' :
-                          projeto.status === 'concluido' ? '#10B981' :
-                          projeto.status === 'suspenso' ? '#EF4444' : '#6B7280',
+                        background: projeto.status === 'em_obra' ? 'rgba(59,123,248,0.12)' :
+                          projeto.status === 'entregue' ? 'rgba(16,185,129,0.12)' : 'rgba(107,114,128,0.12)',
+                        color: projeto.status === 'em_obra' ? '#3B7BF8' :
+                          projeto.status === 'entregue' ? '#10B981' : '#6B7280',
                       }}>
                       {STATUS_OPTIONS.find(o => o.value === projeto.status)?.label ?? '—'}
                     </span>

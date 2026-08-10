@@ -44,10 +44,14 @@ export type Obra = {
 // ─── Orçamento ────────────────────────────────────────────────────────────────
 export type Orcamento = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  projeto_id?: string | null
   tipo: 'executivo' | 'parametrico'
   bdi_percentual: number
-  status: 'rascunho' | 'ativo' | 'finalizado' | 'arquivado'
+  gerenciamento_percentual?: number
+  is_principal?: boolean
+  travado_em?: string | null
+  status: 'em_projeto' | 'ativo' | 'finalizado' | 'arquivado'
   versao: number
   created_at: string
 }
@@ -251,7 +255,7 @@ export type Medicao = {
   id: string
   obra_id: string
   orcamento_id?: string | null
-  eixo?: 'fisico' | 'mao_obra'
+  eixo?: 'fisico' | 'mao_obra' | 'gerenciamento'
   etapa_id: string | null
   numero: number | null
   status: 'rascunho' | 'fechada'
@@ -281,6 +285,7 @@ export type MedicaoItem = {
   pct_anterior: number
   pct_atual: number
   valor_periodo: number
+  valor_pago?: number
   created_at: string
 }
 

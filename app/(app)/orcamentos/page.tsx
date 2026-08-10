@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { NovoCadastroModal } from '@/components/cadastro/NovoCadastroModal'
+import { finalizarOrcamento } from '@/lib/project-cycle'
 
 import ServicosPage from '@/app/(app)/servicos/page'
 import SinapiPage from '@/app/(app)/sinapi/page'
@@ -20,6 +21,7 @@ type OrcamentoComObra = {
   nome: string | null
   tipo: string
   bdi_percentual: number
+  gerenciamento_percentual: number
   status: string
   versao: number
   created_at: string
@@ -36,7 +38,7 @@ export default function OrcamentosPage() {
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<string>('todos')
   const STATUS_ORC_BTN_COLOR: Record<string, string> = {
-    rascunho: '#3B82F6',
+    em_projeto: '#3B82F6',
     ativo: '#10B981',
     finalizado: '#6B7280',
     arquivado: '#475569',
@@ -79,7 +81,7 @@ export default function OrcamentosPage() {
     const enriched = (data || []).map((o: any) => {
       const itens = o.orcamento_itens || []
       const subtotal = itens.reduce((acc: number, i: any) => acc + (i.quantidade * i.preco_unitario_snapshot), 0)
-      const valor_total = subtotal * (1 + o.bdi_percentual / 100)
+      const valor_total = subtotal * (1 + (Number(o.bdi_percentual || 0) + Number(o.gerenciamento_percentual || 0)) / 100)
       return {
         ...o,
         obra: o.obra,
@@ -99,7 +101,8 @@ export default function OrcamentosPage() {
       nome: (orc.nome || `Orçamento v${orc.versao}`) + ' (cópia)',
       tipo: orc.tipo,
       bdi_percentual: orc.bdi_percentual,
-      status: 'rascunho',
+      gerenciamento_percentual: orc.gerenciamento_percentual,
+      status: 'em_projeto',
       versao: 1,
     }).select().single()
 
@@ -132,8 +135,9 @@ export default function OrcamentosPage() {
 
   async function handleStatusChange(orc: OrcamentoComObra, novoStatus: string) {
     setMenuId(null)
-    await supabase.from('orcamentos').update({ status: novoStatus }).eq('id', orc.id)
-    setOrcamentos(prev => prev.map(o => o.id === orc.id ? { ...o, status: novoStatus } : o))
+    if (novoStatus === 'finalizado' || (novoStatus === 'ativo' && orc.projeto_id)) await finalizarOrcamento(supabase, orc.id)
+    else await supabase.from('orcamentos').update({ status: novoStatus }).eq('id', orc.id)
+    await loadOrcamentos()
   }
 
   async function handleRename(orc: OrcamentoComObra) {
@@ -150,13 +154,13 @@ export default function OrcamentosPage() {
   }
 
   const STATUS_ORC_COLOR: Record<string, string> = {
-    rascunho: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    em_projeto: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
     ativo:    'bg-green-500/20 text-green-400 border-green-500/30',
     finalizado: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
     arquivado: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
   }
   const STATUS_ORC_LABEL: Record<string, string> = {
-    rascunho: 'Rascunho', ativo: 'Ativo', finalizado: 'Finalizado', arquivado: 'Arquivado',
+    em_projeto: 'Em projeto', ativo: 'Ativo', finalizado: 'Finalizado', arquivado: 'Arquivado',
   }
 
   const filtrados = filtro === 'todos'
@@ -195,7 +199,7 @@ export default function OrcamentosPage() {
       <>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         <div className="flex gap-1 p-1 rounded-lg flex-wrap" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          {(['todos', 'rascunho', 'ativo', 'finalizado', 'arquivado'] as const).map(s => (
+          {(['todos', 'em_projeto', 'ativo', 'finalizado', 'arquivado'] as const).map(s => (
             <button
               key={s}
               onClick={() => setFiltro(s)}
@@ -328,13 +332,13 @@ export default function OrcamentosPage() {
                     <div className="mx-3 my-1 border-t" style={{ borderColor: 'var(--border)' }} />
 
                     <p className="px-4 py-1 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Status</p>
-                    {orc.status !== 'rascunho' && (
+                    {orc.status !== 'em_projeto' && (
                       <button
-                        onClick={() => handleStatusChange(orc, 'rascunho')}
+                        onClick={() => handleStatusChange(orc, 'em_projeto')}
                         className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                         style={{ color: '#3B82F6' }}
                       >
-                        <Circle size={15} /> Rascunho
+                        <Circle size={15} /> Em projeto
                       </button>
                     )}
                     {orc.status !== 'ativo' && (

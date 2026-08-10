@@ -204,7 +204,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         obra_id: nova.id,
         tipo: orcOriginal?.tipo || 'executivo',
         bdi_percentual: orcOriginal?.bdi_percentual ?? 25,
-        status: 'rascunho',
+        status: 'em_projeto',
         versao: 1,
       })
     }
@@ -560,7 +560,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
 
 /* ─── Aba Orçamentos da Obra ─── */
 
-type OrcSelectItem = { id: string; nome: string | null; versao: number; status: 'rascunho' | 'ativo' | 'finalizado' | 'arquivado' }
+type OrcSelectItem = { id: string; nome: string | null; versao: number; status: 'em_projeto' | 'ativo' | 'finalizado' | 'arquivado' }
 
 function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onSelect, onRefresh }: { obraId: string; obraNome: string; obraUf?: string; obraArea?: number | null; selectedId: string; onSelect: (id: string) => void; onRefresh: () => Promise<void> }) {
   const supabase = createClient()
@@ -605,7 +605,7 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
         nome: novoNome.trim(),
         tipo: 'executivo',
         bdi_percentual: 25,
-        status: 'rascunho',
+        status: 'em_projeto',
         versao: (orcamentos.length > 0 ? Math.max(...orcamentos.map(o => o.versao)) : 0) + 1,
         cliente: null,
         endereco: obra?.endereco || null,
@@ -715,7 +715,7 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
                   className="input-base min-h-9 w-auto py-1 text-xs font-medium"
                   aria-label="Status do orçamento"
                 >
-                  <option value="rascunho">Rascunho</option>
+                  <option value="em_projeto">Em projeto</option>
                   <option value="ativo">Ativo</option>
                   <option value="finalizado">Finalizado</option>
                   <option value="arquivado">Arquivar</option>
@@ -1251,7 +1251,7 @@ function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => void }) {
                   : orc.status === 'finalizado' ? 'bg-gray-500/20 text-gray-400 border-gray-500/30'
                   : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                 }`}>
-                  {orc.status === 'ativo' ? 'Ativo' : orc.status === 'finalizado' ? 'Finalizado' : 'Rascunho'}
+                  {orc.status === 'ativo' ? 'Ativo' : orc.status === 'finalizado' ? 'Finalizado' : 'Em projeto'}
                 </span>
               </Link>
             ))}

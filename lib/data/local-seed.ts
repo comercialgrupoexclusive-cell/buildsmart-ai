@@ -277,7 +277,7 @@ export function createLocalSeed(): LocalDatabase {
       obra_id: obraId,
       tipo: 'executivo',
       bdi_percentual: 22,
-      status: 'rascunho',
+      status: 'em_projeto',
       versao: 1,
       created_at: now,
     }, {
@@ -285,7 +285,7 @@ export function createLocalSeed(): LocalDatabase {
       obra_id: obraId2,
       tipo: 'executivo',
       bdi_percentual: 20,
-      status: 'rascunho',
+      status: 'em_projeto',
       versao: 1,
       created_at: now,
     }],

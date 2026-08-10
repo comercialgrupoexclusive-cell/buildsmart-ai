@@ -122,7 +122,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           nome: form.nome.trim(),
           tipo: 'executivo',
           bdi_percentual: 25,
-          status: 'rascunho',
+          status: 'ativo',
           versao: 1,
           endereco: form.endereco.trim() || null,
           area_m2: form.area_m2 ? Number(form.area_m2) : null,
@@ -133,7 +133,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
         await supabase.from('cronogramas').insert({
           obra_id: obra.id,
           nome: form.nome.trim(),
-          status: 'rascunho',
+          status: 'ativo',
         })
 
       } else if (tipo === 'projeto') {
@@ -144,7 +144,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           data_inicio: form.data_inicio || null,
           data_previsao: form.data_previsao || null,
           foto_url: form.foto_url || null,
-          status: 'em_andamento',
+          status: 'projeto',
         }).select().single()
 
         if (projErr || !proj) throw new Error(projErr?.message ?? 'Erro ao criar projeto')
@@ -184,7 +184,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           nome: form.nome.trim() || null,
           tipo: 'executivo',
           bdi_percentual: 25,
-          status: 'rascunho',
+          status: 'em_projeto',
           versao: proxVersao,
         })
       } else {
@@ -193,7 +193,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           nome: form.nome.trim() || 'Cronograma',
           obra_id: form.obra_id || null,
           projeto_id: form.projeto_id || null,
-          status: 'rascunho',
+          status: 'em_projeto',
         })
       }
 

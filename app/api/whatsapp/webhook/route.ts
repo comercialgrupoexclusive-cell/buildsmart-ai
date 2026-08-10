@@ -121,7 +121,7 @@ function buildTools(crudEnabled: boolean): OpenAI.Chat.ChatCompletionTool[] {
             nome_obra: { type: 'string', description: 'Nome de uma obra existente para vincular o projeto, se informado' },
             data_inicio: { type: 'string', description: 'Data de inicio no formato YYYY-MM-DD' },
             data_previsao: { type: 'string', description: 'Data prevista no formato YYYY-MM-DD' },
-            status: { type: 'string', enum: ['aguardando', 'em_andamento', 'concluido', 'suspenso'], description: 'Status inicial do projeto' },
+            status: { type: 'string', enum: ['projeto'], description: 'Fase inicial do projeto' },
           },
           required: ['nome'],
         },
@@ -277,7 +277,7 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>):
           obra_id: obraId,
           data_inicio: args.data_inicio || null,
           data_previsao: args.data_previsao || null,
-          status: args.status || 'em_andamento',
+          status: 'projeto',
         }).select('id,nome,status').single()
         if (error) return `Erro ao criar projeto: ${error.message}`
         return `Projeto "${(data as any).nome}" criado com sucesso${obraId ? ' e vinculado a obra informada' : ''}.`

@@ -21,6 +21,7 @@ import { InsumoOrcamentoAntigo, LinhaOrcamentoTabular } from '@/lib/import-expor
 import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
 import { readEtapasPadrao } from '@/lib/settings/etapas-padrao'
+import { finalizarOrcamento } from '@/lib/project-cycle'
 
 type FonteBusca = 'proprias' | 'insumos' | 'sinapi' | 'livre'
 
@@ -217,8 +218,9 @@ function getEtapaIcone(nome: string): { icon: LucideIcon; cor: string } {
   return found ? { icon: found.icon, cor: found.cor } : { icon: FolderPlus, cor: '#64748B' }
 }
 
-export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 'SP' }: {
+export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName, obraUf = 'SP' }: {
   obraId?: string
+  projetoId?: string
   orcamentoId?: string
   areaM2?: number | null
   obraName?: string
@@ -230,6 +232,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [loading, setLoading] = useState(true)
   const [bdi, setBdi] = useState(25)
+  const [gerenciamento, setGerenciamento] = useState(0)
   const [filtroEtapaId, setFiltroEtapaId] = useState('todas')
 
   // Cascata + overrides
@@ -386,14 +389,19 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       if (!orc) {
         const { data: novo } = await supabase
           .from('orcamentos')
-          .insert({ obra_id: resolvedObraId, tipo: 'executivo', bdi_percentual: 25, status: 'rascunho', versao: 1 })
+          .insert({ obra_id: resolvedObraId, tipo: 'executivo', bdi_percentual: 25, status: 'em_projeto', versao: 1 })
           .select()
           .single()
         orc = novo
       }
     }
 
-    if (orc) { setOrcamento(orc); setBdi(orc.bdi_percentual); await loadItens(orc.id) }
+    if (orc) {
+      setOrcamento(orc)
+      setBdi(orc.bdi_percentual)
+      setGerenciamento(Number(orc.gerenciamento_percentual || 0))
+      await loadItens(orc.id)
+    }
   }
 
   // embed padrão dos itens de composição própria — traz direto do banco a descrição,
@@ -422,9 +430,9 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         }))
       return {
         ...item,
-        codigo: cp?.codigo || sc?.codigo || item.codigo_snapshot || '—',
+        codigo: item.codigo_snapshot || cp?.codigo || sc?.codigo || '—',
         descricao: fixMojibake(item.descricao_snapshot || cp?.descricao || sc?.descricao || '—'),
-        unidade: cp?.unidade || sc?.unidade || item.unidade_snapshot || '—',
+        unidade: item.unidade_snapshot || cp?.unidade || sc?.unidade || '—',
         composicao_itens: insumosImportados.length ? insumosImportados : cp?.composicao_insumos || [],
         sinapi_mes_referencia: sc?.mes_referencia || null,
       }
@@ -433,10 +441,15 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   }
 
   const resolvedObraId = obraId || orcamento?.obra_id || null
+  const etapaContexto = resolvedObraId
+    ? { coluna: 'obra_id' as const, id: resolvedObraId, fk: { obra_id: resolvedObraId } }
+    : projetoId
+      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { projeto_id: projetoId } }
+      : null
 
   async function loadEtapas() {
-    if (!resolvedObraId) { setEtapas([]); return }
-    const { data } = await supabase.from('etapas').select('*').eq('obra_id', resolvedObraId).order('ordem')
+    if (!etapaContexto) { setEtapas([]); return }
+    const { data } = await supabase.from('etapas').select('*').eq(etapaContexto.coluna, etapaContexto.id).order('ordem')
     setEtapas(data || [])
   }
 
@@ -563,7 +576,8 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         return acc + (Number(meta.valor_manual || 0) - calculado)
       }, 0)
   const totalBdi = subtotal * (bdi / 100)
-  const totalGeral = subtotal + totalBdi
+  const totalGerenciamento = subtotal * (gerenciamento / 100)
+  const totalGeral = subtotal + totalBdi + totalGerenciamento
   const custoPorM2 = areaM2 && areaM2 > 0 ? totalGeral / areaM2 : null
 
   // ─── Composição de custos diretos por categoria (Material / Mão de obra / Equipamentos) ──
@@ -657,14 +671,14 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   async function findOrCreateEtapa(nomeInformado: string): Promise<Etapa> {
     const nome = nomeInformado.trim()
     if (!nome) throw new Error('Selecione uma etapa para este lancamento.')
-    if (!resolvedObraId) throw new Error('Obra nao identificada para criar a etapa.')
+    if (!etapaContexto) throw new Error('Projeto ou obra nao identificado para criar a etapa.')
 
     const chave = normalizarNomeEtapa(nome)
     const local = etapas.find(etapa => normalizarNomeEtapa(etapa.nome) === chave)
     if (local) return local
 
     const buscarNoBanco = async () => {
-      const { data, error } = await supabase.from('etapas').select('*').eq('obra_id', resolvedObraId)
+      const { data, error } = await supabase.from('etapas').select('*').eq(etapaContexto.coluna, etapaContexto.id)
       if (error) throw error
       return (data || []).find((etapa: Etapa) => normalizarNomeEtapa(etapa.nome) === chave) as Etapa | undefined
     }
@@ -678,7 +692,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     const maxOrdem = etapas.reduce((maior, etapa) => Math.max(maior, etapa.ordem || 0), 0)
     const { data, error } = await supabase
       .from('etapas')
-      .insert({ obra_id: resolvedObraId, nome, status: 'planejada', ordem: maxOrdem + 1 })
+      .insert({ ...etapaContexto.fk, nome, status: 'planejada', ordem: maxOrdem + 1 })
       .select()
       .single()
 
@@ -1129,7 +1143,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       if (hierarquiaDialog.tipo === 'renomear-etapa') {
         const nome = hierarquiaDialog.valor.trim()
         if (!nome) throw new Error('Informe o novo nome da etapa.')
-        if (!hierarquiaDialog.etapaId || !resolvedObraId) throw new Error('Etapa nao identificada.')
+        if (!hierarquiaDialog.etapaId || !etapaContexto) throw new Error('Etapa nao identificada.')
 
         const repetida = etapas.some(etapa =>
           etapa.id !== hierarquiaDialog.etapaId && normalizarNomeEtapa(etapa.nome) === normalizarNomeEtapa(nome)
@@ -1140,7 +1154,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
           .from('etapas')
           .update({ nome })
           .eq('id', hierarquiaDialog.etapaId)
-          .eq('obra_id', resolvedObraId)
+          .eq(etapaContexto.coluna, etapaContexto.id)
           .select('id,nome')
           .maybeSingle()
         if (error) throw error
@@ -1256,6 +1270,12 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     if (!orcamento) return
     await supabase.from('orcamentos').update({ bdi_percentual: bdi }).eq('id', orcamento.id)
     setOrcamento(o => o ? { ...o, bdi_percentual: bdi } : o)
+  }
+
+  async function handleUpdateGerenciamento() {
+    if (!orcamento) return
+    await supabase.from('orcamentos').update({ gerenciamento_percentual: gerenciamento }).eq('id', orcamento.id)
+    setOrcamento(o => o ? { ...o, gerenciamento_percentual: gerenciamento } : o)
   }
 
   // ─── Export Excel ────────────────────────────────────────────────────────
@@ -1506,7 +1526,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       if (!etapaId) {
         const { data, error } = await supabase
           .from('etapas')
-          .insert({ obra_id: resolvedObraId, nome: etapaNome, status: statusExecucaoImportado, ordem: ++maxOrdem })
+          .insert({ ...(etapaContexto?.fk || {}), nome: etapaNome, status: statusExecucaoImportado, ordem: ++maxOrdem })
           .select().single()
         if (error || !data) {
           ignorados++
@@ -1725,14 +1745,15 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
   async function confirmarFinalizacao() {
     if (!orcamento) return
     setFinalizando(true)
-    const { error } = await supabase.from('orcamentos').update({ status: 'finalizado' }).eq('id', orcamento.id)
-    setFinalizando(false)
-    if (error) {
-      setErroFinalizacao(`Nao foi possivel finalizar o orcamento: ${error.message}`)
-      return
+    try {
+      await finalizarOrcamento(supabase, orcamento.id)
+      await loadOrcamento()
+      setShowFinalizarModal(false)
+    } catch (error) {
+      setErroFinalizacao(`Nao foi possivel finalizar o orcamento: ${error instanceof Error ? error.message : 'erro inesperado'}`)
+    } finally {
+      setFinalizando(false)
     }
-    setOrcamento(o => o ? { ...o, status: 'finalizado' } : o)
-    setShowFinalizarModal(false)
   }
 
   function handleReabrir() {
@@ -1763,7 +1784,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       const novaVersao = orcamento.versao + 1
       const { data: novoOrc } = await supabase
         .from('orcamentos')
-        .insert({ obra_id: resolvedObraId, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, status: 'rascunho', versao: novaVersao })
+        .insert({ obra_id: resolvedObraId, projeto_id: projetoId || orcamento.projeto_id, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, gerenciamento_percentual: orcamento.gerenciamento_percentual, status: 'em_projeto', versao: novaVersao })
         .select().single()
       if (novoOrc) {
         let atualizados = 0
@@ -2099,7 +2120,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
     nomesEtapasExibidos.add(chave)
     return true
   })
-  const isReadonly = orcamento?.status === 'finalizado' || orcamento?.status === 'arquivado'
+  const isReadonly = Boolean(orcamento?.travado_em) || orcamento?.status === 'finalizado' || orcamento?.status === 'arquivado'
   const etapasVisiveis = filtroEtapaId === 'todas'
     ? etapas
     : etapas.filter(etapa => etapa.id === filtroEtapaId)
@@ -2246,7 +2267,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
       >
         <div className="px-4 py-3 flex flex-col gap-2.5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
             <CustoCard
               icon={Boxes} cor="var(--accent)" label="Custo Material"
               value={formatCurrency(custoPorCategoria.material)}
@@ -2274,9 +2295,22 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
                 <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
               </div>
             </CustoCard>
+            <CustoCard icon={Wallet} cor="var(--success)" label="Gerenciamento" hint={formatCurrency(totalGerenciamento)}>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number" value={gerenciamento}
+                  onChange={e => setGerenciamento(Number(e.target.value))}
+                  onBlur={handleUpdateGerenciamento}
+                  disabled={isReadonly}
+                  className="input-base w-14 text-center py-0.5 text-sm"
+                  min={0} max={100}
+                />
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
+              </div>
+            </CustoCard>
             <CustoCard
               icon={Wallet} cor="var(--accent)" label="Total da Obra"
-              value={formatCurrency(totalGeral)} hint="Com BDI" highlight
+              value={formatCurrency(totalGeral)} hint="Direto + BDI + gerenciamento" highlight
             />
           </div>
         </div>
@@ -2794,7 +2828,9 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       >
         <div className="flex flex-col gap-4">
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Os preços e valores desta versão serão congelados. Para alterar depois, será necessário criar uma nova versão do orçamento.
+            {orcamento?.projeto_id
+              ? 'Os preços, nomes e insumos serão congelados e este projeto passará para Em obra usando o mesmo orçamento e cronograma.'
+              : 'Os preços, nomes e insumos desta versão serão congelados. Para alterar depois, crie uma nova versão do orçamento.'}
           </p>
           {erroFinalizacao && (
             <p className="rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.08)' }}>
@@ -2812,7 +2848,7 @@ export function ObraOrcamento({ obraId, orcamentoId, areaM2, obraName, obraUf = 
       <Modal open={showReabrirModal} onClose={() => !reabrindo && setShowReabrirModal(false)} title="Reabrir orçamento" size="md">
         <div className="flex flex-col gap-4">
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Isso cria a <strong>versão {orcamento ? orcamento.versao + 1 : ''}</strong> como rascunho editável.
+            Isso cria a <strong>versão {orcamento ? orcamento.versao + 1 : ''}</strong> como orçamento em projeto e editável.
             A versão atual (finalizada) é preservada como histórico. Como você quer tratar os preços dos itens?
           </p>
           <button

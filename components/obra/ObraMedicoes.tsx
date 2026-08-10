@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList,
   NotebookPen, FileBarChart, LineChart, Square, CheckSquare, Banknote,
-  Landmark, BriefcaseBusiness,
+  Landmark, BriefcaseBusiness, WalletCards,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -32,11 +32,12 @@ import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
-type SubTab = 'fisico' | 'mao-obra' | 'materiais' | 'financeiro' | 'financiamento' | 'previsoes' | 'boletins' | 'diario' | 'curva'
+type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'materiais' | 'financeiro' | 'financiamento' | 'previsoes' | 'boletins' | 'diario' | 'curva'
 
 const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
   { id: 'mao-obra', label: 'Mão de obra', icon: BriefcaseBusiness },
+  { id: 'gerenciamento', label: 'Gerenciamento', icon: WalletCards },
   { id: 'materiais', label: 'Materiais', icon: ListChecks },
   { id: 'financeiro', label: 'Financeiro', icon: Banknote },
   { id: 'financiamento', label: 'Financiamento', icon: Landmark },
@@ -154,6 +155,9 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
       {subTab === 'mao-obra' && (orcamentoId === TODOS_ORCAMENTOS
         ? <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione um orçamento específico para criar ou editar uma medição de mão de obra.</div>
         : <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />)}
+      {subTab === 'gerenciamento' && (orcamentoId === TODOS_ORCAMENTOS
+        ? <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione um orçamento específico para medir o gerenciamento.</div>
+        : <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} eixo="gerenciamento" />)}
 
       {subTab === 'fisico' && prog && (
         <>
