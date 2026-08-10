@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, HardHat, KeyRound } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, KeyRound } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemDependencia, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
@@ -11,7 +11,7 @@ import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
 import { ProjetoAssistenteIA } from '@/components/projeto/ProjetoAssistenteIA'
 import { TourManager } from '@/components/tour/TourManager'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
-import { entregarObra, iniciarObra, type ProjectPhase } from '@/lib/project-cycle'
+import { entregarObra, type ProjectPhase } from '@/lib/project-cycle'
 import dynamic from 'next/dynamic'
 
 const ExcalidrawBoard = dynamic(
@@ -30,7 +30,8 @@ type Projeto = {
   endereco: string | null
   data_inicio: string | null
   data_previsao: string | null
-  status: ProjectPhase
+  status: 'aguardando' | 'em_andamento' | 'concluido' | 'suspenso'
+  fase_ciclo: ProjectPhase
   obra_id: string | null
   responsavel: string | null
   foto_url: string | null
@@ -38,10 +39,17 @@ type Projeto = {
 }
 
 const STATUS_OPTIONS = [
-  { value: 'projeto', label: 'Em projeto' },
-  { value: 'em_obra', label: 'Em obra' },
-  { value: 'entregue', label: 'Entregue' },
+  { value: 'em_andamento', label: 'Em andamento' },
+  { value: 'aguardando', label: 'Aguardando' },
+  { value: 'concluido', label: 'Concluído' },
+  { value: 'suspenso', label: 'Suspenso' },
 ]
+
+const FASE_LABEL: Record<ProjectPhase, string> = {
+  projeto: 'Projeto',
+  em_obra: 'Em obra',
+  entregue: 'Entregue',
+}
 
 export default function ProjetoDetalhe({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -246,14 +254,13 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       }
     }
 
-    const faseDesejada = (dadosForm.status ?? projeto.status) as ProjectPhase
     const payload = {
       nome: dadosForm.nome ?? projeto.nome,
       cliente: dadosForm.cliente ?? null,
       endereco: dadosForm.endereco ?? null,
       data_inicio: dadosForm.data_inicio ?? null,
       data_previsao: dadosForm.data_previsao ?? null,
-      status: projeto.status,
+      status: dadosForm.status ?? projeto.status,
       responsavel: dadosForm.responsavel ?? null,
       foto_url,
       updated_at: new Date().toISOString(),
@@ -265,12 +272,6 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       return
     }
     if (data) {
-      try {
-        if (faseDesejada === 'em_obra' && projeto.status === 'projeto') await iniciarObra(supabase, id)
-        if (faseDesejada === 'entregue' && projeto.status === 'em_obra') await entregarObra(supabase, id)
-      } catch (error) {
-        alert(error instanceof Error ? error.message : 'Nao foi possivel alterar a fase.')
-      }
       setEditingDados(false)
       setFotoFile(null)
       setFotoPreview(null)
@@ -279,17 +280,13 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     await loadData()
   }
 
-  async function handleCycleAction(action: 'iniciar' | 'entregar') {
+  async function handleEntrega() {
     if (!projeto) return
-    const pergunta = action === 'iniciar'
-      ? 'Iniciar a obra usando este mesmo orcamento e cronograma?'
-      : 'Confirmar a entrega das chaves e concluir a obra?'
-    if (!confirm(pergunta)) return
+    if (!confirm('Confirmar a entrega das chaves e concluir a obra?')) return
     setTransitioning(true)
     try {
       const supabase = createClient()
-      if (action === 'iniciar') await iniciarObra(supabase, projeto.id)
-      else await entregarObra(supabase, projeto.id)
+      await entregarObra(supabase, projeto.id)
       await loadData()
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Nao foi possivel concluir a transicao.')
@@ -324,16 +321,16 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-bold truncate" style={{ color: 'var(--text-primary)' }}>{projeto.nome}</h1>
-          {projeto.cliente && <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{projeto.cliente}</p>}
+          <div className="flex items-center gap-2 min-w-0">
+            {projeto.cliente && <p className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{projeto.cliente}</p>}
+            <span className="text-[10px] px-2 py-0.5 rounded-full border flex-shrink-0"
+              style={{ borderColor: 'var(--border)', color: projeto.fase_ciclo === 'em_obra' ? 'var(--accent)' : projeto.fase_ciclo === 'entregue' ? 'var(--success)' : 'var(--text-secondary)' }}>
+              Fase: {FASE_LABEL[projeto.fase_ciclo]}
+            </span>
+          </div>
         </div>
-        {!isCliente && projeto.status === 'projeto' && (
-          <button onClick={() => handleCycleAction('iniciar')} disabled={transitioning}
-            className="btn-primary hidden sm:inline-flex items-center gap-2 px-3 py-2 text-sm disabled:opacity-50">
-            <HardHat size={16} /> {transitioning ? 'Iniciando...' : 'Iniciar obra'}
-          </button>
-        )}
-        {!isCliente && projeto.status === 'em_obra' && (
-          <button onClick={() => handleCycleAction('entregar')} disabled={transitioning}
+        {!isCliente && projeto.fase_ciclo === 'em_obra' && (
+          <button onClick={handleEntrega} disabled={transitioning}
             className="hidden sm:inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border disabled:opacity-50"
             style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
             <KeyRound size={16} /> {transitioning ? 'Concluindo...' : 'Entregar chaves'}
@@ -378,18 +375,16 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       </div>
 
       {/* Conteúdo */}
-      {!isCliente && projeto.status !== 'entregue' && (
+      {!isCliente && projeto.fase_ciclo === 'em_obra' && (
         <div className="sm:hidden">
           <button
-            onClick={() => handleCycleAction(projeto.status === 'projeto' ? 'iniciar' : 'entregar')}
+            onClick={handleEntrega}
             disabled={transitioning}
-            className={projeto.status === 'projeto'
-              ? 'btn-primary w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm'
-              : 'w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm rounded-lg border'}
-            style={projeto.status === 'em_obra' ? { borderColor: 'var(--border)', color: 'var(--text-primary)' } : undefined}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm rounded-lg border"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
           >
-            {projeto.status === 'projeto' ? <HardHat size={16} /> : <KeyRound size={16} />}
-            {transitioning ? 'Salvando...' : projeto.status === 'projeto' ? 'Iniciar obra' : 'Entregar chaves'}
+            <KeyRound size={16} />
+            {transitioning ? 'Salvando...' : 'Entregar chaves'}
           </button>
         </div>
       )}
@@ -520,13 +515,10 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
                     <select
                       className="w-full px-3 py-2.5 rounded-lg text-sm border outline-none transition-colors focus:border-[var(--accent)]"
                       style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                      value={dadosForm.status ?? 'projeto'}
+                      value={dadosForm.status ?? 'em_andamento'}
                       onChange={e => setDadosForm(f => ({ ...f, status: e.target.value as Projeto['status'] }))}
                     >
-                      {STATUS_OPTIONS.filter(o =>
-                        projeto.status === 'projeto' ? o.value !== 'entregue' :
-                          projeto.status === 'em_obra' ? o.value !== 'projeto' : o.value === 'entregue'
-                      ).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   </div>
                 ) : (
@@ -536,10 +528,12 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
                     </label>
                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold"
                       style={{
-                        background: projeto.status === 'em_obra' ? 'rgba(59,123,248,0.12)' :
-                          projeto.status === 'entregue' ? 'rgba(16,185,129,0.12)' : 'rgba(107,114,128,0.12)',
-                        color: projeto.status === 'em_obra' ? '#3B7BF8' :
-                          projeto.status === 'entregue' ? '#10B981' : '#6B7280',
+                        background: projeto.status === 'em_andamento' ? 'rgba(59,123,248,0.12)' :
+                          projeto.status === 'concluido' ? 'rgba(16,185,129,0.12)' :
+                          projeto.status === 'suspenso' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
+                        color: projeto.status === 'em_andamento' ? '#3B7BF8' :
+                          projeto.status === 'concluido' ? '#10B981' :
+                          projeto.status === 'suspenso' ? '#EF4444' : '#F59E0B',
                       }}>
                       {STATUS_OPTIONS.find(o => o.value === projeto.status)?.label ?? '—'}
                     </span>

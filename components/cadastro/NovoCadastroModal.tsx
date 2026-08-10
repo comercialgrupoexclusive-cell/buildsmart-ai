@@ -144,7 +144,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           data_inicio: form.data_inicio || null,
           data_previsao: form.data_previsao || null,
           foto_url: form.foto_url || null,
-          status: 'projeto',
+          status: 'em_andamento',
         }).select().single()
 
         if (projErr || !proj) throw new Error(projErr?.message ?? 'Erro ao criar projeto')
@@ -193,7 +193,7 @@ export function NovoCadastroModal({ tipo: tipoProp, templates = [], profiles = [
           nome: form.nome.trim() || 'Cronograma',
           obra_id: form.obra_id || null,
           projeto_id: form.projeto_id || null,
-          status: 'em_projeto',
+          status: 'rascunho',
         })
       }
 

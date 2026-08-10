@@ -1750,7 +1750,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       await loadOrcamento()
       setShowFinalizarModal(false)
     } catch (error) {
-      setErroFinalizacao(`Nao foi possivel finalizar o orcamento: ${error instanceof Error ? error.message : 'erro inesperado'}`)
+      setErroFinalizacao(`Nao foi possivel iniciar a obra: ${error instanceof Error ? error.message : 'erro inesperado'}`)
     } finally {
       setFinalizando(false)
     }
@@ -2226,7 +2226,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                     <button onClick={handleFinalizar}
                       className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                       style={{ color: 'var(--text-primary)' }}>
-                      <Lock size={13} style={{ color: 'var(--text-secondary)' }} /> Finalizar orçamento
+                      <Lock size={13} style={{ color: 'var(--text-secondary)' }} /> Iniciar obra
                     </button>
                   ) : (
                     <button onClick={handleReabrir}
@@ -2823,14 +2823,12 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       <Modal
         open={showFinalizarModal}
         onClose={() => !finalizando && setShowFinalizarModal(false)}
-        title="Finalizar orçamento"
+        title="Iniciar obra por este orçamento"
         size="sm"
       >
         <div className="flex flex-col gap-4">
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            {orcamento?.projeto_id
-              ? 'Os preços, nomes e insumos serão congelados e este projeto passará para Em obra usando o mesmo orçamento e cronograma.'
-              : 'Os preços, nomes e insumos desta versão serão congelados. Para alterar depois, crie uma nova versão do orçamento.'}
+            Os preços, nomes e insumos deste orçamento serão congelados. Ele será vinculado à obra e passará a alimentar execução física, mão de obra, compras, financeiro e Portal. Os demais orçamentos permanecem independentes.
           </p>
           {erroFinalizacao && (
             <p className="rounded-lg px-3 py-2 text-sm" style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.08)' }}>
@@ -2839,7 +2837,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
           )}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" disabled={finalizando} onClick={() => setShowFinalizarModal(false)}>Cancelar</Button>
-            <Button loading={finalizando} onClick={confirmarFinalizacao}>Finalizar</Button>
+            <Button loading={finalizando} onClick={confirmarFinalizacao}>Iniciar obra</Button>
           </div>
         </div>
       </Modal>

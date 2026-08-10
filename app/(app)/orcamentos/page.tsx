@@ -135,8 +135,12 @@ export default function OrcamentosPage() {
 
   async function handleStatusChange(orc: OrcamentoComObra, novoStatus: string) {
     setMenuId(null)
-    if (novoStatus === 'finalizado' || (novoStatus === 'ativo' && orc.projeto_id)) await finalizarOrcamento(supabase, orc.id)
-    else await supabase.from('orcamentos').update({ status: novoStatus }).eq('id', orc.id)
+    if (novoStatus === 'ativo') {
+      if (!confirm(`Iniciar uma obra a partir do orçamento "${orc.nome || `v${orc.versao}`}"? Os valores e insumos serão congelados.`)) return
+      await finalizarOrcamento(supabase, orc.id)
+    } else {
+      await supabase.from('orcamentos').update({ status: novoStatus }).eq('id', orc.id)
+    }
     await loadOrcamentos()
   }
 
@@ -332,7 +336,7 @@ export default function OrcamentosPage() {
                     <div className="mx-3 my-1 border-t" style={{ borderColor: 'var(--border)' }} />
 
                     <p className="px-4 py-1 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Status</p>
-                    {orc.status !== 'em_projeto' && (
+                    {orc.status !== 'em_projeto' && !orc.obra_id && (
                       <button
                         onClick={() => handleStatusChange(orc, 'em_projeto')}
                         className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
@@ -347,7 +351,7 @@ export default function OrcamentosPage() {
                         className="w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                         style={{ color: '#10B981' }}
                       >
-                        <CheckCircle size={15} /> Ativo
+                        <HardHat size={15} /> Iniciar obra
                       </button>
                     )}
                     {orc.status !== 'finalizado' && (

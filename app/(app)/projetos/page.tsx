@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import type { Profile, Proprietario, Responsavel } from '@/lib/types'
 import { insertItensArvore } from '@/lib/projeto-itens'
-import type { ProjectPhase } from '@/lib/project-cycle'
 
 type Projeto = {
   id: string
@@ -16,7 +15,8 @@ type Projeto = {
   endereco: string | null
   data_inicio: string | null
   data_previsao: string | null
-  status: ProjectPhase
+  status: 'aguardando' | 'em_andamento' | 'concluido' | 'suspenso'
+  fase_ciclo: 'projeto' | 'em_obra' | 'entregue'
   obra_id: string | null
   responsavel: string | null
   foto_url: string | null
@@ -37,9 +37,10 @@ type TemplateItem = {
 }
 
 const STATUS_META = {
-  projeto:  { label: 'Em projeto', color: '#f59e0b',       bg: 'rgba(245,158,11,0.1)' },
-  em_obra:  { label: 'Em obra',    color: 'var(--accent)', bg: 'rgba(59,123,248,0.1)' },
-  entregue: { label: 'Entregue',   color: '#10b981',       bg: 'rgba(16,185,129,0.1)' },
+  aguardando:   { label: 'Aguardando',   color: '#f59e0b',       bg: 'rgba(245,158,11,0.1)' },
+  em_andamento: { label: 'Em andamento', color: 'var(--accent)', bg: 'rgba(59,123,248,0.1)' },
+  concluido:    { label: 'Concluído',     color: '#10b981',       bg: 'rgba(16,185,129,0.1)' },
+  suspenso:     { label: 'Suspenso',      color: '#ef4444',       bg: 'rgba(239,68,68,0.1)' },
 }
 
 const EMPTY_FORM = {
@@ -48,7 +49,7 @@ const EMPTY_FORM = {
   endereco: '',
   data_inicio: '',
   data_previsao: '',
-  status: 'projeto' as Projeto['status'],
+  status: 'em_andamento' as Projeto['status'],
   responsavel: '',
   template_id: '',
   responsavel_tecnico_id: '',
@@ -71,7 +72,7 @@ export default function ProjetosPage() {
   const [projetoStats, setProjetoStats] = useState<Record<string, { total: number; done: number }>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'todos' | Projeto['status']>('projeto')
+  const [statusFilter, setStatusFilter] = useState<'todos' | Projeto['status']>('em_andamento')
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -177,7 +178,7 @@ export default function ProjetosPage() {
       endereco: proj.endereco,
       data_inicio: proj.data_inicio,
       data_previsao: proj.data_previsao,
-      status: 'projeto' as const,
+      status: 'em_andamento' as const,
       responsavel: proj.responsavel,
     }
     const { data: novoProjeto } = await supabase.from('projetos').insert(payload).select().single()
@@ -221,7 +222,7 @@ export default function ProjetosPage() {
     alert('Template salvo com sucesso!')
   }
 
-  const STATUS_ORDER: Record<Projeto['status'], number> = { projeto: 0, em_obra: 1, entregue: 2 }
+  const STATUS_ORDER: Record<Projeto['status'], number> = { em_andamento: 0, aguardando: 1, concluido: 2, suspenso: 3 }
   const filtered = projetos
     .filter(p => {
       const matchesSearch = p.nome.toLowerCase().includes(search.toLowerCase()) ||
@@ -283,7 +284,7 @@ export default function ProjetosPage() {
           />
         </div>
         <div className="flex gap-1 p-1 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          {(['projeto', 'em_obra', 'todos', 'entregue'] as const).map(s => (
+          {(['em_andamento', 'todos', 'aguardando', 'concluido', 'suspenso'] as const).map(s => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}

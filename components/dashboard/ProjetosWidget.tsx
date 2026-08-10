@@ -8,15 +8,16 @@ import { createClient } from '@/lib/supabase/client'
 type Projeto = {
   id: string
   nome: string
-  status: 'projeto' | 'em_obra' | 'entregue'
+  status: 'aguardando' | 'em_andamento' | 'concluido' | 'suspenso'
   data_previsao: string | null
   obra_id: string | null
 }
 
 const STATUS_META: Record<Projeto['status'], { label: string; color: string }> = {
-  projeto: { label: 'Em projeto', color: 'var(--warning)' },
-  em_obra: { label: 'Em obra', color: 'var(--accent)' },
-  entregue: { label: 'Entregues', color: 'var(--success)' },
+  aguardando: { label: 'Aguardando', color: 'var(--warning)' },
+  em_andamento: { label: 'Em andamento', color: 'var(--accent)' },
+  concluido: { label: 'Concluídos', color: 'var(--success)' },
+  suspenso: { label: 'Suspensos', color: 'var(--warning)' },
 }
 
 export function ProjetosWidget() {
@@ -49,12 +50,12 @@ export function ProjetosWidget() {
   }, [])
 
   const contadores = useMemo(() => ({
-    projeto: projetos.filter(p => p.status === 'projeto').length,
-    em_obra: projetos.filter(p => p.status === 'em_obra').length,
-    entregue: projetos.filter(p => p.status === 'entregue').length,
+    em_andamento: projetos.filter(p => p.status === 'em_andamento').length,
+    concluido: projetos.filter(p => p.status === 'concluido').length,
+    suspenso: projetos.filter(p => p.status === 'suspenso').length,
   }), [projetos])
 
-  const emAndamento = useMemo(() => projetos.filter(p => p.status !== 'entregue').slice(0, 5), [projetos])
+  const emAndamento = useMemo(() => projetos.filter(p => p.status !== 'concluido').slice(0, 5), [projetos])
   const hoje = new Date().toISOString().slice(0, 10)
 
   return (
@@ -78,7 +79,7 @@ export function ProjetosWidget() {
       ) : (
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-3 gap-2">
-            {(['projeto', 'em_obra', 'entregue'] as const).map(s => (
+            {(['em_andamento', 'concluido', 'suspenso'] as const).map(s => (
               <div key={s} className="rounded-xl p-3" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
                 <p className="text-2xl font-bold" style={{ color: STATUS_META[s].color }}>{contadores[s]}</p>
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{STATUS_META[s].label}</p>

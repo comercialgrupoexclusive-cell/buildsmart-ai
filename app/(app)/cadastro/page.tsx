@@ -9,9 +9,10 @@ import { NovoCadastroModal } from '@/components/cadastro/NovoCadastroModal'
 import type { CadastroTipoNovo } from '@/components/cadastro/NovoCadastroModal'
 
 const STATUS_PROJETO = {
-  projeto:  { label: 'Projeto',  color: '#3B7BF8' },
-  em_obra:  { label: 'Em obra',  color: '#F59E0B' },
-  entregue: { label: 'Entregue', color: '#10B981' },
+  aguardando:   { label: 'Aguardando',   color: '#F59E0B' },
+  em_andamento: { label: 'Em andamento', color: '#3B7BF8' },
+  concluido:    { label: 'Concluído',     color: '#10B981' },
+  suspenso:     { label: 'Suspenso',      color: '#6B7280' },
 }
 const STATUS_OBRA = {
   orcamento:  { label: 'Orçamento',  color: '#3B7BF8' },
@@ -131,7 +132,7 @@ export default function CadastroPage() {
   }
 
   const filtroStatusOptions: Record<TabKey, string[]> = {
-    projetos:   ['todos', 'projeto', 'em_obra', 'entregue'],
+    projetos:   ['todos', 'em_andamento', 'aguardando', 'concluido', 'suspenso'],
     obras:      ['todos', 'orcamento', 'ativa', 'concluida', 'paralisada'],
     orcamentos: ['todos', 'em_projeto', 'ativo', 'finalizado', 'arquivado'],
   }

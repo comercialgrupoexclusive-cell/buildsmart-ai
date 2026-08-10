@@ -19,6 +19,7 @@ import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraBoard } from '@/components/obra/ObraBoard'
 import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
 import { TODOS_ORCAMENTOS, useObraOrcamento } from '@/lib/obra-orcamento-context'
+import { finalizarOrcamento } from '@/lib/project-cycle'
 
 type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'board' | 'portal'
 
@@ -637,7 +638,12 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId, onS
 
   async function handleStatus(status: OrcSelectItem['status']) {
     if (!selectedId || selectedId === TODOS_ORCAMENTOS) return
-    await supabase.from('orcamentos').update({ status }).eq('id', selectedId)
+    if (status === 'ativo') {
+      if (!confirm('Ativar este orçamento na obra? Os valores e insumos serão congelados.')) return
+      await finalizarOrcamento(supabase, selectedId)
+    } else {
+      await supabase.from('orcamentos').update({ status }).eq('id', selectedId)
+    }
     await load()
     await onRefresh()
   }
