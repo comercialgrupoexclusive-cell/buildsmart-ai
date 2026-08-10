@@ -10,7 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ServicoProg = { id: string; nome: string; percentual: number }
-export type AvancoEixo = 'fisico' | 'mao_obra'
+export type AvancoEixo = 'fisico' | 'mao_obra' | 'gerenciamento'
 export type SubetapaProg = { id: string; nome: string; percentual: number; valorContratado: number; servicos: ServicoProg[] }
 export type EtapaProg = {
   id: string
@@ -44,20 +44,20 @@ export async function loadObraProgresso(
   eixo: AvancoEixo = 'fisico',
   orcamentoIds?: string[],
 ): Promise<ObraProgresso> {
-  let orcamentosQuery = supabase.from('orcamentos').select('id,gerenciamento_percentual').eq('obra_id', obraId)
+  let orcamentosQuery = supabase.from('orcamentos').select('id,gerenciamento_percentual,gerenciamento_distribuicao').eq('obra_id', obraId)
   if (orcamentoIds?.length) orcamentosQuery = orcamentosQuery.in('id', orcamentoIds)
 
   const [{ data: etapasData }, { data: orcamentos }] = await Promise.all([
     supabase
       .from('etapas')
-      .select('id, nome, ordem, percentual_executado, percentual_mao_obra, data_inicio, data_fim, subetapas_cronograma(id, nome, percentual_executado, percentual_mao_obra, ordem, servicos_cronograma(id, nome, percentual_executado, percentual_mao_obra, ordem))')
+      .select('id, nome, ordem, percentual_executado, percentual_mao_obra, percentual_gerenciamento, data_inicio, data_fim, subetapas_cronograma(id, nome, percentual_executado, percentual_mao_obra, percentual_gerenciamento, ordem, servicos_cronograma(id, nome, percentual_executado, percentual_mao_obra, percentual_gerenciamento, ordem))')
       .eq('obra_id', obraId)
       .order('ordem'),
     orcamentosQuery,
   ])
 
   // Valor contratado por etapa = Σ (quantidade × preço unit) dos itens do orçamento
-  const orcRows = (orcamentos || []) as { id: string; gerenciamento_percentual: number }[]
+  const orcRows = (orcamentos || []) as { id: string; gerenciamento_percentual: number; gerenciamento_distribuicao: Record<string, number> | null }[]
   const orcIds = orcRows.map(o => o.id)
   const fatorGerenciamento = new Map(orcRows.map(o => [o.id, 1 + num(o.gerenciamento_percentual) / 100]))
   const valorPorEtapa: Record<string, number> = {}
@@ -75,7 +75,7 @@ export async function loadObraProgresso(
         if (!it.etapa_id) return
         const itemMaoObra = normalizarClassificacao(it.classificacao_snapshot) === 'MAO_DE_OBRA' || descricaoMaoObra(it.descricao_snapshot)
         if (eixo === 'mao_obra' && !itemMaoObra) return
-        const fator = eixo === 'fisico' ? (fatorGerenciamento.get(it.orcamento_id) || 1) : 1
+        const fator = eixo === 'fisico' ? (fatorGerenciamento.get(it.orcamento_id) || 1) : eixo === 'gerenciamento' ? Math.max(0, (fatorGerenciamento.get(it.orcamento_id) || 1) - 1) : 1
         const chaveSub = `${it.etapa_id}::${normalizarNome(it.subetapa || '')}`
         if (it.tipo_linha === 'subetapa') {
           if (it.subetapa_valor_manual_ativo) manualPorSub.set(chaveSub, num(it.subetapa_valor_manual) * fator)
@@ -94,21 +94,35 @@ export async function loadObraProgresso(
       const etapaId = chave.split('::')[0]
       valorPorEtapa[etapaId] = (valorPorEtapa[etapaId] || 0) + valor
     }
+    if (eixo === 'gerenciamento') {
+      const totalGerenciamento = [...valorPorSubetapa.values()].reduce((soma, valor) => soma + valor, 0)
+      const distribuicao = orcRows.length === 1 ? orcRows[0].gerenciamento_distribuicao || {} : {}
+      if (Object.keys(distribuicao).length > 0 && totalGerenciamento > 0) {
+        valorPorSubetapa.clear()
+        for (const etapaId of Object.keys(valorPorEtapa)) valorPorEtapa[etapaId] = 0
+        for (const [chaveDistribuicao, percentual] of Object.entries(distribuicao)) {
+          const valor = totalGerenciamento * num(percentual) / 100
+          valorPorSubetapa.set(chaveDistribuicao, valor)
+          const etapaId = chaveDistribuicao.split('::')[0]
+          valorPorEtapa[etapaId] = (valorPorEtapa[etapaId] || 0) + valor
+        }
+      }
+    }
   }
 
   type RawEtapa = {
-    id: string; nome: string; ordem: number; percentual_executado: number; percentual_mao_obra: number
+    id: string; nome: string; ordem: number; percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number
     data_inicio: string | null; data_fim: string | null
-    subetapas_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; ordem: number; servicos_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; ordem: number }[] }[]
+    subetapas_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number; ordem: number; servicos_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number; ordem: number }[] }[]
   }
 
-  const percentualDe = (item: { percentual_executado: number; percentual_mao_obra: number }) =>
-    num(eixo === 'mao_obra' ? item.percentual_mao_obra : item.percentual_executado)
+  const percentualDe = (item: { percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number }) =>
+    num(eixo === 'mao_obra' ? item.percentual_mao_obra : eixo === 'gerenciamento' ? item.percentual_gerenciamento : item.percentual_executado)
 
   const etapas: EtapaProg[] = ((etapasData || []) as RawEtapa[]).map(e => {
     const subetapas = (e.subetapas_cronograma || [])
       .sort((a, b) => a.ordem - b.ordem)
-      .filter(s => eixo === 'fisico' || subetapasMaoObraPorEtapa.get(e.id)?.has(normalizarNome(s.nome)) || s.servicos_cronograma.some(v => descricaoMaoObra(v.nome)))
+      .filter(s => eixo !== 'mao_obra' || subetapasMaoObraPorEtapa.get(e.id)?.has(normalizarNome(s.nome)) || s.servicos_cronograma.some(v => descricaoMaoObra(v.nome)))
       .map(s => ({
         id: s.id,
         nome: s.nome,
@@ -116,7 +130,7 @@ export async function loadObraProgresso(
         valorContratado: valorPorSubetapa.get(`${e.id}::${normalizarNome(s.nome)}`) || 0,
         servicos: (s.servicos_cronograma || [])
           .sort((a, b) => a.ordem - b.ordem)
-          .filter(v => eixo === 'fisico' || descricaoMaoObra(v.nome))
+          .filter(v => eixo === 'fisico' || (eixo === 'mao_obra' && descricaoMaoObra(v.nome)))
           .map(v => ({ id: v.id, nome: v.nome, percentual: percentualDe(v) })),
       }))
     const valorContratado = valorPorEtapa[e.id] || 0
@@ -168,12 +182,12 @@ export async function propagarAvancoServicos(
   // Carrega a árvore para recalcular os pais afetados
   const { data: etapasData } = await supabase
     .from('etapas')
-    .select('id, percentual_executado, percentual_mao_obra, subetapas_cronograma(id, percentual_executado, percentual_mao_obra, servicos_cronograma(id, percentual_executado, percentual_mao_obra))')
+    .select('id, percentual_executado, percentual_mao_obra, percentual_gerenciamento, subetapas_cronograma(id, percentual_executado, percentual_mao_obra, percentual_gerenciamento, servicos_cronograma(id, percentual_executado, percentual_mao_obra, percentual_gerenciamento))')
     .eq('obra_id', obraId)
 
-  type PctRaw = { percentual_executado: number; percentual_mao_obra: number }
+  type PctRaw = { percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number }
   type Raw = PctRaw & { id: string; subetapas_cronograma: (PctRaw & { id: string; servicos_cronograma: (PctRaw & { id: string })[] })[] }
-  const campo = eixo === 'mao_obra' ? 'percentual_mao_obra' : 'percentual_executado'
+  const campo = eixo === 'mao_obra' ? 'percentual_mao_obra' : eixo === 'gerenciamento' ? 'percentual_gerenciamento' : 'percentual_executado'
   const atual = (item: PctRaw) => num(item[campo])
 
   const svcUpdates: { id: string; percentual_executado: number }[] = []

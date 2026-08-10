@@ -13,12 +13,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList,
-  NotebookPen, FileBarChart, LineChart, Square, CheckSquare, Banknote,
+  NotebookPen, FileBarChart, LineChart, Banknote,
   Landmark, BriefcaseBusiness, WalletCards,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
-  loadObraProgresso, propagarAvancoServicos, corPorPercentual, clampPct,
+  loadObraProgresso, propagarAvancoServicos, clampPct,
   type ObraProgresso, type EtapaProg,
 } from '@/lib/obra-progresso'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -30,11 +30,12 @@ import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ObraMedicaoMaoObra } from '@/components/obra/ObraMedicaoMaoObra'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
+import { ProgressControl } from '@/components/obra/ProgressControl'
 
 type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'materiais' | 'financeiro' | 'financiamento' | 'previsoes' | 'boletins' | 'diario' | 'curva'
 
 const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
-  { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
+  { id: 'fisico', label: 'Avanço físico em campo', icon: ClipboardList },
   { id: 'mao-obra', label: 'Mão de obra', icon: BriefcaseBusiness },
   { id: 'gerenciamento', label: 'Gerenciamento', icon: WalletCards },
   { id: 'materiais', label: 'Materiais', icon: ListChecks },
@@ -313,57 +314,5 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
 
 // ─── Campo de % com presets + input ──────────────────────────────────────────
 function CampoPct({ valor, onChange, tamanho = 'md' }: { valor: number; onChange: (v: number) => void; tamanho?: 'md' | 'sm' }) {
-  return <CampoPctControl key={valor} valor={valor} onChange={onChange} tamanho={tamanho} />
-}
-
-function CampoPctControl({ valor, onChange, tamanho }: { valor: number; onChange: (v: number) => void; tamanho: 'md' | 'sm' }) {
-  const [draft, setDraft] = useState(valor)
-  const submittedRef = useRef<number | null>(null)
-
-  function commit(next = draft) {
-    const normalized = clampPct(Number(next) || 0)
-    setDraft(normalized)
-    if (Math.abs(normalized - valor) < 0.01 || submittedRef.current === normalized) return
-    submittedRef.current = normalized
-    onChange(normalized)
-  }
-
-  const presets = [
-    { label: 'Pendente', value: 0, active: draft <= 0, editable: true },
-    { label: 'Andamento', value: null, active: draft > 0 && draft < 100, editable: false },
-    { label: 'Concluído', value: 100, active: draft >= 100, editable: true },
-  ]
-  return (
-    <div className="flex flex-col gap-2 flex-shrink-0 w-full sm:w-auto" onClick={e => e.stopPropagation()}>
-      <div className="grid grid-cols-3 gap-1.5">
-        {presets.map(p => (
-          <button key={p.label} type="button" onClick={() => {
-            if (!p.editable || p.value == null) return
-            setDraft(p.value)
-            commit(p.value)
-          }}
-            aria-pressed={p.active} title={p.editable ? `Marcar como ${p.label.toLowerCase()}` : 'O andamento acompanha o percentual informado'}
-            className="min-h-9 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-semibold transition-all"
-            style={p.active ? { background: 'var(--accent)', color: 'white', border: '1px solid var(--accent)' } : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)', cursor: p.editable ? 'pointer' : 'default' }}>
-            {p.active ? <CheckSquare size={14} /> : <Square size={14} />}
-            <span className={tamanho === 'sm' ? 'hidden min-[420px]:inline' : ''}>{p.label}</span>
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center gap-2">
-        <input type="range" min={0} max={100} step={1} value={Math.round(draft)}
-          onChange={e => setDraft(Number(e.target.value))}
-          onPointerUp={() => commit()} onTouchEnd={() => commit()} onKeyUp={() => commit()} onBlur={() => commit()}
-          className="flex-1 min-w-16 accent-[var(--accent)]" aria-label="Percentual de execução" />
-        <div className="relative flex items-center">
-          <input type="number" min={0} max={100} step={0.5} value={Number(draft.toFixed(1)) || 0}
-            onChange={e => setDraft(clampPct(parseFloat(e.target.value)))} onBlur={() => commit()}
-            onKeyDown={e => { if (e.key === 'Enter') commit() }}
-            className="input-base py-1 text-sm text-right tabular-nums"
-            style={{ width: tamanho === 'md' ? 84 : 72, color: corPorPercentual(draft), fontWeight: 600, paddingRight: 24 }} />
-          <span className="absolute right-2 text-sm pointer-events-none" style={{ color: 'var(--text-secondary)' }}>%</span>
-        </div>
-      </div>
-    </div>
-  )
+  return <ProgressControl valor={valor} onChange={onChange} compact={tamanho === 'sm'} />
 }

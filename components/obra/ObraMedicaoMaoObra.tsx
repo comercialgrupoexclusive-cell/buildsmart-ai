@@ -1,10 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BriefcaseBusiness, ChevronDown, ChevronRight, Lock, Plus, Trash2, WalletCards } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { BriefcaseBusiness, ChevronDown, ChevronRight, Gauge, Lock, Plus, Ruler, SlidersHorizontal, Trash2, WalletCards } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Medicao, MedicaoItem } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
+import { ObraEixoAvanco } from '@/components/obra/ObraEixoAvanco'
+import { ObraAjusteDistribuicao } from '@/components/obra/ObraAjusteDistribuicao'
+import { ProgressControl } from '@/components/obra/ProgressControl'
 
 type InsumoLinha = {
   id: string
@@ -47,6 +50,23 @@ const isMaoObra = (valor: string | null, descricao = '') =>
 const clamp = (valor: number, minimo = 0) => Math.max(minimo, Math.min(100, Number(valor) || 0))
 
 export function ObraMedicaoMaoObra({ obraId, orcamentoId, eixo = 'mao_obra' }: { obraId: string; orcamentoId: string; eixo?: 'mao_obra' | 'gerenciamento' }) {
+  const [aba, setAba] = useState<'avanco' | 'medicao' | 'ajustes'>('avanco')
+  const abas = [
+    { id: 'avanco' as const, label: 'Avanço físico', icon: Gauge },
+    { id: 'medicao' as const, label: 'Medição', icon: Ruler },
+    { id: 'ajustes' as const, label: 'Ajustes', icon: SlidersHorizontal },
+  ]
+  return <div className="flex flex-col gap-3">
+    <div className="flex overflow-x-auto rounded-lg p-1" style={{ background: 'var(--bg-secondary)' }}>
+      {abas.map(item => { const Icon = item.icon; return <button key={item.id} onClick={() => setAba(item.id)} className="flex min-w-max flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors" style={aba === item.id ? { background: 'var(--accent)', color: '#fff' } : { color: 'var(--text-secondary)' }}><Icon size={15} />{item.label}</button> })}
+    </div>
+    {aba === 'avanco' && <ObraEixoAvanco obraId={obraId} orcamentoId={orcamentoId} eixo={eixo} />}
+    {aba === 'medicao' && <ObraMedicaoConteudo obraId={obraId} orcamentoId={orcamentoId} eixo={eixo} />}
+    {aba === 'ajustes' && <ObraAjusteDistribuicao obraId={obraId} orcamentoId={orcamentoId} eixo={eixo} />}
+  </div>
+}
+
+function ObraMedicaoConteudo({ obraId, orcamentoId, eixo }: { obraId: string; orcamentoId: string; eixo: 'mao_obra' | 'gerenciamento' }) {
   const supabase = useMemo(() => createClient(), [])
   const [medicoes, setMedicoes] = useState<Medicao[]>([])
   const [itens, setItens] = useState<Record<string, MedicaoItem[]>>({})
@@ -323,26 +343,7 @@ function EtapaMedicao({ grupo, total, fechada, eixo, onSetEtapa, onSetSub, onSet
 }
 
 function PctBar({ valor, minimo, disabled, onChange, small = false }: { valor: number; minimo: number; disabled: boolean; onChange: (valor: number) => void; small?: boolean }) {
-  const [draft, setDraft] = useState(valor)
-  const ultimoEnviado = useRef<number | null>(null)
-  function commit() {
-    const normalizado = clamp(draft, minimo)
-    setDraft(normalizado)
-    if (disabled || Math.abs(normalizado - valor) < 0.01 || ultimoEnviado.current === normalizado) return
-    ultimoEnviado.current = normalizado
-    onChange(normalizado)
-  }
-  return <div className={`flex items-center gap-2 ${small ? 'sm:w-64' : 'sm:w-72'} w-full flex-shrink-0`} onClick={event => event.stopPropagation()}>
-    <input type="range" min={minimo} max={100} step={1} value={Math.round(draft)} disabled={disabled}
-      onChange={event => setDraft(Number(event.target.value))} onPointerUp={commit} onTouchEnd={commit} onKeyUp={commit} onBlur={commit}
-      className="flex-1 min-w-20 accent-[var(--accent)] disabled:opacity-60" aria-label="Percentual medido" />
-    <div className="relative flex items-center">
-      <input type="number" min={minimo} max={100} step={0.5} value={Number(draft.toFixed(1)) || 0} disabled={disabled}
-        onChange={event => setDraft(clamp(Number(event.target.value), minimo))} onBlur={commit} onKeyDown={event => { if (event.key === 'Enter') commit() }}
-        className="input-base py-1 text-sm text-right tabular-nums disabled:opacity-70" style={{ width: 76, paddingRight: 22, fontWeight: 600 }} />
-      <span className="absolute right-2 text-xs pointer-events-none" style={{ color: 'var(--text-secondary)' }}>%</span>
-    </div>
-  </div>
+  return <ProgressControl valor={valor} minimo={minimo} disabled={disabled} compact={small} onChange={onChange} />
 }
 
 function agruparPorEtapa(linhas: MedicaoItem[]): EtapaVisual[] {
