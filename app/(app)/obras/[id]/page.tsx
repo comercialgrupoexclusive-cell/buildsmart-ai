@@ -1041,29 +1041,22 @@ function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => void }) {
         </div>
       </div>
 
-      {/* Orçamentos vinculados */}
+      {/* Orçamento operacional da obra */}
       <div className="card p-6">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <FileText size={18} style={{ color: 'var(--accent)' }} />
-            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Orçamentos vinculados</h2>
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Orçamento da obra</h2>
           </div>
-          <Link
-            href={`/orcamentos?new=1`}
-            className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
-            style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}
-          >
-            <Plus size={13} /> Novo
-          </Link>
         </div>
 
         {orcamentos.length === 0 ? (
           <p className="text-sm py-3" style={{ color: 'var(--text-secondary)' }}>
-            Nenhum orçamento vinculado a esta obra. Crie um orçamento e vincule a esta obra.
+            Esta obra ainda não possui orçamento operacional. Inicie a obra a partir de um orçamento.
           </p>
         ) : (
           <div className="flex flex-col gap-2">
-            {orcamentos.map(orc => (
+            {orcamentos.slice(0, 1).map(orc => (
               <Link
                 key={orc.id}
                 href={`/orcamentos/${orc.id}`}
