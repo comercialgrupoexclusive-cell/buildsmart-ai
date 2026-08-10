@@ -21,7 +21,6 @@ type ObraOrcamentoContextValue = {
 }
 
 const STORAGE_OBRA = 'buildsmart_obra_selecionada'
-
 const ObraOrcamentoContext = createContext<ObraOrcamentoContextValue | null>(null)
 
 function stored(key: string) {
@@ -32,9 +31,8 @@ function stored(key: string) {
 export function ObraOrcamentoProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createClient(), [])
   const [obras, setObras] = useState<ObraSelecao[]>([])
-  const [orcamentos, setOrcamentos] = useState<OrcamentoSelecao[]>([])
+  const [orcamentosPorObra, setOrcamentosPorObra] = useState<Record<string, OrcamentoSelecao[]>>({})
   const [obraId, setObraIdState] = useState('')
-  const [orcamentoId, setOrcamentoIdState] = useState('')
   const [loading, setLoading] = useState(true)
 
   const setObraId = useCallback((id: string) => {
@@ -43,49 +41,46 @@ export function ObraOrcamentoProvider({ children }: { children: ReactNode }) {
     else localStorage.removeItem(STORAGE_OBRA)
   }, [])
 
-  const setOrcamentoId = useCallback((id: string) => {
-    setOrcamentoIdState(id)
-  }, [])
+  // Mantido por compatibilidade. O orcamento agora e determinado pela obra.
+  const setOrcamentoId = useCallback(() => {}, [])
 
   useEffect(() => {
     let cancelled = false
     async function loadObras() {
-      const { data } = await supabase.from('obras').select('id,nome').order('created_at', { ascending: false })
+      const { data } = await supabase
+        .from('obras')
+        .select('id,nome,orcamentos(id,nome,versao,status)')
+        .order('created_at', { ascending: false })
       if (cancelled) return
-      const list = (data || []) as ObraSelecao[]
+
+      const rows = (data || []) as (ObraSelecao & { orcamentos?: OrcamentoSelecao[] })[]
+      const list = rows.map(({ id, nome }) => ({ id, nome }))
       setObras(list)
+      setOrcamentosPorObra(Object.fromEntries(rows.map(row => [row.id, row.orcamentos || []])))
+
       const saved = stored(STORAGE_OBRA)
-      setObraId(saved && list.some(o => o.id === saved) ? saved : (list[0]?.id || ''))
-      if (list.length === 0) setLoading(false)
+      setObraId(saved && list.some(obra => obra.id === saved) ? saved : (list[0]?.id || ''))
+      setLoading(false)
     }
     void loadObras()
     return () => { cancelled = true }
   }, [supabase, setObraId])
 
   const refreshOrcamentos = useCallback(async () => {
-    if (!obraId) {
-      setOrcamentos([])
-      setOrcamentoId('')
-      setLoading(false)
-      return
-    }
-    setLoading(true)
+    if (!obraId) return
     const { data } = await supabase
       .from('orcamentos')
       .select('id,nome,versao,status')
       .eq('obra_id', obraId)
       .order('versao', { ascending: false })
-    const list = (data || []) as OrcamentoSelecao[]
-    setOrcamentos(list)
-    // Uma obra possui um unico orcamento operacional. A selecao e automatica.
-    setOrcamentoId(list[0]?.id || '')
-    setLoading(false)
-  }, [obraId, setOrcamentoId, supabase])
+    setOrcamentosPorObra(current => ({
+      ...current,
+      [obraId]: (data || []) as OrcamentoSelecao[],
+    }))
+  }, [obraId, supabase])
 
-  // A troca de obra sincroniza a seleção com os orçamentos persistidos no Supabase.
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
-  useEffect(() => { void refreshOrcamentos() }, [obraId])
-
+  const orcamentos = useMemo(() => orcamentosPorObra[obraId] || [], [obraId, orcamentosPorObra])
+  const orcamentoId = orcamentos[0]?.id || ''
   const orcamentoIds = useMemo(() => orcamentoId ? [orcamentoId] : [], [orcamentoId])
 
   const value = useMemo(() => ({

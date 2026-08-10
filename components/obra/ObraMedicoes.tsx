@@ -10,7 +10,7 @@
 // - Diário:   RDO unificado (mesmo do campo).
 // - Curva S:  previsto × realizado.
 // ═══════════════════════════════════════════════════════════════════════════
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList,
   NotebookPen, FileBarChart, LineChart, Square, CheckSquare, Banknote,
@@ -30,7 +30,6 @@ import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ObraMedicaoMaoObra } from '@/components/obra/ObraMedicaoMaoObra'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
-import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'materiais' | 'financeiro' | 'financiamento' | 'previsoes' | 'boletins' | 'diario' | 'curva'
 
@@ -50,12 +49,13 @@ const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
 export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const [subTab, setSubTab] = useState<SubTab>('fisico')
   const [prog, setProg] = useState<ObraProgresso | null>(null)
   const [loading, setLoading] = useState(true)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
+  const primeiraAbaRef = useRef(true)
   // Filtros da aba Avanço
   const [filtroEtapa, setFiltroEtapa] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'andamento' | 'concluido'>('todas')
@@ -74,6 +74,10 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   // Recarrega o avanço (fonte única) ao voltar para abas que dependem dele —
   // ex.: um RDO lançado no Diário pode ter mexido no % do cronograma.
   useEffect(() => {
+    if (primeiraAbaRef.current) {
+      primeiraAbaRef.current = false
+      return
+    }
     if (subTab === 'fisico' || subTab === 'boletins' || subTab === 'curva') {
       Promise.resolve().then(() => carregar(true))
     }
@@ -95,7 +99,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
     } else {
       const status = v >= 100 ? 'concluida' : v > 0 ? 'em_andamento' : 'planejada'
       await supabase.from('subetapas_cronograma').update(eixo === 'fisico' ? { [campoPct]: v, status } : { [campoPct]: v }).eq('id', sub.id)
-      await recalcEtapaDeSubetapa(sub.id)
+      await recalcEtapaDeSubetapa(sub.id, v)
     }
     await carregar(true); setSaving(false)
   }
@@ -113,16 +117,17 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
     await carregar(true); setSaving(false)
   }
 
-  async function recalcEtapaDeSubetapa(subId: string) {
-    const { data } = await supabase.from('subetapas_cronograma').select('etapa_id').eq('id', subId).maybeSingle()
-    const etapaId = (data as { etapa_id: string } | null)?.etapa_id
-    if (!etapaId) return
-    const { data: subs } = await supabase.from('subetapas_cronograma').select(campoPct).eq('etapa_id', etapaId)
-    const arr = (subs || []) as unknown as Record<string, number>[]
-    if (arr.length === 0) return
-    const media = arr.reduce((a, b) => a + Number(b[campoPct]), 0) / arr.length
+  async function recalcEtapaDeSubetapa(subId: string, novoPercentual: number) {
+    const etapa = prog?.etapas.find(item => item.subetapas.some(sub => sub.id === subId))
+    if (!etapa) return
+    const subs = etapa.subetapas.map(sub => sub.id === subId ? { ...sub, percentual: novoPercentual } : sub)
+    const valorSubs = subs.reduce((total, sub) => total + sub.valorContratado, 0)
+    const valorResidual = Math.max(0, etapa.valorContratado - valorSubs)
+    const media = etapa.valorContratado > 0 && valorSubs > 0
+      ? (subs.reduce((total, sub) => total + sub.percentual * sub.valorContratado, 0) + etapa.percentual * valorResidual) / etapa.valorContratado
+      : subs.reduce((total, sub) => total + sub.percentual, 0) / Math.max(1, subs.length)
     const status = media >= 100 ? 'concluida' : media > 0 ? 'em_andamento' : 'planejada'
-    await supabase.from('etapas').update(eixo === 'fisico' ? { [campoPct]: media, status } : { [campoPct]: media }).eq('id', etapaId)
+    await supabase.from('etapas').update(eixo === 'fisico' ? { [campoPct]: media, status } : { [campoPct]: media }).eq('id', etapa.id)
   }
 
   if (loading) {
@@ -152,12 +157,8 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
       {subTab === 'financiamento' && <ObraFinanciamento obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
       {subTab === 'materiais' && <ObraMateriais obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
       {subTab === 'previsoes' && <ObraPrevisoes obraId={obraId} orcamentoId={orcamentoId} />}
-      {subTab === 'mao-obra' && (orcamentoId === TODOS_ORCAMENTOS
-        ? <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione um orçamento específico para criar ou editar uma medição de mão de obra.</div>
-        : <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />)}
-      {subTab === 'gerenciamento' && (orcamentoId === TODOS_ORCAMENTOS
-        ? <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione um orçamento específico para medir o gerenciamento.</div>
-        : <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} eixo="gerenciamento" />)}
+      {subTab === 'mao-obra' && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />}
+      {subTab === 'gerenciamento' && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} eixo="gerenciamento" />}
 
       {subTab === 'fisico' && prog && (
         <>
@@ -284,7 +285,10 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
               <div className="flex flex-col gap-2 pl-9 pr-4 py-3 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)' }}>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{sub.nome}</p>
-                  {sub.servicos.length > 0 && <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>{sub.servicos.length} serviço(s)</p>}
+                  <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+                    {sub.servicos.length > 0 ? `${sub.servicos.length} serviço(s)` : 'sem serviços'}
+                    {temValores && sub.valorContratado > 0 ? ` · ${brl(sub.valorContratado)}` : ''}
+                  </p>
                 </div>
                 <CampoPct valor={sub.percentual} onChange={v => onSetSub(sub, v)} tamanho="sm" />
               </div>

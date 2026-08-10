@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Package, AlertTriangle,
   Plus, Pencil, Trash2, ChevronDown, ChevronRight,
-  Square, CheckSquare, ShoppingCart, Copy, X, Link2, Unlink,
+  Square, CheckSquare, ShoppingCart, Copy, X,
   Building2, Send, PackageCheck, ClipboardList, FileText, Zap,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -16,7 +16,6 @@ import { Input } from '@/components/ui/Input'
 import { ObraFornecedores } from '@/components/obra/ObraFornecedores'
 import { ObraRequisicoes } from '@/components/obra/ObraRequisicoes'
 import { ComprasLancamentos, PrefillLancamento } from '@/components/obra/ComprasLancamentos'
-import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 const STATUS_LABEL: Record<string, string> = {
   nao_comprado: 'Não comprado',
@@ -122,7 +121,7 @@ function statusOperacional(material: MaterialRow) {
 }
 
 export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const [materiais, setMateriais] = useState<MaterialRow[]>([])
   const [etapas, setEtapas] = useState<{ id: string; nome: string }[]>([])
   const [subetapasOrcamento, setSubetapasOrcamento] = useState<Record<string, string[]>>({})
@@ -145,41 +144,7 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
   const [subView, setSubView] = useState<'lancamentos' | 'materiais' | 'compras' | 'fornecedores' | 'requisicoes'>('lancamentos')
   const [prefillLancamento, setPrefillLancamento] = useState<PrefillLancamento>(null)
   const [listas, setListas] = useState<ListaCompra[]>([])
-  const [listasCarregadas, setListasCarregadas] = useState(false)
-  const consolidado = orcamentoId === TODOS_ORCAMENTOS
-
-  // ── Orçamentos vinculados ──
-  const [orcamentosVinculados, setOrcamentosVinculados] = useState<{ id: string; nome: string }[]>([])
-  const [showVincularOrc, setShowVincularOrc] = useState(false)
-  const [orcDisponiveis, setOrcDisponiveis] = useState<{ id: string; nome: string }[]>([])
-  const [vinculoOrcId, setVinculoOrcId] = useState('')
-
-  async function loadOrcamentos() {
-    const { data } = await supabase.from('orcamentos').select('id, nome').eq('obra_id', obraId).order('created_at', { ascending: false })
-    setOrcamentosVinculados((data || []) as { id: string; nome: string }[])
-  }
-
-  async function openVincularOrc() {
-    const { data } = await supabase.from('orcamentos').select('id, nome').is('obra_id', null).order('created_at', { ascending: false })
-    setOrcDisponiveis((data || []) as { id: string; nome: string }[])
-    setVinculoOrcId('')
-    setShowVincularOrc(true)
-  }
-
-  async function handleVincularOrc() {
-    if (!vinculoOrcId) return
-    await supabase.from('orcamentos').update({ obra_id: obraId }).eq('id', vinculoOrcId)
-    setShowVincularOrc(false)
-    await loadOrcamentos()
-    await importarDoOrcamento(true)
-    await loadMateriais()
-  }
-
-  async function handleDesvincularOrc(orcId: string) {
-    if (!confirm('Desvincular este orçamento da obra?')) return
-    await supabase.from('orcamentos').update({ obra_id: null }).eq('id', orcId)
-    await loadOrcamentos()
-  }
+  const consolidado = false
 
   // Modal editar / novo
   const [editando, setEditando] = useState<MaterialRow | null>(null)
@@ -291,7 +256,6 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
       status: r.status,
       criadoEm: r.criado_em,
     })))
-    setListasCarregadas(true)
   }
   // --- Importar do orçamento ────────────────────────────────────────────────
   // Pergunta do usuário: "como faço pra puxar os insumos do orçamento pra
@@ -301,6 +265,8 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
   // do zero, não duplica) o total por (etapa, subetapa, código) em "materiais".
   // Quando não há detalhamento de insumos disponível para a composição, lança
   // a própria composição como material — garante que o dado sempre "puxe".
+  // Rotina de recuperação mantida para dados antigos; não roda na abertura da tela.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function importarDoOrcamento(silencioso = false) {
     if (importando) return
     if (consolidado) {
@@ -541,12 +507,10 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
   }
 
   useEffect(() => {
-    void Promise.all([loadMateriais(), loadListas(), loadOrcamentos()]).then(async () => {
-      if (!consolidado && orcamentoId) {
-        await importarDoOrcamento(true)
-        await loadMateriais()
-      }
-    })
+    void Promise.resolve().then(() => Promise.all([loadMateriais(), loadListas()]))
+    // Os carregadores pertencem a este componente e devem rodar somente quando
+    // muda a obra ou seu orçamento único.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [obraId, orcamentoId, orcamentoIds])
 
   async function handleSave() {
@@ -897,48 +861,6 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
 
   return (
     <div className="flex flex-col gap-4">
-      {/* ── Orçamentos vinculados à obra ── */}
-      <div className="card p-3 flex flex-col sm:flex-row items-start sm:items-center gap-2 justify-between">
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Orçamentos:</span>
-          {orcamentosVinculados.length === 0 ? (
-            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Nenhum vinculado</span>
-          ) : orcamentosVinculados.map(orc => (
-            <span key={orc.id} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.2)' }}>
-              <FileText size={11} />
-              {orc.nome || 'Orçamento'}
-              <button onClick={() => handleDesvincularOrc(orc.id)} className="ml-0.5 opacity-60 hover:opacity-100" title="Desvincular"><X size={10} /></button>
-            </span>
-          ))}
-        </div>
-        <button onClick={openVincularOrc} className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium hover:opacity-80 flex-shrink-0" style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}>
-          <Link2 size={12} /> Vincular orçamento
-        </button>
-      </div>
-
-      {/* Modal vincular orçamento */}
-      {showVincularOrc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowVincularOrc(false)}>
-          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Vincular orçamento à obra</h3>
-            {orcDisponiveis.length === 0 ? (
-              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Nenhum orçamento disponível sem vínculo. Crie um na aba Orçamento.</p>
-            ) : (
-              <select value={vinculoOrcId} onChange={e => setVinculoOrcId(e.target.value)} className="input-base w-full mb-4">
-                <option value="">Selecione um orçamento...</option>
-                {orcDisponiveis.map(o => (
-                  <option key={o.id} value={o.id}>{o.nome || 'Orçamento'}</option>
-                ))}
-              </select>
-            )}
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowVincularOrc(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
-              <button onClick={handleVincularOrc} disabled={!vinculoOrcId} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Vincular</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── Sub-abas: Lançamentos → Lista de Compras → Requisições → Fornecedores ── */}
       <div className="flex gap-1 p-1 rounded-lg w-full max-w-full overflow-x-auto sm:w-fit" style={{ background: 'var(--bg-secondary)' }}>
         {[
@@ -1030,9 +952,6 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
           <option value="todos">Todos</option>
         </select>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="secondary" icon={<Zap size={14} />} loading={importando} onClick={() => importarDoOrcamento(false)} disabled={consolidado}>
-            Sincronizar orçamento
-          </Button>
           <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={() => setSubView('compras')}>
             Listas salvas{listas.length > 0 ? ` (${listas.length})` : ''}
           </Button>
@@ -1041,12 +960,6 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
           </Button>
         </div>
       </div>
-
-      {importando && (
-        <div className="card px-4 py-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          Sincronizando os insumos do orçamento...
-        </div>
-      )}
 
       {/* Filtro por etapa */}
       {etapas.length > 0 && (
@@ -1065,10 +978,7 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
           title="Nenhum material"
           description={'Os materiais vêm das composições do orçamento. Se o orçamento já tem itens e ainda não apareceu nada, sincronize uma vez ou confira se os itens possuem composição/insumos vinculados.'}
           action={
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="secondary" icon={<Zap size={14} />} loading={importando} onClick={() => importarDoOrcamento(false)} disabled={consolidado}>Sincronizar orçamento</Button>
-              <Button size="sm" icon={<Plus size={14} />} onClick={openNew} disabled={consolidado}>Adicionar material</Button>
-            </div>
+            <Button size="sm" icon={<Plus size={14} />} onClick={openNew} disabled={consolidado}>Adicionar material</Button>
           }
         />
       ) : (

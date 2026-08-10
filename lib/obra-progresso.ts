@@ -11,7 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ServicoProg = { id: string; nome: string; percentual: number }
 export type AvancoEixo = 'fisico' | 'mao_obra'
-export type SubetapaProg = { id: string; nome: string; percentual: number; servicos: ServicoProg[] }
+export type SubetapaProg = { id: string; nome: string; percentual: number; valorContratado: number; servicos: ServicoProg[] }
 export type EtapaProg = {
   id: string
   nome: string
@@ -44,38 +44,56 @@ export async function loadObraProgresso(
   eixo: AvancoEixo = 'fisico',
   orcamentoIds?: string[],
 ): Promise<ObraProgresso> {
+  let orcamentosQuery = supabase.from('orcamentos').select('id,gerenciamento_percentual').eq('obra_id', obraId)
+  if (orcamentoIds?.length) orcamentosQuery = orcamentosQuery.in('id', orcamentoIds)
+
   const [{ data: etapasData }, { data: orcamentos }] = await Promise.all([
     supabase
       .from('etapas')
       .select('id, nome, ordem, percentual_executado, percentual_mao_obra, data_inicio, data_fim, subetapas_cronograma(id, nome, percentual_executado, percentual_mao_obra, ordem, servicos_cronograma(id, nome, percentual_executado, percentual_mao_obra, ordem))')
       .eq('obra_id', obraId)
       .order('ordem'),
-    orcamentoIds
-      ? Promise.resolve({ data: orcamentoIds.map(id => ({ id })) })
-      : supabase.from('orcamentos').select('id').eq('obra_id', obraId),
+    orcamentosQuery,
   ])
 
   // Valor contratado por etapa = Σ (quantidade × preço unit) dos itens do orçamento
-  const orcIds = ((orcamentos || []) as { id: string }[]).map(o => o.id)
+  const orcRows = (orcamentos || []) as { id: string; gerenciamento_percentual: number }[]
+  const orcIds = orcRows.map(o => o.id)
+  const fatorGerenciamento = new Map(orcRows.map(o => [o.id, 1 + num(o.gerenciamento_percentual) / 100]))
   const valorPorEtapa: Record<string, number> = {}
+  const valorPorSubetapa = new Map<string, number>()
   const subetapasMaoObraPorEtapa = new Map<string, Set<string>>()
   if (orcIds.length > 0) {
     const { data: itens } = await supabase
       .from('orcamento_itens')
-      .select('etapa_id, subetapa, descricao_snapshot, quantidade, preco_unitario_snapshot, classificacao_snapshot')
+      .select('orcamento_id, etapa_id, subetapa, tipo_linha, descricao_snapshot, quantidade, preco_unitario_snapshot, classificacao_snapshot, subetapa_valor_manual, subetapa_valor_manual_ativo')
       .in('orcamento_id', orcIds)
-    ;((itens || []) as { etapa_id: string | null; subetapa: string | null; descricao_snapshot: string | null; quantidade: number; preco_unitario_snapshot: number; classificacao_snapshot: string | null }[])
-      .forEach(it => {
+    type OrcItem = { orcamento_id: string; etapa_id: string | null; subetapa: string | null; tipo_linha: string; descricao_snapshot: string | null; quantidade: number; preco_unitario_snapshot: number; classificacao_snapshot: string | null; subetapa_valor_manual: number | null; subetapa_valor_manual_ativo: boolean }
+    const somaPorSub = new Map<string, number>()
+    const manualPorSub = new Map<string, number>()
+    ;((itens || []) as OrcItem[]).forEach(it => {
         if (!it.etapa_id) return
         const itemMaoObra = normalizarClassificacao(it.classificacao_snapshot) === 'MAO_DE_OBRA' || descricaoMaoObra(it.descricao_snapshot)
         if (eixo === 'mao_obra' && !itemMaoObra) return
-        valorPorEtapa[it.etapa_id] = (valorPorEtapa[it.etapa_id] || 0) + num(it.quantidade) * num(it.preco_unitario_snapshot)
+        const fator = eixo === 'fisico' ? (fatorGerenciamento.get(it.orcamento_id) || 1) : 1
+        const chaveSub = `${it.etapa_id}::${normalizarNome(it.subetapa || '')}`
+        if (it.tipo_linha === 'subetapa') {
+          if (it.subetapa_valor_manual_ativo) manualPorSub.set(chaveSub, num(it.subetapa_valor_manual) * fator)
+          return
+        }
+        somaPorSub.set(chaveSub, (somaPorSub.get(chaveSub) || 0) + num(it.quantidade) * num(it.preco_unitario_snapshot) * fator)
         if (eixo === 'mao_obra' && it.subetapa) {
           const nomes = subetapasMaoObraPorEtapa.get(it.etapa_id) || new Set<string>()
           nomes.add(normalizarNome(it.subetapa))
           subetapasMaoObraPorEtapa.set(it.etapa_id, nomes)
         }
       })
+    for (const chave of new Set([...somaPorSub.keys(), ...manualPorSub.keys()])) {
+      const valor = manualPorSub.has(chave) ? manualPorSub.get(chave)! : (somaPorSub.get(chave) || 0)
+      valorPorSubetapa.set(chave, valor)
+      const etapaId = chave.split('::')[0]
+      valorPorEtapa[etapaId] = (valorPorEtapa[etapaId] || 0) + valor
+    }
   }
 
   type RawEtapa = {
@@ -87,27 +105,37 @@ export async function loadObraProgresso(
   const percentualDe = (item: { percentual_executado: number; percentual_mao_obra: number }) =>
     num(eixo === 'mao_obra' ? item.percentual_mao_obra : item.percentual_executado)
 
-  const etapas: EtapaProg[] = ((etapasData || []) as RawEtapa[]).map(e => ({
-    id: e.id,
-    nome: e.nome,
-    ordem: e.ordem,
-    percentual: percentualDe(e),
-    valorContratado: valorPorEtapa[e.id] || 0,
-    data_inicio: e.data_inicio,
-    data_fim: e.data_fim,
-    subetapas: (e.subetapas_cronograma || [])
+  const etapas: EtapaProg[] = ((etapasData || []) as RawEtapa[]).map(e => {
+    const subetapas = (e.subetapas_cronograma || [])
       .sort((a, b) => a.ordem - b.ordem)
       .filter(s => eixo === 'fisico' || subetapasMaoObraPorEtapa.get(e.id)?.has(normalizarNome(s.nome)) || s.servicos_cronograma.some(v => descricaoMaoObra(v.nome)))
       .map(s => ({
         id: s.id,
         nome: s.nome,
         percentual: percentualDe(s),
+        valorContratado: valorPorSubetapa.get(`${e.id}::${normalizarNome(s.nome)}`) || 0,
         servicos: (s.servicos_cronograma || [])
           .sort((a, b) => a.ordem - b.ordem)
           .filter(v => eixo === 'fisico' || descricaoMaoObra(v.nome))
           .map(v => ({ id: v.id, nome: v.nome, percentual: percentualDe(v) })),
-      })),
-  })).filter(e => eixo === 'fisico' || e.valorContratado > 0)
+      }))
+    const valorContratado = valorPorEtapa[e.id] || 0
+    const valorSubetapas = subetapas.reduce((total, sub) => total + sub.valorContratado, 0)
+    const valorResidual = Math.max(0, valorContratado - valorSubetapas)
+    const percentual = valorContratado > 0 && valorSubetapas > 0
+      ? (subetapas.reduce((total, sub) => total + sub.percentual * sub.valorContratado, 0) + percentualDe(e) * valorResidual) / valorContratado
+      : percentualDe(e)
+    return {
+      id: e.id,
+      nome: e.nome,
+      ordem: e.ordem,
+      percentual,
+      valorContratado,
+      data_inicio: e.data_inicio,
+      data_fim: e.data_fim,
+      subetapas,
+    }
+  }).filter(e => eixo === 'fisico' || e.valorContratado > 0)
 
   const valorTotal = etapas.reduce((acc, e) => acc + e.valorContratado, 0)
   const temValores = valorTotal > 0
