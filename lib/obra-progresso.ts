@@ -9,9 +9,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export type ServicoProg = { id: string; nome: string; percentual: number }
+export type ServicoProg = { id: string; nome: string; percentual: number; pesoFisico: number }
 export type AvancoEixo = 'fisico' | 'mao_obra' | 'gerenciamento'
-export type SubetapaProg = { id: string; nome: string; percentual: number; valorContratado: number; servicos: ServicoProg[] }
+export type SubetapaProg = { id: string; nome: string; percentual: number; valorContratado: number; pesoFisico: number; servicos: ServicoProg[] }
 export type EtapaProg = {
   id: string
   nome: string
@@ -47,14 +47,16 @@ export async function loadObraProgresso(
   let orcamentosQuery = supabase.from('orcamentos').select('id,gerenciamento_percentual,gerenciamento_distribuicao').eq('obra_id', obraId)
   if (orcamentoIds?.length) orcamentosQuery = orcamentosQuery.in('id', orcamentoIds)
 
-  const [{ data: etapasData }, { data: orcamentos }] = await Promise.all([
+  const [{ data: etapasData }, { data: orcamentos }, { data: obra }] = await Promise.all([
     supabase
       .from('etapas')
-      .select('id, nome, ordem, percentual_executado, percentual_mao_obra, percentual_gerenciamento, data_inicio, data_fim, subetapas_cronograma(id, nome, percentual_executado, percentual_mao_obra, percentual_gerenciamento, ordem, servicos_cronograma(id, nome, percentual_executado, percentual_mao_obra, percentual_gerenciamento, ordem))')
+      .select('id, nome, ordem, percentual_executado, percentual_mao_obra, percentual_gerenciamento, peso_fisico_percentual, data_inicio, data_fim, subetapas_cronograma(id, nome, percentual_executado, percentual_mao_obra, percentual_gerenciamento, peso_fisico_percentual, ordem, servicos_cronograma(id, nome, percentual_executado, percentual_mao_obra, percentual_gerenciamento, peso_fisico_percentual, ordem))')
       .eq('obra_id', obraId)
       .order('ordem'),
     orcamentosQuery,
+    supabase.from('obras').select('valor_contrato').eq('id', obraId).maybeSingle(),
   ])
+  const valorBaseFisica = num(obra?.valor_contrato)
 
   // Valor contratado por etapa = Σ (quantidade × preço unit) dos itens do orçamento
   const orcRows = (orcamentos || []) as { id: string; gerenciamento_percentual: number; gerenciamento_distribuicao: Record<string, number> | null }[]
@@ -111,9 +113,9 @@ export async function loadObraProgresso(
   }
 
   type RawEtapa = {
-    id: string; nome: string; ordem: number; percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number
+    id: string; nome: string; ordem: number; percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number; peso_fisico_percentual: number | null
     data_inicio: string | null; data_fim: string | null
-    subetapas_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number; ordem: number; servicos_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number; ordem: number }[] }[]
+    subetapas_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number; peso_fisico_percentual: number | null; ordem: number; servicos_cronograma: { id: string; nome: string; percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number; peso_fisico_percentual: number | null; ordem: number }[] }[]
   }
 
   const percentualDe = (item: { percentual_executado: number; percentual_mao_obra: number; percentual_gerenciamento: number }) =>
@@ -123,20 +125,37 @@ export async function loadObraProgresso(
     const subetapas = (e.subetapas_cronograma || [])
       .sort((a, b) => a.ordem - b.ordem)
       .filter(s => eixo !== 'mao_obra' || subetapasMaoObraPorEtapa.get(e.id)?.has(normalizarNome(s.nome)) || s.servicos_cronograma.some(v => descricaoMaoObra(v.nome)))
-      .map(s => ({
-        id: s.id,
-        nome: s.nome,
-        percentual: percentualDe(s),
-        valorContratado: valorPorSubetapa.get(`${e.id}::${normalizarNome(s.nome)}`) || 0,
-        servicos: (s.servicos_cronograma || [])
+      .map(s => {
+        const servicos = (s.servicos_cronograma || [])
           .sort((a, b) => a.ordem - b.ordem)
           .filter(v => eixo === 'fisico' || (eixo === 'mao_obra' && descricaoMaoObra(v.nome)))
-          .map(v => ({ id: v.id, nome: v.nome, percentual: percentualDe(v) })),
-      }))
-    const valorContratado = valorPorEtapa[e.id] || 0
+          .map(v => ({ id: v.id, nome: v.nome, percentual: percentualDe(v), pesoFisico: num(v.peso_fisico_percentual) }))
+        const pesoServicos = servicos.reduce((total, servico) => total + servico.pesoFisico, 0)
+        const percentual = eixo === 'fisico' && pesoServicos > 0
+          ? servicos.reduce((total, servico) => total + servico.percentual * servico.pesoFisico, 0) / pesoServicos
+          : percentualDe(s)
+        const pesoFisico = num(s.peso_fisico_percentual) || pesoServicos
+        return {
+        id: s.id,
+        nome: s.nome,
+        percentual,
+        valorContratado: eixo === 'fisico' && pesoFisico > 0 && valorBaseFisica > 0
+          ? valorBaseFisica * pesoFisico / 100
+          : valorPorSubetapa.get(`${e.id}::${normalizarNome(s.nome)}`) || 0,
+        pesoFisico,
+        servicos,
+      }})
+    const pesoSubetapas = subetapas.reduce((total, sub) => total + sub.pesoFisico, 0)
+    const pesoEtapa = num(e.peso_fisico_percentual) || pesoSubetapas
+    const valorContratadoOrcamento = valorPorEtapa[e.id] || 0
+    const valorContratado = eixo === 'fisico' && pesoEtapa > 0
+      ? (valorBaseFisica > 0 ? valorBaseFisica * pesoEtapa / 100 : pesoEtapa)
+      : valorContratadoOrcamento
     const valorSubetapas = subetapas.reduce((total, sub) => total + sub.valorContratado, 0)
     const valorResidual = Math.max(0, valorContratado - valorSubetapas)
-    const percentual = valorContratado > 0 && valorSubetapas > 0
+    const percentual = eixo === 'fisico' && pesoSubetapas > 0
+      ? subetapas.reduce((total, sub) => total + sub.percentual * sub.pesoFisico, 0) / pesoSubetapas
+      : valorContratado > 0 && valorSubetapas > 0
       ? (subetapas.reduce((total, sub) => total + sub.percentual * sub.valorContratado, 0) + percentualDe(e) * valorResidual) / valorContratado
       : percentualDe(e)
     return {
