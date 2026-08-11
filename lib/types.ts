@@ -71,6 +71,8 @@ export type OrcamentoItem = {
   descricao_snapshot: string | null
   codigo_snapshot: string | null
   unidade_snapshot: string | null
+  valor_total_informado_snapshot: number | null
+  valor_total_manual_ativo: boolean | null
   updated_at: string
   composicao?: ComposicaoPropria | null
   sinapi_composicao?: SinapiComposicao | null

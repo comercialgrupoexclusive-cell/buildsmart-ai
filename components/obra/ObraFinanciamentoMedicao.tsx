@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown,
-  Edit3, Plus, RefreshCw, Save, Trash2, X,
+  Edit3, Plus, RefreshCw, Save, Trash2, TrendingUp, X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import type { Etapa, FinanciamentoItem, FinanciamentoCronogramaBanco, FinanciamentoMedicao, FinanciamentoMedicaoItem, SubetapaCronograma } from '@/lib/types'
+import type { Etapa, FinanciamentoItem, FinanciamentoCronogramaBanco, FinanciamentoMedicao, FinanciamentoMedicaoItem, OrcamentoItem, SubetapaCronograma } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
@@ -56,26 +56,28 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
   const [cronoBanco, setCronoBanco] = useState<FinanciamentoCronogramaBanco[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [subetapas, setSubetapas] = useState<SubetapaCronograma[]>([])
+  const [orcItens, setOrcItens] = useState<OrcamentoItem[]>([])
   const [loading, setLoading] = useState(true)
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [editForm, setEditForm] = useState<EditForm | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const [selMedicao, setSelMedicao] = useState<string | null>(null)
-  const [showNewMed, setShowNewMed] = useState(false)
-  const [medForm, setMedForm] = useState({ data_medicao: '', observacao: '' })
   const [pctLocal, setPctLocal] = useState<Record<string, number>>({})
-  const [filtroMed, setFiltroMed] = useState<'todos' | 'pendentes' | 'executados'>('todos')
+  const [pctSim, setPctSim] = useState<Record<string, number>>({})
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const [itensRes, medRes, cronoRes, etapasRes, subRes] = await Promise.all([
+    const orcId = orcamentoId === TODOS_ORCAMENTOS ? null : orcamentoId
+    const [itensRes, medRes, cronoRes, etapasRes, subRes, orcItensRes] = await Promise.all([
       supabase.from('financiamento_itens').select('*').eq('obra_id', obraId).order('ordem'),
       supabase.from('financiamento_medicoes').select('*').eq('obra_id', obraId).order('numero', { ascending: false }),
       supabase.from('financiamento_cronograma_banco').select('*').eq('obra_id', obraId).order('mes'),
       supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem'),
       supabase.from('subetapas_cronograma').select('*').order('ordem'),
+      orcId
+        ? supabase.from('orcamento_itens').select('id,etapa_id,quantidade,preco_unitario_snapshot,valor_total_informado_snapshot,valor_total_manual_ativo').eq('orcamento_id', orcId)
+        : Promise.resolve({ data: [] }),
     ])
     setItens((itensRes.data || []) as FinanciamentoItem[])
     setMedicoes((medRes.data || []) as FinanciamentoMedicao[])
@@ -84,8 +86,9 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
     const allSub = (subRes.data || []) as SubetapaCronograma[]
     const etapaIds = new Set((etapasRes.data || []).map((e: Etapa) => e.id))
     setSubetapas(allSub.filter(s => etapaIds.has(s.etapa_id)))
+    setOrcItens((orcItensRes.data || []) as OrcamentoItem[])
     setLoading(false)
-  }, [obraId, supabase])
+  }, [obraId, orcamentoId, supabase])
 
   useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
 
@@ -93,18 +96,43 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
   const totalValor = useMemo(() => itens.filter(i => !i.parent_id).reduce((s, i) => s + Number(i.valor_financiado || 0), 0), [itens])
   const totalPeso = useMemo(() => itens.filter(i => !i.parent_id).reduce((s, i) => s + Number(i.peso || 0), 0), [itens])
 
-  const medicaoSel = useMemo(() => medicoes.find(m => m.id === selMedicao), [medicoes, selMedicao])
+  // Valor Obra per etapa: sum orcamento_itens grouped by etapa_id
+  const valorObraMap = useMemo(() => {
+    const map = new Map<string, number>()
+    orcItens.forEach(oi => {
+      if (!oi.etapa_id) return
+      const valor = oi.valor_total_manual_ativo && oi.valor_total_informado_snapshot != null
+        ? Number(oi.valor_total_informado_snapshot)
+        : Number(oi.quantidade) * Number(oi.preco_unitario_snapshot)
+      map.set(oi.etapa_id, (map.get(oi.etapa_id) || 0) + valor)
+    })
+    return map
+  }, [orcItens])
+
+  // Map financiamento item -> valor obra via etapa_ref_id
+  const itemValorObra = useCallback((item: FinanciamentoItem | TreeNode): number => {
+    if (item.etapa_ref_id) return valorObraMap.get(item.etapa_ref_id) || 0
+    return 0
+  }, [valorObraMap])
+
+  const totalValorObra = useMemo(() => {
+    return itens.filter(i => !i.parent_id).reduce((s, i) => s + itemValorObra(i), 0)
+  }, [itens, itemValorObra])
+
+  // Load last closed measurement's pct as "% Atual"
+  const ultimaMedicaoFechada = useMemo(() => {
+    return medicoes.find(m => m.status === 'fechada')
+  }, [medicoes])
 
   useEffect(() => {
-    if (!selMedicao) { setMedItens([]); setPctLocal({}); return }
-    supabase.from('financiamento_medicao_itens').select('*').eq('medicao_id', selMedicao).then(({ data }: { data: FinanciamentoMedicaoItem[] | null }) => {
+    if (!ultimaMedicaoFechada) { setPctLocal({}); return }
+    supabase.from('financiamento_medicao_itens').select('*').eq('medicao_id', ultimaMedicaoFechada.id).then(({ data }) => {
       const items = (data || []) as FinanciamentoMedicaoItem[]
-      setMedItens(items)
       const map: Record<string, number> = {}
       items.forEach(mi => { map[mi.item_id] = Number(mi.pct_executado) || 0 })
       setPctLocal(map)
     })
-  }, [selMedicao, supabase])
+  }, [ultimaMedicaoFechada, supabase])
 
   // Cross-ref: etapas do cronograma -> % executado no sistema
   const cronogramaRef = useMemo(() => {
@@ -122,37 +150,30 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
     return map
   }, [itens, etapas, subetapas])
 
-  const etapaValorObra = useMemo(() => {
-    const map = new Map<string, { valor: number; pctExec: number }>()
-    etapas.forEach(e => map.set(e.nome.toLowerCase().trim(), { valor: 0, pctExec: Number(e.percentual_executado || 0) }))
-    return map
-  }, [etapas])
-
-  function calcExecObra(node: TreeNode): number {
-    if (node.children.length === 0) {
-      const pct = pctLocal[node.id] ?? 0
-      return (Number(node.peso) || 0) * pct / 100
-    }
-    return node.children.reduce((s, c) => s + calcExecObra(c), 0)
-  }
-
-  function calcPctItem(node: TreeNode): number {
-    if (node.children.length === 0) return pctLocal[node.id] ?? 0
+  function calcPctItem(node: TreeNode, source: Record<string, number>): number {
+    if (node.children.length === 0) return source[node.id] ?? 0
     const leaves = getLeaves([node])
     if (leaves.length === 0) return 0
     const totalPesoLeaves = leaves.reduce((s, l) => s + (Number(l.peso) || 0), 0)
     if (totalPesoLeaves === 0) return 0
-    const execTotal = leaves.reduce((s, l) => s + (Number(l.peso) || 0) * (pctLocal[l.id] ?? 0) / 100, 0)
+    const execTotal = leaves.reduce((s, l) => s + (Number(l.peso) || 0) * (source[l.id] ?? 0) / 100, 0)
     return (execTotal / totalPesoLeaves) * 100
   }
 
-  const acumuladoAtual = useMemo(() => tree.reduce((s, n) => s + calcExecObra(n), 0), [tree, pctLocal])
+  function calcExecObra(node: TreeNode, source: Record<string, number>): number {
+    if (node.children.length === 0) {
+      const pct = source[node.id] ?? 0
+      return (Number(node.peso) || 0) * pct / 100
+    }
+    return node.children.reduce((s, c) => s + calcExecObra(c, source), 0)
+  }
 
-  const totalValorObra = useMemo(() => {
-    let total = 0
-    etapaValorObra.forEach(v => { total += v.valor })
-    return total
-  }, [etapaValorObra])
+  const acumuladoAtual = useMemo(() => tree.reduce((s, n) => s + calcExecObra(n, pctLocal), 0), [tree, pctLocal])
+  const acumuladoSim = useMemo(() => {
+    if (Object.keys(pctSim).length === 0) return acumuladoAtual
+    const merged = { ...pctLocal, ...pctSim }
+    return tree.reduce((s, n) => s + calcExecObra(n, merged), 0)
+  }, [tree, pctLocal, pctSim, acumuladoAtual])
 
   // --- CRUD Árvore ---
   async function salvarItem() {
@@ -186,53 +207,38 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
     carregar()
   }
 
-  // --- CRUD Medições ---
-  async function criarMedicao() {
-    if (!medForm.data_medicao) return
+  // --- Registrar medição a partir da simulação ---
+  async function registrarMedicao() {
+    if (Object.keys(pctSim).length === 0) return
     const numero = medicoes.length > 0 ? Math.max(...medicoes.map(m => m.numero)) + 1 : 1
-    const { data } = await supabase.from('financiamento_medicoes').insert({
+    const hoje = new Date().toISOString().split('T')[0]
+    const { data: novaMed } = await supabase.from('financiamento_medicoes').insert({
       obra_id: obraId,
       orcamento_id: orcamentoId === TODOS_ORCAMENTOS ? null : orcamentoId,
-      numero, data_medicao: medForm.data_medicao,
-      observacao: medForm.observacao.trim() || null,
+      numero, data_medicao: hoje, status: 'fechada',
     }).select().single()
-    setShowNewMed(false)
-    setMedForm({ data_medicao: '', observacao: '' })
-    if (data) {
-      setMedicoes(prev => [data as FinanciamentoMedicao, ...prev])
-      setSelMedicao((data as FinanciamentoMedicao).id)
+    if (!novaMed) return
+    const med = novaMed as FinanciamentoMedicao
+    const merged = { ...pctLocal, ...pctSim }
+    const leaves = getLeaves(tree)
+    const rows = leaves.map(l => ({
+      medicao_id: med.id,
+      item_id: l.id,
+      pct_executado: merged[l.id] ?? 0,
+    }))
+    if (rows.length > 0) {
+      await supabase.from('financiamento_medicao_itens').insert(rows)
     }
-  }
-
-  async function salvarPct(itemId: string, valor: number) {
-    if (!selMedicao) return
-    const v = Math.min(100, Math.max(0, valor))
-    setPctLocal(prev => ({ ...prev, [itemId]: v }))
-    const existing = medItens.find(mi => mi.item_id === itemId && mi.medicao_id === selMedicao)
-    if (existing) {
-      await supabase.from('financiamento_medicao_itens').update({ pct_executado: v }).eq('id', existing.id)
-    } else {
-      const { data } = await supabase.from('financiamento_medicao_itens').insert({ medicao_id: selMedicao, item_id: itemId, pct_executado: v }).select().single()
-      if (data) setMedItens(prev => [...prev, data as FinanciamentoMedicaoItem])
-    }
-  }
-
-  async function fecharMedicao(id: string) {
-    if (!confirm('Fechar esta medição?')) return
-    await supabase.from('financiamento_medicoes').update({ status: 'fechada', updated_at: new Date().toISOString() }).eq('id', id)
-    setMedicoes(prev => prev.map(m => m.id === id ? { ...m, status: 'fechada' as const } : m))
-  }
-
-  async function reabrirMedicao(id: string) {
-    await supabase.from('financiamento_medicoes').update({ status: 'aberta', updated_at: new Date().toISOString() }).eq('id', id)
-    setMedicoes(prev => prev.map(m => m.id === id ? { ...m, status: 'aberta' as const } : m))
+    setPctLocal(merged)
+    setPctSim({})
+    setMedicoes(prev => [med, ...prev])
   }
 
   async function excluirMedicao(id: string) {
     if (!confirm('Excluir esta medição e todos os seus dados?')) return
     await supabase.from('financiamento_medicoes').delete().eq('id', id)
     setMedicoes(prev => prev.filter(m => m.id !== id))
-    if (selMedicao === id) setSelMedicao(null)
+    carregar()
   }
 
   function toggleAll(expand: boolean) {
@@ -247,7 +253,7 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
     <VisaoGeral
       tree={tree} itens={itens} totalValor={totalValor} totalValorObra={totalValorObra}
       acumuladoAtual={acumuladoAtual} cronoBanco={cronoBanco} medicoes={medicoes}
-      calcPctItem={calcPctItem}
+      calcPctItem={(n) => calcPctItem(n, pctLocal)} itemValorObra={itemValorObra}
     />
   )
 
@@ -257,38 +263,39 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
       collapsed={collapsed} setCollapsed={setCollapsed}
       editForm={editForm} setEditForm={setEditForm}
       saving={saving} salvarItem={salvarItem} removerItem={removerItem}
-      toggleAll={toggleAll} isTodos={isTodos} etapaValorObra={etapaValorObra}
+      toggleAll={toggleAll} isTodos={isTodos} itemValorObra={itemValorObra}
     />
   )
 
   if (view === 'execucao') return (
     <ExecucaoView
-      tree={tree} medicoes={medicoes} medicaoSel={medicaoSel}
-      selMedicao={selMedicao} setSelMedicao={setSelMedicao}
-      showNewMed={showNewMed} setShowNewMed={setShowNewMed}
-      medForm={medForm} setMedForm={setMedForm} criarMedicao={criarMedicao}
-      pctLocal={pctLocal} salvarPct={salvarPct}
-      calcExecObra={calcExecObra} calcPctItem={calcPctItem}
-      acumuladoAtual={acumuladoAtual}
-      fecharMedicao={fecharMedicao} reabrirMedicao={reabrirMedicao} excluirMedicao={excluirMedicao}
+      tree={tree} totalValor={totalValor}
+      pctLocal={pctLocal} pctSim={pctSim} setPctSim={setPctSim}
+      calcPctItemAtual={(n) => calcPctItem(n, pctLocal)}
+      calcPctItemSim={(n) => calcPctItem(n, { ...pctLocal, ...pctSim })}
+      calcExecObraAtual={(n) => calcExecObra(n, pctLocal)}
+      calcExecObraSim={(n) => calcExecObra(n, { ...pctLocal, ...pctSim })}
+      acumuladoAtual={acumuladoAtual} acumuladoSim={acumuladoSim}
+      cronogramaRef={cronogramaRef} cronoBanco={cronoBanco} medicoes={medicoes}
+      registrarMedicao={registrarMedicao}
       collapsed={collapsed} setCollapsed={setCollapsed} toggleAll={toggleAll}
-      isTodos={isTodos} cronogramaRef={cronogramaRef}
-      filtroMed={filtroMed} setFiltroMed={setFiltroMed}
+      isTodos={isTodos}
     />
   )
 
   return (
-    <AcompanhamentoView medicoes={medicoes} cronoBanco={cronoBanco} acumuladoAtual={acumuladoAtual} />
+    <AcompanhamentoView medicoes={medicoes} cronoBanco={cronoBanco} acumuladoAtual={acumuladoAtual}
+      excluirMedicao={excluirMedicao} />
   )
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
 // VISÃO GERAL
 // ════════════════════════════════════════════════════════════════════════════════
-function VisaoGeral({ tree, itens, totalValor, totalValorObra, acumuladoAtual, cronoBanco, medicoes, calcPctItem }: {
+function VisaoGeral({ tree, itens, totalValor, totalValorObra, acumuladoAtual, cronoBanco, medicoes, calcPctItem, itemValorObra }: {
   tree: TreeNode[]; itens: FinanciamentoItem[]; totalValor: number; totalValorObra: number
   acumuladoAtual: number; cronoBanco: FinanciamentoCronogramaBanco[]; medicoes: FinanciamentoMedicao[]
-  calcPctItem: (n: TreeNode) => number
+  calcPctItem: (n: TreeNode) => number; itemValorObra: (i: FinanciamentoItem | TreeNode) => number
 }) {
   const diferenca = totalValor - totalValorObra
   const mesAtual = medicoes.filter(m => m.status === 'fechada').length + 1
@@ -296,7 +303,6 @@ function VisaoGeral({ tree, itens, totalValor, totalValorObra, acumuladoAtual, c
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Card label="Valor Financiado" valor={formatCurrency(totalValor)} />
         <Card label="% Executado" valor={`${acumuladoAtual.toFixed(1)}%`} accent />
@@ -304,7 +310,6 @@ function VisaoGeral({ tree, itens, totalValor, totalValorObra, acumuladoAtual, c
         <Card label={`Meta Mês ${mesAtual}`} valor={metaMes ? `${Number(metaMes.pct_acumulado_previsto).toFixed(0)}%` : '—'} sub={metaMes ? (acumuladoAtual >= Number(metaMes.pct_acumulado_previsto) ? 'no prazo' : 'atrasado') : ''} accent={!!metaMes && acumuladoAtual >= Number(metaMes.pct_acumulado_previsto)} danger={!!metaMes && acumuladoAtual < Number(metaMes.pct_acumulado_previsto)} />
       </div>
 
-      {/* Mini cascata nível 1 */}
       {tree.length > 0 && (
         <div className="card overflow-hidden">
           <div className="px-3 py-2 text-xs font-semibold" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
@@ -313,10 +318,12 @@ function VisaoGeral({ tree, itens, totalValor, totalValorObra, acumuladoAtual, c
           {tree.map(node => {
             const pct = calcPctItem(node)
             const barW = Math.min(pct, 100)
+            const vObra = itemValorObra(node)
             return (
               <div key={node.id} className="flex items-center gap-3 px-3 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
                 <span className="text-xs font-semibold flex-shrink-0" style={{ color: 'var(--accent)', width: 24 }}>{node.codigo}</span>
                 <span className="text-xs flex-1 truncate" style={{ color: 'var(--text-primary)' }}>{node.nome}</span>
+                <span className="text-[10px] flex-shrink-0 hidden sm:block" style={{ color: 'var(--text-secondary)', width: 70, textAlign: 'right' }}>{vObra > 0 ? formatCurrency(vObra) : '—'}</span>
                 <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--text-secondary)', width: 40, textAlign: 'right' }}>{Number(node.peso).toFixed(1)}%</span>
                 <div className="flex-shrink-0" style={{ width: 60, height: 6, borderRadius: 3, background: 'var(--border)' }}>
                   <div style={{ width: `${barW}%`, height: '100%', borderRadius: 3, background: pct >= 100 ? 'var(--success)' : 'var(--accent)', transition: 'width .3s' }} />
@@ -353,13 +360,13 @@ function Card({ label, valor, sub, accent, danger }: { label: string; valor: str
 // ════════════════════════════════════════════════════════════════════════════════
 // ORÇAMENTO VIEW
 // ════════════════════════════════════════════════════════════════════════════════
-function OrcamentoView({ tree, itens, totalValor, totalPeso, totalValorObra, collapsed, setCollapsed, editForm, setEditForm, saving, salvarItem, removerItem, toggleAll, isTodos, etapaValorObra }: {
+function OrcamentoView({ tree, itens, totalValor, totalPeso, totalValorObra, collapsed, setCollapsed, editForm, setEditForm, saving, salvarItem, removerItem, toggleAll, isTodos, itemValorObra }: {
   tree: TreeNode[]; itens: FinanciamentoItem[]; totalValor: number; totalPeso: number; totalValorObra: number
   collapsed: Record<string, boolean>; setCollapsed: (v: Record<string, boolean>) => void
   editForm: EditForm | null; setEditForm: (v: EditForm | null) => void
   saving: boolean; salvarItem: () => void; removerItem: (id: string) => void
   toggleAll: (expand: boolean) => void; isTodos: boolean
-  etapaValorObra: Map<string, { valor: number; pctExec: number }>
+  itemValorObra: (i: FinanciamentoItem | TreeNode) => number
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -409,7 +416,7 @@ function OrcamentoView({ tree, itens, totalValor, totalPeso, totalValorObra, col
               {tree.map(node => <TreeRowOrc key={node.id} node={node} depth={0}
                 collapsed={collapsed} setCollapsed={setCollapsed}
                 editForm={editForm} setEditForm={setEditForm}
-                removerItem={removerItem} isTodos={isTodos} etapaValorObra={etapaValorObra} />)}
+                removerItem={removerItem} isTodos={isTodos} itemValorObra={itemValorObra} />)}
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--bg-secondary)' }}>
@@ -430,20 +437,19 @@ function OrcamentoView({ tree, itens, totalValor, totalPeso, totalValorObra, col
   )
 }
 
-function TreeRowOrc({ node, depth, collapsed, setCollapsed, editForm, setEditForm, removerItem, isTodos, etapaValorObra }: {
+function TreeRowOrc({ node, depth, collapsed, setCollapsed, editForm, setEditForm, removerItem, isTodos, itemValorObra }: {
   node: TreeNode; depth: number; collapsed: Record<string, boolean>; setCollapsed: (v: Record<string, boolean>) => void
   editForm: EditForm | null; setEditForm: (v: EditForm | null) => void; removerItem: (id: string) => void
-  isTodos: boolean; etapaValorObra: Map<string, { valor: number; pctExec: number }>
+  isTodos: boolean; itemValorObra: (i: FinanciamentoItem | TreeNode) => number
 }) {
   const hasChildren = node.children.length > 0
   const isCollapsed = collapsed[node.id]
   const bg = depth === 0 ? 'var(--bg-secondary)' : undefined
   const fw = depth === 0 ? 700 : depth === 1 ? 600 : 400
 
-  const obraMatch = etapaValorObra.get(node.nome.toLowerCase().trim())
-  const valorObra = obraMatch?.valor ?? 0
+  const valorObra = itemValorObra(node)
   const valorFin = Number(node.valor_financiado) || 0
-  const dif = valorFin > 0 && valorObra > 0 ? valorFin - valorObra : 0
+  const dif = valorFin - valorObra
 
   return (
     <>
@@ -466,7 +472,7 @@ function TreeRowOrc({ node, depth, collapsed, setCollapsed, editForm, setEditFor
         <td className="text-right px-3 py-2" style={{ color: 'var(--text-primary)' }}>{valorFin > 0 ? formatCurrency(valorFin) : ''}</td>
         <td className="text-right px-3 py-2" style={{ color: 'var(--text-secondary)' }}>{valorObra > 0 ? formatCurrency(valorObra) : '—'}</td>
         <td className="text-right px-3 py-2" style={{ color: dif > 0 ? 'var(--success)' : dif < 0 ? 'var(--danger)' : 'var(--text-secondary)' }}>
-          {dif !== 0 ? formatCurrency(dif) : '—'}
+          {valorFin > 0 || valorObra > 0 ? formatCurrency(dif) : '—'}
         </td>
         <td className="text-center px-2 py-2">
           {!isTodos && (
@@ -484,7 +490,7 @@ function TreeRowOrc({ node, depth, collapsed, setCollapsed, editForm, setEditFor
         <TreeRowOrc key={child.id} node={child} depth={depth + 1}
           collapsed={collapsed} setCollapsed={setCollapsed}
           editForm={editForm} setEditForm={setEditForm}
-          removerItem={removerItem} isTodos={isTodos} etapaValorObra={etapaValorObra} />
+          removerItem={removerItem} isTodos={isTodos} itemValorObra={itemValorObra} />
       ))}
     </>
   )
@@ -493,156 +499,177 @@ function TreeRowOrc({ node, depth, collapsed, setCollapsed, editForm, setEditFor
 // ════════════════════════════════════════════════════════════════════════════════
 // EXECUÇÃO VIEW
 // ════════════════════════════════════════════════════════════════════════════════
-function ExecucaoView({ tree, medicoes, medicaoSel, selMedicao, setSelMedicao, showNewMed, setShowNewMed, medForm, setMedForm, criarMedicao, pctLocal, salvarPct, calcExecObra, calcPctItem, acumuladoAtual, fecharMedicao, reabrirMedicao, excluirMedicao, collapsed, setCollapsed, toggleAll, isTodos, cronogramaRef, filtroMed, setFiltroMed }: {
-  tree: TreeNode[]; medicoes: FinanciamentoMedicao[]
-  medicaoSel: FinanciamentoMedicao | undefined; selMedicao: string | null; setSelMedicao: (v: string | null) => void
-  showNewMed: boolean; setShowNewMed: (v: boolean) => void
-  medForm: { data_medicao: string; observacao: string }; setMedForm: (v: { data_medicao: string; observacao: string }) => void
-  criarMedicao: () => void; pctLocal: Record<string, number>; salvarPct: (itemId: string, valor: number) => void
-  calcExecObra: (node: TreeNode) => number; calcPctItem: (node: TreeNode) => number; acumuladoAtual: number
-  fecharMedicao: (id: string) => void; reabrirMedicao: (id: string) => void; excluirMedicao: (id: string) => void
+function ExecucaoView({ tree, totalValor, pctLocal, pctSim, setPctSim, calcPctItemAtual, calcPctItemSim, calcExecObraAtual, calcExecObraSim, acumuladoAtual, acumuladoSim, cronogramaRef, cronoBanco, medicoes, registrarMedicao, collapsed, setCollapsed, toggleAll, isTodos }: {
+  tree: TreeNode[]; totalValor: number
+  pctLocal: Record<string, number>; pctSim: Record<string, number>; setPctSim: (v: Record<string, number>) => void
+  calcPctItemAtual: (n: TreeNode) => number; calcPctItemSim: (n: TreeNode) => number
+  calcExecObraAtual: (n: TreeNode) => number; calcExecObraSim: (n: TreeNode) => number
+  acumuladoAtual: number; acumuladoSim: number
+  cronogramaRef: Map<string, number>; cronoBanco: FinanciamentoCronogramaBanco[]; medicoes: FinanciamentoMedicao[]
+  registrarMedicao: () => void
   collapsed: Record<string, boolean>; setCollapsed: (v: Record<string, boolean>) => void; toggleAll: (e: boolean) => void
-  isTodos: boolean; cronogramaRef: Map<string, number>
-  filtroMed: 'todos' | 'pendentes' | 'executados'; setFiltroMed: (v: 'todos' | 'pendentes' | 'executados') => void
+  isTodos: boolean
 }) {
+  const hasSim = Object.keys(pctSim).length > 0
+  const mesAtual = medicoes.filter(m => m.status === 'fechada').length + 1
+  const metaMes = cronoBanco.find(c => c.mes === mesAtual)
+  const metaPct = metaMes ? Number(metaMes.pct_acumulado_previsto) : null
+
+  // Previsão de reembolso
+  const valorReembolsoSim = totalValor * (acumuladoSim / 100)
+  const valorReembolsoAtual = totalValor * (acumuladoAtual / 100)
+  const ganhoMedicao = valorReembolsoSim - valorReembolsoAtual
+
   if (tree.length === 0) {
     return (
       <div className="card p-10 text-center">
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Cadastre o orçamento do financiamento antes de criar medições.</p>
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Cadastre o orçamento do financiamento antes de medir.</p>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Medição selector */}
-      <div className="flex flex-wrap items-center gap-2">
-        <select value={selMedicao || ''} onChange={e => setSelMedicao(e.target.value || null)} className="input-base text-sm py-1.5 w-full sm:w-64">
-          <option value="">Selecionar medição...</option>
-          {medicoes.map(m => (
-            <option key={m.id} value={m.id}>
-              Medição {m.numero} — {new Date(m.data_medicao + 'T12:00:00').toLocaleDateString('pt-BR')} {m.status === 'fechada' ? '(fechada)' : ''}
-            </option>
-          ))}
-        </select>
-        <button onClick={() => setShowNewMed(true)} disabled={isTodos} className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs disabled:opacity-50">
-          <Plus size={14} /> Nova
-        </button>
-        {medicaoSel && (
-          <>
-            <div className="flex-1" />
-            {medicaoSel.status === 'aberta' ? (
-              <button onClick={() => fecharMedicao(medicaoSel.id)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-medium" style={{ background: 'rgba(34,197,94,0.12)', color: 'var(--success)', border: '1px solid rgba(34,197,94,0.3)' }}>
-                <Save size={13} /> Fechar
-              </button>
-            ) : (
-              <button onClick={() => reabrirMedicao(medicaoSel.id)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-medium" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>Reabrir</button>
-            )}
-            <button onClick={() => excluirMedicao(medicaoSel.id)} className="p-1.5 rounded-lg" style={{ color: 'var(--danger)' }} title="Excluir"><Trash2 size={15} /></button>
-          </>
-        )}
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card label="% Atual" valor={`${acumuladoAtual.toFixed(1)}%`} />
+        <Card label="% Simulação" valor={`${acumuladoSim.toFixed(1)}%`} accent={hasSim} sub={hasSim ? `+${(acumuladoSim - acumuladoAtual).toFixed(1)}pp` : 'igual ao atual'} />
+        <Card label={`Meta Mês ${mesAtual}`} valor={metaPct ? `${metaPct.toFixed(0)}%` : '—'} accent={metaPct != null && acumuladoSim >= metaPct} danger={metaPct != null && acumuladoSim < metaPct} sub={metaPct != null ? (acumuladoSim >= metaPct ? 'atingida' : `faltam ${(metaPct - acumuladoSim).toFixed(1)}pp`) : ''} />
+        <Card label="Previsão Reembolso" valor={formatCurrency(ganhoMedicao)} sub={hasSim ? `acumulado: ${formatCurrency(valorReembolsoSim)}` : 'simule para prever'} accent={ganhoMedicao > 0} />
       </div>
 
-      {showNewMed && (
-        <div className="card p-4 flex flex-col gap-3">
-          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Nova medição</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block"><span className="block text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>Data</span><input type="date" value={medForm.data_medicao} onChange={e => setMedForm({ ...medForm, data_medicao: e.target.value })} className="input-base w-full" /></label>
-            <label className="block"><span className="block text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>Observação</span><input value={medForm.observacao} onChange={e => setMedForm({ ...medForm, observacao: e.target.value })} className="input-base w-full" /></label>
-          </div>
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setShowNewMed(false)} className="px-3 py-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
-            <button onClick={criarMedicao} disabled={!medForm.data_medicao} className="btn-primary px-4 py-1.5 text-xs disabled:opacity-50">Criar</button>
-          </div>
-        </div>
-      )}
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2">
+        {hasSim && (
+          <>
+            <button onClick={registrarMedicao} disabled={isTodos}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs rounded-lg font-semibold transition-all"
+              style={{ background: 'rgba(34,197,94,0.15)', color: 'var(--success)', border: '1px solid rgba(34,197,94,0.3)' }}>
+              <Save size={14} /> Registrar Medição {medicoes.filter(m => m.status === 'fechada').length + 1}
+            </button>
+            <button onClick={() => setPctSim({})}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-medium"
+              style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+              <X size={13} /> Limpar simulação
+            </button>
+          </>
+        )}
+        <div className="flex-1" />
+        <button onClick={() => toggleAll(false)} className="p-1.5 rounded-lg" style={{ color: 'var(--text-secondary)' }} title="Recolher"><ChevronsDownUp size={15} /></button>
+        <button onClick={() => toggleAll(true)} className="p-1.5 rounded-lg" style={{ color: 'var(--text-secondary)' }} title="Expandir"><ChevronsUpDown size={15} /></button>
+      </div>
 
-      {medicaoSel && (
-        <>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 p-0.5 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-              {(['todos', 'pendentes', 'executados'] as const).map(f => (
-                <button key={f} onClick={() => setFiltroMed(f)}
-                  className="px-2.5 py-1 rounded-md text-[11px] font-medium transition-all"
-                  style={filtroMed === f ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}>
-                  {f === 'todos' ? 'Todos' : f === 'pendentes' ? 'Pendentes' : 'Executados'}
-                </button>
-              ))}
+      {/* Cascata */}
+      <div className="card overflow-x-auto">
+        <table className="w-full text-xs" style={{ minWidth: 500 }}>
+          <thead>
+            <tr style={{ background: 'var(--bg-secondary)' }}>
+              <th className="text-left px-3 py-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>Serviço</th>
+              <th className="text-right px-3 py-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>Peso</th>
+              <th className="text-center px-3 py-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>% Atual</th>
+              <th className="text-center px-3 py-2 font-semibold" style={{ color: 'var(--accent)' }}>% Simulação</th>
+              <th className="text-right px-3 py-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>Exec.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tree.map(node => (
+              <TreeRowExec key={node.id} node={node} depth={0}
+                collapsed={collapsed} setCollapsed={setCollapsed}
+                pctLocal={pctLocal} pctSim={pctSim} setPctSim={setPctSim}
+                calcPctItemAtual={calcPctItemAtual} calcPctItemSim={calcPctItemSim}
+                calcExecObraSim={calcExecObraSim}
+                cronogramaRef={cronogramaRef} />
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: 'rgba(59,123,248,0.08)' }}>
+              <td className="px-3 py-2 font-bold text-sm" style={{ color: 'var(--accent)' }}>TOTAL</td>
+              <td />
+              <td className="text-center px-3 py-2 font-bold text-sm" style={{ color: 'var(--text-primary)' }}>{acumuladoAtual.toFixed(1)}%</td>
+              <td className="text-center px-3 py-2 font-bold text-sm" style={{ color: 'var(--accent)' }}>{acumuladoSim.toFixed(1)}%</td>
+              <td className="text-right px-3 py-2 font-bold text-sm" style={{ color: 'var(--accent)' }}>{acumuladoSim.toFixed(2)}%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* Previsão de reembolso detalhada */}
+      {hasSim && (
+        <div className="card p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp size={16} style={{ color: 'var(--accent)' }} />
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Previsão de Reembolso</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+              <p style={{ color: 'var(--text-secondary)' }}>Reembolso acumulado anterior</p>
+              <p className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(valorReembolsoAtual)}</p>
+              <p style={{ color: 'var(--text-secondary)' }}>{acumuladoAtual.toFixed(1)}% de {formatCurrency(totalValor)}</p>
             </div>
-            <div className="flex-1" />
-            <button onClick={() => toggleAll(false)} className="p-1.5 rounded-lg" style={{ color: 'var(--text-secondary)' }} title="Recolher"><ChevronsDownUp size={15} /></button>
-            <button onClick={() => toggleAll(true)} className="p-1.5 rounded-lg" style={{ color: 'var(--text-secondary)' }} title="Expandir"><ChevronsUpDown size={15} /></button>
+            <div className="p-3 rounded-lg" style={{ background: 'rgba(59,123,248,0.06)' }}>
+              <p style={{ color: 'var(--text-secondary)' }}>Reembolso com esta medição</p>
+              <p className="text-lg font-bold" style={{ color: 'var(--accent)' }}>{formatCurrency(valorReembolsoSim)}</p>
+              <p style={{ color: 'var(--text-secondary)' }}>{acumuladoSim.toFixed(1)}% de {formatCurrency(totalValor)}</p>
+            </div>
+            <div className="p-3 rounded-lg" style={{ background: 'rgba(34,197,94,0.06)' }}>
+              <p style={{ color: 'var(--text-secondary)' }}>Ganho nesta medição</p>
+              <p className="text-lg font-bold" style={{ color: 'var(--success)' }}>{formatCurrency(ganhoMedicao)}</p>
+              <p style={{ color: 'var(--text-secondary)' }}>+{(acumuladoSim - acumuladoAtual).toFixed(1)}pp de evolução</p>
+            </div>
           </div>
-
-          <div className="card overflow-x-auto">
-            <table className="w-full text-xs" style={{ minWidth: 550 }}>
-              <thead>
-                <tr style={{ background: 'var(--bg-secondary)' }}>
-                  <th className="text-left px-3 py-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>Serviço</th>
-                  <th className="text-right px-3 py-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>Peso</th>
-                  <th className="text-center px-3 py-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>% Atual</th>
-                  <th className="text-center px-3 py-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>% Próxima</th>
-                  <th className="text-right px-3 py-2 font-semibold" style={{ color: 'var(--text-secondary)' }}>Exec. Obra</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tree.map(node => (
-                  <TreeRowExec key={node.id} node={node} depth={0}
-                    collapsed={collapsed} setCollapsed={setCollapsed}
-                    pctLocal={pctLocal} salvarPct={salvarPct}
-                    calcExecObra={calcExecObra} calcPctItem={calcPctItem}
-                    editable={medicaoSel.status === 'aberta'}
-                    cronogramaRef={cronogramaRef} filtroMed={filtroMed} />
-                ))}
-              </tbody>
-              <tfoot>
-                <tr style={{ background: 'rgba(59,123,248,0.08)' }}>
-                  <td colSpan={4} className="px-3 py-2 font-bold text-sm" style={{ color: 'var(--accent)' }}>Mensurado Acumulado</td>
-                  <td className="text-right px-3 py-2 font-bold text-sm" style={{ color: 'var(--accent)' }}>{acumuladoAtual.toFixed(2)}%</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </>
-      )}
-
-      {!selMedicao && medicoes.length === 0 && !showNewMed && (
-        <div className="card p-10 text-center">
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma medição criada. Clique em "Nova" para iniciar.</p>
+          {metaPct != null && (
+            <div className="mt-3 p-2 rounded-lg text-xs" style={{ background: acumuladoSim >= metaPct ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', color: acumuladoSim >= metaPct ? 'var(--success)' : 'var(--danger)' }}>
+              {acumuladoSim >= metaPct
+                ? `Meta do mês ${mesAtual} (${metaPct}%) atingida! Evolução ${(acumuladoSim - metaPct).toFixed(1)}pp acima.`
+                : `Atenção: meta do mês ${mesAtual} é ${metaPct}%, faltam ${(metaPct - acumuladoSim).toFixed(1)}pp para atingir.`
+              }
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function TreeRowExec({ node, depth, collapsed, setCollapsed, pctLocal, salvarPct, calcExecObra, calcPctItem, editable, cronogramaRef, filtroMed }: {
+function TreeRowExec({ node, depth, collapsed, setCollapsed, pctLocal, pctSim, setPctSim, calcPctItemAtual, calcPctItemSim, calcExecObraSim, cronogramaRef }: {
   node: TreeNode; depth: number; collapsed: Record<string, boolean>; setCollapsed: (v: Record<string, boolean>) => void
-  pctLocal: Record<string, number>; salvarPct: (itemId: string, valor: number) => void
-  calcExecObra: (node: TreeNode) => number; calcPctItem: (node: TreeNode) => number
-  editable: boolean; cronogramaRef: Map<string, number>
-  filtroMed: 'todos' | 'pendentes' | 'executados'
+  pctLocal: Record<string, number>; pctSim: Record<string, number>; setPctSim: (v: Record<string, number>) => void
+  calcPctItemAtual: (n: TreeNode) => number; calcPctItemSim: (n: TreeNode) => number
+  calcExecObraSim: (n: TreeNode) => number
+  cronogramaRef: Map<string, number>
 }) {
   const hasChildren = node.children.length > 0
   const isCollapsed = collapsed[node.id]
   const isLeaf = !hasChildren
-  const pctAtual = isLeaf ? (pctLocal[node.id] ?? 0) : calcPctItem(node)
-  const execObra = calcExecObra(node)
+  const pctAtual = isLeaf ? (pctLocal[node.id] ?? 0) : calcPctItemAtual(node)
+  const simVal = pctSim[node.id]
+  const pctSimCalc = isLeaf ? (simVal ?? pctLocal[node.id] ?? 0) : calcPctItemSim(node)
+  const execObraSim = calcExecObraSim(node)
   const pctSistema = cronogramaRef.get(node.id)
-
-  if (filtroMed === 'pendentes' && isLeaf && pctAtual >= 100) return null
-  if (filtroMed === 'executados' && isLeaf && pctAtual < 100) return null
+  const changed = isLeaf && simVal !== undefined && simVal !== (pctLocal[node.id] ?? 0)
 
   const bg = depth === 0 ? 'var(--bg-secondary)' : undefined
   const fw = depth === 0 ? 700 : depth === 1 ? 600 : 400
   const pctColor = pctAtual >= 100 ? 'var(--success)' : pctAtual > 0 ? 'var(--accent)' : 'var(--text-secondary)'
 
+  function updateSim(val: number) {
+    const v = Math.min(100, Math.max(0, val))
+    if (v === (pctLocal[node.id] ?? 0)) {
+      const next = { ...pctSim }
+      delete next[node.id]
+      setPctSim(next)
+    } else {
+      setPctSim({ ...pctSim, [node.id]: v })
+    }
+  }
+
   function resetToSistema() {
-    if (pctSistema !== undefined) salvarPct(node.id, pctSistema)
+    if (pctSistema !== undefined) updateSim(pctSistema)
   }
 
   return (
     <>
-      <tr style={{ background: bg, borderBottom: '1px solid var(--border)' }}>
+      <tr style={{ background: changed ? 'rgba(59,123,248,0.04)' : bg, borderBottom: '1px solid var(--border)' }}>
         <td className="px-3 py-2" style={{ paddingLeft: `${12 + depth * 20}px` }}>
           <div className="flex items-center gap-1.5">
             {hasChildren ? (
@@ -658,36 +685,39 @@ function TreeRowExec({ node, depth, collapsed, setCollapsed, pctLocal, salvarPct
         </td>
         <td className="text-right px-3 py-2" style={{ color: 'var(--text-primary)' }}>{Number(node.peso) > 0 ? Number(node.peso).toFixed(2) : ''}</td>
         <td className="text-center px-3 py-2">
-          <span style={{ color: pctColor, fontWeight: 600 }}>{pctAtual > 0 ? `${pctAtual.toFixed(0)}%` : ''}</span>
+          <span style={{ color: pctColor, fontWeight: 600 }}>{pctAtual > 0 ? `${pctAtual.toFixed(0)}%` : '—'}</span>
         </td>
         <td className="text-center px-3 py-2">
-          {isLeaf && editable ? (
+          {isLeaf ? (
             <div className="flex items-center justify-center gap-1">
               <input type="number" min={0} max={100} step={1}
-                value={pctLocal[node.id] ?? (pctSistema ?? '')}
-                onChange={e => { const v = Math.min(100, Math.max(0, Number(e.target.value) || 0)); salvarPct(node.id, v) }}
+                value={simVal ?? pctLocal[node.id] ?? 0}
+                onChange={e => updateSim(Number(e.target.value) || 0)}
                 className="input-base w-16 text-center text-xs py-1"
+                style={changed ? { borderColor: 'var(--accent)', background: 'rgba(59,123,248,0.06)' } : {}}
               />
               {pctSistema !== undefined && (
-                <button onClick={resetToSistema} className="p-0.5 rounded" style={{ color: 'var(--text-secondary)' }} title={`Sugestão: ${pctSistema.toFixed(0)}%`}>
+                <button onClick={resetToSistema} className="p-0.5 rounded" style={{ color: 'var(--text-secondary)' }} title={`Sugestão sistema: ${pctSistema.toFixed(0)}%`}>
                   <RefreshCw size={12} />
                 </button>
               )}
             </div>
           ) : (
-            <span style={{ color: pctColor }}>{isLeaf ? '' : ''}</span>
+            <span style={{ color: pctSimCalc !== pctAtual ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: 600 }}>
+              {pctSimCalc > 0 ? `${pctSimCalc.toFixed(0)}%` : '—'}
+            </span>
           )}
         </td>
-        <td className="text-right px-3 py-2 font-semibold" style={{ color: execObra > 0 ? 'var(--accent)' : 'var(--text-secondary)' }}>
-          {execObra > 0 ? execObra.toFixed(2) : ''}
+        <td className="text-right px-3 py-2 font-semibold" style={{ color: execObraSim > 0 ? 'var(--accent)' : 'var(--text-secondary)' }}>
+          {execObraSim > 0 ? execObraSim.toFixed(2) : ''}
         </td>
       </tr>
       {hasChildren && !isCollapsed && node.children.map(child => (
         <TreeRowExec key={child.id} node={child} depth={depth + 1}
           collapsed={collapsed} setCollapsed={setCollapsed}
-          pctLocal={pctLocal} salvarPct={salvarPct}
-          calcExecObra={calcExecObra} calcPctItem={calcPctItem}
-          editable={editable} cronogramaRef={cronogramaRef} filtroMed={filtroMed} />
+          pctLocal={pctLocal} pctSim={pctSim} setPctSim={setPctSim}
+          calcPctItemAtual={calcPctItemAtual} calcPctItemSim={calcPctItemSim}
+          calcExecObraSim={calcExecObraSim} cronogramaRef={cronogramaRef} />
       ))}
     </>
   )
@@ -696,14 +726,14 @@ function TreeRowExec({ node, depth, collapsed, setCollapsed, pctLocal, salvarPct
 // ════════════════════════════════════════════════════════════════════════════════
 // ACOMPANHAMENTO VIEW
 // ════════════════════════════════════════════════════════════════════════════════
-function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual }: {
+function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual, excluirMedicao }: {
   medicoes: FinanciamentoMedicao[]; cronoBanco: FinanciamentoCronogramaBanco[]; acumuladoAtual: number
+  excluirMedicao: (id: string) => void
 }) {
   const fechadas = medicoes.filter(m => m.status === 'fechada').sort((a, b) => a.numero - b.numero)
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Histórico de medições */}
       <div className="card overflow-x-auto">
         <div className="px-3 py-2 text-xs font-semibold" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
           Histórico de Medições
@@ -717,6 +747,7 @@ function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual }: {
                 <th className="text-left px-3 py-2" style={{ color: 'var(--text-secondary)' }}>Medição</th>
                 <th className="text-left px-3 py-2" style={{ color: 'var(--text-secondary)' }}>Data</th>
                 <th className="text-center px-3 py-2" style={{ color: 'var(--text-secondary)' }}>Status</th>
+                <th className="text-center px-2 py-2" style={{ color: 'var(--text-secondary)', width: 50 }}>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -730,6 +761,9 @@ function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual }: {
                       color: m.status === 'fechada' ? 'var(--success)' : 'var(--accent)',
                     }}>{m.status === 'fechada' ? 'Fechada' : 'Aberta'}</span>
                   </td>
+                  <td className="text-center px-2 py-2">
+                    <button onClick={() => excluirMedicao(m.id)} className="p-1 rounded" style={{ color: 'var(--danger)' }} title="Excluir"><Trash2 size={13} /></button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -737,7 +771,6 @@ function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual }: {
         )}
       </div>
 
-      {/* Cronograma do banco */}
       {cronoBanco.length > 0 && (
         <div className="card overflow-hidden">
           <div className="px-3 py-2 text-xs font-semibold" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
