@@ -409,6 +409,46 @@ export type ObraReembolso = {
   updated_at: string
 }
 
+// ─── Financiamento — Árvore + Medições ──────────────────────────────────────
+export type FinanciamentoItem = {
+  id: string
+  obra_id: string
+  orcamento_id: string | null
+  parent_id: string | null
+  codigo: string | null
+  nome: string
+  valor_financiado: number
+  peso: number
+  ordem: number
+  nivel: 1 | 2 | 3
+  origem: 'sistema' | 'manual'
+  etapa_ref_id: string | null
+  subetapa_ref_id: string | null
+  created_at: string
+  updated_at: string
+  children?: FinanciamentoItem[]
+}
+
+export type FinanciamentoMedicao = {
+  id: string
+  obra_id: string
+  orcamento_id: string | null
+  numero: number
+  data_medicao: string
+  status: 'aberta' | 'fechada'
+  observacao: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type FinanciamentoMedicaoItem = {
+  id: string
+  medicao_id: string
+  item_id: string
+  pct_executado: number
+  created_at: string
+}
+
 // ─── Tarefa ───────────────────────────────────────────────────────────────────
 export type Tarefa = {
   id: string

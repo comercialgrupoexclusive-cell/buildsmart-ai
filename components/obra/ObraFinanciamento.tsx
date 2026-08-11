@@ -1,11 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Landmark, Plus, Trash2, WalletCards } from 'lucide-react'
+import { ClipboardList, Landmark, Plus, Trash2, WalletCards } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Etapa, FonteRecursoTipo, Medicao, ObraFonteRecurso, ObraReembolso, ReembolsoStatus } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
+import { ObraFinanciamentoMedicao } from './ObraFinanciamentoMedicao'
+
+type InnerTab = 'fontes' | 'medicao'
 
 const FONTES: { tipo: FonteRecursoTipo; label: string }[] = [
   { tipo: 'recursos_proprios', label: 'Recursos próprios' },
@@ -28,6 +31,7 @@ const emptyForm = {
 
 export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = createClient()
+  const [innerTab, setInnerTab] = useState<InnerTab>('medicao')
   const [fontes, setFontes] = useState<ObraFonteRecurso[]>([])
   const [reembolsos, setReembolsos] = useState<ObraReembolso[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
@@ -119,6 +123,28 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
 
   return (
     <div className="flex flex-col gap-4 pb-16">
+      {/* Inner tabs: Medição de Financiamento | Fontes & Reembolsos */}
+      <div className="flex items-center gap-1.5 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
+        {([
+          { id: 'medicao' as InnerTab, label: 'Medição de Financiamento', icon: ClipboardList },
+          { id: 'fontes' as InnerTab, label: 'Fontes & Reembolsos', icon: WalletCards },
+        ]).map(t => {
+          const Ic = t.icon
+          return (
+            <button key={t.id} onClick={() => setInnerTab(t.id)}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap"
+              style={innerTab === t.id ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}>
+              <Ic size={15} /> {t.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {innerTab === 'medicao' && (
+        <ObraFinanciamentoMedicao obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />
+      )}
+
+      {innerTab === 'fontes' && <>
       <div className="card p-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
         <div>
           <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Orçamento do financiamento</p>
@@ -190,6 +216,7 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
           </div>
         </div>
       ))}
+      </>}
     </div>
   )
 }
