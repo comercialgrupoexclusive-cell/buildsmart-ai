@@ -355,6 +355,7 @@ export function ComprasLancamentos({
                 onEdit={openEdit}
                 onDelete={handleDelete}
                 onTogglePago={alternarPago}
+                onToggleRecebido={alternarRecebido}
                 onCotacao={abrirCotacao}
               />
             )
