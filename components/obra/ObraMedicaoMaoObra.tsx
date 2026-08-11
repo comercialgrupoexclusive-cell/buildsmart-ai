@@ -174,7 +174,7 @@ function ObraMedicaoConteudo({ obraId, orcamentoId, eixo }: { obraId: string; or
       const numero = Number(ultima?.[0]?.numero || 0) + 1
       const { data: medicao, error } = await supabase.from('medicoes').insert({
         obra_id: obraId, orcamento_id: orcamentoId, eixo, numero,
-        nome: form.nome.trim() || `Medição de ${eixo === 'gerenciamento' ? 'gerenciamento' : 'mão de obra'} ${numero}`,
+        nome: form.nome.trim() || `Medição ${numero} — ${eixo === 'gerenciamento' ? 'Gerenciamento' : 'Mão de obra'}`,
         periodo_inicio: form.inicio, periodo_fim: form.fim, status: 'rascunho', percentual_executado: 0, fotos: [],
       }).select().single()
       if (error || !medicao) throw error || new Error('Medição não criada')
@@ -331,11 +331,11 @@ function EtapaMedicao({ grupo, total, fechada, eixo, onSetEtapa, onSetSub, onSet
             <div className="flex-1 min-w-0"><p className="text-xs font-medium truncate">{nome}</p><p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>{formatCurrency(Number(item.valor_contratado || 0))} · anterior {Number(item.pct_anterior || 0).toFixed(1)}%</p></div>
             <PctBar key={Number(item.pct_atual || 0)} valor={Number(item.pct_atual || 0)} minimo={Number(item.pct_anterior || 0)} disabled={fechada} onChange={valor => onSetItem(item, valor)} small />
           </div>
-          {eixo === 'gerenciamento' && <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
             <span>Medido <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(Number(item.valor_contratado || 0) * Number(item.pct_atual || 0) / 100)}</strong></span>
             <label className="flex items-center gap-1">Pago <input type="number" min={0} max={Number(item.valor_contratado || 0)} defaultValue={Number(item.valor_pago || 0)} disabled={fechada} onBlur={event => onSetPago(item, Number(event.target.value))} className="input-base w-28 py-1 text-right text-xs" /></label>
             <span>Saldo <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(Math.max(0, Number(item.valor_contratado || 0) - Number(item.valor_pago || 0)))}</strong></span>
-          </div>}
+          </div>
         </div>)}
       </div>
     })}

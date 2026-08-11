@@ -13,8 +13,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList,
-  NotebookPen, FileBarChart, LineChart, Banknote,
-  Landmark, BriefcaseBusiness, WalletCards,
+  NotebookPen, FileBarChart, LineChart,
+  BriefcaseBusiness, WalletCards,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -25,23 +25,15 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { ObraRdo } from '@/components/obra/ObraRdo'
 import { ObraBoletins } from '@/components/obra/ObraBoletins'
 import { ObraCurvaS } from '@/components/obra/ObraCurvaS'
-import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
-import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ObraMedicaoMaoObra } from '@/components/obra/ObraMedicaoMaoObra'
-import { ObraMateriais } from '@/components/obra/ObraMateriais'
-import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
 import { ProgressControl } from '@/components/obra/ProgressControl'
 
-type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'materiais' | 'financeiro' | 'financiamento' | 'previsoes' | 'boletins' | 'diario' | 'curva'
+type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'boletins' | 'diario' | 'curva'
 
 const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
-  { id: 'fisico', label: 'Avanço físico em campo', icon: ClipboardList },
+  { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
   { id: 'mao-obra', label: 'Mão de obra', icon: BriefcaseBusiness },
   { id: 'gerenciamento', label: 'Gerenciamento', icon: WalletCards },
-  { id: 'materiais', label: 'Materiais', icon: ListChecks },
-  { id: 'financeiro', label: 'Financeiro', icon: Banknote },
-  { id: 'financiamento', label: 'Financiamento', icon: Landmark },
-  { id: 'previsoes', label: 'Previsões', icon: TrendingUp },
   { id: 'boletins', label: 'Boletins', icon: FileBarChart },
   { id: 'diario', label: 'Diário (RDO)', icon: NotebookPen },
   { id: 'curva', label: 'Curva S', icon: LineChart },
@@ -154,10 +146,6 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
       {subTab === 'diario' && <ObraRdo obraId={obraId} />}
       {subTab === 'boletins' && <ObraBoletins obraId={obraId} prog={prog} onMedicaoFechada={carregar} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
       {subTab === 'curva' && <ObraCurvaS obraId={obraId} prog={prog} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-      {subTab === 'financeiro' && <ObraAvancoFinanceiro obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-      {subTab === 'financiamento' && <ObraFinanciamento obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-      {subTab === 'materiais' && <ObraMateriais obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-      {subTab === 'previsoes' && <ObraPrevisoes obraId={obraId} orcamentoId={orcamentoId} />}
       {subTab === 'mao-obra' && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />}
       {subTab === 'gerenciamento' && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} eixo="gerenciamento" />}
 

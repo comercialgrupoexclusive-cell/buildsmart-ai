@@ -194,8 +194,8 @@ export function ObraRequisicoes({
   }
 
   async function toggleVencedora(cot: Cotacao) {
-    // Só uma vencedora por requisição
     const novaVencedora = !cot.vencedora
+    const req = requisicoes.find(r => r.id === cot.requisicao_id)
     if (novaVencedora) {
       const daCot = cotacoes.filter(c => c.requisicao_id === cot.requisicao_id)
       await Promise.all(daCot.map(c =>
@@ -204,9 +204,36 @@ export function ObraRequisicoes({
       setCotacoes(prev => prev.map(c =>
         c.requisicao_id === cot.requisicao_id ? { ...c, vencedora: c.id === cot.id } : c
       ))
+      // Auto-criar compra_item vinculado à requisição/cotação
+      const { data: existing } = await supabase.from('compra_itens').select('id').eq('cotacao_id', cot.id).limit(1)
+      if (!existing || existing.length === 0) {
+        const reqItens = itens.filter(i => i.requisicao_id === cot.requisicao_id)
+        const descricao = reqItens.length > 0
+          ? reqItens.map(i => i.descricao).filter(Boolean).join(', ')
+          : `Requisição ${req?.numero || ''}`
+        await supabase.from('compra_itens').insert({
+          obra_id: obraId,
+          orcamento_id: orcamentoId === TODOS_ORCAMENTOS ? null : orcamentoId,
+          requisicao_id: cot.requisicao_id,
+          cotacao_id: cot.id,
+          origem: 'requisicao',
+          descricao: descricao || `Requisição ${req?.numero || ''}`,
+          fornecedor_id: cot.fornecedor_id || null,
+          fornecedor_nome: cot.fornecedor_nome || null,
+          valor_total: cot.valor_total || 0,
+          status_valor: 'confirmado',
+          status_recebimento: 'pendente',
+          data_compra: new Date().toISOString().slice(0, 10),
+        })
+      }
     } else {
       await supabase.from('cotacoes').update({ vencedora: false }).eq('id', cot.id)
       setCotacoes(prev => prev.map(c => c.id === cot.id ? { ...c, vencedora: false } : c))
+      // Remover compra_item vinculado (se não pago)
+      await supabase.from('compra_itens')
+        .delete()
+        .eq('cotacao_id', cot.id)
+        .eq('status_pagamento', 'pendente')
     }
   }
 

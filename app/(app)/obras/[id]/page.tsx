@@ -18,15 +18,19 @@ import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraBoard } from '@/components/obra/ObraBoard'
 import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
+import { ObraMateriais } from '@/components/obra/ObraMateriais'
+import { ObraFinanceiroTab } from '@/components/obra/ObraFinanceiroTab'
 import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'board' | 'portal'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'compras' | 'financeiro' | 'board' | 'portal'
 
 const TABS: { id: Tab; label: string; icon?: typeof LayoutDashboard }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'medicoes', label: 'Medições' },
+  { id: 'compras', label: 'Compras', icon: Truck },
+  { id: 'financeiro', label: 'Financeiro', icon: TrendingUp },
   { id: 'board', label: 'Board', icon: LayoutDashboard },
   { id: 'portal', label: 'Portal do Cliente', icon: MessageSquareText },
   { id: 'arquivos', label: 'Arquivos', icon: FileText },
@@ -416,6 +420,8 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} />}
         {tab === 'cronograma' && <ObraCronogramasTab obraId={id} obraNome={obra.nome} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+        {tab === 'compras' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+        {tab === 'financeiro' && <ObraFinanceiroTab obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'board' && <ObraBoard obraId={id} />}
         {tab === 'portal' && <ObraPortalBoard obraId={id} />}
       </div>

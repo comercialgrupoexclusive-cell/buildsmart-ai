@@ -201,6 +201,14 @@ export function ComprasLancamentos({
     setItens(prev => prev.map(i => i.id === item.id ? { ...i, status_pagamento: novoStatus } : i))
   }
 
+  async function alternarRecebido(item: CompraItem) {
+    const recebido = item.status_recebimento === 'recebido'
+    const novoStatus = recebido ? 'pendente' : 'recebido'
+    const dataReceb = recebido ? null : new Date().toISOString().slice(0, 10)
+    await supabase.from('compra_itens').update({ status_recebimento: novoStatus, data_recebimento: dataReceb, updated_at: new Date().toISOString() }).eq('id', item.id)
+    setItens(prev => prev.map(i => i.id === item.id ? { ...i, status_recebimento: novoStatus, data_recebimento: dataReceb } as CompraItem : i))
+  }
+
   function abrirCotacao(item: CompraItem) {
     setCotacaoItem(item)
     setCotacaoLinhas([{ id: crypto.randomUUID(), fornecedorNome: '', valor: '' }])
@@ -329,6 +337,7 @@ export function ComprasLancamentos({
               onEdit={openEdit}
               onDelete={handleDelete}
               onTogglePago={alternarPago}
+              onToggleRecebido={alternarRecebido}
               onCotacao={abrirCotacao}
             />
           )}
@@ -776,7 +785,7 @@ function LancamentoRapidoForm({
 }
 
 function GrupoEtapaCompra({
-  chave, nome, itens, collapsed, onToggle, onEdit, onDelete, onTogglePago, onCotacao,
+  chave, nome, itens, collapsed, onToggle, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao,
 }: {
   chave: string
   nome: string
@@ -786,6 +795,7 @@ function GrupoEtapaCompra({
   onEdit: (item: CompraItem) => void
   onDelete: (id: string) => void
   onTogglePago: (item: CompraItem) => void
+  onToggleRecebido: (item: CompraItem) => void
   onCotacao: (item: CompraItem) => void
 }) {
   const subtotal = itens.reduce((s, i) => s + (i.valor_total || 0), 0)
@@ -813,7 +823,7 @@ function GrupoEtapaCompra({
       {!collapsed && (
         <div className="flex flex-col">
           {itens.map(item => (
-            <LinhaCompra key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onTogglePago={onTogglePago} onCotacao={onCotacao} />
+            <LinhaCompra key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onTogglePago={onTogglePago} onToggleRecebido={onToggleRecebido} onCotacao={onCotacao} />
           ))}
         </div>
       )}
@@ -822,15 +832,17 @@ function GrupoEtapaCompra({
 }
 
 function LinhaCompra({
-  item, onEdit, onDelete, onTogglePago, onCotacao,
+  item, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao,
 }: {
   item: CompraItem
   onEdit: (item: CompraItem) => void
   onDelete: (id: string) => void
   onTogglePago: (item: CompraItem) => void
+  onToggleRecebido: (item: CompraItem) => void
   onCotacao: (item: CompraItem) => void
 }) {
   const pago = item.status_pagamento === 'pago'
+  const recebido = item.status_recebimento === 'recebido'
   const fornecedorNome = item.fornecedor?.nome || item.fornecedor_nome
 
   return (
@@ -878,6 +890,17 @@ function LinhaCompra({
         >
           {pago ? <CheckSquare size={14} /> : <Square size={14} />}
           <span className="hidden sm:inline">{pago ? 'Pago' : 'Pagar'}</span>
+        </button>
+        <button
+          onClick={() => onToggleRecebido(item)}
+          title={recebido ? 'Marcar como não recebido' : 'Marcar como recebido'}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+          style={recebido
+            ? { background: 'rgba(59,123,248,0.16)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.35)' }
+            : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+        >
+          {recebido ? <CheckSquare size={14} /> : <Square size={14} />}
+          <span className="hidden sm:inline">{recebido ? 'Recebido' : 'Receber'}</span>
         </button>
         <button onClick={() => onCotacao(item)} title="Comparar cotações" className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
           <Scale size={14} style={{ color: 'var(--text-secondary)' }} />

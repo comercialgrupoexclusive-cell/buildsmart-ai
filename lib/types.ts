@@ -349,6 +349,11 @@ export type CompraItem = {
   forma_pagamento: 'pix' | 'cartao' | 'boleto' | 'dinheiro' | 'reembolso' | 'pix_cartao' | 'cartao_reembolso' | null
   data_limite_pagamento: string | null
   status_pagamento: 'pendente' | 'pago'
+  requisicao_id: string | null
+  cotacao_id: string | null
+  origem: 'manual' | 'requisicao' | 'lista'
+  data_recebimento: string | null
+  status_recebimento: 'pendente' | 'parcial' | 'recebido'
   observacao: string | null
   created_at: string
   updated_at: string
