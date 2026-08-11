@@ -424,9 +424,20 @@ export type FinanciamentoItem = {
   origem: 'sistema' | 'manual'
   etapa_ref_id: string | null
   subetapa_ref_id: string | null
+  data_inicio: string | null
+  data_fim: string | null
   created_at: string
   updated_at: string
   children?: FinanciamentoItem[]
+}
+
+export type FinanciamentoCronogramaBanco = {
+  id: string
+  obra_id: string
+  orcamento_id: string | null
+  mes: number
+  pct_acumulado_previsto: number
+  created_at: string
 }
 
 export type FinanciamentoMedicao = {
