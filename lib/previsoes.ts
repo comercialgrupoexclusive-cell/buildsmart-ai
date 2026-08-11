@@ -19,6 +19,8 @@ export type ObraPrevisao = {
   tipo: PrevisaoTipo
   titulo: string
   descricao: string | null
+  tituloCliente: string | null
+  descricaoCliente: string | null
   valorPrevisto: number | null
   dataPrevista: string | null
   valorRealizado: number | null

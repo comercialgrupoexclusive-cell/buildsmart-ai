@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ShoppingCart, Plus, Pencil, Trash2, ChevronDown, ChevronRight,
-  CheckSquare, Square, Scale, FileText, X, Building2, Zap,
+  CheckSquare, Square, Scale, FileText, X, Building2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -36,9 +36,8 @@ export type PrefillLancamento = {
 } | null
 
 /**
- * Sub-aba "Lançamentos" (1ª sub-aba de Materiais): formulário de lançamento
- * rápido sempre visível no topo + lista dos itens já lançados logo abaixo,
- * na mesma tela — sem sub-abas escondendo uma coisa atrás da outra.
+ * Fatos financeiros da obra. Previsões ficam em ObraPrevisoes; esta tela
+ * registra somente lançamentos efetivamente confirmados.
  */
 export function ComprasLancamentos({
   obraId, orcamentoId, orcamentoIds, prefill, onPrefillConsumed,
@@ -49,7 +48,7 @@ export function ComprasLancamentos({
   prefill?: PrefillLancamento
   onPrefillConsumed?: () => void
 }) {
-  const supabase = createClient()
+  const [supabase] = useState(createClient)
   const [itens, setItens] = useState<CompraItem[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [subetapas, setSubetapas] = useState<SubetapaCronograma[]>([])
@@ -72,8 +71,9 @@ export function ComprasLancamentos({
     fornecedor_nome: '',
     valor_total: '',
     tipo_custo: '' as TipoCusto | '',
-    status_valor: 'estimado' as CompraItem['status_valor'],
+    status_valor: 'confirmado' as CompraItem['status_valor'],
     forma_pagamento: '' as CompraItem['forma_pagamento'] | '',
+    data_compra: new Date().toISOString().slice(0, 10),
     data_limite_pagamento: '',
   })
 
@@ -81,11 +81,7 @@ export function ComprasLancamentos({
   const [cotacaoLinhas, setCotacaoLinhas] = useState<CotacaoLinha[]>([])
   const consolidado = orcamentoId === TODOS_ORCAMENTOS
 
-  useEffect(() => {
-    void loadDados()
-  }, [obraId, orcamentoId, orcamentoIds])
-
-  async function loadDados() {
+  const loadDados = useCallback(async () => {
     setLoading(true)
     const [itensRes, etapasRes, fornecedoresRes] = await Promise.all([
       supabase.from('compra_itens').select('*, etapa:etapas(*), fornecedor:fornecedores(*)').eq('obra_id', obraId).order('created_at', { ascending: false }),
@@ -118,12 +114,17 @@ export function ComprasLancamentos({
       setSubetapas([])
       setServicos([])
     }
-  }
+  }, [consolidado, obraId, orcamentoId, orcamentoIds, supabase])
+
+  useEffect(() => {
+    void Promise.resolve().then(loadDados)
+  }, [loadDados])
 
   function resetForm() {
     setForm({
       descricao: '', etapa_id: '', subetapa_id: '', servico_id: '', fornecedor_id: '', fornecedor_nome: '',
-      valor_total: '', tipo_custo: '', status_valor: 'estimado', forma_pagamento: '', data_limite_pagamento: '',
+      valor_total: '', tipo_custo: '', status_valor: 'confirmado', forma_pagamento: '',
+      data_compra: new Date().toISOString().slice(0, 10), data_limite_pagamento: '',
     })
     setFornecedorManual(false)
   }
@@ -148,6 +149,7 @@ export function ComprasLancamentos({
       tipo_custo: item.tipo_custo || '',
       status_valor: item.status_valor,
       forma_pagamento: item.forma_pagamento || '',
+      data_compra: item.data_compra || new Date().toISOString().slice(0, 10),
       data_limite_pagamento: item.data_limite_pagamento || '',
     })
     setFornecedorManual(!item.fornecedor_id && !!item.fornecedor_nome)
@@ -170,6 +172,7 @@ export function ComprasLancamentos({
       tipo_custo: form.tipo_custo || null,
       status_valor: form.status_valor,
       forma_pagamento: form.forma_pagamento || null,
+      data_compra: form.data_compra || new Date().toISOString().slice(0, 10),
       data_limite_pagamento: form.data_limite_pagamento || null,
       updated_at: new Date().toISOString(),
     }
@@ -188,6 +191,27 @@ export function ComprasLancamentos({
     setEditando(null)
     resetForm()
   }
+
+  useEffect(() => {
+    if (!prefill || consolidado) return
+    void Promise.resolve().then(() => {
+      const fornecedorCadastrado = prefill.fornecedorNome
+        ? fornecedores.find(item => item.nome.toLowerCase() === prefill.fornecedorNome?.toLowerCase())
+        : undefined
+      setEditando(null)
+      setForm(current => ({
+        ...current,
+        descricao: prefill.descricao || current.descricao,
+        valor_total: prefill.valorTotal == null ? current.valor_total : String(prefill.valorTotal),
+        fornecedor_id: fornecedorCadastrado?.id || '',
+        fornecedor_nome: fornecedorCadastrado ? '' : (prefill.fornecedorNome || ''),
+        status_valor: 'confirmado',
+      }))
+      setFornecedorManual(!fornecedorCadastrado && Boolean(prefill.fornecedorNome))
+      setShowModal(true)
+      onPrefillConsumed?.()
+    })
+  }, [consolidado, fornecedores, onPrefillConsumed, prefill])
 
   async function handleDelete(id: string) {
     if (!confirm('Remover este item de compra?')) return
@@ -246,8 +270,8 @@ export function ComprasLancamentos({
 
   const totais = useMemo(() => {
     const confirmado = itens.filter(i => i.status_valor === 'confirmado').reduce((s, i) => s + (i.valor_total || 0), 0)
-    const estimado = itens.filter(i => i.status_valor === 'estimado').reduce((s, i) => s + (i.valor_total || 0), 0)
-    return { confirmado, estimado, teto: confirmado + estimado }
+    const pago = itens.filter(i => i.status_valor === 'confirmado' && i.status_pagamento === 'pago').reduce((s, i) => s + (i.valor_total || 0), 0)
+    return { confirmado, pago, pendente: Math.max(0, confirmado - pago) }
   }, [itens])
 
   const itensPorEtapa = useMemo(() => {
@@ -273,37 +297,25 @@ export function ComprasLancamentos({
       {/* Totalizadores */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="card p-4">
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Confirmado</p>
-          <p className="text-xl font-bold" style={{ color: 'var(--success)' }}>{formatCurrency(totais.confirmado)}</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Total lançado</p>
+          <p className="text-xl font-bold" style={{ color: 'var(--accent)' }}>{formatCurrency(totais.confirmado)}</p>
         </div>
         <div className="card p-4">
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Com estimativa</p>
-          <p className="text-xl font-bold" style={{ color: 'var(--warning)' }}>{formatCurrency(totais.estimado)}</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Pago</p>
+          <p className="text-xl font-bold" style={{ color: 'var(--success)' }}>{formatCurrency(totais.pago)}</p>
         </div>
         <div className="card p-4">
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Teto máximo</p>
-          <p className="text-xl font-bold" style={{ color: 'var(--accent)' }}>{formatCurrency(totais.teto)}</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Pendente</p>
+          <p className="text-xl font-bold" style={{ color: 'var(--warning)' }}>{formatCurrency(totais.pendente)}</p>
         </div>
       </div>
 
-      {/* O consolidado é consulta; um novo lançamento sempre exige orçamento específico. */}
-      {consolidado ? (
-        <div className="card p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione um orçamento específico para criar lançamentos.</div>
-      ) : <LancamentoRapidoForm
-        obraId={obraId}
-        orcamentoId={orcamentoId}
-        etapas={etapas}
-        subetapas={subetapas}
-        servicos={servicos}
-        fornecedores={fornecedores}
-        prefill={prefill}
-        onPrefillConsumed={onPrefillConsumed}
-        onSaved={item => setItens(prev => [item, ...prev])}
-      />}
-
       {/* Barra de ações da lista */}
       <div className="flex flex-wrap items-center gap-2 justify-between pt-2">
-        <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Itens lançados</p>
+        <div>
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Lançamentos</p>
+          <p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>Compras, serviços e pagamentos já assumidos pela obra.</p>
+        </div>
         <div className="flex items-center gap-2">
           {etapas.length > 0 && (
             <select value={filtroEtapa} onChange={e => setFiltroEtapa(e.target.value)} className="input-base w-full sm:w-56">
@@ -315,15 +327,17 @@ export function ComprasLancamentos({
           <Link href={`/obras/${obraId}/compras/relatorio`}>
             <Button size="sm" variant="secondary" icon={<FileText size={14} />}>Relatório</Button>
           </Link>
-          <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={openNew} disabled={consolidado}>Item detalhado</Button>
+          <Button size="sm" icon={<Plus size={14} />} onClick={openNew} disabled={consolidado}>Novo lançamento</Button>
         </div>
       </div>
+
+      {consolidado && <div className="card p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione um orçamento específico para criar um lançamento.</div>}
 
       {itensFiltrados.length === 0 ? (
         <EmptyState
           icon={ShoppingCart}
-          title="Nenhum item lançado"
-          description="Use o formulário acima para lançar rapidamente, ou adicione um item detalhado com fornecedor, forma de pagamento e status."
+          title="Nenhum lançamento registrado"
+          description="Registre uma compra, serviço ou pagamento já confirmado para esta obra."
         />
       ) : (
         <div className="flex flex-col gap-3 pb-8">
@@ -367,7 +381,7 @@ export function ComprasLancamentos({
       <Modal
         open={showModal}
         onClose={() => { setShowModal(false); setEditando(null); resetForm() }}
-        title={editando ? 'Editar item de compra' : 'Adicionar item de compra'}
+        title={editando ? 'Editar lançamento' : 'Novo lançamento'}
         size="md"
       >
         <div className="flex flex-col gap-4">
@@ -375,7 +389,7 @@ export function ComprasLancamentos({
             label="Descrição *"
             value={form.descricao}
             onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
-            placeholder="Ex: Cimento CP-II 50kg, Aluguel de andaime..."
+            placeholder="Ex.: concreto usinado, mão de obra, locação..."
             autoFocus={!editando}
           />
 
@@ -441,7 +455,7 @@ export function ComprasLancamentos({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Input
               label="Valor (R$) *"
               type="number"
@@ -451,24 +465,7 @@ export function ComprasLancamentos({
               onChange={e => setForm(f => ({ ...f, valor_total: e.target.value }))}
               placeholder="0,00"
             />
-            <div>
-              <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Status do valor</label>
-              <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-                {(['confirmado', 'estimado'] as const).map(s => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setForm(f => ({ ...f, status_valor: s }))}
-                    className="flex-1 px-2 py-1.5 rounded-md text-xs font-medium transition-all"
-                    style={form.status_valor === s
-                      ? { background: 'var(--accent)', color: 'white' }
-                      : { color: 'var(--text-secondary)' }}
-                  >
-                    {STATUS_VALOR_LABEL[s]}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <Input label="Data do lançamento" type="date" value={form.data_compra} onChange={e => setForm(f => ({ ...f, data_compra: e.target.value }))} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -506,7 +503,7 @@ export function ComprasLancamentos({
               Cancelar
             </Button>
             <Button className="flex-1" loading={saving} disabled={!form.descricao.trim() || !form.valor_total} onClick={handleSave}>
-              {editando ? 'Salvar' : 'Adicionar'}
+              {editando ? 'Salvar alterações' : 'Salvar lançamento'}
             </Button>
           </div>
         </div>
@@ -564,6 +561,7 @@ export function ComprasLancamentos({
   )
 }
 
+/* Formulário rápido legado removido da interface.
 // ─── Formulário de lançamento rápido ──────────────────────────────────────────
 function hoje() {
   return new Date().toISOString().slice(0, 10)
@@ -584,7 +582,7 @@ function formInicial() {
   }
 }
 
-function LancamentoRapidoForm({
+export function LancamentoRapidoForm({
   obraId, orcamentoId, etapas, subetapas, servicos, fornecedores, prefill, onPrefillConsumed, onSaved,
 }: {
   obraId: string
@@ -784,6 +782,7 @@ function LancamentoRapidoForm({
     </div>
   )
 }
+*/
 
 function GrupoEtapaCompra({
   chave, nome, itens, collapsed, onToggle, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao,
@@ -803,7 +802,7 @@ function GrupoEtapaCompra({
   const pagos = itens.filter(i => i.status_pagamento === 'pago').length
 
   return (
-    <div className="card overflow-hidden">
+    <div className="card overflow-hidden" data-group={chave}>
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
         style={{ background: 'var(--bg-secondary)', borderBottom: collapsed ? 'none' : '1px solid var(--border)' }}
