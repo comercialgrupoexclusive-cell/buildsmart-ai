@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -29,9 +30,9 @@ export function Modal({ open, onClose, title, children, size = 'md', className }
     return () => document.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
-  if (!open) return null
+  if (!open || typeof document === 'undefined') return null
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -55,6 +56,7 @@ export function Modal({ open, onClose, title, children, size = 'md', className }
         )}
         <div className="p-6 overflow-y-auto">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

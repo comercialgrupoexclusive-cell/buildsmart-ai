@@ -1,17 +1,15 @@
 'use client'
 
 import { useState } from 'react'
-import { Banknote, Landmark, TrendingUp } from 'lucide-react'
+import { Banknote, Landmark } from 'lucide-react'
 import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
-import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
 
-type SubTab = 'financeiro' | 'financiamento' | 'previsoes'
+type SubTab = 'financeiro' | 'financiamento'
 
 const TABS: { id: SubTab; label: string; icon: typeof Banknote }[] = [
   { id: 'financeiro', label: 'Financeiro', icon: Banknote },
   { id: 'financiamento', label: 'Financiamento', icon: Landmark },
-  { id: 'previsoes', label: 'Previsões', icon: TrendingUp },
 ]
 
 export function ObraFinanceiroTab({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
@@ -34,7 +32,6 @@ export function ObraFinanceiroTab({ obraId, orcamentoId, orcamentoIds }: { obraI
 
       {subTab === 'financeiro' && <ObraAvancoFinanceiro obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
       {subTab === 'financiamento' && <ObraFinanciamento obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-      {subTab === 'previsoes' && <ObraPrevisoes obraId={obraId} orcamentoId={orcamentoId} />}
     </div>
   )
 }

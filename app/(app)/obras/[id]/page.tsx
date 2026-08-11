@@ -4,8 +4,8 @@ import { useEffect, useState, use, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
-import { formatDate, formatCurrency, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, FileText, Plus, Link2, Unlink, LayoutDashboard, MessageSquareText } from 'lucide-react'
+import { formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, FileText, Plus, Link2, Unlink, LayoutDashboard, MessageSquareText, CalendarClock } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -20,13 +20,15 @@ import { ObraBoard } from '@/components/obra/ObraBoard'
 import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraFinanceiroTab } from '@/components/obra/ObraFinanceiroTab'
+import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
 import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'compras' | 'financeiro' | 'board' | 'portal'
+type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'compras' | 'financeiro' | 'previsoes' | 'board' | 'portal'
 
 const TABS: { id: Tab; label: string; icon?: typeof LayoutDashboard }[] = [
   { id: 'visao-geral', label: 'Visão Geral' },
   { id: 'orcamento', label: 'Orçamento' },
+  { id: 'previsoes', label: 'Previsões', icon: CalendarClock },
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'medicoes', label: 'Medições' },
   { id: 'compras', label: 'Compras', icon: Truck },
@@ -50,6 +52,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     return (t && (t === 'arquivos' || TABS.some(x => x.id === t))) ? t : 'visao-geral'
   })
   const [loading, setLoading] = useState(true)
+  const activeTabRef = useRef<HTMLButtonElement>(null)
 
   // Menu de ações + edição/exclusão/duplicação
   const [menuOpen, setMenuOpen] = useState(false)
@@ -108,6 +111,10 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
+
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }, [tab])
 
   async function loadObra() {
     const [{ data }, { data: profs }] = await Promise.all([
@@ -399,6 +406,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
           {TABS.map(({ id: tabId, label, icon: Icon }) => (
             <button
               key={tabId}
+              ref={tab === tabId ? activeTabRef : undefined}
               onClick={() => setTab(tabId)}
               className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap"
               style={tab === tabId
@@ -422,6 +430,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'compras' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'financeiro' && <ObraFinanceiroTab obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+        {tab === 'previsoes' && <ObraPrevisoes obraId={id} orcamentoId={orcamentoId} />}
         {tab === 'board' && <ObraBoard obraId={id} />}
         {tab === 'portal' && <ObraPortalBoard obraId={id} />}
       </div>
