@@ -126,7 +126,7 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
 
   useEffect(() => {
     if (!ultimaMedicaoFechada) { setPctLocal({}); return }
-    supabase.from('financiamento_medicao_itens').select('*').eq('medicao_id', ultimaMedicaoFechada.id).then(({ data }) => {
+    supabase.from('financiamento_medicao_itens').select('*').eq('medicao_id', ultimaMedicaoFechada.id).then(({ data }: { data: FinanciamentoMedicaoItem[] | null }) => {
       const items = (data || []) as FinanciamentoMedicaoItem[]
       const map: Record<string, number> = {}
       items.forEach(mi => { map[mi.item_id] = Number(mi.pct_executado) || 0 })
