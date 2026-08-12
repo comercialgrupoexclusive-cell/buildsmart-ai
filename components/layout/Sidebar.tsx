@@ -3,8 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, HardHat, FileText, CalendarDays,
-  ShoppingCart, ClipboardList, BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, MessageCircle, X,
+  LayoutDashboard, HardHat, FileText,
+  BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, MessageCircle, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
@@ -15,9 +15,6 @@ const NAV_ITEMS = [
   { href: '/projetos', label: 'Projetos', icon: FolderOpen },
   { href: '/obras', label: 'Obras', icon: HardHat },
   { href: '/orcamentos', label: 'Orçamentos', icon: FileText },
-  { href: '/cronograma', label: 'Cronograma', icon: CalendarDays },
-  { href: '/materiais', label: 'Compras', icon: ShoppingCart },
-  { href: '/medicoes', label: 'Diário / Medições', icon: ClipboardList },
   { href: '/canteiro', label: 'Canteiro', icon: Hammer },
   { href: '/buildassist', label: 'BuildAssistente IA', icon: BotMessageSquare, featured: true },
 ]

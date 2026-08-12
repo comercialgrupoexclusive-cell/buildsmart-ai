@@ -13,7 +13,7 @@ export default function MateriaisPage() {
     <div className="flex flex-col gap-5">
       {obraId && (
         <div className="flex justify-end">
-          <Link href={`/obras/${obraId}?tab=materiais`} className="inline-flex items-center gap-2 text-sm font-medium hover:opacity-80" style={{ color: 'var(--accent)' }}>
+          <Link href={`/obras/${obraId}?tab=suprimentos`} className="inline-flex items-center gap-2 text-sm font-medium hover:opacity-80" style={{ color: 'var(--accent)' }}>
             Abrir na obra <ExternalLink size={14} />
           </Link>
         </div>
