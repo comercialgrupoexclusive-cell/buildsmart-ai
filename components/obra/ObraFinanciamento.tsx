@@ -1,18 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BarChart3, ClipboardList, DollarSign, Eye, Landmark, Plus, Trash2, WalletCards } from 'lucide-react'
+import { BarChart3, Calendar, ClipboardList, DollarSign, Eye, Landmark, Plus, Trash2, WalletCards } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import type { Etapa, FonteRecursoTipo, Medicao, ObraFonteRecurso, ObraReembolso, ReembolsoStatus } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 import { ObraFinanciamentoMedicao } from './ObraFinanciamentoMedicao'
 
-type InnerTab = 'visao' | 'orcamento' | 'execucao' | 'acompanhamento' | 'fontes'
+type InnerTab = 'visao' | 'orcamento' | 'cronograma' | 'execucao' | 'acompanhamento' | 'fontes'
 
 const TABS: { id: InnerTab; label: string; icon: typeof Eye }[] = [
   { id: 'visao', label: 'Visão Geral', icon: Eye },
   { id: 'orcamento', label: 'Orçamento', icon: DollarSign },
+  { id: 'cronograma', label: 'Cronograma', icon: Calendar },
   { id: 'execucao', label: 'Execução', icon: ClipboardList },
   { id: 'acompanhamento', label: 'Acompanhamento', icon: BarChart3 },
   { id: 'fontes', label: 'Fontes & Reembolsos', icon: WalletCards },
@@ -35,6 +36,12 @@ const STATUS: { value: ReembolsoStatus; label: string }[] = [
 const emptyForm = {
   descricao: '', fonte_id: '', etapa_id: '', medicao_id: '', valor_solicitado: '',
   data_solicitacao: '', observacao: '',
+}
+
+function fmtInput(v: number | string | null | undefined): string {
+  const n = Number(v)
+  if (!n && n !== 0) return ''
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
@@ -77,7 +84,8 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
 
   async function salvarFonte(tipo: FonteRecursoTipo, value: string) {
     if (isTodos || !orcamentoId) return
-    const valor = Math.max(0, Number(value) || 0)
+    const cleaned = value.replace(/\./g, '').replace(',', '.')
+    const valor = Math.max(0, Number(cleaned) || 0)
     const existente = fontePorTipo.get(tipo)
     const payload = { obra_id: obraId, orcamento_id: orcamentoId || null, tipo, valor_previsto: valor, updated_at: new Date().toISOString() }
     const query = existente
@@ -125,9 +133,10 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
 
   if (loading) return <div className="flex justify-center py-16"><div className="w-7 h-7 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>
 
+  const delegatedViews = ['visao', 'orcamento', 'cronograma', 'execucao', 'acompanhamento'] as const
+
   return (
     <div className="flex flex-col gap-4 pb-16">
-      {/* Tabs */}
       <div className="flex items-center gap-1 p-1 rounded-lg overflow-x-auto max-w-full" style={{ background: 'var(--bg-secondary)' }}>
         {TABS.map(t => {
           const Ic = t.icon
@@ -142,12 +151,10 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
         })}
       </div>
 
-      {/* Delegated tabs */}
-      {(innerTab === 'visao' || innerTab === 'orcamento' || innerTab === 'execucao' || innerTab === 'acompanhamento') && (
-        <ObraFinanciamentoMedicao obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} view={innerTab} />
+      {(delegatedViews as readonly string[]).includes(innerTab) && (
+        <ObraFinanciamentoMedicao obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} view={innerTab as 'visao' | 'orcamento' | 'cronograma' | 'execucao' | 'acompanhamento'} />
       )}
 
-      {/* Fontes & Reembolsos */}
       {innerTab === 'fontes' && <>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {FONTES.map(({ tipo, label }) => {
@@ -157,7 +164,8 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
                 <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</span>
                 <div className="flex items-center gap-2 mt-2">
                   <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>R$</span>
-                  <input type="number" min={0} step="0.01" defaultValue={fonte?.valor_previsto || ''} disabled={isTodos}
+                  <input type="text" defaultValue={fmtInput(fonte?.valor_previsto)} disabled={isTodos}
+                    onFocus={e => e.target.select()}
                     onBlur={e => salvarFonte(tipo, e.target.value)} placeholder="0,00"
                     className="input-base w-full text-right font-semibold" />
                 </div>
@@ -226,5 +234,20 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function MoneyEdit({ label, value, disabled = false, onBlur }: { label: string; value: number; disabled?: boolean; onBlur: (value: number) => void }) {
-  return <Field label={label}><input type="number" min={0} step="0.01" defaultValue={value || ''} disabled={disabled} onBlur={e => onBlur(Math.max(0, Number(e.target.value) || 0))} className="input-base w-full disabled:opacity-60" /></Field>
+  return (
+    <Field label={label}>
+      <div className="flex items-center gap-1">
+        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>R$</span>
+        <input type="text" defaultValue={fmtInput(value)} disabled={disabled}
+          onFocus={e => e.target.select()}
+          onBlur={e => {
+            const cleaned = e.target.value.replace(/\./g, '').replace(',', '.')
+            const n = Math.max(0, Number(cleaned) || 0)
+            e.target.value = fmtInput(n)
+            onBlur(n)
+          }}
+          className="input-base w-full text-right disabled:opacity-60" />
+      </div>
+    </Field>
+  )
 }
