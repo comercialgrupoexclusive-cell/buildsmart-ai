@@ -3,9 +3,9 @@
 import { useEffect, useState, use, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Obra, SINAPI_UFS, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
-import { formatDate, STATUS_OBRA_COLOR, STATUS_OBRA_LABEL } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, TrendingUp, Truck, Camera, X, Loader2, FileText, Plus, Link2, Unlink, LayoutDashboard, MessageSquareText, CalendarClock } from 'lucide-react'
+import { Obra, SINAPI_UFS } from '@/lib/types'
+import { formatDate, STATUS_OBRA_COLOR } from '@/lib/utils'
+import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, Truck, Camera, X, Loader2, FileText, FolderOpen, Banknote, LayoutDashboard } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -13,29 +13,22 @@ import { Button } from '@/components/ui/Button'
 import { useProfile } from '@/lib/profile-context'
 import { usePermission } from '@/lib/permissions'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
-import { ObraArquivos } from '@/components/obra/ObraArquivos'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
-import { ObraCronograma } from '@/components/obra/ObraCronograma'
-import { ObraBoard } from '@/components/obra/ObraBoard'
-import { ObraPortalBoard } from '@/components/obra/ObraPortalBoard'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraFinanceiroTab } from '@/components/obra/ObraFinanceiroTab'
-import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
+import { ObraProjetoTab } from '@/components/obra/ObraProjetoTab'
+import { ObraCronogramaTab } from '@/components/obra/ObraCronogramaTab'
 import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'visao-geral' | 'arquivos' | 'orcamento' | 'cronograma' | 'medicoes' | 'compras' | 'financeiro' | 'previsoes' | 'board' | 'portal'
+type Tab = 'projeto' | 'orcamento' | 'cronograma' | 'suprimentos' | 'medicoes' | 'financeiro'
 
 const TABS: { id: Tab; label: string; icon?: typeof LayoutDashboard }[] = [
-  { id: 'visao-geral', label: 'Visão Geral' },
+  { id: 'projeto', label: 'Projeto', icon: FolderOpen },
   { id: 'orcamento', label: 'Orçamento' },
-  { id: 'previsoes', label: 'Previsões', icon: CalendarClock },
   { id: 'cronograma', label: 'Cronograma' },
+  { id: 'suprimentos', label: 'Suprimentos', icon: Truck },
   { id: 'medicoes', label: 'Medições' },
-  { id: 'compras', label: 'Compras', icon: Truck },
-  { id: 'financeiro', label: 'Financeiro', icon: TrendingUp },
-  { id: 'board', label: 'Board', icon: LayoutDashboard },
-  { id: 'portal', label: 'Portal do Cliente', icon: MessageSquareText },
-  { id: 'arquivos', label: 'Arquivos', icon: FileText },
+  { id: 'financeiro', label: 'Financeiro', icon: Banknote },
 ]
 
 export default function ObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -49,7 +42,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   const [obra, setObra] = useState<Obra | null>(null)
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab') as Tab | null
-    return (t && (t === 'arquivos' || TABS.some(x => x.id === t))) ? t : 'visao-geral'
+    return (t && TABS.some(x => x.id === t)) ? t : 'projeto'
   })
   const [loading, setLoading] = useState(true)
   const activeTabRef = useRef<HTMLButtonElement>(null)
@@ -423,16 +416,12 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
 
       {/* ConteÃºdo da tab */}
       <div className="animate-enter">
-        {tab === 'visao-geral' && <ObraVisaoGeral obra={obra} onEdit={openEdit} />}
-        {tab === 'arquivos' && <ObraArquivos obraId={id} />}
+        {tab === 'projeto' && <ObraProjetoTab obraId={id} obra={obra} onEdit={openEdit} />}
         {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} />}
-        {tab === 'cronograma' && <ObraCronogramasTab obraId={id} obraNome={obra.nome} orcamentoIds={orcamentoIds} />}
+        {tab === 'cronograma' && <ObraCronogramaTab obraId={id} obraNome={obra.nome} orcamentoIds={orcamentoIds} orcamentoId={orcamentoId} />}
+        {tab === 'suprimentos' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-        {tab === 'compras' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'financeiro' && <ObraFinanceiroTab obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-        {tab === 'previsoes' && <ObraPrevisoes obraId={id} orcamentoId={orcamentoId} />}
-        {tab === 'board' && <ObraBoard obraId={id} />}
-        {tab === 'portal' && <ObraPortalBoard obraId={id} />}
       </div>
 
       {/* Modal editar obra */}
@@ -684,489 +673,3 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: {
   )
 }
 
-/* ─── Aba Cronogramas da Obra ─── */
-
-type CronoSelectItem = { id: string; nome: string }
-
-function ObraCronogramasTab({ obraId, obraNome, orcamentoIds }: { obraId: string; obraNome: string; orcamentoIds: string[] }) {
-  const supabase = createClient()
-  const [cronogramas, setCronogramas] = useState<CronoSelectItem[]>([])
-  const [selectedId, setSelectedId] = useState<string>('')
-  const [loading, setLoading] = useState(true)
-  const [showVincular, setShowVincular] = useState(false)
-  const [disponiveis, setDisponiveis] = useState<CronoSelectItem[]>([])
-  const [vinculoId, setVinculoId] = useState('')
-  const [showNovo, setShowNovo] = useState(false)
-  const [novoNome, setNovoNome] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [editingName, setEditingName] = useState(false)
-  const [editName, setEditName] = useState('')
-
-  useEffect(() => { load() }, [obraId])
-
-  async function load() {
-    setLoading(true)
-    const { data } = await supabase
-      .from('cronogramas')
-      .select('id, nome, created_at')
-      .eq('obra_id', obraId)
-      .order('created_at', { ascending: false })
-    const cronos = (data || []) as (CronoSelectItem & { created_at: string })[]
-    const ids = cronos.map(crono => crono.id)
-    const { data: etapasVinculadas } = ids.length
-      ? await supabase.from('etapas').select('cronograma_id').in('cronograma_id', ids)
-      : { data: [] as { cronograma_id: string | null }[] }
-    const quantidadeEtapas = new Map<string, number>()
-    ;((etapasVinculadas || []) as { cronograma_id: string | null }[]).forEach(etapa => {
-      if (etapa.cronograma_id) quantidadeEtapas.set(etapa.cronograma_id, (quantidadeEtapas.get(etapa.cronograma_id) || 0) + 1)
-    })
-    // Cronogramas antigos vazios podem continuar vinculados. O cronograma operacional,
-    // que possui a cascata da obra, deve ser sempre a primeira escolha.
-    const list = [...cronos]
-      .sort((a, b) => (quantidadeEtapas.get(b.id) || 0) - (quantidadeEtapas.get(a.id) || 0) || b.created_at.localeCompare(a.created_at))
-      .map(({ id, nome }) => ({ id, nome }))
-    setCronogramas(list)
-    if (list.length > 0 && (!selectedId || !list.find(c => c.id === selectedId))) {
-      setSelectedId(list[0].id)
-    }
-    if (list.length === 0) setSelectedId('')
-    setLoading(false)
-  }
-
-  async function handleCriar() {
-    if (!novoNome.trim()) return
-    setCreating(true)
-    const { data: novo } = await supabase
-      .from('cronogramas')
-      .insert({ obra_id: obraId, nome: novoNome.trim() })
-      .select()
-      .single()
-    setCreating(false)
-    setShowNovo(false)
-    setNovoNome('')
-    if (novo) {
-      await load()
-      setSelectedId(novo.id)
-    }
-  }
-
-  async function handleRenomear() {
-    if (!editName.trim() || !selectedId) return
-    await supabase.from('cronogramas').update({ nome: editName.trim() }).eq('id', selectedId)
-    setEditingName(false)
-    load()
-  }
-
-  async function openVincular() {
-    const { data } = await supabase
-      .from('cronogramas')
-      .select('id, nome')
-      .is('obra_id', null)
-      .order('created_at', { ascending: false })
-    setDisponiveis((data || []) as CronoSelectItem[])
-    setVinculoId('')
-    setShowVincular(true)
-  }
-
-  async function handleVincular() {
-    if (!vinculoId) return
-    await supabase.from('cronogramas').update({ obra_id: obraId }).eq('id', vinculoId)
-    setShowVincular(false)
-    setSelectedId(vinculoId)
-    load()
-  }
-
-  async function handleDesvincular() {
-    if (!selectedId) return
-    if (!confirm('Desvincular este cronograma da obra? Ele continuará existindo em Cronogramas.')) return
-    await supabase.from('cronogramas').update({ obra_id: null }).eq('id', selectedId)
-    setSelectedId('')
-    load()
-  }
-
-  const selectedCrono = cronogramas.find(c => c.id === selectedId)
-
-  if (loading) {
-    return (
-      <div className="flex justify-center py-16">
-        <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      {/* Toolbar: dropdown + ações */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          {cronogramas.length > 0 ? (
-            <>
-              <select
-                value={selectedId}
-                onChange={e => setSelectedId(e.target.value)}
-                className="input-base text-sm font-medium"
-                style={{ minWidth: 220, maxWidth: 400 }}
-              >
-                {cronogramas.map(c => (
-                  <option key={c.id} value={c.id}>{c.nome}</option>
-                ))}
-              </select>
-              <button
-                onClick={() => { setEditName(selectedCrono?.nome || ''); setEditingName(true) }}
-                className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                title="Renomear"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                <Pencil size={13} />
-              </button>
-              <button
-                onClick={handleDesvincular}
-                className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                title="Desvincular da obra"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                <Unlink size={13} />
-              </button>
-            </>
-          ) : (
-            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum cronograma vinculado</span>
-          )}
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <button onClick={openVincular} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-            <Link2 size={13} /> Vincular
-          </button>
-          <button onClick={() => { setNovoNome(`${obraNome} - Cronograma`); setShowNovo(true) }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>
-            <Plus size={13} /> Novo
-          </button>
-        </div>
-      </div>
-
-      {/* Editor inline do cronograma selecionado */}
-      {selectedId ? (
-        <ObraCronograma key={`${selectedId}-${orcamentoIds.join(',')}`} cronogramaId={selectedId} obraId={obraId} orcamentoIds={orcamentoIds} />
-      ) : (
-        <div className="card p-8 text-center">
-          <Calendar size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />
-          <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Nenhum cronograma vinculado</p>
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Crie um novo ou vincule um cronograma existente a esta obra.</p>
-        </div>
-      )}
-
-      {/* Modal novo cronograma */}
-      {showNovo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowNovo(false)}>
-          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Novo Cronograma</h3>
-            <input
-              value={novoNome}
-              onChange={e => setNovoNome(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleCriar()}
-              placeholder="Nome do cronograma"
-              className="input-base w-full mb-4"
-              autoFocus
-            />
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowNovo(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
-              <button onClick={handleCriar} disabled={!novoNome.trim() || creating} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-                {creating ? 'Criando...' : 'Criar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal renomear */}
-      {editingName && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setEditingName(false)}>
-          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Renomear Cronograma</h3>
-            <input
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleRenomear()}
-              placeholder="Nome do cronograma"
-              className="input-base w-full mb-4"
-              autoFocus
-            />
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setEditingName(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
-              <button onClick={handleRenomear} disabled={!editName.trim()} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Salvar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal vincular existente */}
-      {showVincular && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowVincular(false)}>
-          <div className="card p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Vincular cronograma existente</h3>
-            <select value={vinculoId} onChange={e => setVinculoId(e.target.value)} className="input-base w-full mb-4">
-              <option value="">Selecione um cronograma...</option>
-              {disponiveis.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowVincular(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-secondary)' }}>Cancelar</button>
-              <button onClick={handleVincular} disabled={!vinculoId} className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>Vincular</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-const GRUPO_LABEL: Record<ObraFornecedor['grupo'], string> = {
-  mao_de_obra: 'Mão de obra',
-  demais: 'Demais (materiais, equipamentos e serviços)',
-}
-
-type OrcamentoResumo = { id: string; nome: string | null; versao: number; status: string; bdi_percentual: number }
-
-function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => void }) {
-  const supabase = createClient()
-  const [etapas, setEtapas] = useState<Etapa[]>([])
-  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
-  const [vinculos, setVinculos] = useState<ObraFornecedor[]>([])
-  const [orcamentos, setOrcamentos] = useState<OrcamentoResumo[]>([])
-  const [loadingExtra, setLoadingExtra] = useState(true)
-  const [pendente, setPendente] = useState<string | null>(null)
-  const [agora, setAgora] = useState<number | null>(null)
-
-  useEffect(() => {
-    let active = true
-    async function load() {
-      setLoadingExtra(true)
-      const [etapasRes, fornecedoresRes, vinculosRes, orcRes] = await Promise.all([
-        supabase.from('etapas').select('*').eq('obra_id', obra.id),
-        supabase.from('fornecedores').select('*').or(`obra_id.is.null,obra_id.eq.${obra.id}`).order('nome'),
-        supabase.from('obra_fornecedores').select('*, fornecedor:fornecedores(*)').eq('obra_id', obra.id),
-        supabase.from('orcamentos').select('id, nome, versao, status, bdi_percentual').eq('obra_id', obra.id).neq('status', 'arquivado').order('versao', { ascending: false }),
-      ])
-      if (!active) return
-      setEtapas((etapasRes.data || []) as Etapa[])
-      setFornecedores((fornecedoresRes.data || []) as Fornecedor[])
-      setVinculos((vinculosRes.data || []) as ObraFornecedor[])
-      setOrcamentos((orcRes.data || []) as OrcamentoResumo[])
-      setAgora(Date.now())
-      setLoadingExtra(false)
-    }
-    load()
-    return () => { active = false }
-  }, [obra.id])
-
-  async function toggleVinculo(fornecedorId: string, grupo: ObraFornecedor['grupo']) {
-    const chave = `${fornecedorId}-${grupo}`
-    const existente = vinculos.find(v => v.fornecedor_id === fornecedorId && v.grupo === grupo)
-    setPendente(chave)
-    if (existente) {
-      await supabase.from('obra_fornecedores').delete().eq('id', existente.id)
-      setVinculos(prev => prev.filter(v => v.id !== existente.id))
-    } else {
-      const { data } = await supabase
-        .from('obra_fornecedores')
-        .insert({ obra_id: obra.id, fornecedor_id: fornecedorId, grupo })
-        .select('*, fornecedor:fornecedores(*)')
-        .single()
-      if (data) setVinculos(prev => [...prev, data as ObraFornecedor])
-    }
-    setPendente(null)
-  }
-
-  const totalEtapas = etapas.length
-  const concluidas = etapas.filter(e => e.status === 'concluida').length
-  const percentualConcluido = totalEtapas > 0 ? Math.round((concluidas / totalEtapas) * 100) : 0
-
-  let tendencia: { texto: string; cor: string } | null = null
-  if (agora != null && obra.data_inicio && obra.data_previsao) {
-    const inicio = new Date(`${obra.data_inicio}T00:00:00`).getTime()
-    const fim = new Date(`${obra.data_previsao}T00:00:00`).getTime()
-    const totalMs = fim - inicio
-    if (totalMs > 0) {
-      const percentualTempo = Math.min(100, Math.max(0, Math.round(((agora - inicio) / totalMs) * 100)))
-      const diferenca = percentualConcluido - percentualTempo
-      if (diferenca >= 8) {
-        tendencia = { texto: 'Adiantada em relação ao prazo previsto', cor: 'var(--success)' }
-      } else if (diferenca <= -10) {
-        tendencia = { texto: 'Atenção: ritmo abaixo do esperado para o prazo', cor: 'var(--danger)' }
-      } else {
-        tendencia = { texto: 'Dentro do ritmo esperado para o prazo', cor: 'var(--accent)' }
-      }
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Informações da Obra</h2>
-            <button
-              onClick={onEdit}
-              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors hover:bg-[var(--bg-secondary)]"
-              style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-            >
-              <Pencil size={13} /> Editar
-            </button>
-          </div>
-          <dl className="flex flex-col gap-3">
-            {[
-              { label: 'Nome', value: obra.nome },
-              { label: 'Endereço', value: obra.endereco || '—' },
-              { label: 'Responsável', value: obra.responsavel || '—' },
-              { label: 'Status', value: STATUS_OBRA_LABEL[obra.status] },
-              { label: 'Data de início', value: formatDate(obra.data_inicio) },
-              { label: 'Previsão de conclusão', value: formatDate(obra.data_previsao) },
-              { label: 'Área construída', value: obra.area_m2 ? `${obra.area_m2} m²` : '—' },
-              { label: 'UF (preços SINAPI)', value: obra.uf || '—' },
-              { label: 'Criado em', value: formatDate(obra.created_at) },
-            ].map(({ label, value }) => (
-              <div key={label} className="flex justify-between text-sm">
-                <dt style={{ color: 'var(--text-secondary)' }}>{label}</dt>
-                <dd className="font-medium text-right" style={{ color: 'var(--text-primary)' }}>{value}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-
-        <div className="card p-6 flex flex-col">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(59,123,248,0.15)' }}>
-              <HardHat size={18} style={{ color: 'var(--accent)' }} />
-            </div>
-            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Obra em andamento</h2>
-          </div>
-
-          {totalEtapas === 0 ? (
-            <p className="text-sm flex-1 flex items-center" style={{ color: 'var(--text-secondary)' }}>
-              Cadastre etapas no Cronograma para acompanhar o andamento previsto desta obra.
-            </p>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <div>
-                <div className="flex items-center justify-between mb-1.5 text-sm">
-                  <span style={{ color: 'var(--text-secondary)' }}>Etapas concluídas</span>
-                  <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{concluidas} de {totalEtapas} ({percentualConcluido}%)</span>
-                </div>
-                <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
-                  <div className="h-full rounded-full transition-all" style={{ width: `${percentualConcluido}%`, background: 'var(--accent)' }} />
-                </div>
-              </div>
-
-              {tendencia && (
-                <div className="flex items-start gap-2.5 p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
-                  <TrendingUp size={16} className="mt-0.5 flex-shrink-0" style={{ color: tendencia.cor }} />
-                  <p className="text-sm" style={{ color: tendencia.cor }}>{tendencia.texto}</p>
-                </div>
-              )}
-
-              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                Use as abas acima para gerenciar orçamento, cronograma, compras e medições.
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Orçamento operacional da obra */}
-      <div className="card p-6">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <FileText size={18} style={{ color: 'var(--accent)' }} />
-            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Orçamento da obra</h2>
-          </div>
-        </div>
-
-        {orcamentos.length === 0 ? (
-          <p className="text-sm py-3" style={{ color: 'var(--text-secondary)' }}>
-            Esta obra ainda não possui orçamento operacional. Inicie a obra a partir de um orçamento.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {orcamentos.slice(0, 1).map(orc => (
-              <Link
-                key={orc.id}
-                href={`/orcamentos/${orc.id}`}
-                className="flex items-center justify-between p-3 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                style={{ border: '1px solid var(--border)' }}
-              >
-                <div className="flex items-center gap-3">
-                  <FileText size={16} style={{ color: 'var(--text-secondary)' }} />
-                  <div>
-                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                      {orc.nome || `Orçamento v${orc.versao}`}
-                    </span>
-                    <span className="text-xs ml-2" style={{ color: 'var(--text-secondary)' }}>
-                      BDI {orc.bdi_percentual}%
-                    </span>
-                  </div>
-                </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                  orc.status === 'ativo' ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                  : orc.status === 'finalizado' ? 'bg-gray-500/20 text-gray-400 border-gray-500/30'
-                  : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                }`}>
-                  {orc.status === 'ativo' ? 'Ativo' : orc.status === 'finalizado' ? 'Finalizado' : 'Em projeto'}
-                </span>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="card p-6">
-        <div className="flex items-center gap-2 mb-1">
-          <Truck size={18} style={{ color: 'var(--accent)' }} />
-          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Fornecedores vinculados a esta obra</h2>
-        </div>
-        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
-          Selecione, em cada grupo, os fornecedores que atuam nesta obra. O vínculo ajuda a IA a sugerir contatos certos por contexto.
-        </p>
-
-        {loadingExtra ? (
-          <div className="flex justify-center py-8">
-            <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
-          </div>
-        ) : fornecedores.length === 0 ? (
-          <p className="text-sm py-4 text-center" style={{ color: 'var(--text-secondary)' }}>
-            Cadastre fornecedores na aba Fornecedores para poder vinculá-los a esta obra.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {(['mao_de_obra', 'demais'] as ObraFornecedor['grupo'][]).map(grupo => (
-              <div key={grupo} className="rounded-xl p-4" style={{ border: '1px solid var(--border)' }}>
-                <p className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>{GRUPO_LABEL[grupo]}</p>
-                <div className="flex flex-col gap-1 max-h-64 overflow-y-auto pr-1">
-                  {fornecedores.map(fornecedor => {
-                    const chave = `${fornecedor.id}-${grupo}`
-                    const marcado = vinculos.some(v => v.fornecedor_id === fornecedor.id && v.grupo === grupo)
-                    return (
-                      <label
-                        key={fornecedor.id}
-                        className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-sm cursor-pointer select-none transition-colors hover:bg-[var(--bg-secondary)]"
-                        style={{ color: 'var(--text-primary)' }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={marcado}
-                          disabled={pendente === chave}
-                          onChange={() => toggleVinculo(fornecedor.id, grupo)}
-                          className="w-4 h-4 rounded flex-shrink-0"
-                        />
-                        <span className="truncate">
-                          {fornecedor.nome}
-                          {fornecedor.apelido && <span style={{ color: 'var(--text-secondary)' }}> · {fornecedor.apelido}</span>}
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}

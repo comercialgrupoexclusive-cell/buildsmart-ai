@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList,
-  NotebookPen, FileBarChart, LineChart,
+  NotebookPen, FileBarChart,
   BriefcaseBusiness, WalletCards,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -24,11 +24,10 @@ import {
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ObraRdo } from '@/components/obra/ObraRdo'
 import { ObraBoletins } from '@/components/obra/ObraBoletins'
-import { ObraCurvaS } from '@/components/obra/ObraCurvaS'
 import { ObraMedicaoMaoObra } from '@/components/obra/ObraMedicaoMaoObra'
 import { ProgressControl } from '@/components/obra/ProgressControl'
 
-type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'boletins' | 'diario' | 'curva'
+type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'boletins' | 'diario'
 
 const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
@@ -36,7 +35,6 @@ const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { id: 'gerenciamento', label: 'Gerenciamento', icon: WalletCards },
   { id: 'boletins', label: 'Boletins', icon: FileBarChart },
   { id: 'diario', label: 'Diário (RDO)', icon: NotebookPen },
-  { id: 'curva', label: 'Curva S', icon: LineChart },
 ]
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
@@ -71,7 +69,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
       primeiraAbaRef.current = false
       return
     }
-    if (subTab === 'fisico' || subTab === 'boletins' || subTab === 'curva') {
+    if (subTab === 'fisico' || subTab === 'boletins') {
       Promise.resolve().then(() => carregar(true))
     }
   }, [subTab, carregar])
@@ -145,7 +143,6 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
 
       {subTab === 'diario' && <ObraRdo obraId={obraId} />}
       {subTab === 'boletins' && <ObraBoletins obraId={obraId} prog={prog} onMedicaoFechada={carregar} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-      {subTab === 'curva' && <ObraCurvaS obraId={obraId} prog={prog} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
       {subTab === 'mao-obra' && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />}
       {subTab === 'gerenciamento' && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} eixo="gerenciamento" />}
 

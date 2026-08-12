@@ -8,10 +8,10 @@
 // Realizado: pontos dos boletins de medição fechados (avanço acumulado no fim
 //   do período) + ponto "hoje" com o avanço atual do cronograma.
 // ═══════════════════════════════════════════════════════════════════════════
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { LineChart } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import type { ObraProgresso } from '@/lib/obra-progresso'
+import { loadObraProgresso, type ObraProgresso } from '@/lib/obra-progresso'
 import type { Medicao } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
@@ -20,10 +20,20 @@ const DAY = 86400000
 const toTs = (d: string) => new Date(d + 'T12:00').getTime()
 const fmtMes = (ts: number) => new Date(ts).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
 
-export function ObraCurvaS({ obraId, prog, orcamentoId, orcamentoIds }: { obraId: string; prog: ObraProgresso | null; orcamentoId: string; orcamentoIds: string[] }) {
+export function ObraCurvaS({ obraId, prog: progProp, orcamentoId, orcamentoIds }: { obraId: string; prog?: ObraProgresso | null; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = createClient()
   const [boletins, setBoletins] = useState<Medicao[]>([])
   const [loading, setLoading] = useState(true)
+  const [selfProg, setSelfProg] = useState<ObraProgresso | null>(null)
+  const prog = progProp ?? selfProg
+
+  const carregarProg = useCallback(async () => {
+    if (progProp !== undefined) return
+    const p = await loadObraProgresso(supabase, obraId, 'fisico', orcamentoIds.length ? orcamentoIds : undefined)
+    setSelfProg(p)
+  }, [obraId, supabase, orcamentoIds, progProp])
+
+  useEffect(() => { carregarProg() }, [carregarProg])
 
   useEffect(() => {
     Promise.resolve().then(async () => {
