@@ -246,7 +246,7 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
 
   return (
     <div className="card overflow-hidden">
-      <div className="flex flex-col gap-3 px-4 py-3 select-none sm:flex-row sm:items-center"
+      <div className="flex flex-col gap-3 px-3 py-2.5 select-none sm:flex-row sm:items-center"
         style={{ background: 'var(--bg-secondary)', borderBottom: collapsed || !temFilhos ? 'none' : '1px solid var(--border)', cursor: temFilhos ? 'pointer' : 'default' }}
         onClick={() => temFilhos && onToggle()}>
         <div className="flex items-center gap-3 min-w-0 w-full sm:flex-1">
@@ -270,7 +270,7 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
         <div className="flex flex-col">
           {etapa.subetapas.map(sub => (
             <div key={sub.id}>
-              <div className="flex flex-col gap-2 pl-9 pr-4 py-3 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="flex flex-col gap-2 pl-9 pr-3 py-2 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)' }}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 min-w-0">
                     <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{sub.nome}</p>
@@ -284,7 +284,7 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
                 <CampoPct valor={sub.percentual} onChange={v => onSetSub(sub, v)} tamanho="sm" />
               </div>
               {sub.servicos.map(svc => (
-                <div key={svc.id} className="flex flex-col gap-2 pl-14 pr-4 py-2.5 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+                <div key={svc.id} className="flex flex-col gap-2 pl-14 pr-3 py-2 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
                   <div className="flex-1 min-w-0"><p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{svc.nome}</p></div>
                   <CampoPct valor={svc.percentual} onChange={v => onSetServico(svc.id, v)} tamanho="sm" />
                 </div>

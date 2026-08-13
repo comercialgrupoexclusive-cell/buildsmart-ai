@@ -243,7 +243,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
 
       {/* Cabeçalho de colunas */}
       <div
-        className="hidden sm:grid text-xs font-medium px-2 py-2 rounded-t-lg mb-1"
+        className="hidden sm:grid text-xs font-medium px-3 py-2.5 rounded-t-lg mb-1"
         style={{
           gridTemplateColumns: '1fr 130px 110px 70px 110px',
           background: 'var(--bg-secondary)',
@@ -389,19 +389,19 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
     <div>
       {/* Linha principal — grid de 3 colunas */}
       <div
-        className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors rounded-xl sm:rounded-none mb-2 sm:mb-0 px-3 sm:px-0 py-3 sm:py-0 border sm:border-0"
+        className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors rounded-xl sm:rounded-none mb-2 sm:mb-0 px-3 sm:px-0 py-2 sm:py-0 border sm:border-0"
         style={{
           gridTemplateColumns: '1fr 130px 110px 70px 110px',
           paddingLeft: 8,
           paddingRight: 8,
-          minHeight: 36,
+          minHeight: 40,
           background: item.nivel === 1 ? NIVEL_BG[1] : item.nivel === 2 ? 'rgba(255,255,255,0.018)' : 'transparent',
           borderColor: 'var(--border)',
           borderBottom: '1px solid var(--border)',
         }}
       >
         {/* Coluna 1 — checkbox + expand + nome */}
-        <div className="flex items-start sm:items-center gap-2 sm:gap-1.5 py-1.5 min-w-0 flex-wrap sm:flex-nowrap" style={{ paddingLeft: indent }}>
+        <div className="flex items-start sm:items-center gap-2 sm:gap-1.5 py-2 min-w-0 flex-wrap sm:flex-nowrap" style={{ paddingLeft: indent }}>
           <button
             className="w-7 h-8 sm:w-4 sm:h-4 flex items-center justify-center flex-shrink-0 rounded-lg sm:rounded-none"
             style={{ color: 'var(--text-secondary)', visibility: hasChildren ? 'visible' : 'hidden' }}

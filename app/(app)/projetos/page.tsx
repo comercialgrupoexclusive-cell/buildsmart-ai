@@ -327,14 +327,17 @@ export default function ProjetosPage() {
                   className="block rounded-xl border overflow-hidden hover:shadow-md transition-shadow"
                   style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                 >
-                  {/* Foto ou faixa de status */}
-                  {p.foto_url ? (
-                    <div className="h-28 overflow-hidden">
+                  {/* Foto ou faixa de status — altura fixa para manter cards uniformes */}
+                  <div className="h-28 overflow-hidden flex items-center justify-center" style={{ background: p.foto_url ? undefined : 'var(--bg-secondary)' }}>
+                    {p.foto_url ? (
                       <img src={p.foto_url} alt="" className="w-full h-full object-cover" />
-                    </div>
-                  ) : (
-                    <div className="h-1" style={{ background: meta.color }} />
-                  )}
+                    ) : (
+                      <div className="flex flex-col items-center gap-1.5">
+                        <FolderOpen size={28} style={{ color: meta.color, opacity: 0.6 }} />
+                        <div className="h-1 w-16 rounded-full" style={{ background: meta.color }} />
+                      </div>
+                    )}
+                  </div>
 
                   <div className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">

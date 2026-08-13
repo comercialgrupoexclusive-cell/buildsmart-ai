@@ -526,7 +526,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
             const isCollapsed = collapsed.has(id)
             const atrasado = !!(fim && !concluido && new Date(fim) < today)
             return (
-              <div key={id} className="border-b px-3 py-2.5" style={{
+              <div key={id} className="border-b px-3 py-2" style={{
                 borderColor: 'var(--border)',
                 paddingLeft: 12 + Math.min(depth, 2) * 12,
                 background: isProj ? 'rgba(59,123,248,0.08)' : nivel === 1 ? 'rgba(59,123,248,0.035)' : 'transparent',

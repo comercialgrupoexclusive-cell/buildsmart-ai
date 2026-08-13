@@ -1022,16 +1022,16 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
               <Fragment key={etapa.id}>
                 {/* ── Linha Etapa (nível 1) — grid row ── */}
                 <div
-                  className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors px-2 py-1.5"
+                  className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors px-3 py-2"
                   style={{
                     gridTemplateColumns: '1fr 110px 70px 110px',
                     background: 'rgba(59,123,248,0.06)',
                     borderBottom: '1px solid var(--border)',
-                    minHeight: 36,
+                    minHeight: 40,
                   }}
                 >
                   {/* Col 1: Nome + expand + status + marco + ações */}
-                  <div className="flex items-center gap-1.5 py-1 min-w-0 flex-wrap" style={{ paddingLeft: 0 }}>
+                  <div className="flex items-center gap-1.5 py-0 min-w-0 flex-wrap" style={{ paddingLeft: 0 }}>
                     <button onClick={() => toggle(etapa.id)} className="w-5 h-5 flex items-center justify-center flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
                       {isCollapsedEtapa ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                     </button>
@@ -1123,15 +1123,15 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
                   return (
                     <Fragment key={sub.id}>
                       <div
-                        className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors px-2 py-1.5"
+                        className="block sm:grid items-center group hover:bg-[var(--bg-secondary)] transition-colors px-3 py-2"
                         style={{
                           gridTemplateColumns: '1fr 110px 70px 110px',
                           background: 'rgba(255,255,255,0.018)',
                           borderBottom: '1px solid var(--border)',
-                          minHeight: 36,
+                          minHeight: 40,
                         }}
                       >
-                        <div className="flex items-center gap-1.5 py-1 min-w-0 flex-wrap" style={{ paddingLeft: 20 }}>
+                        <div className="flex items-center gap-1.5 py-0 min-w-0 flex-wrap" style={{ paddingLeft: 20 }}>
                           <button onClick={() => toggle(sub.id)} className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ color: 'var(--text-secondary)', visibility: svcs.length > 0 ? 'visible' : 'hidden' }}>
                             {isCollapsedSub ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                           </button>
@@ -1220,10 +1220,10 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
                         return (
                           <div
                             key={svc.id}
-                            className="block sm:grid items-center group hover:bg-[var(--bg-card)] transition-colors px-2 py-1.5"
-                            style={{ gridTemplateColumns: '1fr 110px 70px 110px', borderBottom: '1px solid var(--border)', minHeight: 32 }}
+                            className="block sm:grid items-center group hover:bg-[var(--bg-card)] transition-colors px-3 py-2"
+                            style={{ gridTemplateColumns: '1fr 110px 70px 110px', borderBottom: '1px solid var(--border)', minHeight: 40 }}
                           >
-                            <div className="flex items-center gap-1.5 py-1 min-w-0 flex-wrap" style={{ paddingLeft: 44 }}>
+                            <div className="flex items-center gap-1.5 py-0 min-w-0 flex-wrap" style={{ paddingLeft: 44 }}>
                               <Check size={12} className="flex-shrink-0" style={{ color: svc.percentual_executado >= 100 ? '#10b981' : 'var(--border)' }} />
                               <span className="flex-1 text-xs truncate min-w-0" style={{ color: 'var(--text-primary)' }}>{svc.nome}</span>
 

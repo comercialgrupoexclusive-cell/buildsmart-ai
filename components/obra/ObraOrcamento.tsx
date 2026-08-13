@@ -3087,7 +3087,7 @@ function GrupoEtapa({
     <div className="card overflow-visible">
       {/* Cabeçalho etapa */}
       <div
-        className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
+        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none"
         style={{ background: 'var(--bg-secondary)', borderBottom: collapsed ? 'none' : '1px solid var(--border)' }}
         onClick={onToggleGrupo}
       >

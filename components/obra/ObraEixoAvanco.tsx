@@ -63,7 +63,7 @@ export function ObraEixoAvanco({ obraId, orcamentoId, eixo }: { obraId: string; 
     {dados.etapas.length === 0 ? <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum item disponível para este eixo.</div> : dados.etapas.map(etapa => {
       const peso = dados.valorTotal > 0 ? etapa.valorContratado / dados.valorTotal * 100 : 0
       return <div key={etapa.id} className="card overflow-hidden">
-        <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center" style={{ background: 'var(--bg-secondary)' }}>
+        <div className="flex flex-col gap-3 px-3 py-2.5 sm:flex-row sm:items-center" style={{ background: 'var(--bg-secondary)' }}>
           <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setAbertas(v => ({ ...v, [etapa.id]: !v[etapa.id] }))}>
             {abertas[etapa.id] ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
             <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{etapa.nome}</span><span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Peso {peso.toFixed(1)}% · {formatCurrency(etapa.valorContratado)}</span></span>
@@ -71,11 +71,11 @@ export function ObraEixoAvanco({ obraId, orcamentoId, eixo }: { obraId: string; 
           <ProgressControl valor={etapa.percentual} onChange={valor => salvarEtapa(etapa, valor)} compact />
         </div>
         {abertas[etapa.id] && etapa.subetapas.map(sub => <div key={sub.id} style={{ borderTop: '1px solid var(--border)' }}>
-          <div className="flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:pl-8">
+          <div className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:pl-8">
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{sub.nome}</p><p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Peso na etapa {etapa.valorContratado > 0 ? (sub.valorContratado / etapa.valorContratado * 100).toFixed(1) : '0.0'}%</p></div>
             <ProgressControl valor={sub.percentual} onChange={valor => salvarSub(etapa, sub, valor)} compact />
           </div>
-          {sub.servicos.map(servico => <div key={servico.id} className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:pl-12" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+          {sub.servicos.map(servico => <div key={servico.id} className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:pl-12" style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-card)' }}>
             <p className="min-w-0 flex-1 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{servico.nome}</p>
             <ProgressControl valor={servico.percentual} onChange={valor => salvarServico(servico.id, valor)} compact />
           </div>)}
