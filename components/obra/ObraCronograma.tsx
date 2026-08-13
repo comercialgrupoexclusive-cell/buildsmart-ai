@@ -1027,7 +1027,7 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
                     gridTemplateColumns: '1fr 110px 70px 110px',
                     background: 'rgba(59,123,248,0.06)',
                     borderBottom: '1px solid var(--border)',
-                    minHeight: 40,
+                    minHeight: 34,
                   }}
                 >
                   {/* Col 1: Nome + expand + status + marco + ações */}
@@ -1055,9 +1055,22 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
 
                     <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0 ml-1">
                       <button onClick={() => openNewSub(etapa.id)} className="p-1 rounded hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }} title="Adicionar subetapa"><Plus size={12} /></button>
+                      <button onClick={() => setPickerQuickAlvo({ tipo: 'etapa', id: etapa.id })} className="p-1 rounded hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }} title="Adicionar predecessora"><Link2 size={11} /></button>
                       <button onClick={() => openEditEtapa(etapa)} className="p-1 rounded hover:bg-[var(--bg-card)]"><Pencil size={11} style={{ color: 'var(--text-secondary)' }} /></button>
                       <button onClick={() => deleteEtapa(etapa.id)} className="p-1 rounded hover:bg-red-500/10"><Trash2 size={11} style={{ color: 'var(--danger)' }} /></button>
                     </div>
+
+                    {predecessorasDeItem('etapa', etapa.id).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1 flex-shrink-0">
+                        {predecessorasDeItem('etapa', etapa.id).map(p => (
+                          <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
+                            <Link2 size={9} />
+                            {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
+                            <button onClick={() => salvarPredecessoras('etapa', etapa.id, predecessorasDeItem('etapa', etapa.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100"><X size={9} /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* Mobile dates */}
                     <div className="basis-full sm:hidden grid grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 24 }}>
@@ -1073,20 +1086,6 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
                         <span className="block text-[10px] mb-1" style={{ color: etapaAtrasada ? '#EF4444' : 'var(--text-secondary)' }}>Fim</span>
                         <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: etapaAtrasada ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }} value={etapa.data_fim ?? ''} onChange={e => updateDateInline('etapas', etapa.id, 'data_fim', e.target.value)} />
                       </label>
-                    </div>
-
-                    {/* Predecessoras + financeiro */}
-                    <div className="basis-full flex flex-wrap items-center gap-1.5 mt-1" style={{ paddingLeft: 24 }}>
-                      {predecessorasDeItem('etapa', etapa.id).map(p => (
-                        <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
-                          <Link2 size={9} />
-                          <span className="font-medium">Dep:</span> {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
-                          <button onClick={() => salvarPredecessoras('etapa', etapa.id, predecessorasDeItem('etapa', etapa.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100"><X size={9} /></button>
-                        </span>
-                      ))}
-                      <button onClick={() => setPickerQuickAlvo({ tipo: 'etapa', id: etapa.id })} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-card)] transition-colors" style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}>
-                        <Plus size={9} /> Predecessora
-                      </button>
                     </div>
                     {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio) && (
                       <p className="basis-full text-[10px] mt-1" style={{ color: 'var(--danger)', paddingLeft: 24 }}>Conflita com predecessora: {conflitoDePredecessoras('etapa', etapa.id, etapa.data_inicio)}</p>
@@ -1128,7 +1127,7 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
                           gridTemplateColumns: '1fr 110px 70px 110px',
                           background: 'rgba(255,255,255,0.018)',
                           borderBottom: '1px solid var(--border)',
-                          minHeight: 40,
+                          minHeight: 34,
                         }}
                       >
                         <div className="flex items-center gap-1.5 py-0 min-w-0 flex-wrap" style={{ paddingLeft: 20 }}>
@@ -1154,9 +1153,22 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
 
                           <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
                             <button onClick={() => openNewSvc(sub.id)} className="p-1 rounded hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }}><Plus size={11} /></button>
+                            <button onClick={() => setPickerQuickAlvo({ tipo: 'subetapa', id: sub.id })} className="p-1 rounded hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }} title="Adicionar predecessora"><Link2 size={10} /></button>
                             <button onClick={() => openEditSub(sub)} className="p-1 rounded hover:bg-[var(--bg-card)]"><Pencil size={11} style={{ color: 'var(--text-secondary)' }} /></button>
                             <button onClick={() => deleteSub(sub)} className="p-1 rounded hover:bg-red-500/10"><Trash2 size={11} style={{ color: 'var(--danger)' }} /></button>
                           </div>
+
+                          {predecessorasDeItem('subetapa', sub.id).length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1 flex-shrink-0">
+                              {predecessorasDeItem('subetapa', sub.id).map(p => (
+                                <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
+                                  <Link2 size={9} />
+                                  {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
+                                  <button onClick={() => salvarPredecessoras('subetapa', sub.id, predecessorasDeItem('subetapa', sub.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100"><X size={9} /></button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
 
                           {/* Mobile dates */}
                           <div className="basis-full sm:hidden grid grid-cols-3 gap-2 mt-2" style={{ paddingLeft: 20 }}>
@@ -1172,20 +1184,6 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
                               <span className="block text-[10px] mb-1" style={{ color: subAtrasada ? '#EF4444' : 'var(--text-secondary)' }}>Fim</span>
                               <input type="date" className="w-full min-h-9 rounded-lg border px-2 text-xs outline-none" style={{ background: 'var(--bg-card)', borderColor: subAtrasada ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }} value={sub.data_fim ?? ''} onChange={e => updateDateInline('subetapas_cronograma', sub.id, 'data_fim', e.target.value)} />
                             </label>
-                          </div>
-
-                          {/* Predecessoras + financeiro */}
-                          <div className="basis-full flex flex-wrap items-center gap-1.5 mt-1" style={{ paddingLeft: 20 }}>
-                            {predecessorasDeItem('subetapa', sub.id).map(p => (
-                              <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
-                                <Link2 size={9} />
-                                <span className="font-medium">Dep:</span> {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
-                                <button onClick={() => salvarPredecessoras('subetapa', sub.id, predecessorasDeItem('subetapa', sub.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100"><X size={9} /></button>
-                              </span>
-                            ))}
-                            <button onClick={() => setPickerQuickAlvo({ tipo: 'subetapa', id: sub.id })} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-card)] transition-colors" style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}>
-                              <Plus size={9} /> Predecessora
-                            </button>
                           </div>
                           {conflitoDePredecessoras('subetapa', sub.id, sub.data_inicio) && (
                             <p className="basis-full text-[10px] mt-1" style={{ color: 'var(--danger)', paddingLeft: 20 }}>Conflita com predecessora: {conflitoDePredecessoras('subetapa', sub.id, sub.data_inicio)}</p>
@@ -1221,7 +1219,7 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
                           <div
                             key={svc.id}
                             className="block sm:grid items-center group hover:bg-[var(--bg-card)] transition-colors px-3 py-2"
-                            style={{ gridTemplateColumns: '1fr 110px 70px 110px', borderBottom: '1px solid var(--border)', minHeight: 40 }}
+                            style={{ gridTemplateColumns: '1fr 110px 70px 110px', borderBottom: '1px solid var(--border)', minHeight: 34 }}
                           >
                             <div className="flex items-center gap-1.5 py-0 min-w-0 flex-wrap" style={{ paddingLeft: 44 }}>
                               <Check size={12} className="flex-shrink-0" style={{ color: svc.percentual_executado >= 100 ? '#10b981' : 'var(--border)' }} />
@@ -1234,23 +1232,22 @@ export function ObraCronograma({ obraId, projetoId, cronogramaId, orcamentoIds }
                               <PctInput value={percentualDo(svc)} onChange={v => updatePct('servicos_cronograma', svc.id, v)} small />
 
                               <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
+                                <button onClick={() => setPickerQuickAlvo({ tipo: 'servico', id: svc.id })} className="p-1 rounded hover:bg-[var(--bg-card)]" style={{ color: 'var(--accent)' }} title="Adicionar predecessora"><Link2 size={9} /></button>
                                 <button onClick={() => openEditSvc(svc)} className="p-1 rounded hover:bg-[var(--bg-card)]"><Pencil size={10} style={{ color: 'var(--text-secondary)' }} /></button>
                                 <button onClick={() => deleteSvc(svc.id)} className="p-1 rounded hover:bg-red-500/10"><Trash2 size={10} style={{ color: 'var(--danger)' }} /></button>
                               </div>
 
-                              {/* Predecessoras + financeiro */}
-                              <div className="basis-full flex flex-wrap items-center gap-1.5 mt-1" style={{ paddingLeft: 16 }}>
-                                {predecessorasDeItem('servico', svc.id).map(p => (
-                                  <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
-                                    <Link2 size={9} />
-                                    <span className="font-medium">Dep:</span> {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
-                                    <button onClick={() => salvarPredecessoras('servico', svc.id, predecessorasDeItem('servico', svc.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100"><X size={9} /></button>
-                                  </span>
-                                ))}
-                                <button onClick={() => setPickerQuickAlvo({ tipo: 'servico', id: svc.id })} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full hover:bg-[var(--bg-card)] transition-colors" style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}>
-                                  <Plus size={9} /> Predecessora
-                                </button>
-                              </div>
+                              {predecessorasDeItem('servico', svc.id).length > 0 && (
+                                <div className="flex flex-wrap items-center gap-1 flex-shrink-0">
+                                  {predecessorasDeItem('servico', svc.id).map(p => (
+                                    <span key={p.id} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(59,123,248,0.08)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.25)' }}>
+                                      <Link2 size={9} />
+                                      {nomeDoItem(p.predecessor_tipo, p.predecessor_id)}
+                                      <button onClick={() => salvarPredecessoras('servico', svc.id, predecessorasDeItem('servico', svc.id).filter(x => x.id !== p.id).map(x => ({ tipo: x.predecessor_tipo, id: x.predecessor_id, nome: nomeDoItem(x.predecessor_tipo, x.predecessor_id), data_fim: dataDoItem(x.predecessor_tipo, x.predecessor_id).fim })))} className="opacity-60 hover:opacity-100"><X size={9} /></button>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                               {conflitoDePredecessoras('servico', svc.id, svc.data_inicio) && (
                                 <p className="basis-full text-[10px] mt-1" style={{ color: 'var(--danger)', paddingLeft: 16 }}>Conflita com predecessora: {conflitoDePredecessoras('servico', svc.id, svc.data_inicio)}</p>
                               )}

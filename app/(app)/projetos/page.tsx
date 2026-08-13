@@ -320,11 +320,11 @@ export default function ProjetosPage() {
             const pct = stats && stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : null
 
             return (
-              <div key={p.id} className="relative">
+              <div key={p.id} className="relative h-full">
                 {/* Card inteiramente clicável */}
                 <Link
                   href={`/projetos/${p.id}`}
-                  className="block rounded-xl border overflow-hidden hover:shadow-md transition-shadow"
+                  className="flex flex-col h-full rounded-xl border overflow-hidden hover:shadow-md transition-shadow"
                   style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                 >
                   {/* Foto ou faixa de status — altura fixa para manter cards uniformes */}
@@ -339,7 +339,7 @@ export default function ProjetosPage() {
                     )}
                   </div>
 
-                  <div className="p-4 space-y-3">
+                  <div className="p-4 space-y-3 flex-1 flex flex-col">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-base truncate" style={{ color: 'var(--text-primary)' }}>
@@ -360,6 +360,8 @@ export default function ProjetosPage() {
                     >
                       {meta.label}
                     </span>
+
+                    <div className="flex-1" />
 
                     {/* Barra de progresso */}
                     {pct !== null && (

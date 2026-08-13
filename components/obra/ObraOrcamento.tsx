@@ -3084,7 +3084,7 @@ function GrupoEtapa({
   }
 
   return (
-    <div className="card overflow-visible">
+    <div className="card overflow-hidden">
       {/* Cabeçalho etapa */}
       <div
         className="flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none"
@@ -3168,7 +3168,7 @@ function GrupoEtapa({
           ) : (
             <>
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse text-sm">
+              <table className="w-full min-w-[860px] border-collapse text-xs">
                 <thead>
                   <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
                     <th className="w-10 px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}></th>
@@ -3251,7 +3251,7 @@ function GrupoEtapa({
                                   <MoreHorizontal size={14} />
                                 </button>
                                 {subMenuAberto === grupo.key && (
-                                  <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+                                  <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52"
                                     style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                     {onAddItemToSubetapa && (
                                       <button onClick={() => { setSubMenuAberto(null); onAddItemToSubetapa(grupo.nome) }}
@@ -3321,7 +3321,7 @@ function GrupoEtapa({
                                   )}
                                 </td>
                                 <td className="px-3 py-2 align-top" style={{ color: 'var(--text-primary)' }}>
-                                  <span className="line-clamp-2">{item.descricao}</span>
+                                  <span className="truncate block">{item.descricao}</span>
                                 </td>
                                 <td className="px-3 py-2 align-top text-center" style={{ color: 'var(--text-secondary)' }}>{item.unidade}</td>
                                 <td className="px-3 py-2 align-top text-center">
@@ -3330,7 +3330,7 @@ function GrupoEtapa({
                                     inputMode="decimal"
                                     defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
                                     className="input-base py-1 text-xs text-center tabular-nums"
-                                    style={{ width: 86, color: 'var(--text-primary)' }}
+                                    style={{ width: 64, color: 'var(--text-primary)' }}
                                     disabled={isReadonly}
                                     onFocus={e => e.currentTarget.select()}
                                     onBlur={e => {
@@ -3386,7 +3386,7 @@ function GrupoEtapa({
                                         <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
                                       </button>
                                       {itemMenuAberto === item.id && (
-                                        <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+                                        <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52"
                                           style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                           {onEditItem && (
                                             <button onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
