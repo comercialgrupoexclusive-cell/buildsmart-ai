@@ -14,6 +14,7 @@ import { useProfile } from '@/lib/profile-context'
 import { usePermission } from '@/lib/permissions'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
+import { ObraCurvaABC } from '@/components/obra/ObraCurvaABC'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraFinanceiroTab } from '@/components/obra/ObraFinanceiroTab'
 import { ObraProjetoTab } from '@/components/obra/ObraProjetoTab'
@@ -56,6 +57,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
   const menuRef = useRef<HTMLDivElement>(null)
   const [editForm, setEditForm] = useState({
     nome: '', endereco: '', responsavel: '', data_inicio: '', data_previsao: '', foto_url: '', area_m2: '', valor_contrato: '', uf: 'SP',
+    responsavel_tecnico: '', art_numero: '', cliente_nome: '', cliente_contato: '',
   })
   const [uploadingFoto, setUploadingFoto] = useState(false)
   const [usuarios, setUsuarios] = useState<{ id: string; name: string }[]>([])
@@ -144,6 +146,10 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       area_m2: obra.area_m2 != null ? String(obra.area_m2) : '',
       valor_contrato: obra.valor_contrato != null ? String(obra.valor_contrato) : '',
       uf: obra.uf || 'SP',
+      responsavel_tecnico: obra.responsavel_tecnico || '',
+      art_numero: obra.art_numero || '',
+      cliente_nome: obra.cliente_nome || '',
+      cliente_contato: obra.cliente_contato || '',
     })
     setMenuOpen(false)
     setShowEditModal(true)
@@ -164,6 +170,10 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         area_m2: editForm.area_m2 ? parseFloat(editForm.area_m2) : null,
         valor_contrato: editForm.valor_contrato ? parseFloat(String(editForm.valor_contrato).replace(',', '.')) : null,
         uf: editForm.uf,
+        responsavel_tecnico: editForm.responsavel_tecnico || null,
+        art_numero: editForm.art_numero || null,
+        cliente_nome: editForm.cliente_nome || null,
+        cliente_contato: editForm.cliente_contato || null,
       })
       .eq('id', id)
       .select()
@@ -496,6 +506,34 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
 
           <div className="grid grid-cols-2 gap-4">
             <Input
+              label="RT (Resp. Técnico)"
+              value={editForm.responsavel_tecnico}
+              onChange={e => setEditForm(f => ({ ...f, responsavel_tecnico: e.target.value }))}
+              placeholder="Nome do engenheiro/arquiteto"
+            />
+            <Input
+              label="N° ART / RRT"
+              value={editForm.art_numero}
+              onChange={e => setEditForm(f => ({ ...f, art_numero: e.target.value }))}
+              placeholder="Ex: 1234567"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Cliente"
+              value={editForm.cliente_nome}
+              onChange={e => setEditForm(f => ({ ...f, cliente_nome: e.target.value }))}
+              placeholder="Nome ou empresa"
+            />
+            <Input
+              label="Contato do cliente"
+              value={editForm.cliente_contato}
+              onChange={e => setEditForm(f => ({ ...f, cliente_contato: e.target.value }))}
+              placeholder="Telefone ou e-mail"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
               label="Data de início"
               type="date"
               value={editForm.data_inicio}
@@ -572,6 +610,7 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: {
   const [loading, setLoading] = useState(true)
   const [editingName, setEditingName] = useState(false)
   const [editName, setEditName] = useState('')
+  const [subTab, setSubTab] = useState<'itens' | 'curva-abc'>('itens')
 
   useEffect(() => { load() }, [obraId])
 
@@ -637,9 +676,31 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: {
         </div>
       </div>
 
-      {/* Editor inline do orçamento selecionado */}
+      {/* Sub-abas: Itens / Curva ABC */}
+      {selectedId && (
+        <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
+          {([['itens', 'Itens'], ['curva-abc', 'Curva ABC']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setSubTab(key)}
+              className="px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
+              style={{
+                background: subTab === key ? 'var(--bg-card)' : 'transparent',
+                color: subTab === key ? 'var(--text-primary)' : 'var(--text-secondary)',
+                boxShadow: subTab === key ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Conteúdo do orçamento */}
       {selectedId ? (
-        <ObraOrcamento key={selectedId} orcamentoId={selectedId} obraId={obraId} obraName={obraNome} obraUf={obraUf} areaM2={obraArea} />
+        subTab === 'itens'
+          ? <ObraOrcamento key={selectedId} orcamentoId={selectedId} obraId={obraId} obraName={obraNome} obraUf={obraUf} areaM2={obraArea} />
+          : <ObraCurvaABC orcamentoId={selectedId} />
       ) : (
         <div className="card p-8 text-center">
           <FileText size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />

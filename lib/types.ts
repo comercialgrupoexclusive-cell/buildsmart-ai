@@ -38,6 +38,10 @@ export type Obra = {
   area_m2: number | null
   valor_contrato: number | null  // VALOR DA OBRA (contrato); null = usar total do orçamento c/ BDI
   uf: string                   // CHAR(2): AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA, PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO
+  responsavel_tecnico: string | null
+  art_numero: string | null
+  cliente_nome: string | null
+  cliente_contato: string | null
   created_at: string
 }
 
