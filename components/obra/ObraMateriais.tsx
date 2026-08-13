@@ -90,9 +90,9 @@ type ListaCompra = {
 }
 
 const STATUS_LISTA_INFO: Record<StatusLista, { label: string; icon: typeof Send; color: string }> = {
-  aberta: { label: 'Aberta', icon: ClipboardList, color: 'var(--text-secondary)' },
-  enviada: { label: 'Enviada ao fornecedor', icon: Send, color: 'var(--warning)' },
-  concluida: { label: 'Concluída', icon: PackageCheck, color: 'var(--success)' },
+  aberta: { label: 'Pedido em montagem', icon: ClipboardList, color: 'var(--text-secondary)' },
+  enviada: { label: 'Pedido emitido', icon: Send, color: 'var(--warning)' },
+  concluida: { label: 'Compra concluída', icon: PackageCheck, color: 'var(--success)' },
 }
 
 // Agrupa uma lista de materiais (já filtrada por etapa) em blocos por subetapa,
@@ -138,6 +138,8 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
   const [nomeLista, setNomeLista] = useState('')
   const [fornecedorLista, setFornecedorLista] = useState('')
   const [importando, setImportando] = useState(false)
+  const [materialAcao, setMaterialAcao] = useState<MaterialRow | null>(null)
+  const [solicitandoCotacao, setSolicitandoCotacao] = useState(false)
 
   // Fluxo principal: necessidade → lista/pedido → recebimento.
   // Requisições e fornecedores ficam como cadastros de apoio, sem competir
@@ -572,21 +574,6 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
     setMateriais(prev => prev.filter(m => m.id !== id))
   }
 
-  async function alternarComprado(m: MaterialRow) {
-    const comprado = m.status_compra === 'comprado'
-    const proximoStatus: MaterialRow['status_compra'] = comprado ? 'nao_comprado' : 'comprado'
-    const proximaQuantidade = comprado ? 0 : m.quantidade_total
-
-    await supabase.from('materiais').update({
-      status_compra: proximoStatus,
-      quantidade_comprada: proximaQuantidade,
-    }).eq('id', m.id)
-
-    setMateriais(prev => prev.map(mat => mat.id === m.id
-      ? { ...mat, status_compra: proximoStatus, quantidade_comprada: proximoStatus === 'comprado' ? mat.quantidade_total : 0 }
-      : mat))
-  }
-
   // "Recebido no canteiro" — estoque leve: só marca se o material já chegou
   // fisicamente na obra, independente do status de compra. Não é uma ficha de
   // estoque (sem movimentação/saldo), só fecha a pergunta "isso já chegou?".
@@ -702,6 +689,50 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
     setShowLista(true)
   }
 
+  function adicionarMaterialAoPedido(material: MaterialRow) {
+    const pendente = quantidadePendente(material)
+    setSelecionados(new Set([material.id]))
+    setQuantidadesLista({ [material.id]: String(pendente) })
+    setNomeLista(`Pedido ${new Date().toLocaleDateString('pt-BR')} - ${material.descricao.slice(0, 36)}`)
+    setMaterialAcao(null)
+    setShowLista(true)
+  }
+
+  async function solicitarCotacaoMaterial(material: MaterialRow) {
+    if (!orcamentoId || consolidado) return
+    setSolicitandoCotacao(true)
+    const { count } = await supabase
+      .from('requisicoes_compra')
+      .select('id', { count: 'exact', head: true })
+      .eq('obra_id', obraId)
+    const numero = `RC-${String((count ?? 0) + 1).padStart(3, '0')}`
+    const { data: requisicao, error } = await supabase.from('requisicoes_compra').insert({
+      obra_id: obraId,
+      orcamento_id: orcamentoId,
+      numero,
+      data_solicitacao: new Date().toISOString().slice(0, 10),
+      status: 'aberta',
+      observacao: `Cotação solicitada a partir do insumo: ${material.descricao}`,
+      solicitante: null,
+    }).select().single()
+    if (!error && requisicao) {
+      await supabase.from('requisicao_itens').insert({
+        requisicao_id: requisicao.id,
+        material_id: material.id,
+        descricao: material.descricao,
+        quantidade: quantidadePendente(material),
+        unidade: material.unidade,
+        urgente: statusOperacional(material) === 'agora',
+        observacao: material.sinapi_codigo ? `Código: ${material.sinapi_codigo}` : null,
+      })
+      await supabase.from('materiais').update({ status_compra: 'solicitado' }).eq('id', material.id)
+      setMateriais(prev => prev.map(item => item.id === material.id ? { ...item, status_compra: 'solicitado' } : item))
+      setMaterialAcao(null)
+      setSubView('requisicoes')
+    }
+    setSolicitandoCotacao(false)
+  }
+
   function gerarTextoLista() {
     const linhas: string[] = ['Lista de compras', '']
     const grupos: Record<string, MaterialRow[]> = { sem_etapa: [] }
@@ -769,36 +800,6 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
         itens: itensLista, status: 'aberta', criadoEm: nova.criado_em,
       }, ...prev])
 
-      try {
-        const { count } = await supabase
-          .from('requisicoes_compra')
-          .select('id', { count: 'exact', head: true })
-          .eq('obra_id', obraId)
-        const numero = `RC-${String((count ?? 0) + 1).padStart(3, '0')}`
-        const { data: req } = await supabase.from('requisicoes_compra').insert({
-          obra_id: obraId,
-          orcamento_id: orcamentoId,
-          numero,
-          data_solicitacao: new Date().toISOString().slice(0, 10),
-          status: 'aberta',
-          observacao: `Gerada pela lista de compras: ${nomeLista.trim()}`,
-          solicitante: null,
-        }).select().single()
-
-        if (req) {
-          await supabase.from('requisicao_itens').insert(itensLista.map(item => ({
-            requisicao_id: req.id,
-            material_id: item.id,
-            descricao: item.descricao,
-            quantidade: item.quantidade,
-            unidade: item.unidade,
-            urgente: false,
-            observacao: item.sinapiCodigo ? `Código: ${item.sinapiCodigo}` : null,
-          })))
-        }
-      } catch (e) {
-        console.error('Lista salva, mas não foi possível criar a requisição formal:', e)
-      }
     }
     const idsSolicitados = new Set(itensLista.map(item => item.id))
     await Promise.all(itensLista.map(item => supabase.from('materiais').update({
@@ -988,7 +989,7 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
         <div className="flex flex-col gap-3 pb-16">
           <div className="flex flex-wrap items-center justify-between gap-3 px-1">
             <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
-              {materiaisFiltrados.length} {materiaisFiltrados.length === 1 ? 'material' : 'materiais'} · clique no item para selecionar e montar a lista de compras
+              {materiaisFiltrados.length} {materiaisFiltrados.length === 1 ? 'material' : 'materiais'} · toque no item para criar pedido ou solicitar cotação; use a caixa para selecionar vários
             </span>
           </div>
 
@@ -1003,9 +1004,9 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
               onToggleSubGrupo={chave => setCollapsedSub(c => ({ ...c, [chave]: !c[chave] }))}
               selecionados={selecionados}
               onToggleItem={toggleSelecionado}
+              onOpenAction={setMaterialAcao}
               onToggleGrupoSelecao={() => toggleSelecionarGrupo(materiaisPorEtapa.sem_etapa)}
               onToggleSubGrupoSelecao={toggleSelecionarGrupo}
-              onComprado={alternarComprado}
               onRecebido={alternarRecebido}
               onEdit={openEdit}
               onDelete={handleDelete}
@@ -1026,9 +1027,9 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
                 onToggleSubGrupo={chave => setCollapsedSub(c => ({ ...c, [chave]: !c[chave] }))}
                 selecionados={selecionados}
                 onToggleItem={toggleSelecionado}
+                onOpenAction={setMaterialAcao}
                 onToggleGrupoSelecao={() => toggleSelecionarGrupo(itensDaEtapa)}
                 onToggleSubGrupoSelecao={toggleSelecionarGrupo}
-                onComprado={alternarComprado}
                 onRecebido={alternarRecebido}
                 onEdit={openEdit}
                 onDelete={handleDelete}
@@ -1056,15 +1057,40 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
             <X size={14} style={{ color: 'var(--text-secondary)' }} />
           </button>
           <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={abrirListaCompras} disabled={consolidado}>
-            Gerar lista de compras
+            Criar pedido
           </Button>
         </div>
       )}
       </>
       )}
 
+      <Modal open={!!materialAcao} onClose={() => setMaterialAcao(null)} title="O que deseja fazer?" size="sm">
+        {materialAcao && (
+          <div className="flex flex-col gap-4">
+            <div className="rounded-lg p-3" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{materialAcao.descricao}</p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                Necessário: {materialAcao.quantidade_total} {materialAcao.unidade} · Pendente: {quantidadePendente(materialAcao)} {materialAcao.unidade}
+              </p>
+              <p className="mt-1 text-xs" style={{ color: STATUS_DOT[materialAcao.status_compra] }}>
+                Status atual: {STATUS_LABEL[materialAcao.status_compra]}
+              </p>
+            </div>
+            <Button icon={<ShoppingCart size={15} />} onClick={() => adicionarMaterialAoPedido(materialAcao)} disabled={quantidadePendente(materialAcao) <= 0}>
+              Adicionar a um pedido
+            </Button>
+            <Button variant="secondary" icon={<FileText size={15} />} loading={solicitandoCotacao} onClick={() => solicitarCotacaoMaterial(materialAcao)} disabled={quantidadePendente(materialAcao) <= 0}>
+              Solicitar cotação
+            </Button>
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Pedido organiza a compra direta. Cotação abre uma requisição para comparar fornecedores antes de comprar.
+            </p>
+          </div>
+        )}
+      </Modal>
+
       {/* ── Modal lista de compras ── */}
-      <Modal open={showLista} onClose={() => setShowLista(false)} title="Lista de compras" size="md">
+      <Modal open={showLista} onClose={() => setShowLista(false)} title="Novo pedido" size="md">
         <div className="flex flex-col gap-4">
           <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
             {itensSelecionados.length} {itensSelecionados.length === 1 ? 'item selecionado' : 'itens selecionados'}. Ajuste a quantidade a solicitar; ao salvar, os insumos passam para status Solicitado.
@@ -1138,7 +1164,7 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
               disabled={consolidado || !nomeLista.trim() || itensSelecionados.length === 0}
               onClick={salvarLista}
             >
-              Salvar lista de compras
+              Criar pedido
             </Button>
           </div>
         </div>
@@ -1259,8 +1285,8 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
 function GrupoCompra({
   chaveEtapa, nome, itens, collapsed, onToggleGrupo,
   collapsedSub, onToggleSubGrupo,
-  selecionados, onToggleItem, onToggleGrupoSelecao, onToggleSubGrupoSelecao,
-  onComprado, onRecebido, onEdit, onDelete, subetapasVazias = [],
+  selecionados, onToggleItem, onOpenAction, onToggleGrupoSelecao, onToggleSubGrupoSelecao,
+  onRecebido, onEdit, onDelete, subetapasVazias = [],
 }: {
   chaveEtapa: string
   nome: string
@@ -1271,9 +1297,9 @@ function GrupoCompra({
   onToggleSubGrupo: (chave: string) => void
   selecionados: Set<string>
   onToggleItem: (id: string) => void
+  onOpenAction: (material: MaterialRow) => void
   onToggleGrupoSelecao: () => void
   onToggleSubGrupoSelecao: (itensDoGrupo: MaterialRow[]) => void
-  onComprado: (m: MaterialRow) => void
   onRecebido: (m: MaterialRow) => void
   onEdit: (m: MaterialRow) => void
   onDelete: (id: string) => void
@@ -1332,7 +1358,8 @@ function GrupoCompra({
                 <LinhaMaterial
                   key={m.id} material={m}
                   selecionado={selecionados.has(m.id)}
-                  onToggleItem={onToggleItem} onComprado={onComprado} onRecebido={onRecebido} onEdit={onEdit} onDelete={onDelete}
+                  onOpenAction={onOpenAction}
+                  onToggleItem={onToggleItem} onRecebido={onRecebido} onEdit={onEdit} onDelete={onDelete}
                 />
               ))
             }
@@ -1346,8 +1373,8 @@ function GrupoCompra({
                 onToggleGrupo={() => onToggleSubGrupo(chaveSub)}
                 selecionados={selecionados}
                 onToggleItem={onToggleItem}
+                onOpenAction={onOpenAction}
                 onToggleGrupoSelecao={() => onToggleSubGrupoSelecao(grupo.itens)}
-                onComprado={onComprado}
                 onRecebido={onRecebido}
                 onEdit={onEdit}
                 onDelete={onDelete}
@@ -1363,8 +1390,8 @@ function GrupoCompra({
 // ─── Grupo de subetapa (nível intermediário da cascata) ──────────────────────
 function GrupoSubetapaCompra({
   nome, itens, collapsed, onToggleGrupo,
-  selecionados, onToggleItem, onToggleGrupoSelecao,
-  onComprado, onRecebido, onEdit, onDelete,
+  selecionados, onToggleItem, onOpenAction, onToggleGrupoSelecao,
+  onRecebido, onEdit, onDelete,
 }: {
   nome: string
   itens: MaterialRow[]
@@ -1372,8 +1399,8 @@ function GrupoSubetapaCompra({
   onToggleGrupo: () => void
   selecionados: Set<string>
   onToggleItem: (id: string) => void
+  onOpenAction: (material: MaterialRow) => void
   onToggleGrupoSelecao: () => void
-  onComprado: (m: MaterialRow) => void
   onRecebido: (m: MaterialRow) => void
   onEdit: (m: MaterialRow) => void
   onDelete: (id: string) => void
@@ -1420,7 +1447,8 @@ function GrupoSubetapaCompra({
             <LinhaMaterial
               key={m.id} material={m} recuado
               selecionado={selecionados.has(m.id)}
-              onToggleItem={onToggleItem} onComprado={onComprado} onRecebido={onRecebido} onEdit={onEdit} onDelete={onDelete}
+              onOpenAction={onOpenAction}
+              onToggleItem={onToggleItem} onRecebido={onRecebido} onEdit={onEdit} onDelete={onDelete}
             />
           ))}
         </div>
@@ -1432,13 +1460,13 @@ function GrupoSubetapaCompra({
 // ─── Linha de insumo selecionável (folha da cascata) ──────────────────────────
 function LinhaMaterial({
   material: m, selecionado, recuado,
-  onToggleItem, onComprado, onRecebido, onEdit, onDelete,
+  onToggleItem, onOpenAction, onRecebido, onEdit, onDelete,
 }: {
   material: MaterialRow
   selecionado: boolean
   recuado?: boolean
   onToggleItem: (id: string) => void
-  onComprado: (m: MaterialRow) => void
+  onOpenAction: (material: MaterialRow) => void
   onRecebido: (m: MaterialRow) => void
   onEdit: (m: MaterialRow) => void
   onDelete: (id: string) => void
@@ -1446,25 +1474,26 @@ function LinhaMaterial({
   const falta = Math.max(0, m.quantidade_total - m.quantidade_comprada)
   const diasParaNecessidade = m.data_necessidade ? diasAteData(m.data_necessidade) : null
   const urgente = diasParaNecessidade !== null && diasParaNecessidade <= 7 && m.status_compra !== 'comprado'
-  const comprado = m.status_compra === 'comprado'
   const recebido = !!m.data_recebimento
 
   return (
     <div
-      onClick={() => onToggleItem(m.id)}
+      onClick={() => onOpenAction(m)}
       className={`flex items-start gap-3 ${recuado ? 'pl-9' : 'px-4'} pr-4 py-3 cursor-pointer transition-colors`}
       style={{
         borderBottom: '1px solid var(--border)',
         background: selecionado ? 'rgba(59,123,248,0.08)' : 'transparent',
       }}
     >
-      <span
+      <button
+        type="button"
+        onClick={event => { event.stopPropagation(); onToggleItem(m.id) }}
         className="flex-shrink-0 pt-1"
         title="Selecionar para lista de compras"
         style={{ color: selecionado ? 'var(--accent)' : 'var(--text-secondary)' }}
       >
         {selecionado ? <CheckSquare size={16} /> : <Square size={16} />}
-      </span>
+      </button>
 
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{m.descricao}</p>
@@ -1488,17 +1517,6 @@ function LinhaMaterial({
       </span>
 
       <div className="flex items-center gap-1 flex-shrink-0 pt-0.5" onClick={e => e.stopPropagation()}>
-        <button
-          onClick={() => onComprado(m)}
-          title={comprado ? 'Desfazer compra' : 'Marcar como comprado'}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-          style={comprado
-            ? { background: 'rgba(16,185,129,0.16)', color: 'var(--success)', border: '1px solid rgba(16,185,129,0.35)' }
-            : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-        >
-          {comprado ? <CheckSquare size={14} /> : <Square size={14} />}
-          <span className="hidden sm:inline">{comprado ? 'Comprado' : 'Comprar'}</span>
-        </button>
         <button
           onClick={() => onRecebido(m)}
           title={recebido ? `Recebido em ${new Date(m.data_recebimento! + 'T12:00').toLocaleDateString('pt-BR')} — clique para desfazer` : 'Marcar como recebido no canteiro'}

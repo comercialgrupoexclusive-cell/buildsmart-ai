@@ -6,6 +6,7 @@ import { Obra, Etapa, Fornecedor, ObraFornecedor } from '@/lib/types'
 import { formatDate, STATUS_OBRA_LABEL } from '@/lib/utils'
 import { HardHat, TrendingUp, Truck, Pencil, FileText } from 'lucide-react'
 import Link from 'next/link'
+import { loadObraProgresso } from '@/lib/obra-progresso'
 
 const GRUPO_LABEL: Record<ObraFornecedor['grupo'], string> = {
   mao_de_obra: 'Mão de obra',
@@ -21,6 +22,7 @@ export function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => voi
   const [vinculos, setVinculos] = useState<ObraFornecedor[]>([])
   const [orcamentos, setOrcamentos] = useState<OrcamentoResumo[]>([])
   const [loadingExtra, setLoadingExtra] = useState(true)
+  const [avancoFisico, setAvancoFisico] = useState(0)
   const [pendente, setPendente] = useState<string | null>(null)
   const [agora, setAgora] = useState<number | null>(null)
 
@@ -34,11 +36,21 @@ export function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => voi
         supabase.from('obra_fornecedores').select('*, fornecedor:fornecedores(*)').eq('obra_id', obra.id),
         supabase.from('orcamentos').select('id, nome, versao, status, bdi_percentual').eq('obra_id', obra.id).neq('status', 'arquivado').order('versao', { ascending: false }),
       ])
+      const orcamentosDisponiveis = (orcRes.data || []) as OrcamentoResumo[]
+      const ativos = orcamentosDisponiveis.filter(orcamento => orcamento.status === 'ativo')
+      const orcamentosAtivos = (ativos.length ? ativos : orcamentosDisponiveis).map(orcamento => orcamento.id)
+      const progresso = await loadObraProgresso(
+        supabase,
+        obra.id,
+        'fisico',
+        orcamentosAtivos.length ? orcamentosAtivos : undefined,
+      )
       if (!active) return
       setEtapas((etapasRes.data || []) as Etapa[])
       setFornecedores((fornecedoresRes.data || []) as Fornecedor[])
       setVinculos((vinculosRes.data || []) as ObraFornecedor[])
       setOrcamentos((orcRes.data || []) as OrcamentoResumo[])
+      setAvancoFisico(progresso.avancoPonderado)
       setAgora(Date.now())
       setLoadingExtra(false)
     }
@@ -66,7 +78,7 @@ export function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => voi
 
   const totalEtapas = etapas.length
   const concluidas = etapas.filter(e => e.status === 'concluida').length
-  const percentualConcluido = totalEtapas > 0 ? Math.round((concluidas / totalEtapas) * 100) : 0
+  const percentualConcluido = Math.min(100, Math.max(0, avancoFisico))
 
   let tendencia: { texto: string; cor: string } | null = null
   if (agora != null && obra.data_inicio && obra.data_previsao) {
@@ -140,13 +152,17 @@ export function ObraVisaoGeral({ obra, onEdit }: { obra: Obra; onEdit: () => voi
             <div className="flex flex-col gap-4">
               <div>
                 <div className="flex items-center justify-between mb-1.5 text-sm">
-                  <span style={{ color: 'var(--text-secondary)' }}>Etapas concluídas</span>
-                  <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{concluidas} de {totalEtapas} ({percentualConcluido}%)</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>Avanço físico da obra</span>
+                  <span className="font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{percentualConcluido.toFixed(1)}%</span>
                 </div>
                 <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
                   <div className="h-full rounded-full transition-all" style={{ width: `${percentualConcluido}%`, background: 'var(--accent)' }} />
                 </div>
               </div>
+
+              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {concluidas} de {totalEtapas} etapas concluídas. O percentual considera o peso físico da estrutura da obra.
+              </p>
 
               {tendencia && (
                 <div className="flex items-start gap-2.5 p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>

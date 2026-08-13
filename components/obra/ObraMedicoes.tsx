@@ -39,6 +39,27 @@ const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 
+function previstoHoje(etapa: Pick<EtapaProg, 'data_inicio' | 'data_fim'>, hoje = new Date()): number | null {
+  if (!etapa.data_inicio || !etapa.data_fim) return null
+  const inicio = new Date(`${etapa.data_inicio}T00:00:00`).getTime()
+  const fim = new Date(`${etapa.data_fim}T23:59:59`).getTime()
+  const atual = hoje.getTime()
+  if (!Number.isFinite(inicio) || !Number.isFinite(fim) || fim <= inicio) return null
+  if (atual <= inicio) return 0
+  if (atual >= fim) return 100
+  return ((atual - inicio) / (fim - inicio)) * 100
+}
+
+function previstoGlobal(prog: ObraProgresso): number | null {
+  const agendadas = prog.etapas
+    .map(etapa => ({ etapa, previsto: previstoHoje(etapa) }))
+    .filter((item): item is { etapa: EtapaProg; previsto: number } => item.previsto !== null)
+  if (agendadas.length === 0) return null
+  const pesoTotal = agendadas.reduce((total, item) => total + (prog.temValores ? item.etapa.valorContratado : 1), 0)
+  if (pesoTotal <= 0) return null
+  return agendadas.reduce((total, item) => total + item.previsto * (prog.temValores ? item.etapa.valorContratado : 1), 0) / pesoTotal
+}
+
 export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = useMemo(() => createClient(), [])
   const [subTab, setSubTab] = useState<SubTab>('fisico')
@@ -159,6 +180,17 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
 
       {subTab === 'fisico' && prog && (
         <>
+          {(() => {
+            const previsto = previstoGlobal(prog)
+            const desvio = previsto === null ? null : prog.avancoPonderado - previsto
+            return (
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <IndicadorExecucao label="Previsto hoje" valor={previsto} cor="var(--text-primary)" />
+                <IndicadorExecucao label="Realizado em campo" valor={prog.avancoPonderado} cor="var(--accent)" />
+                <IndicadorExecucao label="Desvio" valor={desvio} sufixo="p.p." cor={desvio === null ? 'var(--text-secondary)' : desvio < 0 ? 'var(--danger)' : 'var(--success)'} sinal />
+              </div>
+            )
+          })()}
           {/* Avanço global ponderado por valor */}
           <div className="card p-4 flex flex-col gap-3">
             <div className="flex items-center gap-4">
@@ -256,6 +288,8 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
 }) {
   const temFilhos = etapa.subetapas.length > 0
   const peso = temValores && valorTotal > 0 ? (etapa.valorContratado / valorTotal) * 100 : 0
+  const previsto = previstoHoje(etapa)
+  const desvio = previsto === null ? null : etapa.percentual - previsto
 
   return (
     <div className="card overflow-hidden">
@@ -273,6 +307,10 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
             </div>
             <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
               {temFilhos ? `${etapa.subetapas.length} subetapa(s)` : 'sem subetapas'}
+            </p>
+            <p className="mt-1 text-[11px] tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+              Previsto {previsto === null ? 'sem datas' : `${previsto.toFixed(1)}%`} · Realizado {etapa.percentual.toFixed(1)}%
+              {desvio !== null && <span style={{ color: desvio < 0 ? 'var(--danger)' : 'var(--success)' }}> · {desvio > 0 ? '+' : ''}{desvio.toFixed(1)} p.p.</span>}
             </p>
           </div>
         </div>
@@ -313,4 +351,14 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
 // ─── Campo de % com presets + input ──────────────────────────────────────────
 function CampoPct({ valor, onChange, tamanho = 'md' }: { valor: number; onChange: (v: number) => void; tamanho?: 'md' | 'sm' }) {
   return <ProgressControl valor={valor} onChange={onChange} compact={tamanho === 'sm'} />
+}
+
+function IndicadorExecucao({ label, valor, cor, sufixo = '%', sinal = false }: { label: string; valor: number | null; cor: string; sufixo?: string; sinal?: boolean }) {
+  const texto = valor === null ? 'Sem datas' : `${sinal && valor > 0 ? '+' : ''}${valor.toFixed(1)} ${sufixo}`
+  return (
+    <div className="card px-4 py-3">
+      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{label}</p>
+      <p className="mt-1 text-xl font-bold tabular-nums" style={{ color: valor === null ? 'var(--text-secondary)' : cor }}>{texto}</p>
+    </div>
+  )
 }
