@@ -257,6 +257,10 @@ export function createLocalSeed(): LocalDatabase {
       area_m2: 84,
       valor_contrato: null,
       uf: 'SP',
+      responsavel_tecnico: null,
+      art_numero: null,
+      cliente_nome: null,
+      cliente_contato: null,
       created_at: now,
     }, {
       id: obraId2,
@@ -270,6 +274,10 @@ export function createLocalSeed(): LocalDatabase {
       area_m2: 60,
       valor_contrato: null,
       uf: 'SP',
+      responsavel_tecnico: null,
+      art_numero: null,
+      cliente_nome: null,
+      cliente_contato: null,
       created_at: now,
     }],
     orcamentos: [{

@@ -143,9 +143,10 @@ export function ObraCurvaABC({ orcamentoId }: { orcamentoId: string }) {
               <Tooltip
                 contentStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
                 labelStyle={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: 4 }}
-                formatter={(value: number, name: string) => {
-                  if (name === 'acumulado') return [`${value.toFixed(1)}%`, 'Acumulado']
-                  return [formatCurrency(value), 'Valor']
+                formatter={(value, name) => {
+                  const v = Number(value)
+                  if (name === 'acumulado') return [`${v.toFixed(1)}%`, 'Acumulado']
+                  return [formatCurrency(v), 'Valor']
                 }}
               />
               <Bar yAxisId="valor" dataKey="valor" radius={[3, 3, 0, 0]} maxBarSize={28}>
