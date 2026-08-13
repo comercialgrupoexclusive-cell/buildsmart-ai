@@ -27,7 +27,7 @@ const TABS: { id: Tab; label: string; icon?: typeof LayoutDashboard }[] = [
   { id: 'projeto', label: 'Projeto', icon: FolderOpen },
   { id: 'orcamento', label: 'Orçamento' },
   { id: 'cronograma', label: 'Cronograma' },
-  { id: 'suprimentos', label: 'Suprimentos', icon: Truck },
+  { id: 'suprimentos', label: 'Compras', icon: Truck },
   { id: 'medicoes', label: 'Medições' },
   { id: 'financeiro', label: 'Financeiro', icon: Banknote },
 ]

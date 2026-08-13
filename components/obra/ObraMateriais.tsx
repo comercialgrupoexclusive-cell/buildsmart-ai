@@ -5,7 +5,7 @@ import {
   Package, AlertTriangle,
   Plus, Pencil, Trash2, ChevronDown, ChevronRight,
   Square, CheckSquare, ShoppingCart, Copy, X,
-  Building2, Send, PackageCheck, ClipboardList, FileText, Zap,
+  Building2, Send, PackageCheck, ClipboardList, FileText,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { diasAteData } from '@/lib/utils'
@@ -15,7 +15,6 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { ObraFornecedores } from '@/components/obra/ObraFornecedores'
 import { ObraRequisicoes } from '@/components/obra/ObraRequisicoes'
-import { ComprasLancamentos, PrefillLancamento } from '@/components/obra/ComprasLancamentos'
 
 const STATUS_LABEL: Record<string, string> = {
   nao_comprado: 'Não comprado',
@@ -140,9 +139,10 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
   const [fornecedorLista, setFornecedorLista] = useState('')
   const [importando, setImportando] = useState(false)
 
-  // ── Sub-abas: Lançamentos → Lista de Compras (materiais/listas) → Requisições → Fornecedores ──
-  const [subView, setSubView] = useState<'lancamentos' | 'materiais' | 'compras' | 'fornecedores' | 'requisicoes'>('lancamentos')
-  const [prefillLancamento, setPrefillLancamento] = useState<PrefillLancamento>(null)
+  // Fluxo principal: necessidade → lista/pedido → recebimento.
+  // Requisições e fornecedores ficam como cadastros de apoio, sem competir
+  // com as etapas que o usuário percorre todos os dias.
+  const [subView, setSubView] = useState<'materiais' | 'compras' | 'recebimentos' | 'fornecedores' | 'requisicoes'>('materiais')
   const [listas, setListas] = useState<ListaCompra[]>([])
   const consolidado = false
 
@@ -861,19 +861,31 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
 
   return (
     <div className="flex flex-col gap-4">
-      {/* ── Sub-abas: Lançamentos → Lista de Compras → Requisições → Fornecedores ── */}
-      <div className="flex gap-1 p-1 rounded-lg w-full max-w-full overflow-x-auto sm:w-fit" style={{ background: 'var(--bg-secondary)' }}>
+      <div className="card p-3 sm:p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Esteira de compras</p>
+            <p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>Selecione a necessidade, gere o pedido e confirme quando chegar à obra.</p>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" icon={<FileText size={14} />} onClick={() => setSubView('requisicoes')}>Requisições</Button>
+            <Button size="sm" variant="secondary" icon={<Building2 size={14} />} onClick={() => setSubView('fornecedores')}>Fornecedores</Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Etapas operacionais da compra */}
+      <div className="grid grid-cols-3 gap-1 p-1 rounded-lg w-full sm:w-fit" style={{ background: 'var(--bg-secondary)' }}>
         {[
-          { id: 'lancamentos' as const, label: 'Lançamentos', mobileLabel: 'Lanç.', icon: Zap },
-          { id: 'materiais' as const, label: 'Lista de Compras', mobileLabel: 'Lista', icon: ShoppingCart, active: subView === 'materiais' || subView === 'compras' },
-          { id: 'requisicoes' as const, label: 'Requisições', mobileLabel: 'Req.', icon: FileText },
-          { id: 'fornecedores' as const, label: 'Fornecedores', mobileLabel: 'Forn.', icon: Building2 },
-        ].map(({ id, label, mobileLabel, icon: Icon, active }) => (
+          { id: 'materiais' as const, label: 'A comprar', mobileLabel: 'A comprar', icon: ClipboardList },
+          { id: 'compras' as const, label: 'Listas e pedidos', mobileLabel: 'Pedidos', icon: ShoppingCart },
+          { id: 'recebimentos' as const, label: 'Recebimentos', mobileLabel: 'Receber', icon: PackageCheck },
+        ].map(({ id, label, mobileLabel, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setSubView(id)}
-            className="flex flex-shrink-0 items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all"
-            style={(active ?? subView === id)
+            className="flex min-w-0 items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all"
+            style={subView === id
               ? { background: 'var(--accent)', color: 'white' }
               : { color: 'var(--text-secondary)' }}
           >
@@ -884,23 +896,17 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
         ))}
       </div>
 
-      {subView === 'lancamentos' ? (
-        <ComprasLancamentos
-          obraId={obraId}
-          orcamentoId={orcamentoId}
-          orcamentoIds={orcamentoIds}
-          prefill={prefillLancamento}
-          onPrefillConsumed={() => setPrefillLancamento(null)}
-        />
-      ) : subView === 'fornecedores' ? (
+      {subView === 'fornecedores' ? (
         <ObraFornecedores obraId={obraId} />
       ) : subView === 'requisicoes' ? (
         <ObraRequisicoes
           obraId={obraId}
           orcamentoId={orcamentoId}
           orcamentoIds={orcamentoIds}
-          onLancarComoCompra={dados => { setPrefillLancamento(dados); setSubView('lancamentos') }}
+          onLancarComoCompra={() => setSubView('compras')}
         />
+      ) : subView === 'recebimentos' ? (
+        <RecebimentosView materiais={materiais} onToggleRecebido={alternarRecebido} onIrParaPedidos={() => setSubView('compras')} />
       ) : subView === 'compras' ? (
         <ListasDeComprasView
           listas={listas}
@@ -952,11 +958,8 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
           <option value="todos">Todos</option>
         </select>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="secondary" icon={<ShoppingCart size={14} />} onClick={() => setSubView('compras')}>
-            Listas salvas{listas.length > 0 ? ` (${listas.length})` : ''}
-          </Button>
           <Button size="sm" icon={<Plus size={14} />} onClick={openNew} disabled={consolidado}>
-            Adicionar
+            Material avulso
           </Button>
         </div>
       </div>
@@ -1684,4 +1687,33 @@ function ListasDeComprasView({
       })}
     </div>
   )
+}
+
+function RecebimentosView({ materiais, onToggleRecebido, onIrParaPedidos }: {
+  materiais: MaterialRow[]
+  onToggleRecebido: (material: MaterialRow) => void
+  onIrParaPedidos: () => void
+}) {
+  const comprados = materiais.filter(material => material.status_compra === 'comprado' || material.status_compra === 'parcial')
+  const aguardando = comprados.filter(material => !material.data_recebimento)
+  const recebidos = comprados.filter(material => !!material.data_recebimento)
+
+  if (comprados.length === 0) {
+    return <EmptyState icon={PackageCheck} title="Nada aguardando recebimento" description="Quando uma lista for concluída, os materiais comprados aparecerão aqui para confirmação da chegada na obra." action={<Button size="sm" icon={<ShoppingCart size={14} />} onClick={onIrParaPedidos}>Ver pedidos</Button>} />
+  }
+
+  return <div className="flex flex-col gap-4 pb-6">
+    <div className="grid grid-cols-2 gap-3">
+      <div className="card p-3"><p className="text-2xl font-bold" style={{ color: 'var(--warning)' }}>{aguardando.length}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Aguardando chegada</p></div>
+      <div className="card p-3"><p className="text-2xl font-bold" style={{ color: 'var(--success)' }}>{recebidos.length}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Recebidos na obra</p></div>
+    </div>
+    {[...aguardando, ...recebidos].map(material => {
+      const recebido = !!material.data_recebimento
+      return <div key={material.id} className="card flex items-center gap-3 p-3 sm:p-4">
+        <div className="grid size-9 flex-shrink-0 place-items-center rounded-lg" style={{ background: recebido ? 'color-mix(in srgb, var(--success) 14%, transparent)' : 'var(--bg-secondary)', color: recebido ? 'var(--success)' : 'var(--text-secondary)' }}><PackageCheck size={17} /></div>
+        <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{material.descricao}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{material.quantidade_comprada || material.quantidade_total} {material.unidade}{material.data_recebimento ? ` · recebido em ${new Date(`${material.data_recebimento}T12:00`).toLocaleDateString('pt-BR')}` : ''}</p></div>
+        <Button size="sm" variant={recebido ? 'secondary' : 'primary'} icon={<PackageCheck size={14} />} onClick={() => onToggleRecebido(material)}>{recebido ? 'Desfazer' : 'Receber'}</Button>
+      </div>
+    })}
+  </div>
 }

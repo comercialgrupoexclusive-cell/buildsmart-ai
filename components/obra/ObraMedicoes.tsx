@@ -30,7 +30,7 @@ import { ProgressControl } from '@/components/obra/ProgressControl'
 type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'boletins' | 'diario'
 
 const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
-  { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
+  { id: 'fisico', label: 'Medir obra', icon: ClipboardList },
   { id: 'mao-obra', label: 'Mão de obra', icon: BriefcaseBusiness },
   { id: 'gerenciamento', label: 'Gerenciamento', icon: WalletCards },
   { id: 'boletins', label: 'Boletins', icon: FileBarChart },
@@ -49,7 +49,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   const primeiraAbaRef = useRef(true)
   // Filtros da aba Avanço
   const [filtroEtapa, setFiltroEtapa] = useState('')
-  const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'andamento' | 'concluido'>('todas')
+  const [filtroStatus, setFiltroStatus] = useState<'ativas' | 'todas' | 'pendente' | 'andamento' | 'concluido'>('ativas')
   const eixo = 'fisico' as const
   const campoPct = 'percentual_executado'
 
@@ -127,18 +127,29 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Sub-abas */}
-      <div className="flex items-center gap-1.5 p-1 rounded-lg w-fit overflow-x-auto max-w-full" style={{ background: 'var(--bg-secondary)' }}>
-        {TABS.map(t => {
+      <div className="card p-2 sm:p-3">
+        <div className="mb-2 px-1">
+          <p className="text-sm font-semibold">Controle de execução</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Registre o avanço, feche as medições e consulte o histórico da obra.</p>
+        </div>
+        <div className="grid grid-cols-3 gap-1 rounded-lg p-1" style={{ background: 'var(--bg-secondary)' }}>
+        {TABS.slice(0, 3).map(t => {
           const Ic = t.icon
           return (
             <button key={t.id} onClick={() => setSubTab(t.id)}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap"
+              className="flex min-w-0 items-center justify-center gap-1.5 px-2 py-2 rounded-md text-xs sm:text-sm font-medium transition-all"
               style={subTab === t.id ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}>
               <Ic size={15} /> {t.label}
             </button>
           )
         })}
+        </div>
+        <div className="mt-2 flex items-center gap-1 border-t px-1 pt-2" style={{ borderColor: 'var(--border)' }}>
+          {TABS.slice(3).map(t => {
+            const Ic = t.icon
+            return <button key={t.id} onClick={() => setSubTab(t.id)} className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium" style={subTab === t.id ? { background: 'var(--bg-secondary)', color: 'var(--accent)' } : { color: 'var(--text-secondary)' }}><Ic size={14} /> {t.label}</button>
+          })}
+        </div>
       </div>
 
       {subTab === 'diario' && <ObraRdo obraId={obraId} />}
@@ -177,13 +188,15 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
             <EmptyState icon={ListChecks} title="Nenhuma etapa cadastrada" description="Cadastre etapas no cronograma para acompanhar e medir a execução aqui." />
           ) : (() => {
             const STATUS_FILTROS = [
-              { id: 'todas', label: 'Todas' },
-              { id: 'pendente', label: 'Pendentes' },
+              { id: 'ativas', label: 'A medir' },
               { id: 'andamento', label: 'Em andamento' },
+              { id: 'pendente', label: 'Pendentes' },
               { id: 'concluido', label: 'Concluídas' },
+              { id: 'todas', label: 'Todas' },
             ] as const
             const etapasFiltradas = prog.etapas.filter(e => {
               if (filtroEtapa && e.id !== filtroEtapa) return false
+              if (filtroStatus === 'ativas' && e.percentual >= 100) return false
               if (filtroStatus === 'pendente' && e.percentual > 0) return false
               if (filtroStatus === 'andamento' && !(e.percentual > 0 && e.percentual < 100)) return false
               if (filtroStatus === 'concluido' && e.percentual < 100) return false
