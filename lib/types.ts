@@ -560,6 +560,36 @@ export const SINAPI_UFS = [
 
 export type SINAPI_UF = typeof SINAPI_UFS[number]
 
+// ─── Planejamento 2.0 ────────────────────────────────────────────────────────
+export type PlanejamentoStatus = 'nao_iniciado' | 'em_andamento' | 'concluido' | 'atrasado' | 'suspenso'
+
+export type PlanejamentoItem = {
+  id: string
+  obra_id: string
+  orcamento_id: string
+  ref_tipo: 'etapa' | 'subetapa' | 'item'
+  etapa_id: string | null
+  subetapa_key: string | null
+  orcamento_item_id: string | null
+  data_inicio: string | null
+  data_fim: string | null
+  status: PlanejamentoStatus
+  progresso_planejado: number
+  progresso_executado: number
+  created_at: string
+  updated_at: string
+}
+
+export type PlanejamentoDependencia = {
+  id: string
+  obra_id: string
+  item_id: string
+  predecessor_id: string
+  tipo: 'FS' | 'FF' | 'SS' | 'SF'
+  lag_dias: number
+  created_at: string
+}
+
 // ─── Proprietário ─────────────────────────────────────────────────────────────
 export type Proprietario = {
   id: string

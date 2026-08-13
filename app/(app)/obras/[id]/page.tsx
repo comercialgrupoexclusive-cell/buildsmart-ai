@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, Truck, Camera, X, Loader2, FileText, FolderOpen, Banknote, LayoutDashboard } from 'lucide-react'
+import { HardHat, MapPin, Calendar, CalendarRange, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, Truck, Camera, X, Loader2, FileText, FolderOpen, Banknote, LayoutDashboard } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -19,14 +19,16 @@ import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraFinanceiroTab } from '@/components/obra/ObraFinanceiroTab'
 import { ObraProjetoTab } from '@/components/obra/ObraProjetoTab'
 import { ObraCronogramaTab } from '@/components/obra/ObraCronogramaTab'
+import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
 import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'projeto' | 'orcamento' | 'cronograma' | 'suprimentos' | 'medicoes' | 'financeiro'
+type Tab = 'projeto' | 'orcamento' | 'cronograma' | 'planejamento' | 'suprimentos' | 'medicoes' | 'financeiro'
 
 const TABS: { id: Tab; label: string; icon?: typeof LayoutDashboard }[] = [
   { id: 'projeto', label: 'Projeto', icon: FolderOpen },
   { id: 'orcamento', label: 'Orçamento' },
   { id: 'cronograma', label: 'Cronograma' },
+  { id: 'planejamento', label: 'Planejamento 2.0', icon: CalendarRange },
   { id: 'suprimentos', label: 'Suprimentos', icon: Truck },
   { id: 'medicoes', label: 'Medições' },
   { id: 'financeiro', label: 'Financeiro', icon: Banknote },
@@ -234,6 +236,8 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     setMenuOpen(false)
     try {
       const childTables = [
+        'planejamento_dependencias',
+        'planejamento_itens',
         'tarefas',
         'obra_files',
         'cronograma_dependencias',
@@ -429,6 +433,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'projeto' && <ObraProjetoTab obraId={id} obra={obra} onEdit={openEdit} />}
         {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} />}
         {tab === 'cronograma' && <ObraCronogramaTab obraId={id} obraNome={obra.nome} orcamentoIds={orcamentoIds} orcamentoId={orcamentoId} />}
+        {tab === 'planejamento' && <ObraPlanejamento2 obraId={id} orcamentoId={orcamentoId} />}
         {tab === 'suprimentos' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'financeiro' && <ObraFinanceiroTab obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
