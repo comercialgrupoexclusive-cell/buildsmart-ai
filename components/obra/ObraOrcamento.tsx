@@ -7,7 +7,7 @@ import {
   Boxes, Users, FileText, Percent, Wallet, ArrowLeftRight,
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
   Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
-  Pencil, GripVertical, type LucideIcon,
+  Pencil, GripVertical, Move, MoreVertical, type LucideIcon,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -156,8 +156,8 @@ function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; desc
   if (ins.insumo_proprio) {
     return {
       codigo: ins.insumo_proprio.codigo,
-      descricao: ins.insumo_proprio.descricao,
-      unidade: ins.insumo_proprio.unidade,
+      descricao: fixMojibake(ins.insumo_proprio.descricao),
+      unidade: fixMojibake(ins.insumo_proprio.unidade),
       classificacao: ins.insumo_proprio.classificacao || ins.insumo_proprio.categoria,
       preco: ins.insumo_proprio.preco_unitario ?? 0,
     }
@@ -165,8 +165,8 @@ function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; desc
   if (ins.insumo) {
     return {
       codigo: ins.insumo.codigo,
-      descricao: ins.insumo.descricao,
-      unidade: ins.insumo.unidade,
+      descricao: fixMojibake(ins.insumo.descricao),
+      unidade: fixMojibake(ins.insumo.unidade),
       classificacao: ins.insumo.classificacao,
       preco: ins.insumo.precos?.[uf] ?? 0,
     }
@@ -174,7 +174,7 @@ function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; desc
   if (ins.descricao_snapshot) {
     return {
       codigo: ins.codigo_snapshot || '',
-      descricao: ins.descricao_snapshot,
+      descricao: fixMojibake(ins.descricao_snapshot),
       unidade: ins.unidade_snapshot || 'UN',
       classificacao: ins.classificacao_snapshot || 'MATERIAL_SERVICOS',
       preco: Number(ins.preco_unitario_snapshot || 0),
@@ -317,6 +317,19 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   const [bdi, setBdi] = useState(25)
   const [gerenciamento, setGerenciamento] = useState(0)
   const [filtroEtapaId, setFiltroEtapaId] = useState('todas')
+  // Mobile: os handles de arrastar ficam ocultos por padrão (menos poluição visual,
+  // mais espaço pro nome) e só aparecem quando o usuário ativa o modo "Mover".
+  // No desktop o arraste continua sempre disponível (não há aperto de espaço lá).
+  const [reorderMode, setReorderMode] = useState(false)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    setIsMobileViewport(mq.matches)
+    const onChange = (e: MediaQueryListEvent) => setIsMobileViewport(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  const mobileDragLocked = isMobileViewport && !reorderMode
 
   // Cascata + overrides
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
@@ -515,7 +528,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         ...item,
         codigo: item.codigo_snapshot || cp?.codigo || sc?.codigo || '—',
         descricao: fixMojibake(item.descricao_snapshot || cp?.descricao || sc?.descricao || '—'),
-        unidade: item.unidade_snapshot || cp?.unidade || sc?.unidade || '—',
+        unidade: fixMojibake(item.unidade_snapshot || cp?.unidade || sc?.unidade || '—'),
         composicao_itens: insumosImportados.length ? insumosImportados : cp?.composicao_insumos || [],
         sinapi_mes_referencia: sc?.mes_referencia || null,
       }
@@ -2473,6 +2486,18 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                   </Button>
                 )}
                 {!isReadonly && (
+                  <button
+                    onClick={() => setReorderMode(v => !v)}
+                    className="sm:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                    style={reorderMode
+                      ? { background: 'var(--accent)', color: 'white' }
+                      : { color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                    title="Ativar para arrastar e reordenar etapas, subetapas e itens"
+                  >
+                    <Move size={13} /> {reorderMode ? 'Concluir' : 'Mover'}
+                  </button>
+                )}
+                {!isReadonly && (
                   <Button size="sm" icon={<FolderPlus size={14} />} onClick={() => openItemModal(filtroEtapaId !== 'todas' && filtroEtapaId !== 'sem_etapa' ? filtroEtapaId : null)}>
                     Adicionar item
                   </Button>
@@ -2510,12 +2535,13 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                 onEditItem={!isReadonly ? openEditItem : undefined}
                 onReorderSubetapas={!isReadonly ? (novaOrdem) => handleReorderSubetapas(null, novaOrdem) : undefined}
                 onReorderItens={!isReadonly ? handleReorderItens : undefined}
+                mobileDragLocked={mobileDragLocked}
               />
             )}
             <SortableList
               items={etapasVisiveis}
               onReorder={handleReorderEtapas}
-              disabled={isReadonly || filtroEtapaId !== 'todas'}
+              disabled={isReadonly || filtroEtapaId !== 'todas' || mobileDragLocked}
             >
               {(etapa, _i, drag) => {
                 const itensDaEtapa = itensPorEtapa[etapa.id] || []
@@ -2557,6 +2583,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                       onEditItem={!isReadonly ? openEditItem : undefined}
                       onReorderSubetapas={!isReadonly ? (novaOrdem) => handleReorderSubetapas(etapa.id, novaOrdem) : undefined}
                       onReorderItens={!isReadonly ? handleReorderItens : undefined}
+                      mobileDragLocked={mobileDragLocked}
                       menuAberto={etapaMenuAberto === etapa.id}
                       onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
                       menuRef={etapaMenuAberto === etapa.id ? etapaMenuRef : undefined}
@@ -3140,7 +3167,7 @@ function GrupoEtapa({
   onUpdateQuantidade, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
   obraUf, icon: Icon, iconCor, subtotalDireto,
   onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditSubetapaValor, onRestoreSubetapaValor, onRestoreItemValor, onRestoreInsumoValor, onEditItem, menuAberto, onToggleMenu, menuRef,
-  onReorderSubetapas, onReorderItens,
+  onReorderSubetapas, onReorderItens, mobileDragLocked,
 }: {
   nome: string
   dragHandle?: React.ReactNode
@@ -3178,6 +3205,7 @@ function GrupoEtapa({
   menuRef?: React.RefObject<HTMLDivElement | null>
   onReorderSubetapas?: (novaOrdemNomes: string[]) => void
   onReorderItens?: (novaOrdemIds: string[]) => void
+  mobileDragLocked?: boolean
 }) {
   const [subetapasFechadas, setSubetapasFechadas] = useState<Record<string, boolean>>({})
   const [subMenuAberto, setSubMenuAberto] = useState<string | null>(null)
@@ -3234,7 +3262,7 @@ function GrupoEtapa({
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
         </span>
         {Icon && (
-          <span className="flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-card)', color: iconCor || 'var(--text-secondary)' }}>
+          <span className="hidden sm:flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-card)', color: iconCor || 'var(--text-secondary)' }}>
             <Icon size={14} />
           </span>
         )}
@@ -3242,6 +3270,7 @@ function GrupoEtapa({
           <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{nome}</p>
           <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
             {itens.length} {itens.length === 1 ? 'composição' : 'composições'}
+            <span className="sm:hidden font-semibold" style={{ color: 'var(--accent)' }}> · {formatCurrency(totalGrupo)}</span>
           </p>
         </div>
         {pctDoDireto !== null && (
@@ -3249,7 +3278,7 @@ function GrupoEtapa({
             {pctDoDireto.toFixed(1)}% do direto
           </span>
         )}
-        <span className="text-sm font-semibold ml-1 flex-shrink-0" style={{ color: 'var(--accent)' }}>
+        <span className="hidden sm:inline text-sm font-semibold ml-1 flex-shrink-0" style={{ color: 'var(--accent)' }}>
           {formatCurrency(totalGrupo)}
         </span>
         {!isReadonly && (
@@ -3270,7 +3299,7 @@ function GrupoEtapa({
               aria-label={`Acoes da etapa ${nome}`}
               title="Acoes da etapa"
             >
-              <MoreHorizontal size={15} />
+              <MoreVertical size={15} />
             </button>
             {menuAberto && (
               <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-44"
@@ -3322,7 +3351,7 @@ function GrupoEtapa({
                 <tbody>
                   <SortableList
                     items={gruposSubetapa.map(g => ({ ...g, id: g.key }))}
-                    disabled={!onReorderSubetapas}
+                    disabled={!onReorderSubetapas || mobileDragLocked}
                     onReorder={novaOrdem => onReorderSubetapas?.(novaOrdem.map(g => g.nome))}
                   >
                   {(grupo, _i, dragSub) => {
@@ -3445,7 +3474,7 @@ function GrupoEtapa({
                         {!subFechada && (
                         <SortableList
                           items={grupo.itens}
-                          disabled={!onReorderItens}
+                          disabled={!onReorderItens || mobileDragLocked}
                           onReorder={novaOrdem => onReorderItens?.(novaOrdem.map(it => it.id))}
                         >
                         {(item, _j, dragItem) => {
@@ -3670,7 +3699,7 @@ function GrupoEtapa({
             <div className="flex flex-col md:hidden">
               <SortableList
                 items={gruposSubetapa.map(g => ({ ...g, id: g.key }))}
-                disabled={!onReorderSubetapas}
+                disabled={!onReorderSubetapas || mobileDragLocked}
                 onReorder={novaOrdem => onReorderSubetapas?.(novaOrdem.map(g => g.nome))}
               >
               {(grupo, _i, dragSub) => {
@@ -3680,7 +3709,7 @@ function GrupoEtapa({
                 const valorManualComComposicoes = Boolean(grupo.meta?.ativo && grupo.itens.length > 0)
 
                 return (
-                  <section key={grupo.key} ref={dragSub.setNodeRef as React.Ref<HTMLElement>} className="border-b last:border-b-0" style={{ borderColor: 'var(--border)', ...dragSub.style }}>
+                  <section key={grupo.key} ref={dragSub.setNodeRef as React.Ref<HTMLElement>} className="border-b last:border-b-0" style={{ borderColor: 'color-mix(in srgb, var(--border) 70%, transparent)', ...dragSub.style }}>
                     <div
                       role="button"
                       tabIndex={0}
@@ -3732,7 +3761,7 @@ function GrupoEtapa({
                             className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-[var(--bg-card)]"
                             title="Ações da subetapa"
                           >
-                            <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
+                            <MoreVertical size={14} style={{ color: 'var(--text-secondary)' }} />
                           </span>
                           {subMenuAberto === grupo.key && (
                             <span className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter text-left"
@@ -3782,7 +3811,7 @@ function GrupoEtapa({
                       <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
                         <SortableList
                           items={grupo.itens}
-                          disabled={!onReorderItens}
+                          disabled={!onReorderItens || mobileDragLocked}
                           onReorder={novaOrdem => onReorderItens?.(novaOrdem.map(it => it.id))}
                         >
                         {(item, _j, dragItem) => {
@@ -3796,7 +3825,7 @@ function GrupoEtapa({
                           const hasValueMismatch = Boolean(item.valor_total_manual_ativo)
 
                           return (
-                            <div key={item.id} ref={dragItem.setNodeRef as React.Ref<HTMLDivElement>} className="px-3 py-2.5" style={{ borderBottom: '1px solid var(--border)', ...dragItem.style }}>
+                            <div key={item.id} ref={dragItem.setNodeRef as React.Ref<HTMLDivElement>} className="px-3 py-2.5" style={{ borderBottom: '1px solid color-mix(in srgb, var(--border) 45%, transparent)', ...dragItem.style }}>
                               <div
                                 role={hasInsumos ? 'button' : undefined}
                                 tabIndex={hasInsumos ? 0 : undefined}
@@ -3871,7 +3900,7 @@ function GrupoEtapa({
                                         aria-label="Ações da composição"
                                         title="Ações da composição"
                                       >
-                                        <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
+                                        <MoreVertical size={14} style={{ color: 'var(--text-secondary)' }} />
                                       </button>
                                       {itemMenuAberto === item.id && (
                                         <span className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter text-left"
