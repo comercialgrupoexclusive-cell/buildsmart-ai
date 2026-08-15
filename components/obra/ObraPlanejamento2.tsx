@@ -1,15 +1,19 @@
 'use client'
 
-import { Fragment, useEffect, useState, useRef } from 'react'
+import { Fragment, useEffect, useState, useRef, useMemo } from 'react'
 import {
   ChevronDown, ChevronRight, CalendarRange, AlertCircle,
   CheckSquare, Square, Loader2, Link2, Unlink, Check,
+  Table2, GanttChartSquare,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Etapa, PlanejamentoItem, PlanejamentoDependencia, PlanejamentoStatus } from '@/lib/types'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { useProfile } from '@/lib/profile-context'
+import { Gantt, Willow, WillowDark, type ITask, type ILink, type IApi } from '@svar-ui/react-gantt'
+import '@svar-ui/react-gantt/all.css'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -74,6 +78,24 @@ function calcFim(inicio: string, duracao: number): string {
   const d = new Date(inicio + 'T00:00:00')
   d.setDate(d.getDate() + duracao - 1)
   return d.toISOString().split('T')[0]
+}
+
+function toISODateOnly(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function parseISODate(v: string): Date {
+  return new Date(v + 'T00:00:00')
+}
+
+const DEP_TIPO_TO_LINKTYPE: Record<string, 'e2s' | 'e2e' | 's2s' | 's2e'> = {
+  FS: 'e2s', FF: 'e2e', SS: 's2s', SF: 's2e',
+}
+const LINKTYPE_TO_DEP_TIPO: Record<string, 'FS' | 'FF' | 'SS' | 'SF'> = {
+  e2s: 'FS', e2e: 'FF', s2s: 'SS', s2e: 'SF',
 }
 
 function refKey(tipo: string, etapaId: string | null, subKey: string | null, orcItemId: string | null) {
@@ -293,6 +315,7 @@ function PredecessorPickerModal({
 
 export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orcamentoId: string }) {
   const supabase = createClient()
+  const { theme } = useProfile()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -301,8 +324,11 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
   const [deps, setDeps] = useState<PlanejamentoDependencia[]>([])
   const [pickerNode, setPickerNode] = useState<TreeNode | null>(null)
   const planIdMapRef = useRef<Map<string, TreeNode>>(new Map())
+  const nodeByKeyRef = useRef<Map<string, TreeNode>>(new Map())
   const allNodesRef = useRef<TreeNode[]>([])
   const [successKey, setSuccessKey] = useState<string | null>(null)
+  const [view, setView] = useState<'tabela' | 'gantt'>('tabela')
+  const [reloadCount, setReloadCount] = useState(0)
 
   useEffect(() => { if (obraId && orcamentoId) load() }, [obraId, orcamentoId])
 
@@ -335,13 +361,16 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
       allNodesRef.current = newTree
 
       const idMap = new Map<string, TreeNode>()
+      const keyMap = new Map<string, TreeNode>()
       function walk(nodes: TreeNode[]) {
-        nodes.forEach(n => { if (n.plan) idMap.set(n.plan.id, n); walk(n.children) })
+        nodes.forEach(n => { if (n.plan) idMap.set(n.plan.id, n); keyMap.set(n.key, n); walk(n.children) })
       }
       walk(newTree)
       planIdMapRef.current = idMap
+      nodeByKeyRef.current = keyMap
 
       if (expanded.size === 0) setExpanded(new Set(etapas.map(e => `E:${e.id}`)))
+      setReloadCount(c => c + 1)
     } catch (e: any) {
       console.error('Planejamento 2.0 — erro ao carregar:', e)
       setError(e.message || 'Erro ao carregar dados')
@@ -519,6 +548,123 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
     setTimeout(() => setSuccessKey(null), 1500)
   }
 
+  // ─── Gantt: build tasks/links from tree + deps ──────────────────────────────
+
+  const ganttData = useMemo(() => {
+    const tasks: ITask[] = []
+    const today = toISODateOnly(new Date())
+
+    function walk(nodes: TreeNode[], parentKey?: string) {
+      nodes.forEach(n => {
+        const isLeaf = n.level === 2
+        let inicio = n.plan?.data_inicio || null
+        let fim = n.plan?.data_fim || null
+        if (isLeaf && !inicio) inicio = today
+        if (isLeaf && !fim) fim = inicio
+        const hasDates = !!(inicio && fim)
+        const progresso = isLeaf
+          ? Number(n.plan?.progresso_planejado ?? 0)
+          : Number(n.fallbackProgress ?? 0)
+
+        const task: ITask = {
+          id: n.key,
+          text: `${n.codigo} — ${n.descricao}`,
+          progress: progresso,
+          type: isLeaf ? 'task' : 'summary',
+          parent: parentKey,
+        }
+        if (hasDates) {
+          task.start = parseISODate(inicio!)
+          task.duration = calcDuracao(inicio!, fim!) || 1
+        }
+        if (!isLeaf) task.open = true
+        tasks.push(task)
+        if (n.children.length > 0) walk(n.children, n.key)
+      })
+    }
+    walk(tree)
+
+    const links: ILink[] = deps.map(d => ({
+      id: d.id,
+      source: planIdMapRef.current.get(d.predecessor_id)?.key ?? d.predecessor_id,
+      target: planIdMapRef.current.get(d.item_id)?.key ?? d.item_id,
+      type: DEP_TIPO_TO_LINKTYPE[d.tipo] || 'e2s',
+    }))
+
+    return { tasks, links }
+  }, [tree, deps])
+
+  // ─── Gantt: persistence handlers ────────────────────────────────────────────
+
+  async function handleGanttTaskUpdate(id: string, changes: Partial<ITask>) {
+    const node = nodeByKeyRef.current.get(String(id))
+    if (!node || node.level !== 2) return
+
+    const updates: Record<string, any> = {}
+    const newStart = changes.start ? toISODateOnly(changes.start) : (node.plan?.data_inicio || null)
+
+    let duracao: number | null = null
+    if (typeof changes.duration === 'number' && changes.duration > 0) duracao = changes.duration
+    else if (node.plan?.data_inicio && node.plan?.data_fim) duracao = calcDuracao(node.plan.data_inicio, node.plan.data_fim)
+
+    if (newStart) {
+      updates.data_inicio = newStart
+      updates.data_fim = calcFim(newStart, duracao && duracao > 0 ? duracao : 1)
+    }
+    if (typeof changes.progress === 'number') {
+      updates.progresso_planejado = Math.max(0, Math.min(100, Math.round(changes.progress)))
+    }
+    if (Object.keys(updates).length === 0) return
+
+    setSaving(node.key)
+    try {
+      await upsertPlan(node, updates)
+      showSuccess(node.key)
+      await load()
+    } catch (e: any) {
+      console.error('Planejamento 2.0 — erro ao salvar (Gantt):', e)
+      alert(`Erro ao salvar: ${e.message}`)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  async function handleGanttAddLink(link: Partial<ILink>) {
+    const sourceNode = nodeByKeyRef.current.get(String(link.source))
+    const targetNode = nodeByKeyRef.current.get(String(link.target))
+    if (!sourceNode || !targetNode || sourceNode.key === targetNode.key) return
+    if (sourceNode.level !== 2 || targetNode.level !== 2) return
+
+    setSaving(targetNode.key)
+    try {
+      const predId = await ensurePlanId(sourceNode)
+      const itemId = await ensurePlanId(targetNode)
+      const tipo = LINKTYPE_TO_DEP_TIPO[link.type || 'e2s'] || 'FS'
+      const { error } = await supabase
+        .from('planejamento_dependencias')
+        .insert({ obra_id: obraId, item_id: itemId, predecessor_id: predId, tipo })
+      if (error) throw error
+      showSuccess(targetNode.key)
+      await load()
+    } catch (e: any) {
+      console.error('Planejamento 2.0 — erro ao criar dependência (Gantt):', e)
+      alert(`Erro ao criar predecessora: ${e.message}`)
+      await load()
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  async function handleGanttDeleteLink(linkId: string) {
+    try {
+      await supabase.from('planejamento_dependencias').delete().eq('id', linkId)
+      await load()
+    } catch (e: any) {
+      console.error('Planejamento 2.0 — erro ao remover dependência (Gantt):', e)
+      alert(`Erro ao remover predecessora: ${e.message}`)
+    }
+  }
+
   // ─── Helper: get predecessors for a node ────────────────────────────────────
 
   function getPredecessors(node: TreeNode): { names: string[]; planIds: Set<string> } {
@@ -618,11 +764,46 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
             Estrutura derivada do orçamento — alterações no orçamento refletem automaticamente aqui.
           </p>
         </div>
-        <Button variant="secondary" onClick={load} disabled={!!saving}>
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+            <button
+              onClick={() => setView('tabela')}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                background: view === 'tabela' ? 'var(--accent)' : 'transparent',
+                color: view === 'tabela' ? '#fff' : 'var(--text-secondary)',
+              }}
+            >
+              <Table2 size={13} /> Tabela
+            </button>
+            <button
+              onClick={() => setView('gantt')}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                background: view === 'gantt' ? 'var(--accent)' : 'transparent',
+                color: view === 'gantt' ? '#fff' : 'var(--text-secondary)',
+              }}
+            >
+              <GanttChartSquare size={13} /> Gantt
+            </button>
+          </div>
+          <Button variant="secondary" onClick={load} disabled={!!saving}>
+            Atualizar
+          </Button>
+        </div>
       </div>
 
+      {view === 'gantt' ? (
+        <GanttPane
+          key={reloadCount}
+          tasks={ganttData.tasks}
+          links={ganttData.links}
+          theme={theme}
+          onTaskUpdate={handleGanttTaskUpdate}
+          onAddLink={handleGanttAddLink}
+          onDeleteLink={handleGanttDeleteLink}
+        />
+      ) : (
       <div className="card overflow-x-auto">
         <table className="w-full text-sm" style={{ minWidth: 1000 }}>
           <thead>
@@ -764,6 +945,7 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
           </tbody>
         </table>
       </div>
+      )}
 
       {/* Predecessor Picker Modal */}
       {pickerNode && (
@@ -776,6 +958,58 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
           onConfirm={nodes => saveDependencies(pickerNode, nodes)}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Gantt Pane ────────────────────────────────────────────────────────────────
+
+function GanttPane({
+  tasks, links, theme, onTaskUpdate, onAddLink, onDeleteLink,
+}: {
+  tasks: ITask[]
+  links: ILink[]
+  theme: 'dark' | 'light'
+  onTaskUpdate: (id: string, changes: Partial<ITask>) => void
+  onAddLink: (link: Partial<ILink>) => void
+  onDeleteLink: (id: string) => void
+}) {
+  const ThemeWrap = theme === 'dark' ? WillowDark : Willow
+  const handlersRef = useRef({ onTaskUpdate, onAddLink, onDeleteLink })
+  handlersRef.current = { onTaskUpdate, onAddLink, onDeleteLink }
+
+  const columns = [
+    { id: 'text', header: 'Descrição', flexgrow: 3, minWidth: 240 },
+    { id: 'start', header: 'Início', width: 95, align: 'center' as const },
+    { id: 'duration', header: 'Dur.', width: 55, align: 'center' as const },
+  ]
+
+  function handleInit(api: IApi) {
+    api.on('update-task', (ev: { id: string | number; task: Partial<ITask>; inProgress?: boolean }) => {
+      if (ev.inProgress) return
+      handlersRef.current.onTaskUpdate(String(ev.id), ev.task)
+    })
+    api.on('drag-task', (ev: { id: string | number; inProgress?: boolean }) => {
+      if (ev.inProgress) return
+      const task = api.getTask(ev.id)
+      if (task) handlersRef.current.onTaskUpdate(String(ev.id), { start: task.start, end: task.end, duration: task.duration })
+    })
+    api.on('add-link', (ev: { link: Partial<ILink> }) => handlersRef.current.onAddLink(ev.link))
+    api.on('delete-link', (ev: { id: string | number }) => handlersRef.current.onDeleteLink(String(ev.id)))
+  }
+
+  return (
+    <div className="card" style={{ height: 560, overflow: 'hidden' }}>
+      <ThemeWrap>
+        <Gantt
+          tasks={tasks}
+          links={links}
+          columns={columns}
+          cellHeight={34}
+          scaleHeight={36}
+          init={handleInit}
+        />
+      </ThemeWrap>
     </div>
   )
 }
