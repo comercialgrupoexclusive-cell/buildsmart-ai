@@ -689,7 +689,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
               {profiles.length > 0 ? (
                 <select
                   autoFocus
-                  className="input-base text-xs flex-1"
+                  className="input-base input-compact flex-1"
                   value={tempResp}
                   onChange={e => setTempResp(e.target.value)}
                   onBlur={saveResp}
@@ -703,7 +703,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                 <input
                   autoFocus
                   type="text"
-                  className="input-base text-xs flex-1"
+                  className="input-base input-compact flex-1"
                   value={tempResp}
                   onChange={e => setTempResp(e.target.value)}
                   onBlur={saveResp}

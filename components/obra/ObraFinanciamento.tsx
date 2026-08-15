@@ -210,7 +210,7 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)' }}><WalletCards size={17} style={{ color: 'var(--accent)' }} /></div>
               <div className="flex-1 min-w-0"><p className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{r.descricao}</p><p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Solicitado {formatCurrency(Number(r.valor_solicitado))}</p></div>
-              <select value={r.status} disabled={isTodos} onChange={e => salvarReembolso(r.id, { status: e.target.value as ReembolsoStatus })} className="input-base text-xs py-1 w-28 disabled:opacity-60">{STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+              <select value={r.status} disabled={isTodos} onChange={e => salvarReembolso(r.id, { status: e.target.value as ReembolsoStatus })} className="input-base input-compact w-28 disabled:opacity-60">{STATUS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
               {!isTodos && <button onClick={() => remover(r.id)} className="p-2" title="Excluir"><Trash2 size={14} style={{ color: 'var(--danger)' }} /></button>}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

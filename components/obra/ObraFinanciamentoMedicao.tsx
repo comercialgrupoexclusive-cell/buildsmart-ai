@@ -862,12 +862,12 @@ function CronogramaView({ tree, etapas, salvarDatas, isTodos, cronoBanco }: {
                     <td className="text-center px-2 py-1">
                       <input type="date" value={node.data_inicio || ''} disabled={isTodos}
                         onChange={e => salvarDatas(node.id, e.target.value || null, node.data_fim)}
-                        className="input-base text-xs py-1 w-full text-center" />
+                        className="input-base input-compact w-full text-center" />
                     </td>
                     <td className="text-center px-2 py-1">
                       <input type="date" value={node.data_fim || ''} disabled={isTodos}
                         onChange={e => salvarDatas(node.id, node.data_inicio, e.target.value || null)}
-                        className="input-base text-xs py-1 w-full text-center" />
+                        className="input-base input-compact w-full text-center" />
                     </td>
                     <td className="text-center px-2 py-2">
                       {etapa && !isTodos && (
@@ -1120,7 +1120,7 @@ function TreeRowExec({ node, depth, collapsed, setCollapsed, pctLocal, pctSim, s
                   e.target.value = `${Math.min(100, Math.max(0, n)).toFixed(0)}%`
                 }}
                 onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                className="input-base w-16 text-center text-xs py-1"
+                className="input-base input-compact w-16 text-center"
                 style={changed ? { borderColor: 'var(--accent)', background: 'rgba(59,123,248,0.06)' } : {}}
               />
               {pctSistema !== undefined && (
@@ -1136,7 +1136,7 @@ function TreeRowExec({ node, depth, collapsed, setCollapsed, pctLocal, pctSim, s
                 onFocus={e => e.target.select()}
                 onBlur={e => handleParentInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                className="input-base w-16 text-center text-xs py-1"
+                className="input-base input-compact w-16 text-center"
                 style={{ borderColor: pctSimCalc !== pctAtual ? 'var(--accent)' : undefined, background: pctSimCalc !== pctAtual ? 'rgba(59,123,248,0.06)' : undefined }}
                 title="Alterar distribui para todos os filhos"
               />
@@ -1257,7 +1257,7 @@ function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual, excluirMedic
                     <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-primary)' }}>
                       {isEditing ? (
                         <input type="date" value={editData} onChange={e => setEditData(e.target.value)}
-                          onClick={e => e.stopPropagation()} className="input-base text-xs py-0.5 w-32" />
+                          onClick={e => e.stopPropagation()} className="input-base input-compact w-32" />
                       ) : (
                         new Date(m.data_medicao + 'T12:00:00').toLocaleDateString('pt-BR')
                       )}
@@ -1265,7 +1265,7 @@ function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual, excluirMedic
                     <span className="text-[11px] flex-1 truncate" style={{ color: 'var(--text-secondary)' }}>
                       {isEditing ? (
                         <input value={editObs} onChange={e => setEditObs(e.target.value)}
-                          onClick={e => e.stopPropagation()} className="input-base text-xs py-0.5 w-full" placeholder="Observação" />
+                          onClick={e => e.stopPropagation()} className="input-base input-compact w-full" placeholder="Observação" />
                       ) : (
                         m.observacao || ''
                       )}
@@ -1328,7 +1328,7 @@ function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual, excluirMedic
                                           onBlur={() => salvarItemPct(mi.item_id, mi.medicao_id, Number(editingPct.replace('%', '')) || 0)}
                                           onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                                           onFocus={e => e.target.select()}
-                                          className="input-base w-16 text-center text-[11px] py-0.5"
+                                          className="input-base input-compact w-16 text-center text-[11px]"
                                           autoFocus />
                                       ) : (
                                         <span style={{ color: Number(mi.pct_executado) >= 100 ? 'var(--success)' : Number(mi.pct_executado) > 0 ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: 600 }}>

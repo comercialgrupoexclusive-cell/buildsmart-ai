@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, FolderOpen, Search, MoreVertical, Calendar, Link2, AlertTriangle, Copy, BookTemplate, ImagePlus } from 'lucide-react'
+import { Plus, FolderOpen, Search, MoreVertical, Calendar, Link2, AlertTriangle, Copy, BookTemplate, ImagePlus, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import type { Profile, Proprietario, Responsavel } from '@/lib/types'
@@ -313,106 +313,133 @@ export default function ProjetosPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(p => {
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+          {filtered.map((p, i) => {
             const meta = STATUS_META[p.status]
             const stats = projetoStats[p.id]
-            const pct = stats && stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : null
+            const pct = stats && stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0
+            const pctCor = pct >= 100 ? 'var(--success)' : pct >= 50 ? 'var(--accent)' : 'var(--warning)'
 
             return (
-              <div key={p.id} className="relative h-full">
-                {/* Card inteiramente clicável */}
+              <div key={p.id} className="relative">
+                {/* Card inteiramente clicável — mesmo padrão visual do card de Obra */}
                 <Link
                   href={`/projetos/${p.id}`}
-                  className="flex flex-col h-full rounded-xl border overflow-hidden hover:shadow-md transition-shadow"
-                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+                  className="group block overflow-hidden rounded-2xl transition-transform hover:scale-[1.015] animate-enter"
+                  style={{
+                    animationDelay: `${i * 60}ms`,
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+                  }}
                 >
-                  {/* Foto ou faixa de status — altura fixa para manter cards uniformes */}
-                  <div className="h-28 overflow-hidden flex items-center justify-center" style={{ background: p.foto_url ? undefined : 'var(--bg-secondary)' }}>
+                  {/* Foto dominante */}
+                  <div className="relative h-52 overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
                     {p.foto_url ? (
-                      <img src={p.foto_url} alt="" className="w-full h-full object-cover" />
+                      <img
+                        src={p.foto_url}
+                        alt={p.nome}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
                     ) : (
-                      <div className="flex flex-col items-center gap-1.5">
-                        <FolderOpen size={28} style={{ color: meta.color, opacity: 0.6 }} />
-                        <div className="h-1 w-16 rounded-full" style={{ background: meta.color }} />
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                        <FolderOpen size={48} style={{ color: 'var(--border)' }} />
+                        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Sem foto</span>
                       </div>
                     )}
-                  </div>
 
-                  <div className="p-4 space-y-3 flex-1 flex flex-col">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-base truncate" style={{ color: 'var(--text-primary)' }}>
-                          {p.nome}
-                        </p>
-                        {p.cliente && (
-                          <p className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{p.cliente}</p>
-                        )}
-                      </div>
-                      {/* Espaço reservado para o menu (absolute) */}
-                      <div className="w-7 h-7 flex-shrink-0" />
+                    {/* Gradiente overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+
+                    {/* Badge status — topo direito */}
+                    <div className="absolute top-3 right-3">
+                      <span
+                        className="text-xs font-semibold px-2.5 py-1 rounded-full"
+                        style={{
+                          background: `${meta.color}22`,
+                          color: meta.color,
+                          border: `1px solid ${meta.color}55`,
+                          backdropFilter: 'blur(8px)',
+                        }}
+                      >
+                        {meta.label}
+                      </span>
                     </div>
 
-                    {/* Badge status */}
-                    <span
-                      className="inline-block text-xs font-medium px-2 py-0.5 rounded-full"
-                      style={{ color: meta.color, background: meta.bg }}
-                    >
-                      {meta.label}
-                    </span>
+                    {/* Nome e cliente — sobre o gradiente, embaixo */}
+                    <div className="absolute bottom-0 left-0 right-0 p-4">
+                      <h3 className="font-semibold text-base leading-tight truncate text-white">
+                        {p.nome}
+                      </h3>
+                      {p.cliente && (
+                        <p className="text-xs truncate mt-1 text-white/70">{p.cliente}</p>
+                      )}
+                    </div>
+                  </div>
 
-                    <div className="flex-1" />
+                  {/* Execução: percentual + barra */}
+                  <div className="px-4 pt-3 pb-1">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span style={{ color: 'var(--text-secondary)' }}>
+                        {stats && stats.total > 0 ? `${stats.done}/${stats.total} itens` : 'Execução'}
+                      </span>
+                      <span className="font-semibold tabular-nums" style={{ color: pctCor }}>{pct}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${Math.min(100, pct)}%`, background: pctCor }}
+                      />
+                    </div>
+                  </div>
 
-                    {/* Barra de progresso */}
-                    {pct !== null && (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                            {stats!.done}/{stats!.total} itens
+                  {/* Rodapé compacto */}
+                  <div
+                    className="px-4 py-3 flex items-center justify-between gap-3"
+                    style={{ borderTop: '1px solid var(--border)' }}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {p.responsavel && (
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <User size={11} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                          <span className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                            {p.responsavel}
                           </span>
-                          <span className="text-xs font-medium" style={{ color: 'var(--accent)' }}>{pct}%</span>
                         </div>
-                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{ width: `${pct}%`, background: pct === 100 ? 'var(--success)' : 'var(--accent)' }}
-                          />
+                      )}
+                      {p.obra_id && (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <Link2 size={11} style={{ color: 'var(--accent)' }} />
+                          <span className="text-xs" style={{ color: 'var(--accent)' }}>Vinculado</span>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
 
-                    {/* Datas */}
-                    {(p.data_inicio || p.data_previsao) && (
-                      <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        <Calendar size={12} />
-                        {p.data_inicio && <span>{new Date(p.data_inicio + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
-                        {p.data_inicio && p.data_previsao && <span>→</span>}
-                        {p.data_previsao && <span>{new Date(p.data_previsao + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
-                      </div>
-                    )}
-
-                    {/* Vínculo obra */}
-                    {p.obra_id && (
-                      <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--accent)' }}>
-                        <Link2 size={12} />
-                        <span>Vinculado a obra</span>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {p.data_previsao && (
+                        <div className="flex items-center gap-1">
+                          <Calendar size={11} style={{ color: 'var(--text-secondary)' }} />
+                          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                            {new Date(p.data_previsao + 'T12:00:00').toLocaleDateString('pt-BR')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </Link>
 
-                {/* Menu flutuante (fora do <a> para evitar navegação) */}
-                <div className="absolute top-5 right-3">
+                {/* Menu flutuante (fora do <a> para evitar navegação) — sobre a foto, topo esquerdo */}
+                <div className="absolute top-3 left-3">
                   <button
-                    className="p-1 rounded hover:bg-[var(--bg-secondary)]"
-                    style={{ color: 'var(--text-secondary)' }}
+                    className="p-1.5 rounded-full transition-colors"
+                    style={{ background: 'rgba(0,0,0,0.4)', color: 'white', backdropFilter: 'blur(8px)' }}
                     onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuId(menuId === p.id ? null : p.id) }}
                   >
-                    <MoreVertical size={16} />
+                    <MoreVertical size={14} />
                   </button>
                   {menuId === p.id && (
                     <div
-                      className="absolute right-0 top-8 z-50 rounded-lg shadow-xl border min-w-[160px] py-1"
+                      className="absolute left-0 top-9 z-50 rounded-lg shadow-xl border min-w-[160px] py-1"
                       style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                     >
                       <Link

@@ -168,6 +168,15 @@ select optgroup {
 .input-search {
   padding-left: 2.25rem !important; /* 36px = espaço para ícone de 14px em left-3 */
 }
+/* Variante compacta para inputs dentro de tabelas cascata (Orçamento, Planejamento).
+   Precisa de 2 classes (especificidade 0,0,2,0) para vencer .input-base de forma
+   confiável — uma única utility Tailwind (0,0,1,0) empata com .input-base e o
+   resultado final passa a depender da ordem de bundling, o que inflava os inputs
+   (ex.: campo de quantidade chegava a 37px de altura em vez de ~22px). */
+.input-compact.input-base {
+  padding: 2px 6px;
+  font-size: 12px;
+}
 
 /* ── Bordas de elementos interativos levemente mais visíveis ── */
 :root {
