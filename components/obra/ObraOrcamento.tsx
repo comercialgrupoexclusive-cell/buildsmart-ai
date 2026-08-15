@@ -1703,13 +1703,19 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         }
         const preco = valorUnitarioImportado || (valorTotalImportado > 0 ? valorTotalImportado / quantidade : 0)
         const codigoSnapshot = codigo || `${tipoSnapshot === 'COMPOSICAO' ? 'COMP' : tipoSnapshot === 'INSUMO' ? 'INS' : 'LIV'}-${Date.now().toString(36).toUpperCase()}-${linha.numero}`
+        // Se o código da linha bate com uma composição já cadastrada no catálogo,
+        // referenciamos ela (sem alterar o catálogo em si) para que os insumos
+        // continuem visíveis ao expandir o item — sem isso, o vínculo se perdia
+        // silenciosamente em toda importação tabular.
+        const composicaoRef = tipoSnapshot === 'COMPOSICAO' && codigo ? mapaProprias.get(codigo) : undefined
+        const sinapiRef = tipoSnapshot === 'COMPOSICAO' && codigo && !composicaoRef ? mapaSinapi.get(codigo) : undefined
         const { error: erroSnapshot } = await supabase.from('orcamento_itens').insert({
           orcamento_id: orcamento.id,
           etapa_id: etapaId,
           subetapa,
           tipo_linha: 'item',
-          composicao_id: null,
-          sinapi_composicao_id: null,
+          composicao_id: composicaoRef?.id ?? null,
+          sinapi_composicao_id: sinapiRef?.id ?? null,
           quantidade,
           preco_unitario_snapshot: preco,
           descricao_snapshot: descricaoImportada,
