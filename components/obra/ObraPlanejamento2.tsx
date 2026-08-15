@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState, useRef, useMemo } from 'react'
 import {
   ChevronDown, ChevronRight, CalendarRange, AlertCircle,
-  CheckSquare, Square, Loader2, Link2, Unlink, Check,
+  CheckSquare, Square, Loader2, Link2, Check,
   Table2, GanttChartSquare,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -11,9 +11,6 @@ import { Etapa, PlanejamentoItem, PlanejamentoDependencia, PlanejamentoStatus } 
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { useProfile } from '@/lib/profile-context'
-import { Gantt, Willow, WillowDark, type ITask, type ILink, type IApi } from '@svar-ui/react-gantt'
-import '@svar-ui/react-gantt/all.css'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -89,13 +86,6 @@ function toISODateOnly(d: Date): string {
 
 function parseISODate(v: string): Date {
   return new Date(v + 'T00:00:00')
-}
-
-const DEP_TIPO_TO_LINKTYPE: Record<string, 'e2s' | 'e2e' | 's2s' | 's2e'> = {
-  FS: 'e2s', FF: 'e2e', SS: 's2s', SF: 's2e',
-}
-const LINKTYPE_TO_DEP_TIPO: Record<string, 'FS' | 'FF' | 'SS' | 'SF'> = {
-  e2s: 'FS', e2e: 'FF', s2s: 'SS', s2e: 'SF',
 }
 
 function refKey(tipo: string, etapaId: string | null, subKey: string | null, orcItemId: string | null) {
@@ -315,7 +305,6 @@ function PredecessorPickerModal({
 
 export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orcamentoId: string }) {
   const supabase = createClient()
-  const { theme } = useProfile()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -324,11 +313,9 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
   const [deps, setDeps] = useState<PlanejamentoDependencia[]>([])
   const [pickerNode, setPickerNode] = useState<TreeNode | null>(null)
   const planIdMapRef = useRef<Map<string, TreeNode>>(new Map())
-  const nodeByKeyRef = useRef<Map<string, TreeNode>>(new Map())
   const allNodesRef = useRef<TreeNode[]>([])
   const [successKey, setSuccessKey] = useState<string | null>(null)
   const [view, setView] = useState<'tabela' | 'gantt'>('tabela')
-  const [reloadCount, setReloadCount] = useState(0)
 
   useEffect(() => { if (obraId && orcamentoId) load() }, [obraId, orcamentoId])
 
@@ -361,16 +348,13 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
       allNodesRef.current = newTree
 
       const idMap = new Map<string, TreeNode>()
-      const keyMap = new Map<string, TreeNode>()
       function walk(nodes: TreeNode[]) {
-        nodes.forEach(n => { if (n.plan) idMap.set(n.plan.id, n); keyMap.set(n.key, n); walk(n.children) })
+        nodes.forEach(n => { if (n.plan) idMap.set(n.plan.id, n); walk(n.children) })
       }
       walk(newTree)
       planIdMapRef.current = idMap
-      nodeByKeyRef.current = keyMap
 
       if (expanded.size === 0) setExpanded(new Set(etapas.map(e => `E:${e.id}`)))
-      setReloadCount(c => c + 1)
     } catch (e: any) {
       console.error('Planejamento 2.0 — erro ao carregar:', e)
       setError(e.message || 'Erro ao carregar dados')
@@ -548,122 +532,65 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
     setTimeout(() => setSuccessKey(null), 1500)
   }
 
-  // ─── Gantt: build tasks/links from tree + deps ──────────────────────────────
+  // ─── Gantt simplificado: intervalo de datas (rollup) por nó ─────────────────
 
-  const ganttData = useMemo(() => {
-    const tasks: ITask[] = []
-    const today = toISODateOnly(new Date())
+  function nodeRange(node: TreeNode): { inicio: string; fim: string } | null {
+    if (node.level === 2) {
+      if (node.plan?.data_inicio && node.plan?.data_fim) return { inicio: node.plan.data_inicio, fim: node.plan.data_fim }
+      return null
+    }
+    let inicio: string | null = null
+    let fim: string | null = null
+    function scan(n: TreeNode) {
+      if (n.plan?.data_inicio && n.plan?.data_fim) {
+        if (!inicio || n.plan.data_inicio < inicio) inicio = n.plan.data_inicio
+        if (!fim || n.plan.data_fim > fim) fim = n.plan.data_fim
+      }
+      n.children.forEach(scan)
+    }
+    scan(node)
+    return inicio && fim ? { inicio, fim } : null
+  }
 
-    function walk(nodes: TreeNode[], parentKey?: string) {
+  function nodeProgress(node: TreeNode): { plan: number; exec: number } {
+    if (node.level === 2) {
+      return { plan: Number(node.plan?.progresso_planejado ?? 0), exec: Number(node.plan?.progresso_executado ?? 0) }
+    }
+    // Nós com dados próprios (nível subetapa) contam diretamente; caso contrário,
+    // usa a média dos filhos com dado (evita contar etapa + subetapa em dobro).
+    const planned: TreeNode[] = []
+    function collect(n: TreeNode) {
+      if (n.plan) { planned.push(n); return }
+      n.children.forEach(collect)
+    }
+    node.children.forEach(collect)
+    if (planned.length === 0) return { plan: 0, exec: Number(node.fallbackProgress ?? 0) }
+    const plan = planned.reduce((s, l) => s + Number(l.plan?.progresso_planejado ?? 0), 0) / planned.length
+    const exec = planned.reduce((s, l) => s + Number(l.plan?.progresso_executado ?? 0), 0) / planned.length
+    return { plan: Math.round(plan), exec: Math.round(exec) }
+  }
+
+  const timelineScale = useMemo(() => {
+    let minDate: string | null = null
+    let maxDate: string | null = null
+    function scan(nodes: TreeNode[]) {
       nodes.forEach(n => {
-        const isLeaf = n.level === 2
-        let inicio = n.plan?.data_inicio || null
-        let fim = n.plan?.data_fim || null
-        if (isLeaf && !inicio) inicio = today
-        if (isLeaf && !fim) fim = inicio
-        const hasDates = !!(inicio && fim)
-        const progresso = isLeaf
-          ? Number(n.plan?.progresso_planejado ?? 0)
-          : Number(n.fallbackProgress ?? 0)
-
-        const task: ITask = {
-          id: n.key,
-          text: `${n.codigo} — ${n.descricao}`,
-          progress: progresso,
-          type: isLeaf ? 'task' : 'summary',
-          parent: parentKey,
+        if (n.plan?.data_inicio && n.plan?.data_fim) {
+          if (!minDate || n.plan.data_inicio < minDate) minDate = n.plan.data_inicio
+          if (!maxDate || n.plan.data_fim > maxDate) maxDate = n.plan.data_fim
         }
-        if (hasDates) {
-          task.start = parseISODate(inicio!)
-          task.duration = calcDuracao(inicio!, fim!) || 1
-        }
-        if (!isLeaf) task.open = true
-        tasks.push(task)
-        if (n.children.length > 0) walk(n.children, n.key)
+        scan(n.children)
       })
     }
-    walk(tree)
-
-    const links: ILink[] = deps.map(d => ({
-      id: d.id,
-      source: planIdMapRef.current.get(d.predecessor_id)?.key ?? d.predecessor_id,
-      target: planIdMapRef.current.get(d.item_id)?.key ?? d.item_id,
-      type: DEP_TIPO_TO_LINKTYPE[d.tipo] || 'e2s',
-    }))
-
-    return { tasks, links }
-  }, [tree, deps])
-
-  // ─── Gantt: persistence handlers ────────────────────────────────────────────
-
-  async function handleGanttTaskUpdate(id: string, changes: Partial<ITask>) {
-    const node = nodeByKeyRef.current.get(String(id))
-    if (!node || node.level !== 2) return
-
-    const updates: Record<string, any> = {}
-    const newStart = changes.start ? toISODateOnly(changes.start) : (node.plan?.data_inicio || null)
-
-    let duracao: number | null = null
-    if (typeof changes.duration === 'number' && changes.duration > 0) duracao = changes.duration
-    else if (node.plan?.data_inicio && node.plan?.data_fim) duracao = calcDuracao(node.plan.data_inicio, node.plan.data_fim)
-
-    if (newStart) {
-      updates.data_inicio = newStart
-      updates.data_fim = calcFim(newStart, duracao && duracao > 0 ? duracao : 1)
-    }
-    if (typeof changes.progress === 'number') {
-      updates.progresso_planejado = Math.max(0, Math.min(100, Math.round(changes.progress)))
-    }
-    if (Object.keys(updates).length === 0) return
-
-    setSaving(node.key)
-    try {
-      await upsertPlan(node, updates)
-      showSuccess(node.key)
-      await load()
-    } catch (e: any) {
-      console.error('Planejamento 2.0 — erro ao salvar (Gantt):', e)
-      alert(`Erro ao salvar: ${e.message}`)
-    } finally {
-      setSaving(null)
-    }
-  }
-
-  async function handleGanttAddLink(link: Partial<ILink>) {
-    const sourceNode = nodeByKeyRef.current.get(String(link.source))
-    const targetNode = nodeByKeyRef.current.get(String(link.target))
-    if (!sourceNode || !targetNode || sourceNode.key === targetNode.key) return
-    if (sourceNode.level !== 2 || targetNode.level !== 2) return
-
-    setSaving(targetNode.key)
-    try {
-      const predId = await ensurePlanId(sourceNode)
-      const itemId = await ensurePlanId(targetNode)
-      const tipo = LINKTYPE_TO_DEP_TIPO[link.type || 'e2s'] || 'FS'
-      const { error } = await supabase
-        .from('planejamento_dependencias')
-        .insert({ obra_id: obraId, item_id: itemId, predecessor_id: predId, tipo })
-      if (error) throw error
-      showSuccess(targetNode.key)
-      await load()
-    } catch (e: any) {
-      console.error('Planejamento 2.0 — erro ao criar dependência (Gantt):', e)
-      alert(`Erro ao criar predecessora: ${e.message}`)
-      await load()
-    } finally {
-      setSaving(null)
-    }
-  }
-
-  async function handleGanttDeleteLink(linkId: string) {
-    try {
-      await supabase.from('planejamento_dependencias').delete().eq('id', linkId)
-      await load()
-    } catch (e: any) {
-      console.error('Planejamento 2.0 — erro ao remover dependência (Gantt):', e)
-      alert(`Erro ao remover predecessora: ${e.message}`)
-    }
-  }
+    scan(tree)
+    if (!minDate || !maxDate) return null
+    const start = parseISODate(minDate)
+    start.setDate(start.getDate() - 3)
+    const end = parseISODate(maxDate)
+    end.setDate(end.getDate() + 3)
+    const totalDays = Math.max(1, calcDuracao(toISODateOnly(start), toISODateOnly(end)) || 1)
+    return { start, totalDays, pxPerDay: 22 }
+  }, [tree])
 
   // ─── Helper: get predecessors for a node ────────────────────────────────────
 
@@ -794,14 +721,13 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
       </div>
 
       {view === 'gantt' ? (
-        <GanttPane
-          key={reloadCount}
-          tasks={ganttData.tasks}
-          links={ganttData.links}
-          theme={theme}
-          onTaskUpdate={handleGanttTaskUpdate}
-          onAddLink={handleGanttAddLink}
-          onDeleteLink={handleGanttDeleteLink}
+        <SimpleGanttPane
+          rows={visibleRows}
+          scale={timelineScale}
+          getRange={nodeRange}
+          getProgress={nodeProgress}
+          toggleExpand={toggleExpand}
+          expanded={expanded}
         />
       ) : (
       <div className="card overflow-x-auto">
@@ -962,54 +888,154 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
   )
 }
 
-// ─── Gantt Pane ────────────────────────────────────────────────────────────────
+// ─── Gantt simplificado (somente leitura, sem drag) ────────────────────────────
+//
+// Visualização de linha do tempo derivada dos mesmos dados da Tabela — edição
+// continua sendo feita por lá. Cada barra mostra previsto (marcador tracejado)
+// x realizado (preenchimento sólido), sem depender de arrastar/soltar.
 
-function GanttPane({
-  tasks, links, theme, onTaskUpdate, onAddLink, onDeleteLink,
+type GanttScale = { start: Date; totalDays: number; pxPerDay: number }
+
+function monthLabel(d: Date) {
+  return d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '')
+}
+
+function SimpleGanttPane({
+  rows, scale, getRange, getProgress, toggleExpand, expanded,
 }: {
-  tasks: ITask[]
-  links: ILink[]
-  theme: 'dark' | 'light'
-  onTaskUpdate: (id: string, changes: Partial<ITask>) => void
-  onAddLink: (link: Partial<ILink>) => void
-  onDeleteLink: (id: string) => void
+  rows: TreeNode[]
+  scale: GanttScale | null
+  getRange: (node: TreeNode) => { inicio: string; fim: string } | null
+  getProgress: (node: TreeNode) => { plan: number; exec: number }
+  toggleExpand: (key: string) => void
+  expanded: Set<string>
 }) {
-  const ThemeWrap = theme === 'dark' ? WillowDark : Willow
-  const handlersRef = useRef({ onTaskUpdate, onAddLink, onDeleteLink })
-  handlersRef.current = { onTaskUpdate, onAddLink, onDeleteLink }
+  if (!scale) {
+    return (
+      <EmptyState
+        icon={CalendarRange}
+        title="Nenhuma data definida"
+        description="Defina datas de início e fim na Tabela para visualizar a linha do tempo."
+      />
+    )
+  }
 
-  const columns = [
-    { id: 'text', header: 'Descrição', flexgrow: 3, minWidth: 240 },
-    { id: 'start', header: 'Início', width: 95, align: 'center' as const },
-    { id: 'duration', header: 'Dur.', width: 55, align: 'center' as const },
-  ]
+  const totalWidth = scale.totalDays * scale.pxPerDay
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayOffset = Math.round((today.getTime() - scale.start.getTime()) / 86400000) * scale.pxPerDay
 
-  function handleInit(api: IApi) {
-    api.on('update-task', (ev: { id: string | number; task: Partial<ITask>; inProgress?: boolean }) => {
-      if (ev.inProgress) return
-      handlersRef.current.onTaskUpdate(String(ev.id), ev.task)
-    })
-    api.on('drag-task', (ev: { id: string | number; inProgress?: boolean }) => {
-      if (ev.inProgress) return
-      const task = api.getTask(ev.id)
-      if (task) handlersRef.current.onTaskUpdate(String(ev.id), { start: task.start, end: task.end, duration: task.duration })
-    })
-    api.on('add-link', (ev: { link: Partial<ILink> }) => handlersRef.current.onAddLink(ev.link))
-    api.on('delete-link', (ev: { id: string | number }) => handlersRef.current.onDeleteLink(String(ev.id)))
+  const months: { label: string; left: number; width: number }[] = []
+  {
+    let cursor = new Date(scale.start)
+    let dayIdx = 0
+    while (dayIdx < scale.totalDays) {
+      const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1)
+      const monthEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
+      const daysInto = Math.max(0, Math.round((cursor.getTime() - monthStart.getTime()) / 86400000))
+      const daysLeftInMonth = Math.round((monthEnd.getTime() - cursor.getTime()) / 86400000)
+      const span = Math.min(daysLeftInMonth, scale.totalDays - dayIdx)
+      months.push({ label: monthLabel(cursor), left: dayIdx * scale.pxPerDay, width: span * scale.pxPerDay })
+      dayIdx += span
+      cursor = new Date(scale.start)
+      cursor.setDate(cursor.getDate() + dayIdx)
+    }
   }
 
   return (
-    <div className="card" style={{ height: 560, overflow: 'hidden' }}>
-      <ThemeWrap>
-        <Gantt
-          tasks={tasks}
-          links={links}
-          columns={columns}
-          cellHeight={34}
-          scaleHeight={36}
-          init={handleInit}
-        />
-      </ThemeWrap>
+    <div className="card overflow-x-auto">
+      <div className="flex" style={{ minWidth: 1000 }}>
+        {/* Coluna fixa de descrição */}
+        <div style={{ minWidth: 300, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
+          <div className="flex items-center px-3 font-semibold text-xs" style={{ height: 60, color: 'var(--text-secondary)', borderBottom: '2px solid var(--border)' }}>
+            Descrição
+          </div>
+          {rows.map(node => {
+            const hasChildren = node.children.length > 0
+            const isExpanded = expanded.has(node.key)
+            const fontWeight = node.level === 0 ? 600 : node.level === 1 ? 500 : 400
+            return (
+              <div key={node.key} className="flex items-center gap-1.5 px-3" style={{ height: 34, borderBottom: '1px solid var(--border)', paddingLeft: node.level * 16 + 12 }}>
+                {hasChildren ? (
+                  <button onClick={() => toggleExpand(node.key)} className="p-0.5 rounded hover:bg-[var(--bg-secondary)] flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+                    {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                  </button>
+                ) : <span style={{ width: 17 }} />}
+                <span className="truncate text-xs" style={{ color: 'var(--text-primary)', fontWeight }} title={node.descricao}>
+                  {node.codigo} — {node.descricao}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Linha do tempo */}
+        <div className="overflow-x-auto flex-1">
+          <div style={{ width: totalWidth, position: 'relative' }}>
+            {/* Cabeçalho de meses */}
+            <div style={{ height: 60, position: 'relative', borderBottom: '2px solid var(--border)' }}>
+              {months.map((m, i) => (
+                <div key={i} className="absolute top-0 h-full flex items-center justify-center text-xs font-semibold capitalize"
+                  style={{ left: m.left, width: m.width, color: 'var(--text-secondary)', borderLeft: '1px solid var(--border)' }}>
+                  {m.label}
+                </div>
+              ))}
+            </div>
+
+            {/* Linha do "hoje" */}
+            {todayOffset >= 0 && todayOffset <= totalWidth && (
+              <div className="absolute top-0 bottom-0" style={{ left: todayOffset, width: 1, background: 'var(--accent)', opacity: 0.5, zIndex: 1 }} />
+            )}
+
+            {rows.map(node => {
+              const range = getRange(node)
+              const { plan, exec } = getProgress(node)
+              const isLeaf = node.level === 2
+
+              if (!range) {
+                return (
+                  <div key={node.key} className="flex items-center" style={{ height: 34, borderBottom: '1px solid var(--border)' }}>
+                    <span className="text-xs px-2" style={{ color: 'var(--text-secondary)', opacity: 0.5 }}>sem data</span>
+                  </div>
+                )
+              }
+
+              const offsetDays = calcDuracao(toISODateOnly(scale.start), range.inicio)! - 1
+              const left = Math.max(0, offsetDays * scale.pxPerDay)
+              const durDays = calcDuracao(range.inicio, range.fim) || 1
+              const width = Math.max(6, durDays * scale.pxPerDay)
+              const barColor = isLeaf ? 'var(--accent)' : '#8b5cf6'
+
+              return (
+                <div key={node.key} className="relative flex items-center" style={{ height: 34, borderBottom: '1px solid var(--border)' }}>
+                  <div
+                    className="absolute rounded"
+                    title={`${node.codigo} — ${node.descricao}\n${fmtBR(range.inicio)} a ${fmtBR(range.fim)}\nPrevisto: ${plan}% · Realizado: ${exec}%`}
+                    style={{
+                      left, width, height: isLeaf ? 16 : 12,
+                      background: 'var(--bg-secondary)',
+                      border: `1px solid ${barColor}`,
+                      opacity: isLeaf ? 1 : 0.85,
+                    }}
+                  >
+                    <div className="h-full rounded" style={{ width: `${Math.min(100, exec)}%`, background: barColor, opacity: isLeaf ? 0.85 : 0.6 }} />
+                    <div
+                      className="absolute top-0 bottom-0"
+                      style={{ left: `${Math.min(100, plan)}%`, width: 2, background: 'var(--text-primary)', opacity: 0.6 }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4 px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
+        <span className="flex items-center gap-1.5"><span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent)', display: 'inline-block' }} /> Realizado</span>
+        <span className="flex items-center gap-1.5"><span style={{ width: 2, height: 10, background: 'var(--text-primary)', opacity: 0.6, display: 'inline-block' }} /> Previsto</span>
+        <span>Edite datas, status e predecessoras na aba Tabela.</span>
+      </div>
     </div>
   )
 }
