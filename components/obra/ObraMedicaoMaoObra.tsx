@@ -333,7 +333,7 @@ function EtapaMedicao({ grupo, total, fechada, eixo, onSetEtapa, onSetSub, onSet
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
             <span>Medido <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(Number(item.valor_contratado || 0) * Number(item.pct_atual || 0) / 100)}</strong></span>
-            <label className="flex items-center gap-1">Pago <input type="number" min={0} max={Number(item.valor_contratado || 0)} defaultValue={Number(item.valor_pago || 0)} disabled={fechada} onBlur={event => onSetPago(item, Number(event.target.value))} className="input-base w-28 py-1 text-right text-xs" /></label>
+            <label className="flex items-center gap-1">Pago <input type="number" min={0} max={Number(item.valor_contratado || 0)} defaultValue={Number(item.valor_pago || 0)} disabled={fechada} onBlur={event => onSetPago(item, Number(event.target.value))} className="input-base input-compact w-28 text-right" /></label>
             <span>Saldo <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(Math.max(0, Number(item.valor_contratado || 0) - Number(item.valor_pago || 0)))}</strong></span>
           </div>
         </div>)}

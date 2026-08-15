@@ -118,7 +118,7 @@ export function CaixaRealTable({
                         defaultValue={valorCaixa || ''}
                         onBlur={e => salvarCaixa(linha.etapaId, e.target.value)}
                         placeholder="0,00"
-                        className="input-base w-32 text-right py-1"
+                        className="input-base input-compact w-32 text-right"
                       />
                     )}
                   </td>

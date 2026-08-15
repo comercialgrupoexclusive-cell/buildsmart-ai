@@ -7,8 +7,14 @@ import {
   Boxes, Users, FileText, Percent, Wallet, ArrowLeftRight,
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
   Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
-  Pencil, type LucideIcon,
+  Pencil, GripVertical, Move, MoreVertical, type LucideIcon,
 } from 'lucide-react'
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { createClient } from '@/lib/supabase/client'
 import { Orcamento, ComposicaoPropria, SinapiComposicao, Etapa, InsumoProprio, SinapiInsumo } from '@/lib/types'
 import { formatCurrency, fixMojibake } from '@/lib/utils'
@@ -35,6 +41,80 @@ type HierarquiaDialog = {
 
 function normalizarNomeEtapa(nome: string) {
   return nome.trim().toLocaleLowerCase('pt-BR')
+}
+
+// ─── Drag & drop (reordenar etapas / subetapas / itens) ──────────────────────
+// Handle visual (⋮⋮) — só ele dispara o arraste, o resto da linha continua
+// clicável normalmente (expandir, editar, etc.)
+function DragHandle({ attributes, listeners, size = 14 }: { attributes: any; listeners: any; size?: number }) {
+  return (
+    <button
+      type="button"
+      {...attributes}
+      {...listeners}
+      onClick={e => e.stopPropagation()}
+      className="flex-shrink-0 flex items-center justify-center rounded touch-none cursor-grab active:cursor-grabbing hover:bg-[var(--bg-card)]"
+      style={{ color: 'var(--text-secondary)', width: 20, height: 20 }}
+      title="Arrastar para reordenar"
+    >
+      <GripVertical size={size} />
+    </button>
+  )
+}
+
+// Lista genérica com arraste — envolve os itens em DndContext + SortableContext
+// e injeta (handle, isDragging, style, ref) em cada filho via render prop.
+// `disabled` mantém a lista estática (sem handle) quando não há permissão de editar.
+function SortableList<T extends { id: string }>({
+  items, onReorder, disabled, children,
+}: {
+  items: T[]
+  onReorder: (novaOrdem: T[]) => void
+  disabled?: boolean
+  children: (item: T, index: number, drag: { handle: React.ReactNode; setNodeRef: (el: HTMLElement | null) => void; style: React.CSSProperties; isDragging: boolean }) => React.ReactNode
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } })
+  )
+
+  if (disabled) {
+    return <>{items.map((item, i) => children(item, i, { handle: null, setNodeRef: () => {}, style: {}, isDragging: false }))}</>
+  }
+
+  function handleDragEnd(e: DragEndEvent) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const oldIndex = items.findIndex(it => it.id === active.id)
+    const newIndex = items.findIndex(it => it.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    onReorder(arrayMove(items, oldIndex, newIndex))
+  }
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+      accessibility={{ container: typeof document !== 'undefined' ? document.body : undefined }}
+    >
+      <SortableContext items={items.map(it => it.id)} strategy={verticalListSortingStrategy}>
+        {items.map((item, i) => <SortableSlot key={item.id} id={item.id}>{drag => children(item, i, drag)}</SortableSlot>)}
+      </SortableContext>
+    </DndContext>
+  )
+}
+
+function SortableSlot({ id, children }: { id: string; children: (drag: { handle: React.ReactNode; setNodeRef: (el: HTMLElement | null) => void; style: React.CSSProperties; isDragging: boolean }) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: isDragging ? 'relative' : undefined,
+    zIndex: isDragging ? 30 : undefined,
+  }
+  return <>{children({ handle: <DragHandle attributes={attributes} listeners={listeners} />, setNodeRef, style, isDragging })}</>
 }
 
 
@@ -76,8 +156,8 @@ function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; desc
   if (ins.insumo_proprio) {
     return {
       codigo: ins.insumo_proprio.codigo,
-      descricao: ins.insumo_proprio.descricao,
-      unidade: ins.insumo_proprio.unidade,
+      descricao: fixMojibake(ins.insumo_proprio.descricao),
+      unidade: fixMojibake(ins.insumo_proprio.unidade),
       classificacao: ins.insumo_proprio.classificacao || ins.insumo_proprio.categoria,
       preco: ins.insumo_proprio.preco_unitario ?? 0,
     }
@@ -85,8 +165,8 @@ function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; desc
   if (ins.insumo) {
     return {
       codigo: ins.insumo.codigo,
-      descricao: ins.insumo.descricao,
-      unidade: ins.insumo.unidade,
+      descricao: fixMojibake(ins.insumo.descricao),
+      unidade: fixMojibake(ins.insumo.unidade),
       classificacao: ins.insumo.classificacao,
       preco: ins.insumo.precos?.[uf] ?? 0,
     }
@@ -94,7 +174,7 @@ function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; desc
   if (ins.descricao_snapshot) {
     return {
       codigo: ins.codigo_snapshot || '',
-      descricao: ins.descricao_snapshot,
+      descricao: fixMojibake(ins.descricao_snapshot),
       unidade: ins.unidade_snapshot || 'UN',
       classificacao: ins.classificacao_snapshot || 'MATERIAL_SERVICOS',
       preco: Number(ins.preco_unitario_snapshot || 0),
@@ -158,6 +238,8 @@ type ItemEnriquecido = {
   // mês de referência da composição SINAPI (quando o item vem da base SINAPI) —
   // necessário para casar com `sinapi_composicao_itens` ao gerar/abater materiais
   sinapi_mes_referencia?: string | null
+  // ordem de exibição dentro do grupo (etapa+subetapa, ou etapa p/ linhas de subetapa) — arrastar para reordenar
+  ordem?: number | null
 }
 
 type SubetapaMeta = {
@@ -168,6 +250,7 @@ type SubetapaMeta = {
   valor_manual: number | null
   ativo: boolean
   categoria: string | null
+  ordem: number | null
 }
 
 type AddItemDraft = {
@@ -234,6 +317,19 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   const [bdi, setBdi] = useState(25)
   const [gerenciamento, setGerenciamento] = useState(0)
   const [filtroEtapaId, setFiltroEtapaId] = useState('todas')
+  // Mobile: os handles de arrastar ficam ocultos por padrão (menos poluição visual,
+  // mais espaço pro nome) e só aparecem quando o usuário ativa o modo "Mover".
+  // No desktop o arraste continua sempre disponível (não há aperto de espaço lá).
+  const [reorderMode, setReorderMode] = useState(false)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    setIsMobileViewport(mq.matches)
+    const onChange = (e: MediaQueryListEvent) => setIsMobileViewport(e.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  const mobileDragLocked = isMobileViewport && !reorderMode
 
   // Cascata + overrides
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
@@ -432,7 +528,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         ...item,
         codigo: item.codigo_snapshot || cp?.codigo || sc?.codigo || '—',
         descricao: fixMojibake(item.descricao_snapshot || cp?.descricao || sc?.descricao || '—'),
-        unidade: item.unidade_snapshot || cp?.unidade || sc?.unidade || '—',
+        unidade: fixMojibake(item.unidade_snapshot || cp?.unidade || sc?.unidade || '—'),
         composicao_itens: insumosImportados.length ? insumosImportados : cp?.composicao_insumos || [],
         sinapi_mes_referencia: sc?.mes_referencia || null,
       }
@@ -565,6 +661,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       valor_manual: item.subetapa_valor_manual ?? null,
       ativo: Boolean(item.subetapa_valor_manual_ativo),
       categoria: item.subetapa_categoria_snapshot ?? null,
+      ordem: item.ordem ?? null,
     }))
 
   const subtotal = itensOrcamento.reduce((acc, item) => acc + getItemTotal(item), 0)
@@ -1040,6 +1137,40 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     } finally {
       setSaving(false)
     }
+  }
+
+  // ─── Reordenar (drag & drop) — etapas, subetapas e itens ────────────────
+  // Atualização otimista no state local + persistência assíncrona do campo
+  // "ordem" em segundo plano (sem recarregar a lista, pra não "piscar").
+  async function handleReorderEtapas(novaOrdem: Etapa[]) {
+    setEtapas(novaOrdem)
+    await Promise.all(novaOrdem.map((etapa, i) =>
+      supabase.from('etapas').update({ ordem: i + 1 }).eq('id', etapa.id)
+    ))
+  }
+
+  async function handleReorderSubetapas(etapaId: string | null, novaOrdemNomes: string[]) {
+    const ordemPorNome = new Map(novaOrdemNomes.map((nome, i) => [nome.toLowerCase(), i + 1]))
+    setItens(prev => prev.map(item => {
+      if (item.tipo_linha !== 'subetapa') return item
+      if ((item.etapa_id ?? null) !== etapaId) return item
+      const novaOrdem = ordemPorNome.get((item.subetapa ?? '').toLowerCase())
+      return novaOrdem !== undefined ? { ...item, ordem: novaOrdem } : item
+    }))
+    await Promise.all(novaOrdemNomes.map(async (nome, i) => {
+      let query = supabase.from('orcamento_itens').update({ ordem: i + 1 })
+        .eq('orcamento_id', orcamento!.id).eq('tipo_linha', 'subetapa').eq('subetapa', nome)
+      query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
+      await query
+    }))
+  }
+
+  async function handleReorderItens(novaOrdemIds: string[]) {
+    const ordemPorId = new Map(novaOrdemIds.map((id, i) => [id, i + 1]))
+    setItens(prev => prev.map(item => ordemPorId.has(item.id) ? { ...item, ordem: ordemPorId.get(item.id) } : item))
+    await Promise.all(novaOrdemIds.map((id, i) =>
+      supabase.from('orcamento_itens').update({ ordem: i + 1 }).eq('id', id)
+    ))
   }
 
   // ─── Excluir etapa (e suas composições) ─────────────────────────────────
@@ -1572,13 +1703,19 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         }
         const preco = valorUnitarioImportado || (valorTotalImportado > 0 ? valorTotalImportado / quantidade : 0)
         const codigoSnapshot = codigo || `${tipoSnapshot === 'COMPOSICAO' ? 'COMP' : tipoSnapshot === 'INSUMO' ? 'INS' : 'LIV'}-${Date.now().toString(36).toUpperCase()}-${linha.numero}`
+        // Se o código da linha bate com uma composição já cadastrada no catálogo,
+        // referenciamos ela (sem alterar o catálogo em si) para que os insumos
+        // continuem visíveis ao expandir o item — sem isso, o vínculo se perdia
+        // silenciosamente em toda importação tabular.
+        const composicaoRef = tipoSnapshot === 'COMPOSICAO' && codigo ? mapaProprias.get(codigo) : undefined
+        const sinapiRef = tipoSnapshot === 'COMPOSICAO' && codigo && !composicaoRef ? mapaSinapi.get(codigo) : undefined
         const { error: erroSnapshot } = await supabase.from('orcamento_itens').insert({
           orcamento_id: orcamento.id,
           etapa_id: etapaId,
           subetapa,
           tipo_linha: 'item',
-          composicao_id: null,
-          sinapi_composicao_id: null,
+          composicao_id: composicaoRef?.id ?? null,
+          sinapi_composicao_id: sinapiRef?.id ?? null,
           quantidade,
           preco_unitario_snapshot: preco,
           descricao_snapshot: descricaoImportada,
@@ -2355,6 +2492,18 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                   </Button>
                 )}
                 {!isReadonly && (
+                  <button
+                    onClick={() => setReorderMode(v => !v)}
+                    className="sm:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                    style={reorderMode
+                      ? { background: 'var(--accent)', color: 'white' }
+                      : { color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                    title="Ativar para arrastar e reordenar etapas, subetapas e itens"
+                  >
+                    <Move size={13} /> {reorderMode ? 'Concluir' : 'Mover'}
+                  </button>
+                )}
+                {!isReadonly && (
                   <Button size="sm" icon={<FolderPlus size={14} />} onClick={() => openItemModal(filtroEtapaId !== 'todas' && filtroEtapaId !== 'sem_etapa' ? filtroEtapaId : null)}>
                     Adicionar item
                   </Button>
@@ -2390,51 +2539,65 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                 onRestoreItemValor={handleRestoreItemValor}
                 onRestoreInsumoValor={handleRestoreInsumoValor}
                 onEditItem={!isReadonly ? openEditItem : undefined}
+                onReorderSubetapas={!isReadonly ? (novaOrdem) => handleReorderSubetapas(null, novaOrdem) : undefined}
+                onReorderItens={!isReadonly ? handleReorderItens : undefined}
+                mobileDragLocked={mobileDragLocked}
               />
             )}
-            {etapasVisiveis.map(etapa => {
-              const itensDaEtapa = itensPorEtapa[etapa.id] || []
-              const metasDaEtapa = subetapasMetaPorEtapa[etapa.id] || []
-              const { icon, cor } = getEtapaIcone(etapa.nome)
-              return (
-                <GrupoEtapa
-                  key={etapa.id}
-                  nome={etapa.nome}
-                  itens={itensDaEtapa}
-                  subetapasMeta={metasDaEtapa}
-                  isReadonly={isReadonly}
-                  collapsed={collapsed[etapa.id]}
-                  onToggleGrupo={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
-                  onAddItem={() => openItemModal(etapa.id)}
-                  onRemove={handleRemoveItem}
-                  onUpdateQuantidade={handleUpdateItemQuantidade}
-                  bdi={bdi}
-                  expandedItems={expandedItems}
-                  onToggleItem={toggleItemExpanded}
-                  insumoOverrides={insumoOverrides}
-                  onOverrideInsumo={handleOverrideInsumo}
-                  getItemTotal={getItemTotal}
-                  obraUf={obraUf}
-                  icon={icon}
-                  iconCor={cor}
-                  subtotalDireto={subtotal}
-                  onAddItemToSubetapa={(nomeSub) => openItemModal(etapa.id, nomeSub)}
-                  onAddInsumoToItem={(item) => openItemModal(item.etapa_id, item.subetapa, true)}
-                  onDeleteEtapa={!isReadonly ? () => handleRemoveEtapa(etapa.id, etapa.nome) : undefined}
-                  onRenameEtapa={!isReadonly ? () => handleRenameEtapa(etapa.id, etapa.nome) : undefined}
-                  onRenameSubetapa={!isReadonly ? (nomeSub) => handleRenameSubetapa(etapa.id, nomeSub) : undefined}
-                  onDeleteSubetapa={!isReadonly ? (nomeSub) => handleRemoveSubetapa(etapa.id, nomeSub) : undefined}
-                  onEditSubetapaValor={!isReadonly ? (nomeSub, valorAtual) => handleEditSubetapaValor(etapa.id, nomeSub, valorAtual) : undefined}
-                  onRestoreSubetapaValor={!isReadonly ? (nomeSub) => handleRestoreSubetapaValor(etapa.id, nomeSub) : undefined}
-                  onRestoreItemValor={!isReadonly ? handleRestoreItemValor : undefined}
-                  onRestoreInsumoValor={!isReadonly ? handleRestoreInsumoValor : undefined}
-                  onEditItem={!isReadonly ? openEditItem : undefined}
-                  menuAberto={etapaMenuAberto === etapa.id}
-                  onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
-                  menuRef={etapaMenuAberto === etapa.id ? etapaMenuRef : undefined}
-                />
-              )
-            })}
+            <SortableList
+              items={etapasVisiveis}
+              onReorder={handleReorderEtapas}
+              disabled={isReadonly || filtroEtapaId !== 'todas' || mobileDragLocked}
+            >
+              {(etapa, _i, drag) => {
+                const itensDaEtapa = itensPorEtapa[etapa.id] || []
+                const metasDaEtapa = subetapasMetaPorEtapa[etapa.id] || []
+                const { icon, cor } = getEtapaIcone(etapa.nome)
+                return (
+                  <div key={etapa.id} ref={drag.setNodeRef as React.Ref<HTMLDivElement>} style={drag.style}>
+                    <GrupoEtapa
+                      nome={etapa.nome}
+                      dragHandle={drag.handle}
+                      itens={itensDaEtapa}
+                      subetapasMeta={metasDaEtapa}
+                      isReadonly={isReadonly}
+                      collapsed={collapsed[etapa.id]}
+                      onToggleGrupo={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
+                      onAddItem={() => openItemModal(etapa.id)}
+                      onRemove={handleRemoveItem}
+                      onUpdateQuantidade={handleUpdateItemQuantidade}
+                      bdi={bdi}
+                      expandedItems={expandedItems}
+                      onToggleItem={toggleItemExpanded}
+                      insumoOverrides={insumoOverrides}
+                      onOverrideInsumo={handleOverrideInsumo}
+                      getItemTotal={getItemTotal}
+                      obraUf={obraUf}
+                      icon={icon}
+                      iconCor={cor}
+                      subtotalDireto={subtotal}
+                      onAddItemToSubetapa={(nomeSub) => openItemModal(etapa.id, nomeSub)}
+                      onAddInsumoToItem={(item) => openItemModal(item.etapa_id, item.subetapa, true)}
+                      onDeleteEtapa={!isReadonly ? () => handleRemoveEtapa(etapa.id, etapa.nome) : undefined}
+                      onRenameEtapa={!isReadonly ? () => handleRenameEtapa(etapa.id, etapa.nome) : undefined}
+                      onRenameSubetapa={!isReadonly ? (nomeSub) => handleRenameSubetapa(etapa.id, nomeSub) : undefined}
+                      onDeleteSubetapa={!isReadonly ? (nomeSub) => handleRemoveSubetapa(etapa.id, nomeSub) : undefined}
+                      onEditSubetapaValor={!isReadonly ? (nomeSub, valorAtual) => handleEditSubetapaValor(etapa.id, nomeSub, valorAtual) : undefined}
+                      onRestoreSubetapaValor={!isReadonly ? (nomeSub) => handleRestoreSubetapaValor(etapa.id, nomeSub) : undefined}
+                      onRestoreItemValor={!isReadonly ? handleRestoreItemValor : undefined}
+                      onRestoreInsumoValor={!isReadonly ? handleRestoreInsumoValor : undefined}
+                      onEditItem={!isReadonly ? openEditItem : undefined}
+                      onReorderSubetapas={!isReadonly ? (novaOrdem) => handleReorderSubetapas(etapa.id, novaOrdem) : undefined}
+                      onReorderItens={!isReadonly ? handleReorderItens : undefined}
+                      mobileDragLocked={mobileDragLocked}
+                      menuAberto={etapaMenuAberto === etapa.id}
+                      onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
+                      menuRef={etapaMenuAberto === etapa.id ? etapaMenuRef : undefined}
+                    />
+                  </div>
+                )
+              }}
+            </SortableList>
 
             {itensFiltradosCount === 0 && (
               <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -3006,12 +3169,14 @@ function CustoCard({ icon: Icon, cor, label, value, hint, highlight, children }:
 
 // ─── Grupo de etapa (nível 1 da cascata) ─────────────────────────────────────
 function GrupoEtapa({
-  nome, itens, subetapasMeta = [], isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
+  nome, dragHandle, itens, subetapasMeta = [], isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   onUpdateQuantidade, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
   obraUf, icon: Icon, iconCor, subtotalDireto,
   onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditSubetapaValor, onRestoreSubetapaValor, onRestoreItemValor, onRestoreInsumoValor, onEditItem, menuAberto, onToggleMenu, menuRef,
+  onReorderSubetapas, onReorderItens, mobileDragLocked,
 }: {
   nome: string
+  dragHandle?: React.ReactNode
   itens: ItemEnriquecido[]
   subetapasMeta?: SubetapaMeta[]
   isReadonly: boolean
@@ -3044,6 +3209,9 @@ function GrupoEtapa({
   menuAberto?: boolean
   onToggleMenu?: () => void
   menuRef?: React.RefObject<HTMLDivElement | null>
+  onReorderSubetapas?: (novaOrdemNomes: string[]) => void
+  onReorderItens?: (novaOrdemIds: string[]) => void
+  mobileDragLocked?: boolean
 }) {
   const [subetapasFechadas, setSubetapasFechadas] = useState<Record<string, boolean>>({})
   const [subMenuAberto, setSubMenuAberto] = useState<string | null>(null)
@@ -3071,6 +3239,10 @@ function GrupoEtapa({
     grupo.itens.push(item)
     return acc
   }, subetapasMeta.map(meta => ({ nome: meta.nome, key: meta.nome.toLowerCase(), itens: [], meta })))
+  // "ordem" só é única DENTRO de cada subetapa (e dentro das metas de uma etapa) —
+  // por isso a ordenação precisa acontecer aqui, agrupada, e não na query do banco.
+  gruposSubetapa.sort((a, b) => (a.meta?.ordem ?? Infinity) - (b.meta?.ordem ?? Infinity))
+  gruposSubetapa.forEach(grupo => grupo.itens.sort((a, b) => (a.ordem ?? Infinity) - (b.ordem ?? Infinity)))
   const subtotalGrupo = gruposSubetapa.reduce((acc, grupo) => {
     const calculado = grupo.itens.reduce((sum, item) => sum + getItemTotal(item), 0)
     return acc + (grupo.meta?.ativo ? Number(grupo.meta.valor_manual || 0) : calculado)
@@ -3084,18 +3256,19 @@ function GrupoEtapa({
   }
 
   return (
-    <div className="card overflow-visible">
+    <div className="card overflow-hidden">
       {/* Cabeçalho etapa */}
       <div
-        className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
+        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none"
         style={{ background: 'var(--bg-secondary)', borderBottom: collapsed ? 'none' : '1px solid var(--border)' }}
         onClick={onToggleGrupo}
       >
+        {dragHandle}
         <span className="flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
         </span>
         {Icon && (
-          <span className="flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-card)', color: iconCor || 'var(--text-secondary)' }}>
+          <span className="hidden sm:flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0" style={{ background: 'var(--bg-card)', color: iconCor || 'var(--text-secondary)' }}>
             <Icon size={14} />
           </span>
         )}
@@ -3103,6 +3276,7 @@ function GrupoEtapa({
           <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{nome}</p>
           <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
             {itens.length} {itens.length === 1 ? 'composição' : 'composições'}
+            <span className="sm:hidden font-semibold" style={{ color: 'var(--accent)' }}> · {formatCurrency(totalGrupo)}</span>
           </p>
         </div>
         {pctDoDireto !== null && (
@@ -3110,7 +3284,7 @@ function GrupoEtapa({
             {pctDoDireto.toFixed(1)}% do direto
           </span>
         )}
-        <span className="text-sm font-semibold ml-1 flex-shrink-0" style={{ color: 'var(--accent)' }}>
+        <span className="hidden sm:inline text-sm font-semibold ml-1 flex-shrink-0" style={{ color: 'var(--accent)' }}>
           {formatCurrency(totalGrupo)}
         </span>
         {!isReadonly && (
@@ -3131,7 +3305,7 @@ function GrupoEtapa({
               aria-label={`Acoes da etapa ${nome}`}
               title="Acoes da etapa"
             >
-              <MoreHorizontal size={15} />
+              <MoreVertical size={15} />
             </button>
             {menuAberto && (
               <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-44"
@@ -3168,7 +3342,7 @@ function GrupoEtapa({
           ) : (
             <>
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse text-sm">
+              <table className="w-full min-w-[860px] border-collapse text-xs">
                 <thead>
                   <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
                     <th className="w-10 px-3 py-2 text-left font-semibold" style={{ color: 'var(--text-secondary)' }}></th>
@@ -3181,7 +3355,12 @@ function GrupoEtapa({
                   </tr>
                 </thead>
                 <tbody>
-                  {gruposSubetapa.map(grupo => {
+                  <SortableList
+                    items={gruposSubetapa.map(g => ({ ...g, id: g.key }))}
+                    disabled={!onReorderSubetapas || mobileDragLocked}
+                    onReorder={novaOrdem => onReorderSubetapas?.(novaOrdem.map(g => g.nome))}
+                  >
+                  {(grupo, _i, dragSub) => {
                     const subFechada = subetapasFechadas[grupo.key] ?? false
                     const subtotalCalculado = grupo.itens.reduce((acc, item) => acc + getItemTotal(item), 0)
                     const subtotalSubetapa = grupo.meta?.ativo ? Number(grupo.meta.valor_manual || 0) : subtotalCalculado
@@ -3189,16 +3368,19 @@ function GrupoEtapa({
 
                     return (
                       <Fragment key={grupo.key}>
-                        <tr style={{ background: 'color-mix(in srgb, var(--accent) 8%, var(--bg-secondary))', borderBottom: '1px solid var(--border)' }}>
+                        <tr ref={dragSub.setNodeRef as React.Ref<HTMLTableRowElement>} style={{ background: 'color-mix(in srgb, var(--accent) 8%, var(--bg-secondary))', borderBottom: '1px solid var(--border)', ...dragSub.style }}>
                           <td className="px-3 py-2">
-                            <button
-                              type="button"
-                              onClick={() => setSubetapasFechadas(prev => ({ ...prev, [grupo.key]: !subFechada }))}
-                              className="p-1 rounded hover:bg-[var(--bg-card)]"
-                              style={{ color: 'var(--text-secondary)' }}
-                            >
-                              {subFechada ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
-                            </button>
+                            <div className="flex items-center gap-0.5">
+                              {dragSub.handle}
+                              <button
+                                type="button"
+                                onClick={() => setSubetapasFechadas(prev => ({ ...prev, [grupo.key]: !subFechada }))}
+                                className="p-1 rounded hover:bg-[var(--bg-card)]"
+                                style={{ color: 'var(--text-secondary)' }}
+                              >
+                                {subFechada ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                              </button>
+                            </div>
                           </td>
                           <td className="px-3 py-2 font-semibold" colSpan={3} style={{ color: 'var(--text-primary)' }}>
                             <div className="flex items-center gap-2">
@@ -3251,7 +3433,7 @@ function GrupoEtapa({
                                   <MoreHorizontal size={14} />
                                 </button>
                                 {subMenuAberto === grupo.key && (
-                                  <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+                                  <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52"
                                     style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                     {onAddItemToSubetapa && (
                                       <button onClick={() => { setSubMenuAberto(null); onAddItemToSubetapa(grupo.nome) }}
@@ -3295,7 +3477,13 @@ function GrupoEtapa({
                           </td>
                         </tr>
 
-                        {!subFechada && grupo.itens.map(item => {
+                        {!subFechada && (
+                        <SortableList
+                          items={grupo.itens}
+                          disabled={!onReorderItens || mobileDragLocked}
+                          onReorder={novaOrdem => onReorderItens?.(novaOrdem.map(it => it.id))}
+                        >
+                        {(item, _j, dragItem) => {
                           const hasInsumos = (item.composicao_itens?.length || 0) > 0
                           const isExpanded = expandedItems[item.id] || false
                           const itemTotal = getItemTotal(item)
@@ -3307,21 +3495,24 @@ function GrupoEtapa({
 
                           return (
                             <Fragment key={item.id}>
-                              <tr className="transition-colors hover:bg-[var(--bg-secondary)]" style={{ borderBottom: '1px solid var(--border)' }}>
+                              <tr ref={dragItem.setNodeRef as React.Ref<HTMLTableRowElement>} className="transition-colors hover:bg-[var(--bg-secondary)]" style={{ borderBottom: '1px solid var(--border)', ...dragItem.style }}>
                                 <td className="px-3 py-2 align-top">
-                                  {hasInsumos && (
-                                    <button
-                                      type="button"
-                                      onClick={() => onToggleItem(item.id)}
-                                      className="p-1 rounded hover:bg-[var(--bg-card)]"
-                                      style={{ color: 'var(--text-secondary)' }}
-                                    >
-                                      {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                                    </button>
-                                  )}
+                                  <div className="flex items-center gap-0.5">
+                                    {dragItem.handle}
+                                    {hasInsumos && (
+                                      <button
+                                        type="button"
+                                        onClick={() => onToggleItem(item.id)}
+                                        className="p-1 rounded hover:bg-[var(--bg-card)]"
+                                        style={{ color: 'var(--text-secondary)' }}
+                                      >
+                                        {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                      </button>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="px-3 py-2 align-top" style={{ color: 'var(--text-primary)' }}>
-                                  <span className="line-clamp-2">{item.descricao}</span>
+                                  <span className="truncate block">{item.descricao}</span>
                                 </td>
                                 <td className="px-3 py-2 align-top text-center" style={{ color: 'var(--text-secondary)' }}>{item.unidade}</td>
                                 <td className="px-3 py-2 align-top text-center">
@@ -3329,8 +3520,8 @@ function GrupoEtapa({
                                     type="text"
                                     inputMode="decimal"
                                     defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
-                                    className="input-base py-1 text-xs text-center tabular-nums"
-                                    style={{ width: 86, color: 'var(--text-primary)' }}
+                                    className="input-base input-compact text-center tabular-nums"
+                                    style={{ width: 64, color: 'var(--text-primary)' }}
                                     disabled={isReadonly}
                                     onFocus={e => e.currentTarget.select()}
                                     onBlur={e => {
@@ -3386,7 +3577,7 @@ function GrupoEtapa({
                                         <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
                                       </button>
                                       {itemMenuAberto === item.id && (
-                                        <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
+                                        <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52"
                                           style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                           {onEditItem && (
                                             <button onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
@@ -3461,7 +3652,7 @@ function GrupoEtapa({
                                                         onOverrideInsumo(item.id, insumoKey, isNaN(v) ? null : v)
                                                       }}
                                                       disabled={isReadonly}
-                                                      className="input-base py-1 text-xs text-center tabular-nums"
+                                                      className="input-base input-compact text-center tabular-nums"
                                                       style={{
                                                         width: 88,
                                                         border: isOverridden ? '1px solid var(--warning)' : '1px solid var(--border)',
@@ -3500,34 +3691,45 @@ function GrupoEtapa({
                               )}
                             </Fragment>
                           )
-                        })}
+                        }}
+                        </SortableList>
+                        )}
                       </Fragment>
                     )
-                  })}
+                  }}
+                  </SortableList>
                 </tbody>
               </table>
             </div>
 
             <div className="flex flex-col md:hidden">
-              {gruposSubetapa.map(grupo => {
+              <SortableList
+                items={gruposSubetapa.map(g => ({ ...g, id: g.key }))}
+                disabled={!onReorderSubetapas || mobileDragLocked}
+                onReorder={novaOrdem => onReorderSubetapas?.(novaOrdem.map(g => g.nome))}
+              >
+              {(grupo, _i, dragSub) => {
                 const subFechada = subetapasFechadas[grupo.key] ?? false
                 const subtotalCalculado = grupo.itens.reduce((acc, item) => acc + getItemTotal(item), 0)
                 const subtotalSubetapa = grupo.meta?.ativo ? Number(grupo.meta.valor_manual || 0) : subtotalCalculado
                 const valorManualComComposicoes = Boolean(grupo.meta?.ativo && grupo.itens.length > 0)
 
                 return (
-                  <section key={grupo.key} className="border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
-                    <button
-                      type="button"
-                      className="flex w-full items-start gap-2 px-3.5 py-3 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+                  <section key={grupo.key} ref={dragSub.setNodeRef as React.Ref<HTMLElement>} className="border-b last:border-b-0" style={{ borderColor: 'color-mix(in srgb, var(--border) 70%, transparent)', ...dragSub.style }}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-secondary)] cursor-pointer"
                       onClick={() => setSubetapasFechadas(prev => ({ ...prev, [grupo.key]: !subFechada }))}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSubetapasFechadas(prev => ({ ...prev, [grupo.key]: !subFechada })) } }}
                     >
-                      <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg" style={{ color: 'var(--text-secondary)', background: 'var(--bg-card)' }}>
+                      {dragSub.handle}
+                      <span className="flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
                         {subFechada ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[15px] font-semibold leading-snug" style={{ color: 'var(--text-primary)' }}>{grupo.nome}</p>
-                        <p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        <p className="text-sm font-semibold leading-snug truncate" style={{ color: 'var(--text-primary)' }}>{grupo.nome}</p>
+                        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                           {grupo.itens.length} {grupo.itens.length === 1 ? 'composicao' : 'composicoes'}
                         </p>
                       </div>
@@ -3553,8 +3755,7 @@ function GrupoEtapa({
                           <Plus size={13} style={{ color: 'var(--accent)' }} />
                         </span>
                       )}
-                      <span className="min-w-[92px] flex-shrink-0 rounded-lg px-2.5 py-1.5 text-right" style={{ background: valorManualComComposicoes ? 'rgba(239,68,68,0.12)' : 'rgba(59, 123, 248, 0.10)' }}>
-                        <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Subtotal</span>
+                      <span className="flex-shrink-0 text-right">
                         <span className="block text-sm font-bold tabular-nums" style={{ color: valorManualComComposicoes ? 'var(--danger)' : 'var(--accent)' }}>{formatCurrency(subtotalSubetapa)}</span>
                       </span>
                       {!isReadonly && (onDeleteSubetapa || onAddItemToSubetapa || onRenameSubetapa) && (
@@ -3563,10 +3764,10 @@ function GrupoEtapa({
                             role="button"
                             tabIndex={0}
                             onClick={() => setSubMenuAberto(v => v === grupo.key ? null : grupo.key)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[var(--bg-card)]"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-[var(--bg-card)]"
                             title="Ações da subetapa"
                           >
-                            <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
+                            <MoreVertical size={14} style={{ color: 'var(--text-secondary)' }} />
                           </span>
                           {subMenuAberto === grupo.key && (
                             <span className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter text-left"
@@ -3610,11 +3811,16 @@ function GrupoEtapa({
                           )}
                         </span>
                       )}
-                    </button>
+                    </div>
 
                     {!subFechada && (
                       <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                        {grupo.itens.map(item => {
+                        <SortableList
+                          items={grupo.itens}
+                          disabled={!onReorderItens || mobileDragLocked}
+                          onReorder={novaOrdem => onReorderItens?.(novaOrdem.map(it => it.id))}
+                        >
+                        {(item, _j, dragItem) => {
                           const hasInsumos = (item.composicao_itens?.length || 0) > 0
                           const isExpanded = expandedItems[item.id] || false
                           const itemTotal = getItemTotal(item)
@@ -3625,12 +3831,12 @@ function GrupoEtapa({
                           const hasValueMismatch = Boolean(item.valor_total_manual_ativo)
 
                           return (
-                            <div key={item.id} className="px-3 py-3">
+                            <div key={item.id} ref={dragItem.setNodeRef as React.Ref<HTMLDivElement>} className="px-3 py-2.5" style={{ borderBottom: '1px solid color-mix(in srgb, var(--border) 45%, transparent)', ...dragItem.style }}>
                               <div
                                 role={hasInsumos ? 'button' : undefined}
                                 tabIndex={hasInsumos ? 0 : undefined}
-                                className="rounded-xl border p-3 transition-colors hover:bg-[var(--bg-secondary)]"
-                                style={{ cursor: hasInsumos ? 'pointer' : 'default', borderColor: 'var(--border)', background: 'rgba(255,255,255,0.015)' }}
+                                className="flex items-start gap-2"
+                                style={{ cursor: hasInsumos ? 'pointer' : 'default' }}
                                 onClick={() => hasInsumos && onToggleItem(item.id)}
                                 onKeyDown={e => {
                                   if (!hasInsumos) return
@@ -3640,121 +3846,99 @@ function GrupoEtapa({
                                   }
                                 }}
                               >
-                                <div className="space-y-3">
-                                  <div className="flex items-start gap-2">
-                                    <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg" style={{ color: hasInsumos ? 'var(--accent)' : 'var(--text-secondary)', background: 'var(--bg-card)' }}>
-                                      {hasInsumos ? (isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />) : null}
-                                    </span>
+                                {dragItem.handle}
+                                {hasInsumos ? (
+                                  <span className="mt-0.5 flex-shrink-0" style={{ color: 'var(--accent)' }}>
+                                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                  </span>
+                                ) : (
+                                  <span className="flex-shrink-0" style={{ width: 14 }} />
+                                )}
 
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-[15px] font-semibold leading-snug" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
-                                      <p className="mt-1 text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                                        {hasInsumos ? `${item.composicao_itens?.length || 0} insumos` : 'Item direto'}
-                                      </p>
-                                    </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium leading-snug truncate" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
+                                  <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--text-secondary)' }} onClick={e => e.stopPropagation()}>
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                      className="input-base input-compact text-center tabular-nums"
+                                      style={{ width: 46, color: 'var(--text-primary)' }}
+                                      disabled={isReadonly}
+                                      onFocus={e => e.currentTarget.select()}
+                                      onBlur={e => {
+                                        const next = parseQuantidadeInput(e.currentTarget.value)
+                                        if (next === null) {
+                                          e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                          return
+                                        }
+                                        e.currentTarget.value = next.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                        onUpdateQuantidade(item.id, next)
+                                      }}
+                                      onKeyDown={e => {
+                                        if (e.key === 'Enter') e.currentTarget.blur()
+                                        if (e.key === 'Escape') {
+                                          e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                          e.currentTarget.blur()
+                                        }
+                                      }}
+                                    />
+                                    <span className="flex-shrink-0">{item.unidade}</span>
+                                    <span style={{ opacity: 0.5 }}>·</span>
+                                    <span className="tabular-nums truncate">{formatCurrency(item.preco_unitario_snapshot)}</span>
+                                    {hasInsumos && <span className="flex-shrink-0" style={{ opacity: 0.6 }}>· {item.composicao_itens?.length} insumos</span>}
+                                  </div>
+                                </div>
 
-                                    {!isReadonly && (
-                                      <span className="relative inline-flex flex-shrink-0" data-itemmenu-container onClick={e => e.stopPropagation()}>
-                                          {onAddInsumoToItem && (
-                                            <button
-                                              type="button"
-                                              onClick={() => onAddInsumoToItem(item)}
-                                              className="hidden"
-                                              aria-label="Adicionar insumo"
-                                              title="Adicionar insumo"
-                                            >
-                                              <Plus size={13} style={{ color: 'var(--accent)' }} />
-                                            </button>
-                                          )}
-                                        <button
-                                          type="button"
-                                          onClick={() => setItemMenuAberto(v => v === item.id ? null : item.id)}
-                                          className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-[var(--bg-secondary)] transition-colors"
-                                          style={{ border: '1px solid var(--border)' }}
-                                          aria-label="Ações da composição"
-                                          title="Ações da composição"
-                                        >
-                                          <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
-                                        </button>
-                                        {itemMenuAberto === item.id && (
-                                          <span className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter text-left"
-                                            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                                            {onEditItem && (
-                                              <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
-                                                className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                                                style={{ color: 'var(--text-primary)' }}>
-                                                <Pencil size={13} /> Editar composição
-                                              </span>
-                                            )}
-                                            {onAddInsumoToItem && (
-                                              <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onAddInsumoToItem(item) }}
-                                                className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                                                style={{ color: 'var(--text-primary)' }}>
-                                                <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar insumo
-                                              </span>
-                                            )}
-                                            <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onRemove(item.id) }}
-                                              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
-                                              style={{ color: 'var(--danger)' }}>
-                                              <Trash2 size={13} /> Excluir composição
-                                            </span>
-                                          </span>
-                                        )}
-                                      </span>
+                                <div className="flex-shrink-0 flex items-center gap-1">
+                                  <span className="flex items-center gap-1 text-sm font-semibold tabular-nums" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
+                                    {formatCurrency(itemTotal)}
+                                    {hasValueMismatch && !isReadonly && onRestoreItemValor && (
+                                      <button type="button" onClick={e => { e.stopPropagation(); onRestoreItemValor(item.id) }} className="p-0.5 rounded-full" title="Usar soma calculada dos insumos"><RotateCcw size={11} /></button>
                                     )}
-                                  </div>
-
-                                  <div className="grid grid-cols-3 gap-2" onClick={e => e.stopPropagation()}>
-                                    <label className="min-w-0 rounded-lg border px-2.5 py-2" style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}>
-                                      <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Qtd.</span>
-                                      <span className="mt-1 flex items-center gap-1">
-                                        <input
-                                          type="text"
-                                          inputMode="decimal"
-                                          defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
-                                          className="w-full min-w-0 bg-transparent p-0 text-sm font-semibold tabular-nums outline-none"
-                                          style={{ color: 'var(--text-primary)' }}
-                                          disabled={isReadonly}
-                                          onFocus={e => e.currentTarget.select()}
-                                          onBlur={e => {
-                                            const next = parseQuantidadeInput(e.currentTarget.value)
-                                            if (next === null) {
-                                              e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
-                                              return
-                                            }
-                                            e.currentTarget.value = next.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
-                                            onUpdateQuantidade(item.id, next)
-                                          }}
-                                          onKeyDown={e => {
-                                            if (e.key === 'Enter') e.currentTarget.blur()
-                                            if (e.key === 'Escape') {
-                                              e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
-                                              e.currentTarget.blur()
-                                            }
-                                          }}
-                                        />
-                                        <span className="max-w-[32px] truncate text-[11px]" style={{ color: 'var(--text-secondary)' }}>{item.unidade}</span>
-                                      </span>
-                                    </label>
-                                    <span className="min-w-0 rounded-lg border px-2.5 py-2" style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}>
-                                      <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Unit.</span>
-                                      <span className="mt-1 block truncate text-sm font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{formatCurrency(item.preco_unitario_snapshot)}</span>
+                                  </span>
+                                  {!isReadonly && (
+                                    <span className="relative inline-flex flex-shrink-0" data-itemmenu-container onClick={e => e.stopPropagation()}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setItemMenuAberto(v => v === item.id ? null : item.id)}
+                                        className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--bg-secondary)] transition-colors"
+                                        aria-label="Ações da composição"
+                                        title="Ações da composição"
+                                      >
+                                        <MoreVertical size={14} style={{ color: 'var(--text-secondary)' }} />
+                                      </button>
+                                      {itemMenuAberto === item.id && (
+                                        <span className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter text-left"
+                                          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                                          {onEditItem && (
+                                            <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
+                                              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                              style={{ color: 'var(--text-primary)' }}>
+                                              <Pencil size={13} /> Editar composição
+                                            </span>
+                                          )}
+                                          {onAddInsumoToItem && (
+                                            <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onAddInsumoToItem(item) }}
+                                              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                              style={{ color: 'var(--text-primary)' }}>
+                                              <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar insumo
+                                            </span>
+                                          )}
+                                          <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onRemove(item.id) }}
+                                            className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                            style={{ color: 'var(--danger)' }}>
+                                            <Trash2 size={13} /> Excluir composição
+                                          </span>
+                                        </span>
+                                      )}
                                     </span>
-                                    <span className="min-w-0 rounded-lg px-2.5 py-2 text-right" style={{ background: hasValueMismatch ? 'rgba(239,68,68,0.12)' : hasOverride ? 'rgba(245, 158, 11, 0.12)' : 'rgba(59,123,248,0.12)' }}>
-                                      <span className="block text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Total</span>
-                                      <span className="mt-1 flex items-center justify-end gap-1 truncate text-sm font-bold tabular-nums" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--accent)' }}>
-                                        <span>{formatCurrency(itemTotal)}</span>
-                                        {hasValueMismatch && !isReadonly && onRestoreItemValor && (
-                                          <button type="button" onClick={e => { e.stopPropagation(); onRestoreItemValor(item.id) }} className="p-0.5 rounded-full" title="Usar soma calculada dos insumos"><RotateCcw size={11} /></button>
-                                        )}
-                                      </span>
-                                    </span>
-                                  </div>
+                                  )}
                                 </div>
                               </div>
 
                               {isExpanded && hasInsumos && (
-                                <div className="mt-3 rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+                                <div className="mt-2 ml-[22px] rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
                                   <div className="px-3 py-2 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
                                     Insumos
                                   </div>
@@ -3802,7 +3986,7 @@ function GrupoEtapa({
                                                   onOverrideInsumo(item.id, insumoKey, isNaN(v) ? null : v)
                                                 }}
                                                 disabled={isReadonly}
-                                                className="input-base py-1 text-xs text-center tabular-nums"
+                                                className="input-base input-compact text-center tabular-nums"
                                                 style={{
                                                   width: 78,
                                                   border: isOverridden ? '1px solid var(--warning)' : '1px solid var(--border)',
@@ -3831,12 +4015,14 @@ function GrupoEtapa({
                               )}
                             </div>
                           )
-                        })}
+                        }}
+                        </SortableList>
                       </div>
                     )}
                   </section>
                 )
-              })}
+              }}
+              </SortableList>
             </div>
             </>
           )}
