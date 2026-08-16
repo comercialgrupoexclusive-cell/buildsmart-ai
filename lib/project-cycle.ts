@@ -8,6 +8,7 @@ type CycleResult = {
   orcamento_id?: string
   fase_ciclo?: ProjectPhase | null
   status: 'ativo' | 'finalizado' | 'concluida'
+  baseline_capturada?: boolean
 }
 
 async function runCycleRpc(

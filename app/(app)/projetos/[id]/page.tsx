@@ -10,7 +10,8 @@ import { ProjetoCascata, buildProjetoTree, type ProjetoItemDependencia, type Pro
 import { ProjetoCronograma } from '@/components/projeto/ProjetoCronograma'
 import { ProjetoAssistenteIA } from '@/components/projeto/ProjetoAssistenteIA'
 import { TourManager } from '@/components/tour/TourManager'
-import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
+import { ProjetoOrcamentosPanel } from '@/components/projeto/ProjetoOrcamentosPanel'
+import { IniciarObraButton } from '@/components/projeto/IniciarObraButton'
 import { entregarObra, type ProjectPhase } from '@/lib/project-cycle'
 import dynamic from 'next/dynamic'
 
@@ -62,7 +63,6 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [tab, setTab] = useState<'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia'>(
     (searchParams.get('tab') as 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia') ?? 'estrutura'
   )
-  const [orcamento, setOrcamento] = useState<{ id: string; obra_id: string | null } | null>(null)
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [editingDados, setEditingDados] = useState(false)
@@ -82,16 +82,14 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    const [{ data: p }, { data: its }, { data: profs }, depsRes, orcRes] = await Promise.all([
+    const [{ data: p }, { data: its }, { data: profs }, depsRes] = await Promise.all([
       supabase.from('projetos').select('*').eq('id', id).single(),
       supabase.from('projeto_itens').select('*').eq('projeto_id', id).order('ordem'),
       supabase.from('profiles').select('id, name, apelido').order('name'),
       supabase.from('projeto_item_dependencias').select('*').eq('projeto_id', id),
-      supabase.from('orcamentos').select('id,obra_id').eq('projeto_id', id).eq('is_principal', true).maybeSingle(),
     ])
     if (!depsRes.error) setDependencias((depsRes.data ?? []) as ProjetoItemDependencia[])
     setProfiles((profs ?? []) as { id: string; name: string; apelido: string | null }[])
-    setOrcamento(orcRes.data as { id: string; obra_id: string | null } | null)
     if (p) {
       setProjeto(p)
       setDadosForm(p)
@@ -329,6 +327,13 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
             </span>
           </div>
         </div>
+        {!isCliente && projeto.fase_ciclo === 'projeto' && (
+          <IniciarObraButton
+            projetoId={projeto.id}
+            className="hidden sm:inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg font-medium disabled:opacity-50"
+            style={{ background: 'var(--accent)', color: 'white' }}
+          />
+        )}
         {!isCliente && projeto.fase_ciclo === 'em_obra' && (
           <button onClick={handleEntrega} disabled={transitioning}
             className="hidden sm:inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border disabled:opacity-50"
@@ -375,6 +380,15 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       </div>
 
       {/* Conteúdo */}
+      {!isCliente && projeto.fase_ciclo === 'projeto' && (
+        <div className="sm:hidden">
+          <IniciarObraButton
+            projetoId={projeto.id}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 text-sm rounded-lg font-medium"
+            style={{ background: 'var(--accent)', color: 'white' }}
+          />
+        </div>
+      )}
       {!isCliente && projeto.fase_ciclo === 'em_obra' && (
         <div className="sm:hidden">
           <button
@@ -390,18 +404,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       )}
 
       {tab === 'orcamento' && (
-        orcamento ? (
-          <ObraOrcamento
-            projetoId={projeto.id}
-            obraId={projeto.obra_id ?? undefined}
-            orcamentoId={orcamento.id}
-            obraName={projeto.nome}
-          />
-        ) : (
-          <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
-            O orçamento principal será criado automaticamente ao recarregar o projeto.
-          </div>
-        )
+        <ProjetoOrcamentosPanel projetoId={projeto.id} projetoNome={projeto.nome} obraId={projeto.obra_id} />
       )}
 
       {tab === 'estrutura' && (

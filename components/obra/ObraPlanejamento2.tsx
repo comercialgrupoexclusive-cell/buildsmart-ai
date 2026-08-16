@@ -303,7 +303,7 @@ function PredecessorPickerModal({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orcamentoId: string }) {
+export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?: string; projetoId?: string; orcamentoId: string }) {
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
@@ -316,18 +316,49 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
   const allNodesRef = useRef<TreeNode[]>([])
   const [successKey, setSuccessKey] = useState<string | null>(null)
   const [view, setView] = useState<'tabela' | 'gantt'>('tabela')
+  const [baselineInfo, setBaselineInfo] = useState<{ capturadaEm: string; totalItens: number } | null>(null)
 
-  useEffect(() => { if (obraId && orcamentoId) load() }, [obraId, orcamentoId])
+  // Cada orçamento tem seu próprio planejamento, inclusive antes de a obra
+  // existir (fase de Projeto): as etapas ficam presas a obra_id OU
+  // projeto_id, nunca os dois. planejamento_itens/dependencias sempre são
+  // gravados com orcamento_id + o contexto atual (obra ou projeto).
+  const etapaContexto = obraId
+    ? { coluna: 'obra_id' as const, id: obraId, fk: { obra_id: obraId, projeto_id: null as string | null } }
+    : projetoId
+      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { obra_id: null as string | null, projeto_id: projetoId } }
+      : null
+
+  useEffect(() => { if (etapaContexto && orcamentoId) load() }, [obraId, projetoId, orcamentoId])
+
+  // Baseline: capturada uma unica vez quando a obra e iniciada (RPC
+  // iniciar_obra_por_orcamento) — leitura apenas, nunca escrita por aqui.
+  useEffect(() => {
+    if (!orcamentoId) { setBaselineInfo(null); return }
+    let cancelled = false
+    supabase
+      .from('planejamento_itens_baseline')
+      .select('criado_em')
+      .eq('orcamento_id', orcamentoId)
+      .order('criado_em', { ascending: true })
+      .then(({ data }: { data: { criado_em: string }[] | null }) => {
+        if (cancelled) return
+        const rows = data || []
+        setBaselineInfo(rows.length > 0 ? { capturadaEm: rows[0].criado_em, totalItens: rows.length } : null)
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orcamentoId])
 
   async function load() {
+    if (!etapaContexto) return
     setLoading(true)
     setError(null)
     try {
       const [etapasRes, itemsRes, planRes, depsRes] = await Promise.all([
-        supabase.from('etapas').select('id, nome, ordem, data_inicio, data_fim, status, percentual_executado').eq('obra_id', obraId).order('ordem'),
+        supabase.from('etapas').select('id, nome, ordem, data_inicio, data_fim, status, percentual_executado').eq(etapaContexto.coluna, etapaContexto.id).order('ordem'),
         supabase.from('orcamento_itens').select('id, etapa_id, subetapa, tipo_linha, descricao_snapshot, codigo_snapshot').eq('orcamento_id', orcamentoId).eq('tipo_linha', 'item'),
         supabase.from('planejamento_itens').select('*').eq('orcamento_id', orcamentoId),
-        supabase.from('planejamento_dependencias').select('*').eq('obra_id', obraId),
+        supabase.from('planejamento_dependencias').select('*').eq('orcamento_id', orcamentoId),
       ])
 
       if (etapasRes.error) throw etapasRes.error
@@ -438,10 +469,11 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
       if (error) throw error
       return node.plan.id
     } else {
+      if (!etapaContexto) throw new Error('Obra ou projeto nao identificado para criar o planejamento.')
       const { data, error } = await supabase
         .from('planejamento_itens')
         .insert({
-          obra_id: obraId, orcamento_id: orcamentoId,
+          ...etapaContexto.fk, orcamento_id: orcamentoId,
           ref_tipo: node.refTipo, etapa_id: node.etapaId,
           subetapa_key: node.subetapaKey, orcamento_item_id: node.orcItemId,
           ...updates,
@@ -489,10 +521,11 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
 
   async function ensurePlanId(node: TreeNode): Promise<string> {
     if (node.plan) return node.plan.id
+    if (!etapaContexto) throw new Error('Obra ou projeto nao identificado para criar o planejamento.')
     const { data, error } = await supabase
       .from('planejamento_itens')
       .insert({
-        obra_id: obraId, orcamento_id: orcamentoId,
+        ...etapaContexto.fk, orcamento_id: orcamentoId,
         ref_tipo: node.refTipo, etapa_id: node.etapaId,
         subetapa_key: node.subetapaKey, orcamento_item_id: node.orcItemId,
       })
@@ -508,10 +541,11 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
       await supabase.from('planejamento_dependencias').delete().eq('item_id', itemId)
 
       if (predecessorNodes.length > 0) {
-        const rows: { obra_id: string; item_id: string; predecessor_id: string; tipo: string }[] = []
+        if (!etapaContexto) throw new Error('Obra ou projeto nao identificado para criar dependencias.')
+        const rows: { obra_id: string | null; projeto_id: string | null; orcamento_id: string; item_id: string; predecessor_id: string; tipo: string }[] = []
         for (const pred of predecessorNodes) {
           const predId = await ensurePlanId(pred)
-          rows.push({ obra_id: obraId, item_id: itemId, predecessor_id: predId, tipo: 'FS' })
+          rows.push({ ...etapaContexto.fk, orcamento_id: orcamentoId, item_id: itemId, predecessor_id: predId, tipo: 'FS' })
         }
         const { error } = await supabase.from('planejamento_dependencias').insert(rows)
         if (error) throw error
@@ -686,7 +720,18 @@ export function ObraPlanejamento2({ obraId, orcamentoId }: { obraId: string; orc
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Planejamento 2.0</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Planejamento 2.0</h2>
+            {baselineInfo && (
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full border"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+                title={`Linha de base capturada com ${baselineInfo.totalItens} item(ns) ao iniciar a obra. O planejamento atual continua editável; a baseline não é sobrescrita.`}
+              >
+                Baseline capturada em {fmtBR(baselineInfo.capturadaEm.slice(0, 10))}
+              </span>
+            )}
+          </div>
           <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
             Estrutura derivada do orçamento — alterações no orçamento refletem automaticamente aqui.
           </p>
