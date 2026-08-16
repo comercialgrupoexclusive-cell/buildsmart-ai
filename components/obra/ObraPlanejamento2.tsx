@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
 import { ObraCurvaS } from '@/components/obra/ObraCurvaS'
+import { loadPlanejamentoProgresso, setItemProgresso, type PlanejamentoProgresso } from '@/lib/planejamento-progresso'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -41,8 +42,6 @@ type OrcItem = {
   tipo_linha: string
   descricao_snapshot: string | null
   codigo_snapshot: string | null
-  quantidade: number
-  preco_unitario_snapshot: number
 }
 
 type TreeNode = {
@@ -56,8 +55,6 @@ type TreeNode = {
   orcItemId: string | null
   plan: PlanejamentoItem | null
   children: TreeNode[]
-  fallbackProgress?: number
-  valorContratado: number
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
@@ -93,9 +90,13 @@ function parseISODate(v: string): Date {
   return new Date(v + 'T00:00:00')
 }
 
+// Regra 3: subetapa é identificada pelo id estável da linha orcamento_itens
+// (tipo_linha='subetapa'), não pelo nome — renomear não pode perder o vínculo
+// com datas/predecessoras/progresso já gravados. Só cai para o nome quando a
+// subetapa não tem essa linha (caso raro/legado).
 function refKey(tipo: string, etapaId: string | null, subKey: string | null, orcItemId: string | null) {
   if (tipo === 'etapa') return `E:${etapaId}`
-  if (tipo === 'subetapa') return `S:${etapaId}:${subKey}`
+  if (tipo === 'subetapa') return orcItemId ? `S:id:${orcItemId}` : `S:${etapaId}:${subKey}`
   return `I:${orcItemId}`
 }
 
@@ -323,6 +324,10 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
   const [successKey, setSuccessKey] = useState<string | null>(null)
   const [view, setView] = useState<'tabela' | 'gantt'>('tabela')
   const [baselineInfo, setBaselineInfo] = useState<{ capturadaEm: string; totalItens: number } | null>(null)
+  // Fonte única de % executado (regra 4 do documento de convergência): a
+  // mesma função usada por Medições e RDO — nenhuma conta é refeita aqui.
+  const [prog, setProg] = useState<PlanejamentoProgresso | null>(null)
+  const idsOrcamentos = orcamentoIds?.length ? orcamentoIds : [orcamentoId]
 
   // Cada orçamento tem seu próprio planejamento, inclusive antes de a obra
   // existir (fase de Projeto): as etapas ficam presas a obra_id OU
@@ -360,16 +365,18 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
     setLoading(true)
     setError(null)
     try {
-      let etapasQuery = supabase.from('etapas').select('id, nome, ordem, data_inicio, data_fim, status, percentual_executado').eq(etapaContexto.coluna, etapaContexto.id)
+      let etapasQuery = supabase.from('etapas').select('id, nome, ordem, data_inicio, data_fim, status').eq(etapaContexto.coluna, etapaContexto.id)
       if (etapaContexto.orcamentoFiltro) etapasQuery = etapasQuery.eq('orcamento_id', etapaContexto.orcamentoFiltro)
 
-      const [etapasRes, itemsRes, headersRes, planRes, depsRes] = await Promise.all([
+      const [etapasRes, itemsRes, headersRes, planRes, depsRes, progRes] = await Promise.all([
         etapasQuery.order('ordem'),
-        supabase.from('orcamento_itens').select('id, etapa_id, subetapa, tipo_linha, descricao_snapshot, codigo_snapshot, quantidade, preco_unitario_snapshot').eq('orcamento_id', orcamentoId).eq('tipo_linha', 'item'),
+        supabase.from('orcamento_itens').select('id, etapa_id, subetapa, tipo_linha, descricao_snapshot, codigo_snapshot').eq('orcamento_id', orcamentoId).eq('tipo_linha', 'item'),
         supabase.from('orcamento_itens').select('id, etapa_id, subetapa').eq('orcamento_id', orcamentoId).eq('tipo_linha', 'subetapa'),
         supabase.from('planejamento_itens').select('*').eq('orcamento_id', orcamentoId),
         supabase.from('planejamento_dependencias').select('*').eq('orcamento_id', orcamentoId),
+        loadPlanejamentoProgresso(supabase, idsOrcamentos),
       ])
+      setProg(progRes)
 
       if (etapasRes.error) throw etapasRes.error
       if (itemsRes.error) throw itemsRes.error
@@ -437,21 +444,19 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
 
         const children: TreeNode[] = []
 
-        const valorItem = (oi: OrcItem) => (Number(oi.quantidade) || 0) * (Number(oi.preco_unitario_snapshot) || 0)
-
         noSub.forEach(oi => {
           children.push({
             key: `I:${oi.id}`, level: 2, codigo: oi.codigo_snapshot || '—',
             descricao: oi.descricao_snapshot || '(sem descrição)',
             refTipo: 'item', etapaId: etapa.id, subetapaKey: null, orcItemId: oi.id,
             plan: planByRef.get(`I:${oi.id}`) || null, children: [],
-            valorContratado: valorItem(oi),
           })
         })
 
         let subIdx = 1
         subGroups.forEach((items, subName) => {
-          const subKey = `S:${etapa.id}:${subName}`
+          const headerId = headerPorSubetapa.get(`${etapa.id}::${subName}`) || null
+          const subKey = refKey('subetapa', etapa.id, subName, headerId)
           const itemNodes: TreeNode[] = items.map(oi => ({
             key: `I:${oi.id}`, level: 2 as const,
             codigo: oi.codigo_snapshot || '—',
@@ -459,16 +464,14 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
             refTipo: 'item' as const, etapaId: etapa.id,
             subetapaKey: subName, orcItemId: oi.id,
             plan: planByRef.get(`I:${oi.id}`) || null, children: [],
-            valorContratado: valorItem(oi),
           }))
           children.push({
             key: subKey, level: 1,
             codigo: `${String(etapa.ordem).padStart(2, '0')}.${subIdx}`,
             descricao: subName, refTipo: 'subetapa',
-            etapaId: etapa.id, subetapaKey: subName, orcItemId: headerPorSubetapa.get(`${etapa.id}::${subName}`) || null,
+            etapaId: etapa.id, subetapaKey: subName, orcItemId: headerId,
             plan: planByRef.get(subKey) || null,
             children: itemNodes,
-            valorContratado: itemNodes.reduce((acc, n) => acc + n.valorContratado, 0),
           })
           subIdx++
         })
@@ -479,8 +482,6 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
           descricao: etapa.nome, refTipo: 'etapa' as const,
           etapaId: etapa.id, subetapaKey: null, orcItemId: null,
           plan: planByRef.get(etapaKey) || null, children,
-          fallbackProgress: Number(etapa.percentual_executado) || 0,
-          valorContratado: children.reduce((acc, n) => acc + n.valorContratado, 0),
         }
       })
   }
@@ -489,9 +490,12 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
 
   async function upsertPlan(node: TreeNode, updates: Record<string, any>): Promise<string> {
     if (node.plan) {
+      // Mantém subetapa_key sincronizado com o nome atual em qualquer update —
+      // a identidade real é orcamento_item_id (regra 3), isso é só cosmético.
+      const sync = node.refTipo === 'subetapa' ? { subetapa_key: node.subetapaKey } : {}
       const { error } = await supabase
         .from('planejamento_itens')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .update({ ...sync, ...updates, updated_at: new Date().toISOString() })
         .eq('id', node.plan.id)
       if (error) throw error
       return node.plan.id
@@ -520,6 +524,32 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
       await load()
     } catch (e: any) {
       console.error(`Planejamento 2.0 — erro ao salvar ${field}:`, e)
+      alert(`Erro ao salvar: ${e.message}`)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  // % executado só existe no item (folha) — grava pelo mesmo caminho único
+  // usado por Medições e RDO (lib/planejamento-progresso.ts), quando já
+  // existe obra. Na fase de Projeto (antes de "Iniciar Obra") ainda não há
+  // Medições/RDO para unificar, então segue pelo upsert local.
+  async function saveExecPct(node: TreeNode, value: number) {
+    if (node.level !== 2 || !node.orcItemId || !node.etapaId) return
+    setSaving(node.key)
+    try {
+      if (obraId) {
+        await setItemProgresso(supabase, {
+          orcamentoId, obraId, orcamentoItemId: node.orcItemId,
+          etapaId: node.etapaId, subetapaKey: node.subetapaKey, percentual: value,
+        })
+      } else {
+        await upsertPlan(node, { progresso_executado: value })
+      }
+      showSuccess(node.key)
+      await load()
+    } catch (e: any) {
+      console.error('Planejamento 2.0 — erro ao salvar % executado:', e)
       alert(`Erro ao salvar: ${e.message}`)
     } finally {
       setSaving(null)
@@ -613,27 +643,47 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
     return inicio && fim ? { inicio, fim } : null
   }
 
-  function nodeProgress(node: TreeNode): { plan: number; exec: number } {
-    if (node.level === 2) {
-      return { plan: Number(node.plan?.progresso_planejado ?? 0), exec: Number(node.plan?.progresso_executado ?? 0) }
+  // ── % executado: única fonte é lib/planejamento-progresso.ts ────────────────
+  // (mesma função usada por Medições e RDO — regra 8 + "um único cálculo").
+  // Nenhuma média/ponderação é recalculada aqui, só consultada.
+  function progEtapaNode(etapaId: string | null) {
+    return prog?.etapas.find(e => e.id === etapaId) ?? null
+  }
+  function progSubetapaNode(etapaId: string | null, headerId: string | null, nome: string | null) {
+    const et = progEtapaNode(etapaId)
+    if (!et) return null
+    if (headerId) {
+      const byId = et.subetapas.find(s => s.id === headerId)
+      if (byId) return byId
     }
-    // Regra 8: subetapa/etapa não têm % executado próprio — sempre calculado
-    // a partir dos itens (folhas) filhos, ponderado pelo valor do orçamento.
-    const folhas: TreeNode[] = []
-    function collectFolhas(n: TreeNode) {
-      if (n.level === 2) { folhas.push(n); return }
-      n.children.forEach(collectFolhas)
+    return et.subetapas.find(s => s.nome === nome) ?? null
+  }
+  function progItemNode(itemId: string | null) {
+    if (!itemId || !prog) return null
+    for (const et of prog.etapas) {
+      for (const sub of et.subetapas) {
+        const it = sub.itens.find(i => i.id === itemId)
+        if (it) return it
+      }
+      const solto = et.itensSoltos.find(i => i.id === itemId)
+      if (solto) return solto
     }
-    node.children.forEach(collectFolhas)
-    const valorFolhas = folhas.reduce((acc, f) => acc + f.valorContratado, 0)
-    const exec = folhas.length === 0
-      ? Number(node.fallbackProgress ?? 0)
-      : valorFolhas > 0
-        ? folhas.reduce((acc, f) => acc + Number(f.plan?.progresso_executado ?? 0) * f.valorContratado, 0) / valorFolhas
-        : folhas.reduce((acc, f) => acc + Number(f.plan?.progresso_executado ?? 0), 0) / folhas.length
+    return null
+  }
 
-    // % planejado (cronograma-alvo) não é o foco da regra 8 — segue a lógica
-    // anterior: nós com data própria contam diretamente.
+  function nodeProgress(node: TreeNode): { plan: number; exec: number } {
+    const exec = node.refTipo === 'item'
+      ? progItemNode(node.orcItemId)?.progressoExecutado ?? 0
+      : node.refTipo === 'subetapa'
+        ? progSubetapaNode(node.etapaId, node.orcItemId, node.subetapaKey)?.progressoExecutado ?? 0
+        : progEtapaNode(node.etapaId)?.progressoExecutado ?? 0
+
+    if (node.level === 2) {
+      return { plan: Number(node.plan?.progresso_planejado ?? 0), exec }
+    }
+
+    // % planejado (cronograma-alvo) não é coberto pela regra 8 — nós com data
+    // própria contam diretamente (mesma lógica de antes, só não duplica exec).
     const planned: TreeNode[] = []
     function collectPlanned(n: TreeNode) {
       if (n.plan) { planned.push(n); return }
@@ -729,7 +779,6 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
   // Previsões e Curva S (só existem no contexto de obra) ficam como sub-abas
   // do Planejamento — regra 1: uma única entrada de navegação, sem duplicar
   // a árvore Etapa → Subetapa → Item.
-  const idsOrcamentos = orcamentoIds?.length ? orcamentoIds : [orcamentoId]
   const subTabBar = obraId && (
     <div className="flex items-center gap-1.5 p-1 rounded-lg w-fit overflow-x-auto max-w-full" style={{ background: 'var(--bg-secondary)' }}>
       {([
@@ -891,9 +940,9 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
               const plan = node.plan
               const status: PlanejamentoStatus = plan?.status || 'nao_iniciado'
               const pPlan = Number(plan?.progresso_planejado ?? 0)
-              // Regra 8: só o item (folha) tem % executado próprio — etapa e
-              // subetapa são sempre calculados a partir dos itens filhos.
-              const pExec = node.level === 2 ? Number(plan?.progresso_executado ?? 0) : nodeProgress(node).exec
+              // % executado sempre vem da fonte única (lib/planejamento-progresso.ts) —
+              // regra 8 (subetapa/etapa não têm percentual próprio) e "um único cálculo".
+              const pExec = nodeProgress(node).exec
               const { names: predNames, planIds: predPlanIds } = getPredecessors(node)
 
               const bgLevel = node.level === 0 ? 'var(--bg-secondary)' : node.level === 1 ? 'rgba(var(--accent-rgb, 59,123,248),0.04)' : 'transparent'
@@ -999,7 +1048,7 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
                   <td className="px-2 py-2 text-center">
                     <ProgressCell
                       value={pExec}
-                      onCommit={v => saveField(node, 'progresso_executado', v)}
+                      onCommit={v => saveExecPct(node, v)}
                       disabled={!!saving || node.level !== 2}
                     />
                   </td>
