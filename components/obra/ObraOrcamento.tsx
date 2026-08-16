@@ -565,15 +565,23 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   }
 
   const resolvedObraId = obraId || orcamento?.obra_id || null
+  // Em fase de projeto, um mesmo projeto pode ter vários orçamentos
+  // (A, B, C...) — cada um precisa da sua própria hierarquia de etapas,
+  // sem compartilhar linhas mutáveis com os outros. Por isso, além do
+  // projeto_id, também filtramos/gravamos por orcamento_id enquanto não
+  // existe obra. Depois que a obra existe, só há um orçamento operacional
+  // por obra, então o filtro volta a ser só obra_id.
   const etapaContexto = resolvedObraId
-    ? { coluna: 'obra_id' as const, id: resolvedObraId, fk: { obra_id: resolvedObraId } }
+    ? { coluna: 'obra_id' as const, id: resolvedObraId, fk: { obra_id: resolvedObraId, orcamento_id: orcamentoId || null }, orcamentoFiltro: null as string | null }
     : projetoId
-      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { projeto_id: projetoId } }
+      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { projeto_id: projetoId, orcamento_id: orcamentoId || null }, orcamentoFiltro: orcamentoId || null }
       : null
 
   async function loadEtapas() {
     if (!etapaContexto) { setEtapas([]); return }
-    const { data } = await supabase.from('etapas').select('*').eq(etapaContexto.coluna, etapaContexto.id).order('ordem')
+    let query = supabase.from('etapas').select('*').eq(etapaContexto.coluna, etapaContexto.id)
+    if (etapaContexto.orcamentoFiltro) query = query.eq('orcamento_id', etapaContexto.orcamentoFiltro)
+    const { data } = await query.order('ordem')
     setEtapas(data || [])
   }
 
@@ -803,7 +811,9 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     if (local) return local
 
     const buscarNoBanco = async () => {
-      const { data, error } = await supabase.from('etapas').select('*').eq(etapaContexto.coluna, etapaContexto.id)
+      let query = supabase.from('etapas').select('*').eq(etapaContexto.coluna, etapaContexto.id)
+      if (etapaContexto.orcamentoFiltro) query = query.eq('orcamento_id', etapaContexto.orcamentoFiltro)
+      const { data, error } = await query
       if (error) throw error
       return (data || []).find((etapa: Etapa) => normalizarNomeEtapa(etapa.nome) === chave) as Etapa | undefined
     }
@@ -1309,13 +1319,13 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         )
         if (repetida) throw new Error('Ja existe uma etapa com esse nome nesta obra.')
 
-        const { data, error } = await supabase
+        let updateQuery = supabase
           .from('etapas')
           .update({ nome })
           .eq('id', hierarquiaDialog.etapaId)
           .eq(etapaContexto.coluna, etapaContexto.id)
-          .select('id,nome')
-          .maybeSingle()
+        if (etapaContexto.orcamentoFiltro) updateQuery = updateQuery.eq('orcamento_id', etapaContexto.orcamentoFiltro)
+        const { data, error } = await updateQuery.select('id,nome').maybeSingle()
         if (error) throw error
         if (!data) throw new Error('A etapa nao foi encontrada para edicao.')
         setEtapas(prev => prev.map(etapa => etapa.id === data.id ? { ...etapa, nome: data.nome } : etapa))
@@ -2284,7 +2294,11 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     nomesEtapasExibidos.add(chave)
     return true
   })
-  const isReadonly = Boolean(orcamento?.travado_em) || orcamento?.status === 'finalizado' || orcamento?.status === 'arquivado'
+  // travado_em (congelamento de preços de insumos) não bloqueia mais edição —
+  // a baseline (orcamento_itens_baseline/planejamento_itens_baseline) já
+  // preserva a fotografia original ao iniciar a obra, e o orçamento
+  // operacional continua editável normalmente depois disso.
+  const isReadonly = orcamento?.status === 'finalizado' || orcamento?.status === 'arquivado'
   const etapasVisiveis = filtroEtapaId === 'todas'
     ? etapas
     : etapas.filter(etapa => etapa.id === filtroEtapaId)
@@ -2386,13 +2400,14 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
               {showMenu && (
                 <div className="absolute right-0 top-full mt-1.5 w-48 rounded-xl py-1.5 shadow-lg z-50 animate-enter"
                   style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                  {!isReadonly ? (
+                  {!isReadonly && orcamento?.status !== 'ativo' && (
                     <button onClick={handleFinalizar}
                       className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                       style={{ color: 'var(--text-primary)' }}>
                       <Lock size={13} style={{ color: 'var(--text-secondary)' }} /> Iniciar obra
                     </button>
-                  ) : (
+                  )}
+                  {isReadonly && (
                     <button onClick={handleReabrir}
                       className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                       style={{ color: 'var(--text-primary)' }}>

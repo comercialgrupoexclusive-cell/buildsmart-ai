@@ -133,7 +133,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <Header hasSidebar onOpenMobileNav={() => setMobileNavOpen(true)} />
       <WelcomeGuide />
       <main className="md:ml-14 pt-16 min-h-screen">
-        <div className="p-3 sm:p-6 max-w-full overflow-x-hidden">
+        {/* pb extra reserva espaço pela altura da barra fixa da Luiza (LuiziaFloatingChat),
+            senao ela fica sobrepondo o final do conteudo ao rolar ate o fim da pagina. */}
+        <div className="p-3 sm:p-6 pb-24 sm:pb-28 max-w-full overflow-x-hidden">
           <GlobalObraOrcamentoBar />
           {children}
         </div>

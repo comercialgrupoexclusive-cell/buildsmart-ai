@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, Star, Scale, ListChecks, CalendarRange } from 'lucide-react'
+import { Plus, Star, Scale, ListChecks, CalendarRange, HardHat } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -17,6 +17,7 @@ type OrcamentoResumo = {
   is_principal: boolean
   bdi_percentual: number
   created_at: string
+  obra_id: string | null
   total: number
   totalItens: number
   totalEtapas: number
@@ -29,7 +30,7 @@ const STATUS_LABEL: Record<string, string> = {
   arquivado: 'Arquivado',
 }
 
-export function ProjetoOrcamentosPanel({ projetoId, projetoNome, obraId }: { projetoId: string; projetoNome?: string; obraId?: string | null }) {
+export function ProjetoOrcamentosPanel({ projetoId, projetoNome }: { projetoId: string; projetoNome?: string }) {
   const supabase = createClient()
   const [orcamentos, setOrcamentos] = useState<OrcamentoResumo[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,7 +47,7 @@ export function ProjetoOrcamentosPanel({ projetoId, projetoNome, obraId }: { pro
     setLoading(true)
     const { data } = await supabase
       .from('orcamentos')
-      .select('id, nome, versao, status, is_principal, bdi_percentual, created_at')
+      .select('id, nome, versao, status, is_principal, bdi_percentual, created_at, obra_id')
       .eq('projeto_id', projetoId)
       .order('is_principal', { ascending: false })
       .order('created_at', { ascending: true })
@@ -129,6 +130,7 @@ export function ProjetoOrcamentosPanel({ projetoId, projetoNome, obraId }: { pro
           >
             {o.is_principal && <Star size={11} />}
             {o.nome || `Orçamento v${o.versao}`}
+            {o.obra_id && <span title="Este é o orçamento operacional da obra"><HardHat size={11} /></span>}
           </button>
         ))}
 
@@ -222,11 +224,15 @@ export function ProjetoOrcamentosPanel({ projetoId, projetoNome, obraId }: { pro
             ))}
           </div>
 
+          {/* Só o orçamento que efetivamente virou obra (selecionado.obra_id) recebe
+              contexto operacional — os demais (alternativas do projeto) continuam
+              isolados em fase de projeto, mesmo depois de a obra existir, para não
+              vazar etapas/planejamento de um orçamento não escolhido para a obra. */}
           {subTab === 'itens' && (
             <ObraOrcamento
               key={selecionado.id}
-              projetoId={projetoId}
-              obraId={obraId ?? undefined}
+              projetoId={selecionado.obra_id ? undefined : projetoId}
+              obraId={selecionado.obra_id ?? undefined}
               orcamentoId={selecionado.id}
               obraName={projetoNome}
             />
@@ -234,8 +240,8 @@ export function ProjetoOrcamentosPanel({ projetoId, projetoNome, obraId }: { pro
           {subTab === 'planejamento' && (
             <ObraPlanejamento2
               key={selecionado.id}
-              projetoId={obraId ? undefined : projetoId}
-              obraId={obraId ?? undefined}
+              projetoId={selecionado.obra_id ? undefined : projetoId}
+              obraId={selecionado.obra_id ?? undefined}
               orcamentoId={selecionado.id}
             />
           )}

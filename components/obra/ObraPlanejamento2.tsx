@@ -323,9 +323,9 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
   // projeto_id, nunca os dois. planejamento_itens/dependencias sempre são
   // gravados com orcamento_id + o contexto atual (obra ou projeto).
   const etapaContexto = obraId
-    ? { coluna: 'obra_id' as const, id: obraId, fk: { obra_id: obraId, projeto_id: null as string | null } }
+    ? { coluna: 'obra_id' as const, id: obraId, fk: { obra_id: obraId, projeto_id: null as string | null }, orcamentoFiltro: null as string | null }
     : projetoId
-      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { obra_id: null as string | null, projeto_id: projetoId } }
+      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { obra_id: null as string | null, projeto_id: projetoId }, orcamentoFiltro: orcamentoId || null }
       : null
 
   useEffect(() => { if (etapaContexto && orcamentoId) load() }, [obraId, projetoId, orcamentoId])
@@ -354,8 +354,11 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
     setLoading(true)
     setError(null)
     try {
+      let etapasQuery = supabase.from('etapas').select('id, nome, ordem, data_inicio, data_fim, status, percentual_executado').eq(etapaContexto.coluna, etapaContexto.id)
+      if (etapaContexto.orcamentoFiltro) etapasQuery = etapasQuery.eq('orcamento_id', etapaContexto.orcamentoFiltro)
+
       const [etapasRes, itemsRes, planRes, depsRes] = await Promise.all([
-        supabase.from('etapas').select('id, nome, ordem, data_inicio, data_fim, status, percentual_executado').eq(etapaContexto.coluna, etapaContexto.id).order('ordem'),
+        etapasQuery.order('ordem'),
         supabase.from('orcamento_itens').select('id, etapa_id, subetapa, tipo_linha, descricao_snapshot, codigo_snapshot').eq('orcamento_id', orcamentoId).eq('tipo_linha', 'item'),
         supabase.from('planejamento_itens').select('*').eq('orcamento_id', orcamentoId),
         supabase.from('planejamento_dependencias').select('*').eq('orcamento_id', orcamentoId),

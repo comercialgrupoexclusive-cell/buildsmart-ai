@@ -1,13 +1,22 @@
--- Reorganização do ciclo Projeto -> Obra: ao iniciar a obra, além de
--- congelar o orçamento (preços/insumos), agora também captura uma baseline
--- imutável do orçamento e do planejamento — linha de base que nunca é
--- sobrescrita por edições futuras (orçamento/planejamento continuam
--- editáveis normalmente depois). Idempotente por orcamento_id. Também
--- propaga obra_id para planejamento_itens/planejamento_dependencias do
--- orçamento promovido (mantendo projeto_id como linhagem histórica).
+-- Corrige vazamento entre orçamentos alternativos do mesmo projeto: antes,
+-- ao iniciar a obra com o Orçamento A, TODAS as etapas do projeto (inclusive
+-- as do Orçamento B/C, que não foram escolhidos) eram movidas para a obra,
+-- porque o filtro era só por projeto_id. Agora que etapas têm orcamento_id
+-- próprio, só as etapas do orçamento efetivamente escolhido são promovidas.
+-- B/C continuam intactos como alternativas do projeto, sem qualquer vínculo
+-- com a obra.
+--
+-- Também grava obra_id (valor literal, não FK obrigatória) nas linhas de
+-- baseline, para que continuem rastreáveis mesmo se o orçamento original
+-- for excluído depois (baseline não é apagada pela exclusão do orçamento —
+-- ver migração baseline_sobrevive_exclusao_orcamento).
+--
+-- SECURITY DEFINER precisa ser reafirmado explicitamente: CREATE OR REPLACE
+-- não herda esse atributo da versão anterior.
 create or replace function public.iniciar_obra_por_orcamento(p_orcamento_id uuid)
  returns jsonb
  language plpgsql
+ security definer
  set search_path to ''
 as $function$
 declare
@@ -77,15 +86,19 @@ begin
     set obra_id = v_obra_id, fase_ciclo = 'em_obra', updated_at = now()
     where id = v_projeto.id;
 
+    -- Cronograma do projeto (entregas) é infraestrutura única por projeto,
+    -- não por orçamento — continua movendo junto, igual antes.
     update public.cronogramas
     set obra_id = v_obra_id,
         status = case when status = 'rascunho' then 'ativo' else status end
     where projeto_id = v_projeto.id;
 
-    -- As etapas formam o cronograma unico do projeto e conservam seus IDs.
+    -- Só as etapas do ORÇAMENTO ESCOLHIDO viram etapas da obra. Etapas de
+    -- outros orçamentos do mesmo projeto (alternativas não escolhidas)
+    -- ficam de fora — mantêm projeto_id, sem obra_id.
     update public.etapas
     set obra_id = v_obra_id
-    where projeto_id = v_projeto.id and obra_id is null;
+    where orcamento_id = v_orcamento.id and obra_id is null;
   else
     v_obra_id := v_orcamento.obra_id;
     if v_obra_id is null then
@@ -104,9 +117,12 @@ begin
     update public.etapas e
     set obra_id = v_obra_id
     where e.obra_id is null
-      and exists (
-        select 1 from public.orcamento_itens oi
-        where oi.orcamento_id = v_orcamento.id and oi.etapa_id = e.id
+      and (
+        e.orcamento_id = v_orcamento.id
+        or exists (
+          select 1 from public.orcamento_itens oi
+          where oi.orcamento_id = v_orcamento.id and oi.etapa_id = e.id
+        )
       );
   end if;
 
@@ -128,12 +144,12 @@ begin
   -- (chamada repetida nao duplica nem sobrescreve a baseline ja existente).
   if not exists (select 1 from public.orcamento_itens_baseline where orcamento_id = v_orcamento.id) then
     insert into public.orcamento_itens_baseline (
-      orcamento_id, orcamento_item_id, etapa_id, subetapa, composicao_id, sinapi_composicao_id,
+      orcamento_id, obra_id, orcamento_item_id, etapa_id, subetapa, composicao_id, sinapi_composicao_id,
       tipo_linha, quantidade, preco_unitario_snapshot, descricao_snapshot, codigo_snapshot,
       unidade_snapshot, data_inicio, data_fim, ordem
     )
     select
-      orcamento_id, id, etapa_id, subetapa, composicao_id, sinapi_composicao_id,
+      orcamento_id, v_obra_id, id, etapa_id, subetapa, composicao_id, sinapi_composicao_id,
       tipo_linha, quantidade, preco_unitario_snapshot, descricao_snapshot, codigo_snapshot,
       unidade_snapshot, data_inicio, data_fim, ordem
     from public.orcamento_itens
@@ -141,20 +157,20 @@ begin
 
     with itens_baseline as (
       insert into public.planejamento_itens_baseline (
-        orcamento_id, planejamento_item_id, ref_tipo, etapa_id, subetapa_key,
+        orcamento_id, obra_id, planejamento_item_id, ref_tipo, etapa_id, subetapa_key,
         orcamento_item_id, data_inicio, data_fim, progresso_planejado
       )
       select
-        orcamento_id, id, ref_tipo, etapa_id, subetapa_key,
+        orcamento_id, v_obra_id, id, ref_tipo, etapa_id, subetapa_key,
         orcamento_item_id, data_inicio, data_fim, progresso_planejado
       from public.planejamento_itens
       where orcamento_id = v_orcamento.id
       returning id, planejamento_item_id
     )
     insert into public.planejamento_dependencias_baseline (
-      orcamento_id, item_baseline_id, predecessor_baseline_id, tipo, lag_dias
+      orcamento_id, obra_id, item_baseline_id, predecessor_baseline_id, tipo, lag_dias
     )
-    select pd.orcamento_id, ib.id, pb.id, pd.tipo, pd.lag_dias
+    select pd.orcamento_id, v_obra_id, ib.id, pb.id, pd.tipo, pd.lag_dias
     from public.planejamento_dependencias pd
     join itens_baseline ib on ib.planejamento_item_id = pd.item_id
     join itens_baseline pb on pb.planejamento_item_id = pd.predecessor_id
