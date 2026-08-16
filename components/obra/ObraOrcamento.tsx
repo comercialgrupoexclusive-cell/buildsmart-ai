@@ -28,7 +28,7 @@ import { InsumoOrcamentoAntigo, LinhaOrcamentoTabular } from '@/lib/import-expor
 import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
 import { SalvarTemplateOrcamentoModal, UsarTemplateOrcamentoModal } from './TemplateOrcamentoModal'
-import { ObraAssistenteIA } from './ObraAssistenteIA'
+import { ObraAssistenteDock } from './ObraAssistenteDock'
 import { readEtapasPadrao } from '@/lib/settings/etapas-padrao'
 import { finalizarOrcamento } from '@/lib/project-cycle'
 
@@ -2481,7 +2481,10 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
               <Button variant="secondary" icon={<LayoutTemplate size={16} />} onClick={() => setShowUsarTemplate(true)}>
                 Usar template
               </Button>
-              <Button variant="secondary" icon={<Sparkles size={16} />} onClick={() => setShowAssistente(true)}>
+              <Button
+                variant="secondary" icon={<Sparkles size={16} />} onClick={() => setShowAssistente(true)}
+                disabled={!resolvedObraId} title={!resolvedObraId ? 'Vincule este orçamento a uma obra para usar a Luiza' : undefined}
+              >
                 Criar com a Luiza
               </Button>
             </div>
@@ -2535,7 +2538,10 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                     Salvar como template
                   </Button>
                 )}
-                <Button size="sm" variant="secondary" icon={<Sparkles size={14} />} onClick={() => setShowAssistente(true)}>
+                <Button
+                  size="sm" variant="secondary" icon={<Sparkles size={14} />} onClick={() => setShowAssistente(true)}
+                  disabled={!resolvedObraId} title={!resolvedObraId ? 'Vincule este orçamento a uma obra para usar a Luiza' : undefined}
+                >
                   Assistente IA
                 </Button>
               </div>
@@ -3164,14 +3170,13 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         onApplied={() => loadAll()}
       />
 
-      <Modal open={showAssistente} onClose={() => setShowAssistente(false)} size="xl">
-        <ObraAssistenteIA
-          obraId={resolvedObraId || ''}
-          obraNome={obraName || 'Obra'}
-          obraUf={obraUf}
-          heightClass="h-[70vh]"
-        />
-      </Modal>
+      <ObraAssistenteDock
+        open={showAssistente}
+        onClose={() => setShowAssistente(false)}
+        obraId={resolvedObraId || ''}
+        obraNome={obraName || 'Obra'}
+        obraUf={obraUf}
+      />
     </div>
   )
 }

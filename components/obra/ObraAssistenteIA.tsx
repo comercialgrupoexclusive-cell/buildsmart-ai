@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Sparkles, Send, Loader2, Trash2, RotateCcw } from 'lucide-react'
+import { Sparkles, Send, Loader2, Trash2, ChevronDown, ChevronUp, X } from 'lucide-react'
 
 type Message = { role: 'user' | 'assistant'; content: string }
 
@@ -20,12 +20,18 @@ function formatMessage(text: string) {
     .replace(/\n/g, '<br>')
 }
 
-export function ObraAssistenteIA({ obraId, obraNome, obraUf, cronogramaId, heightClass = 'h-[calc(100vh-220px)]' }: {
+export function ObraAssistenteIA({
+  obraId, obraNome, obraUf, cronogramaId, heightClass = 'h-[calc(100vh-220px)]',
+  onClose, collapsed, onToggleCollapse,
+}: {
   obraId: string
   obraNome: string
   obraUf: string
   cronogramaId?: string
   heightClass?: string
+  onClose?: () => void
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -62,6 +68,12 @@ export function ObraAssistenteIA({ obraId, obraNome, obraUf, cronogramaId, heigh
     const next = [...messages, userMsg]
     setMessages(next)
     setInput('')
+
+    if (!obraId) {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Este orçamento ainda não está vinculado a uma obra — vincule-o primeiro para eu poder ajudar com etapas e composições.' }])
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -98,28 +110,55 @@ export function ObraAssistenteIA({ obraId, obraNome, obraUf, cronogramaId, heigh
   const isEmpty = messages.length === 0 && !loading
 
   return (
-    <div className={`flex flex-col ${heightClass} min-h-[400px]`}>
+    <div className={`flex flex-col ${collapsed ? '' : heightClass} min-h-0`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 rounded-t-2xl"
-        style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }}>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full flex items-center justify-center"
+      <div
+        className={`flex items-center justify-between px-4 py-3 ${onToggleCollapse ? 'cursor-pointer' : ''} ${collapsed ? 'rounded-2xl' : 'rounded-t-2xl'}`}
+        style={{ background: 'var(--bg-card)', borderBottom: collapsed ? 'none' : '1px solid var(--border)' }}
+        onClick={onToggleCollapse}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
             style={{ background: 'linear-gradient(135deg, #7C3AED, #3B82F6)' }}>
             <Sparkles size={16} className="text-white" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Luiza</p>
-            <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Assistente IA • Cronograma & Orçamento</p>
+            <p className="text-[10px] truncate" style={{ color: 'var(--text-secondary)' }}>Assistente IA • Cronograma & Orçamento</p>
           </div>
         </div>
-        {messages.length > 0 && (
-          <button onClick={clearChat} className="p-1.5 rounded-lg transition-colors hover:opacity-80"
-            style={{ color: 'var(--text-secondary)' }} title="Limpar conversa">
-            <Trash2 size={14} />
-          </button>
-        )}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {!collapsed && messages.length > 0 && (
+            <button onClick={e => { e.stopPropagation(); clearChat() }} className="p-1.5 rounded-lg transition-colors hover:opacity-80"
+              style={{ color: 'var(--text-secondary)' }} title="Limpar conversa">
+              <Trash2 size={14} />
+            </button>
+          )}
+          {onToggleCollapse && (
+            <button onClick={e => { e.stopPropagation(); onToggleCollapse() }} className="p-1.5 rounded-lg transition-colors hover:opacity-80"
+              style={{ color: 'var(--text-secondary)' }} title={collapsed ? 'Expandir' : 'Recolher'}>
+              {collapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          )}
+          {onClose && (
+            <button onClick={e => { e.stopPropagation(); onClose() }} className="p-1.5 rounded-lg transition-colors hover:opacity-80"
+              style={{ color: 'var(--text-secondary)' }} title="Fechar">
+              <X size={14} />
+            </button>
+          )}
+        </div>
       </div>
 
+      {collapsed && messages.length > 0 && (
+        <div className="px-4 pb-2 -mt-1 rounded-b-2xl" style={{ background: 'var(--bg-card)' }}>
+          <p className="text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>
+            {messages[messages.length - 1].content.replace(/\n/g, ' ').slice(0, 90)}
+          </p>
+        </div>
+      )}
+
+      {!collapsed && (
+      <>
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
         style={{ background: 'var(--bg-primary)' }}>
@@ -214,6 +253,8 @@ export function ObraAssistenteIA({ obraId, obraNome, obraUf, cronogramaId, heigh
           </button>
         </div>
       </div>
+      </>
+      )}
     </div>
   )
 }

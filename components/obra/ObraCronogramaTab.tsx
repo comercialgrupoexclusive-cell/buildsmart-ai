@@ -6,8 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
 import { ObraCurvaS } from '@/components/obra/ObraCurvaS'
-import { ObraAssistenteIA } from '@/components/obra/ObraAssistenteIA'
-import { Modal } from '@/components/ui/Modal'
+import { ObraAssistenteDock } from '@/components/obra/ObraAssistenteDock'
 
 type SubTab = 'gantt' | 'previsoes' | 'curva'
 
@@ -274,15 +273,14 @@ export function ObraCronogramaTab({ obraId, obraNome, obraUf = 'SP', orcamentoId
         </div>
       )}
 
-      <Modal open={showAssistente} onClose={() => setShowAssistente(false)} size="xl">
-        <ObraAssistenteIA
-          obraId={obraId}
-          obraNome={obraNome}
-          obraUf={obraUf}
-          cronogramaId={selectedId || undefined}
-          heightClass="h-[70vh]"
-        />
-      </Modal>
+      <ObraAssistenteDock
+        open={showAssistente}
+        onClose={() => setShowAssistente(false)}
+        obraId={obraId}
+        obraNome={obraNome}
+        obraUf={obraUf}
+        cronogramaId={selectedId || undefined}
+      />
     </div>
   )
 }
