@@ -10,7 +10,10 @@ import { BackupRestauracaoModal } from '@/components/ui/BackupRestauracaoModal'
 import { APP_VERSION } from '@/lib/version'
 import { CLIMA_ATIVO_KEY, CLIMA_THRESHOLD_KEY, CLIMA_THRESHOLD_DEFAULT, readClimaSettings } from '@/components/dashboard/ClimaWidgets'
 import { SINAPI_UFS, type Profile } from '@/lib/types'
-import { readEtapasPadrao, saveEtapasPadraoStorage } from '@/lib/settings/etapas-padrao'
+import {
+  fetchEtapasPadrao, criarEtapaPadrao, atualizarEtapaPadrao, removerEtapaPadrao,
+  restaurarEtapasPadrao, notifyEtapasPadraoChanged, type EtapaPadrao,
+} from '@/lib/settings/etapas-padrao'
 
 const EMPTY_USER_FORM = {
   name: '',
@@ -43,31 +46,7 @@ const ACCENT_OPTIONS = [
   { color: '#7C1631', label: 'Vinho' },
 ]
 
-const ETAPAS_PADRAO_KEY = 'buildsmart-etapas-padrao'
 const WELCOME_HIDDEN_KEY = 'buildsmart-welcome-hidden'
-
-const ETAPAS_PADRAO_SINAPI = [
-  'Serviços Preliminares e Gerais',
-  'Infraestrutura',
-  'Supraestrutura',
-  'Paredes e Painéis',
-  'Esquadrias',
-  'Vidros e Plásticos',
-  'Coberturas',
-  'Impermeabilizações',
-  'Revestimentos Internos',
-  'Forros',
-  'Revestimentos Externos',
-  'Pinturas',
-  'Pisos',
-  'Acabamentos',
-  'Instalações Elétricas e Telefônicas',
-  'Instalações Hidráulicas',
-  'Instalações: Esgoto e Águas Pluviais',
-  'Louças e Metais',
-  'Complementos',
-  'Outros',
-]
 
 export default function ConfiguracoesPage() {
   const { currentProfile, setCurrentProfile, theme, toggleTheme } = useProfile()
@@ -88,8 +67,9 @@ export default function ConfiguracoesPage() {
   const [pwNew, setPwNew] = useState('')
   const [pwConfirm, setPwConfirm] = useState('')
   const [pwError, setPwError] = useState('')
-  const [etapasPadrao, setEtapasPadrao] = useState<string[]>(ETAPAS_PADRAO_SINAPI)
+  const [etapasPadrao, setEtapasPadrao] = useState<EtapaPadrao[]>([])
   const [novaEtapaPadrao, setNovaEtapaPadrao] = useState('')
+  const [salvandoEtapaPadrao, setSalvandoEtapaPadrao] = useState(false)
   const [showWelcomeOnEntry, setShowWelcomeOnEntry] = useState(true)
   const [climaAtivo, setClimaAtivoState] = useState(true)
   const [chuvaThreshold, setChuvaThresholdState] = useState(CLIMA_THRESHOLD_DEFAULT)
@@ -291,7 +271,8 @@ export default function ConfiguracoesPage() {
     setClimaAtivoState(clima.ativo)
     setChuvaThresholdState(clima.threshold)
 
-    setEtapasPadrao(readEtapasPadrao())
+    fetchEtapasPadrao(supabase).then(setEtapasPadrao)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Verifica se a cor selecionada é uma das pré-definidas
@@ -384,28 +365,50 @@ export default function ConfiguracoesPage() {
     setTimeout(() => setSaved(false), 2500)
   }
 
-  function saveEtapasPadrao(next: string[]) {
-    const cleaned = saveEtapasPadraoStorage(next)
-    setEtapasPadrao(cleaned)
+  function updateEtapaPadraoLocal(index: number, value: string) {
+    setEtapasPadrao(prev => prev.map((etapa, i) => i === index ? { ...etapa, nome: value } : etapa))
   }
 
-  function updateEtapaPadrao(index: number, value: string) {
-    saveEtapasPadrao(etapasPadrao.map((etapa, i) => i === index ? value : etapa))
+  async function commitEtapaPadrao(index: number) {
+    const etapa = etapasPadrao[index]
+    if (!etapa) return
+    const nome = etapa.nome.trim()
+    if (!nome) return
+    await atualizarEtapaPadrao(supabase, etapa.id, nome)
+    notifyEtapasPadraoChanged()
   }
 
-  function addEtapaPadrao() {
+  async function addEtapaPadrao() {
     const nomeEtapa = novaEtapaPadrao.trim()
-    if (!nomeEtapa || etapasPadrao.length >= 20) return
-    saveEtapasPadrao([...etapasPadrao, nomeEtapa])
-    setNovaEtapaPadrao('')
+    if (!nomeEtapa || etapasPadrao.length >= 20 || salvandoEtapaPadrao) return
+    setSalvandoEtapaPadrao(true)
+    try {
+      const criada = await criarEtapaPadrao(supabase, nomeEtapa, etapasPadrao.length + 1)
+      setEtapasPadrao(prev => [...prev, criada])
+      setNovaEtapaPadrao('')
+      notifyEtapasPadraoChanged()
+    } finally {
+      setSalvandoEtapaPadrao(false)
+    }
   }
 
-  function removeEtapaPadrao(index: number) {
-    saveEtapasPadrao(etapasPadrao.filter((_, i) => i !== index))
+  async function removeEtapaPadrao(index: number) {
+    const etapa = etapasPadrao[index]
+    if (!etapa) return
+    setEtapasPadrao(prev => prev.filter((_, i) => i !== index))
+    await removerEtapaPadrao(supabase, etapa.id)
+    notifyEtapasPadraoChanged()
   }
 
-  function resetEtapasPadrao() {
-    saveEtapasPadrao(ETAPAS_PADRAO_SINAPI)
+  async function resetEtapasPadrao() {
+    setSalvandoEtapaPadrao(true)
+    try {
+      const restauradas = await restaurarEtapasPadrao(supabase)
+      setEtapasPadrao(restauradas)
+      notifyEtapasPadraoChanged()
+    } finally {
+      setSalvandoEtapaPadrao(false)
+    }
   }
 
   function setWelcomePreference(enabled: boolean) {
@@ -865,22 +868,23 @@ export default function ConfiguracoesPage() {
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Até 20 etapas. A lista vem preenchida com um padrão próximo ao uso SINAPI/Caixa.
+              Até 20 etapas, compartilhadas entre todos os usuários. A lista vem preenchida com um padrão próximo ao uso SINAPI/Caixa.
             </p>
-            <Button variant="secondary" size="sm" onClick={resetEtapasPadrao}>
+            <Button variant="secondary" size="sm" onClick={resetEtapasPadrao} disabled={salvandoEtapaPadrao}>
               Restaurar padrão
             </Button>
           </div>
 
           <div className="flex flex-col gap-2">
             {etapasPadrao.map((etapa, index) => (
-              <div key={`${index}-${etapa}`} className="flex items-center gap-2">
+              <div key={etapa.id} className="flex items-center gap-2">
                 <span className="w-7 text-xs text-right" style={{ color: 'var(--text-secondary)' }}>
                   {index + 1}.
                 </span>
                 <input
-                  value={etapa}
-                  onChange={e => updateEtapaPadrao(index, e.target.value)}
+                  value={etapa.nome}
+                  onChange={e => updateEtapaPadraoLocal(index, e.target.value)}
+                  onBlur={() => commitEtapaPadrao(index)}
                   className="input-base flex-1"
                 />
                 <button
@@ -903,7 +907,7 @@ export default function ConfiguracoesPage() {
                 placeholder="Nova etapa padrão"
                 className="input-base flex-1"
               />
-              <Button onClick={addEtapaPadrao} icon={<Plus size={16} />} disabled={!novaEtapaPadrao.trim()}>
+              <Button onClick={addEtapaPadrao} icon={<Plus size={16} />} disabled={!novaEtapaPadrao.trim() || salvandoEtapaPadrao}>
                 Adicionar
               </Button>
             </div>

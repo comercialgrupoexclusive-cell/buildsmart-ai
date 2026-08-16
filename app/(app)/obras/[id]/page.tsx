@@ -236,36 +236,12 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
     setDeleting(true)
     setMenuOpen(false)
     try {
-      const childTables = [
-        'planejamento_dependencias',
-        'planejamento_itens',
-        'tarefas',
-        'obra_files',
-        'cronograma_dependencias',
-        'servicos_cronograma',
-        'subetapas_cronograma',
-        'compra_itens',
-        'etapa_caixa',
-        'obra_reembolsos',
-        'obra_fontes_recursos',
-        'cotacoes',
-        'requisicao_itens',
-        'requisicoes_compra',
-        'medicao_progresso',
-        'diario_obra',
-        'listas_compra',
-        'medicoes',
-        'orcamento_item_insumos',
-        'orcamento_itens',
-        'orcamentos',
-        'materiais',
-        'etapas',
-        'fornecedores',
-        'obra_usuarios',
-      ]
-      for (const table of childTables) {
-        await supabase.from(table).delete().eq('obra_id', id)
-      }
+      // orcamentos.obra_id is ON DELETE SET NULL (um orçamento pode existir avulso),
+      // então excluir a obra sozinha deixaria o orçamento órfão em vez de removê-lo.
+      // orcamento_itens/orcamento_item_insumos cascadeiam de orcamentos.
+      // Todo o resto vinculado à obra (etapas, materiais, medições, tarefas,
+      // compra_itens, financeiro, portal etc.) já cascadeia automaticamente no banco.
+      await supabase.from('orcamentos').delete().eq('obra_id', id)
       const { error } = await supabase.from('obras').delete().eq('id', id)
       if (error) {
         alert(`Erro ao excluir obra: ${error.message}`)

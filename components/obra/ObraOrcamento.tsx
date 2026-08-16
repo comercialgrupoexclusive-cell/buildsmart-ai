@@ -29,7 +29,7 @@ import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
 import { SalvarTemplateOrcamentoModal, UsarTemplateOrcamentoModal } from './TemplateOrcamentoModal'
 import { ObraAssistenteDock } from './ObraAssistenteDock'
-import { readEtapasPadrao } from '@/lib/settings/etapas-padrao'
+import { fetchEtapasPadrao, ETAPAS_PADRAO_CHANGED_EVENT } from '@/lib/settings/etapas-padrao'
 import { finalizarOrcamento } from '@/lib/project-cycle'
 
 type FonteBusca = 'proprias' | 'insumos' | 'sinapi' | 'livre'
@@ -333,6 +333,18 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     return () => mq.removeEventListener('change', onChange)
   }, [])
   const mobileDragLocked = isMobileViewport && !reorderMode
+
+  const [etapasPadrao, setEtapasPadrao] = useState<string[]>([])
+  useEffect(() => {
+    let cancelled = false
+    function carregar() {
+      fetchEtapasPadrao(supabase).then(rows => { if (!cancelled) setEtapasPadrao(rows.map(r => r.nome)) })
+    }
+    carregar()
+    window.addEventListener(ETAPAS_PADRAO_CHANGED_EVENT, carregar)
+    return () => { cancelled = true; window.removeEventListener(ETAPAS_PADRAO_CHANGED_EVENT, carregar) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Cascata + overrides
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
@@ -761,7 +773,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
 
   function openItemModal(etapaId: string | null = null, subetapa: string | null = null, usarItemLivre = false) {
     const etapa = etapaId ? etapas.find(e => e.id === etapaId) : null
-    setSelectedEtapaNome(etapa?.nome || etapas[0]?.nome || readEtapasPadrao()[0] || '')
+    setSelectedEtapaNome(etapa?.nome || etapas[0]?.nome || etapasPadrao[0] || '')
     setSubetapaLivre(subetapa && subetapa !== 'Sem subetapa' ? subetapa : '')
     setSubetapaDescricao('')
     setSubetapaValor('')
@@ -2259,7 +2271,6 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     ? listaFonte.filter(c =>
         normBusca(fixMojibake(c.descricao)).includes(termoBusca) || normBusca(c.codigo).includes(termoBusca))
     : []
-  const etapasPadrao = readEtapasPadrao()
   const nomesEtapasObra = new Set(etapas.map(e => normalizarNomeEtapa(e.nome)))
   const nomesEtapasExibidos = new Set<string>()
   const etapaOptions = [
@@ -2667,7 +2678,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
           />
           {(() => {
             const nomesExistentes = new Set(etapas.map(e => e.nome.toLowerCase()))
-            const sugestoes = readEtapasPadrao().filter(n => !nomesExistentes.has(n.toLowerCase()))
+            const sugestoes = etapasPadrao.filter(n => !nomesExistentes.has(n.toLowerCase()))
             if (sugestoes.length === 0) return null
             return (
               <div>
