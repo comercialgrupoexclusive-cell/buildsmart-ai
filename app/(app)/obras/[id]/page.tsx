@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, CalendarRange, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, Truck, Camera, X, Loader2, FileText, FolderOpen, Banknote, LayoutDashboard } from 'lucide-react'
+import { HardHat, MapPin, Calendar, CalendarRange, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, Truck, Camera, X, Loader2, FileText, FolderOpen, Banknote, LayoutDashboard, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -20,6 +20,7 @@ import { ObraFinanceiroTab } from '@/components/obra/ObraFinanceiroTab'
 import { ObraProjetoTab } from '@/components/obra/ObraProjetoTab'
 import { ObraCronogramaTab } from '@/components/obra/ObraCronogramaTab'
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
+import { ObraAssistenteDock } from '@/components/obra/ObraAssistenteDock'
 import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
 type Tab = 'projeto' | 'orcamento' | 'cronograma' | 'planejamento' | 'suprimentos' | 'medicoes' | 'financeiro'
@@ -611,8 +612,13 @@ type OrcSelectItem = { id: string; nome: string | null; versao: number; status: 
 
 function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: { obraId: string; obraNome: string; obraUf?: string; obraArea?: number | null; selectedId: string }) {
   const supabase = createClient()
+  const { refreshOrcamentos } = useObraOrcamento()
   const [orcamentos, setOrcamentos] = useState<OrcSelectItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [creatingMode, setCreatingMode] = useState<'manual' | 'ai' | null>(null)
+  const [createError, setCreateError] = useState('')
+  const [assistantOpen, setAssistantOpen] = useState(false)
+  const creatingRef = useRef(false)
   const [editingName, setEditingName] = useState(false)
   const [editName, setEditName] = useState('')
   const [subTab, setSubTab] = useState<'itens' | 'curva-abc'>('itens')
@@ -636,6 +642,75 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: {
     await supabase.from('orcamentos').update({ nome: editName.trim() }).eq('id', selectedId)
     setEditingName(false)
     await load()
+  }
+
+  async function handleCreateBudget(openAssistant: boolean) {
+    if (creatingRef.current) return
+    creatingRef.current = true
+    setCreatingMode(openAssistant ? 'ai' : 'manual')
+    setCreateError('')
+
+    try {
+      const { data: existing, error: existingError } = await supabase
+        .from('orcamentos')
+        .select('id, nome, versao, status')
+        .eq('obra_id', obraId)
+        .order('versao', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (existingError) throw existingError
+
+      let budget = existing as OrcSelectItem | null
+      if (!budget) {
+        const { data: versions, error: versionError } = await supabase
+          .from('orcamentos')
+          .select('versao')
+          .eq('obra_id', obraId)
+          .order('versao', { ascending: false })
+          .limit(1)
+
+        if (versionError) throw versionError
+        const nextVersion = Number(versions?.[0]?.versao || 0) + 1
+
+        const { data: created, error: createBudgetError } = await supabase
+          .from('orcamentos')
+          .insert({
+            obra_id: obraId,
+            nome: obraNome.trim(),
+            tipo: 'executivo',
+            bdi_percentual: 25,
+            status: 'em_projeto',
+            versao: nextVersion,
+          })
+          .select('id, nome, versao, status')
+          .single()
+
+        if (createBudgetError) {
+          // O indice unico da obra resolve cliques concorrentes; nesse caso usamos o registro vencedor.
+          if (createBudgetError.code !== '23505') throw createBudgetError
+          const { data: concurrent, error: concurrentError } = await supabase
+            .from('orcamentos')
+            .select('id, nome, versao, status')
+            .eq('obra_id', obraId)
+            .order('versao', { ascending: false })
+            .limit(1)
+            .single()
+          if (concurrentError) throw concurrentError
+          budget = concurrent as OrcSelectItem
+        } else {
+          budget = created as OrcSelectItem
+        }
+      }
+
+      await Promise.all([load(), refreshOrcamentos()])
+      if (openAssistant && budget) setAssistantOpen(true)
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Nao foi possivel criar o orcamento da obra.')
+    } finally {
+      creatingRef.current = false
+      setCreatingMode(null)
+    }
   }
 
   const selectedOrc = orcamentos.find(o => o.id === selectedId)
@@ -710,9 +785,39 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: {
         <div className="card p-8 text-center">
           <FileText size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)', opacity: 0.5 }} />
           <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Nenhum orçamento vinculado</p>
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Inicie a obra a partir de um orçamento para habilitar os módulos operacionais.</p>
+          <p className="text-xs mb-5" style={{ color: 'var(--text-secondary)' }}>Crie o orçamento-base para começar a organizar esta obra.</p>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2">
+            <Button
+              type="button"
+              onClick={() => handleCreateBudget(false)}
+              loading={creatingMode === 'manual'}
+              disabled={creatingMode !== null}
+              icon={<FileText size={15} />}
+            >
+              Criar orçamento da obra
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => handleCreateBudget(true)}
+              loading={creatingMode === 'ai'}
+              disabled={creatingMode !== null}
+              icon={<Sparkles size={15} />}
+            >
+              Criar com IA
+            </Button>
+          </div>
+          {createError && <p className="text-xs mt-3" style={{ color: 'var(--danger)' }}>{createError}</p>}
         </div>
       )}
+
+      <ObraAssistenteDock
+        open={assistantOpen}
+        onClose={() => setAssistantOpen(false)}
+        obraId={obraId}
+        obraNome={obraNome}
+        obraUf={obraUf || 'SP'}
+      />
 
       {/* Modal renomear */}
       {editingName && (
