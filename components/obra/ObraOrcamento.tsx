@@ -33,6 +33,7 @@ import { ObraAssistenteDock } from './ObraAssistenteDock'
 import { OrcamentoEstruturaIAModal } from './OrcamentoEstruturaIAModal'
 import { fetchEtapasPadrao, ETAPAS_PADRAO_CHANGED_EVENT } from '@/lib/settings/etapas-padrao'
 import { finalizarOrcamento } from '@/lib/project-cycle'
+import { sincronizarMateriaisDoOrcamento as sincronizarMateriaisLib } from '@/lib/materiais-sync'
 
 type FonteBusca = 'proprias' | 'insumos' | 'sinapi' | 'livre'
 
@@ -1005,18 +1006,10 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       tipo_item_snapshot: draft.fonte === 'proprias' || draft.fonte === 'sinapi' ? 'COMPOSICAO' : draft.fonte === 'insumos' ? 'INSUMO' : 'ITEM_LIVRE',
     })
     if (error) throw error
-
-    try {
-      if (draft.fonte === 'livre' || draft.fonte === 'insumos') {
-        await upsertMaterialSoma(draft.codigo, draft.descricao, draft.unidade, draft.quantidade, etapaId, draft.subetapa)
-      } else if (!isSinapi && draft.item && 'composicao_itens' in draft.item) {
-        await gerarMateriaisDaComposicao(draft.item.composicao_itens || [], draft.quantidade, etapaId, draft.subetapa, draft.item.codigo, draft.item.descricao, draft.item.unidade)
-      } else if (isSinapi && draft.item) {
-        await gerarMateriaisDaComposicaoSinapi(draft.item.codigo, (draft.item as SinapiComposicao).mes_referencia, draft.quantidade, etapaId, draft.subetapa, draft.item.descricao, draft.item.unidade)
-      }
-    } catch (error) {
-      console.error('Item inserido, mas houve falha ao sincronizar materiais:', error)
-    }
+    // Materiais não são mais atualizados incrementalmente a cada edição do
+    // orçamento (isso era a origem dos duplicados — duas chaves de
+    // identidade diferentes brigando). Use "Importar p/ Materiais" para
+    // recalcular a partir do estado atual do orçamento.
   }
 
   async function handleInserirItens() {
@@ -1083,14 +1076,8 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       })
 
       if (error) throw error
-
-      if (fonte === 'livre') {
-        await upsertMaterialSoma(codigoLivre, descricaoFinal, unidadeFinal, qtd, etapaId, subetapaFinal)
-      } else if (!isSinapi && selectedItem && 'composicao_itens' in selectedItem) {
-        await gerarMateriaisDaComposicao(selectedItem.composicao_itens || [], qtd, etapaId, subetapaFinal, selectedItem.codigo, selectedItem.descricao, selectedItem.unidade)
-      } else if (isSinapi) {
-        await gerarMateriaisDaComposicaoSinapi(selectedItem!.codigo, (selectedItem as SinapiComposicao).mes_referencia, qtd, etapaId, subetapaFinal, selectedItem!.descricao, selectedItem!.unidade)
-      }
+      // Materiais não são mais atualizados incrementalmente aqui — use
+      // "Importar p/ Materiais" para recalcular a partir do orçamento atual.
 
       setSelectedItem(null); setQuantidade(''); setBusca(''); setLivreDescricao(''); setLivrePreco('')
       if (fecharDepois) { setShowAddItem(false); setSubetapaLivre('') }
@@ -1104,12 +1091,6 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   }
 
   async function handleRemoveItem(itemId: string) {
-    const item = itens.find(i => i.id === itemId)
-    if (item?.composicao_id) {
-      await abaterMateriaisDaComposicao(item.composicao_itens || [], item.quantidade, item.etapa_id, item.subetapa, item.codigo)
-    } else if (item?.sinapi_composicao_id && item.codigo && item.codigo !== '—') {
-      await abaterMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, item.quantidade, item.etapa_id, item.subetapa)
-    }
     // Limpar overrides deste item
     setInsumoOverrides(prev => {
       const next = { ...prev }
@@ -1139,13 +1120,8 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       return
     }
 
-    if (item.composicao_id) {
-      await abaterMateriaisDaComposicao(item.composicao_itens || [], quantidadeAnterior, item.etapa_id, item.subetapa, item.codigo)
-      await gerarMateriaisDaComposicao(item.composicao_itens || [], novaQuantidade, item.etapa_id, item.subetapa, item.codigo, item.descricao, item.unidade)
-    } else if (item.sinapi_composicao_id && item.codigo && item.codigo !== '\u2014') {
-      await abaterMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, quantidadeAnterior, item.etapa_id, item.subetapa)
-      await gerarMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, novaQuantidade, item.etapa_id, item.subetapa, item.descricao, item.unidade)
-    }
+    // Materiais n\u00e3o s\u00e3o mais atualizados incrementalmente aqui \u2014 use
+    // "Importar p/ Materiais" para recalcular a partir do or\u00e7amento atual.
   }
 
   async function handleEditItemSave() {
@@ -1227,11 +1203,6 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   async function removeEtapaConfirmada(etapaId: string) {
     const itensDaEtapa = itens.filter(i => i.etapa_id === etapaId)
     for (const item of itensDaEtapa) {
-      if (item.composicao_id) {
-        await abaterMateriaisDaComposicao(item.composicao_itens || [], item.quantidade, item.etapa_id, item.subetapa, item.codigo)
-      } else if (item.sinapi_composicao_id && item.codigo && item.codigo !== '—') {
-        await abaterMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, item.quantidade, item.etapa_id, item.subetapa)
-      }
       setInsumoOverrides(prev => {
         const next = { ...prev }
         Object.keys(next).filter(k => k.startsWith(item.id)).forEach(k => delete next[k])
@@ -1273,15 +1244,6 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       item.etapa_id === etapaId && (item.subetapa || 'Sem subetapa') === subetapaNome
     )
     for (const item of itensDaSubetapa) {
-      if (item.tipo_linha === 'subetapa') {
-        // Apenas metadado de valor da subetapa; nao gera material.
-      } else if (item.composicao_id) {
-        await abaterMateriaisDaComposicao(item.composicao_itens || [], item.quantidade, item.etapa_id, item.subetapa, item.codigo)
-      } else if (item.sinapi_composicao_id && item.codigo && item.codigo !== '—') {
-        await abaterMateriaisDaComposicaoSinapi(item.codigo, item.sinapi_mes_referencia, item.quantidade, item.etapa_id, item.subetapa)
-      } else if (item.codigo && item.codigo !== '—') {
-        await abaterMaterialQtd(item.codigo, item.quantidade, item.etapa_id, item.subetapa)
-      }
       setInsumoOverrides(prev => {
         const next = { ...prev }
         Object.keys(next).filter(k => k.startsWith(item.id)).forEach(k => delete next[k])
@@ -1680,7 +1642,6 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
             ? 'MATERIAL_SERVICOS'
             : descricaoEhMaoObra ? 'MAO_DE_OBRA' : null
       const statusExecucaoImportado = mapStatusExecucao(linha.valores.statusExecucao)
-      const statusCompraImportado = mapStatusCompra(linha.valores.statusMaterial)
       const insumosAntigos = Array.isArray(linha.valores.insumos)
         ? linha.valores.insumos as InsumoOrcamentoAntigo[]
         : []
@@ -1806,7 +1767,6 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
           erros.push(`Linha ${linha.numero}: erro ao inserir item livre - ${insertLivreErro.message}`)
           continue
         }
-        await upsertMaterialSoma(codigoLivre, descricaoImportada || `Item livre ${linha.numero}`, unidadeImportada, quantidade, etapaId, subetapa, statusCompraImportado)
         inseridos++
         continue
       }
@@ -1896,14 +1856,6 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         if (Object.keys(overridesImportados).length) {
           setInsumoOverrides(prev => ({ ...prev, ...overridesImportados }))
         }
-      }
-
-      if (insumosResumoLegado) {
-        await upsertMaterialSoma(composicao.codigo, descricaoSnapshot, unidadeSnapshot, quantidade, etapaId, subetapa, statusCompraImportado)
-      } else if (!insumosAntigos.length && !isSinapi && 'composicao_itens' in composicao) {
-        await gerarMateriaisDaComposicao((composicao as ComposicaoComCusto).composicao_itens || [], quantidade, etapaId, subetapa, composicao.codigo, composicao.descricao, composicao.unidade)
-      } else if (!insumosAntigos.length && isSinapi) {
-        await gerarMateriaisDaComposicaoSinapi(composicao.codigo, (composicao as SinapiComposicao).mes_referencia, quantidade, etapaId, subetapa, composicao.descricao, composicao.unidade)
       }
 
       inseridos++
@@ -2011,27 +1963,8 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   }
 
   // ─── Materiais ────────────────────────────────────────────────────────────
-  // Observação: a lista de "materiais a comprar" é ligada a sinapi_codigo (TEXT).
-  // gerarMateriaisDaComposicao (própria) e gerarMateriaisDaComposicaoSinapi (base
-  // SINAPI) ficam definidas mais abaixo, junto dos helpers de upsert/abate —
-  // ambas com fallback (lançam a própria composição como material) quando não
-  // há detalhamento analítico de insumos disponível, garantindo que o dado
-  // sempre "puxe" pra Materiais.
-
-  // Mesma ideia de gerarMateriaisDaComposicao, mas para itens vindos direto da
-  // base SINAPI (sinapi_composicao_id) — não têm `composicao_itens` embutido,
-  // então buscamos a tabela analítica `sinapi_composicao_itens` (INSUMO|COMPOSICAO)
-  // e geramos materiais a partir dos insumos diretos (tipo INSUMO).
-  // Sem isso, a cascata de Materiais ficava vazia para orçamentos montados com
-  // composições da base SINAPI (o caminho mais comum).
-  async function buscarInsumosAnaliticosSinapi(codigo: string, mesReferencia: string | null | undefined) {
-    let query = supabase.from('sinapi_composicao_itens')
-      .select('item_codigo, item_descricao, item_unidade, coeficiente, tipo')
-      .eq('composicao_codigo', codigo).eq('tipo', 'INSUMO')
-    if (mesReferencia) query = query.eq('mes_referencia', mesReferencia)
-    const { data } = await query
-    return (data || []) as { item_codigo: string; item_descricao: string; item_unidade: string; coeficiente: number; tipo: string }[]
-  }
+  // A expansão orçamento→insumos e a geração de materiais vivem em
+  // lib/materiais-sync.ts (fonte única, reaproveitada por ObraMateriais.tsx).
 
   function mapStatusExecucao(valor: unknown): Etapa['status'] {
     const texto = String(valor ?? '').toLowerCase()
@@ -2041,216 +1974,18 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     return 'planejada'
   }
 
-  function mapStatusCompra(valor: unknown): 'nao_comprado' | 'solicitado' | 'parcial' | 'comprado' {
-    const texto = String(valor ?? '').toLowerCase()
-    if (texto.includes('comprado')) return 'comprado'
-    if (texto.includes('parcial')) return 'parcial'
-    if (texto.includes('solicit')) return 'solicitado'
-    return 'nao_comprado'
-  }
-
-  // ─── Upsert/abate genérico de uma linha de material (soma/subtrai quantidade) ──
-  async function upsertMaterialSoma(codigo: string, descricao: string, unidade: string, qtdSomar: number, etapaId: string | null, subetapa: string | null, statusCompra: 'nao_comprado' | 'solicitado' | 'parcial' | 'comprado' = 'nao_comprado') {
-    if (!codigo || codigo === '—' || qtdSomar <= 0) return
-    const temSubetapa = await materiaisTemSubetapa()
-    let query = supabase.from('materiais').select('id, quantidade_total')
-      .eq('obra_id', resolvedObraId).eq('sinapi_codigo', codigo)
-    query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
-    if (temSubetapa) query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
-    const { data: existente, error: erroSel } = await query.maybeSingle()
-    if (erroSel) { console.error('Erro ao consultar material existente:', erroSel); return }
-    if (existente) {
-      const updatePayload: Record<string, unknown> = { quantidade_total: Number(existente.quantidade_total) + qtdSomar }
-      if (statusCompra !== 'nao_comprado') {
-        updatePayload.status_compra = statusCompra
-        if (statusCompra === 'comprado') updatePayload.quantidade_comprada = Number(existente.quantidade_total) + qtdSomar
-      }
-      const { error } = await supabase.from('materiais').update(updatePayload).eq('id', existente.id)
-      if (error) console.error('Erro ao somar quantidade do material:', error)
-    } else {
-      const novoMaterial: Record<string, unknown> = {
-        obra_id: resolvedObraId, etapa_id: etapaId,
-        sinapi_codigo: codigo, descricao: descricao || codigo, unidade: unidade || 'UN',
-        quantidade_total: qtdSomar, quantidade_comprada: statusCompra === 'comprado' ? qtdSomar : 0, status_compra: statusCompra,
-      }
-      if (temSubetapa) novoMaterial.subetapa = subetapa
-      const { error } = await supabase.from('materiais').insert(novoMaterial)
-      if (error) console.error('Erro ao criar material a partir do orçamento:', error)
-    }
-  }
-
-  async function abaterMaterialQtd(codigo: string, qtdAbater: number, etapaId: string | null, subetapa: string | null) {
-    if (!codigo || codigo === '—' || qtdAbater <= 0) return
-    const temSubetapa = await materiaisTemSubetapa()
-    let query = supabase.from('materiais').select('id, quantidade_total')
-      .eq('obra_id', resolvedObraId).eq('sinapi_codigo', codigo)
-    query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
-    if (temSubetapa) query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
-    const { data: existente, error: erroSel } = await query.maybeSingle()
-    if (erroSel) { console.error('Erro ao consultar material existente:', erroSel); return }
-    if (!existente) return
-    const novaQtd = Number(existente.quantidade_total) - qtdAbater
-    if (novaQtd <= 0) { await supabase.from('materiais').delete().eq('id', existente.id) }
-    else { await supabase.from('materiais').update({ quantidade_total: novaQtd }).eq('id', existente.id) }
-  }
-
-  // Gera materiais a partir de uma composição vinda da base SINAPI. Quando a
-  // composição TEM detalhamento analítico importado (tabela sinapi_composicao_itens
-  // — vem de uma importação manual e opcional na aba SINAPI), usamos os insumos
-  // reais dela. Quando NÃO tem (caso mais comum, pois poucos usuários importam
-  // esse detalhamento), caímos no FALLBACK: lançamos a própria composição como
-  // uma linha de material (na quantidade do orçamento) — assim o dado sempre
-  // "puxa" pra Materiais, mesmo sem o detalhamento analítico.
-  async function gerarMateriaisDaComposicaoSinapi(codigo: string, mesReferencia: string | null | undefined, qtdComposicao: number, etapaId: string | null, subetapa: string | null = null, descricaoFallback?: string, unidadeFallback?: string) {
-    const itensAnaliticos = await buscarInsumosAnaliticosSinapi(codigo, mesReferencia)
-    if (itensAnaliticos.length === 0) {
-      await upsertMaterialSoma(codigo, descricaoFallback || codigo, unidadeFallback || 'UN', qtdComposicao, etapaId, subetapa)
-      return
-    }
-    for (const item of itensAnaliticos) {
-      if (!item.item_codigo) continue
-      const qtdSugerida = qtdComposicao * item.coeficiente
-      await upsertMaterialSoma(item.item_codigo, item.item_descricao || item.item_codigo, item.item_unidade || 'UN', qtdSugerida, etapaId, subetapa)
-    }
-  }
-
-  async function abaterMateriaisDaComposicaoSinapi(codigo: string, mesReferencia: string | null | undefined, qtdComposicao: number, etapaId: string | null, subetapa: string | null = null) {
-    const itensAnaliticos = await buscarInsumosAnaliticosSinapi(codigo, mesReferencia)
-    if (itensAnaliticos.length === 0) {
-      await abaterMaterialQtd(codigo, qtdComposicao, etapaId, subetapa)
-      return
-    }
-    for (const item of itensAnaliticos) {
-      if (!item.item_codigo) continue
-      await abaterMaterialQtd(item.item_codigo, qtdComposicao * item.coeficiente, etapaId, subetapa)
-    }
-  }
-
-  async function gerarMateriaisDaComposicao(itensComp2: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null, subetapa: string | null = null, codigoFallback?: string, descricaoFallback?: string, unidadeFallback?: string) {
-    if (itensComp2.length === 0) {
-      // Composição própria sem insumos cadastrados — mesmo fallback do SINAPI:
-      // lança a própria composição como material, pra não ficar "sem puxar nada".
-      if (codigoFallback) await upsertMaterialSoma(codigoFallback, descricaoFallback || codigoFallback, unidadeFallback || 'UN', qtdComposicao, etapaId, subetapa)
-      return
-    }
-    for (const item of itensComp2) {
-      if (!item.insumo?.codigo) continue
-      await upsertMaterialSoma(item.insumo.codigo, item.insumo.descricao, item.insumo.unidade, qtdComposicao * item.coeficiente, etapaId, subetapa)
-    }
-  }
-
-  async function abaterMateriaisDaComposicao(itensComp: ComposicaoItemJoin[], qtdComposicao: number, etapaId: string | null, subetapa: string | null = null, codigoFallback?: string) {
-    if (itensComp.length === 0) {
-      if (codigoFallback) await abaterMaterialQtd(codigoFallback, qtdComposicao, etapaId, subetapa)
-      return
-    }
-    for (const item of itensComp) {
-      if (!item.insumo?.codigo) continue
-      await abaterMaterialQtd(item.insumo.codigo, qtdComposicao * item.coeficiente, etapaId, subetapa)
-    }
-  }
-
-  // ─── Sincronizar materiais com o orçamento (recalcula do zero) ───────────
-  // Pergunta do usuário: "como faço pra puxar os insumos do orçamento pra
-  // materiais? o sistema já deveria fazer isso sozinho?" — Sim, a partir de
-  // agora qualquer item ADICIONADO ao orçamento já gera/abate materiais
-  // automaticamente (handleAddItem/handleRemoveItem/handleRemoveEtapa/import).
-  // Mas itens que já estavam no orçamento ANTES dessa correção (principalmente
-  // os vindos direto da base SINAPI) nunca geraram materiais — esta ação
-  // varre TODOS os itens atuais do orçamento, soma a necessidade por
-  // (etapa, subetapa, código do insumo) e GRAVA o total na tabela `materiais`
-  // (sobrescreve, não soma) — por isso é seguro rodar quantas vezes quiser,
-  // sem duplicar quantidades.
+  // ─── Sincronizar materiais com o orçamento ─────────────────────────────────
+  // Fonte única (lib/materiais-sync.ts), usada também por ObraMateriais.tsx —
+  // upsert atômico (ON CONFLICT no banco) por (obra, orçamento, etapa,
+  // subetapa estável, código do insumo). Rodar quantas vezes quiser produz
+  // sempre o mesmo resultado; nunca mexe em quantidade_comprada/status_compra/
+  // data_recebimento (isso é histórico de compra, não necessidade).
   async function sincronizarMateriaisDoOrcamento() {
-    if (sincronizandoMateriais) return
+    if (sincronizandoMateriais || !orcamento || !resolvedObraId) return
     setSincronizandoMateriais(true)
     try {
-      type Acc = { qtd: number; descricao: string; unidade: string }
-      const mapa = new Map<string, Acc>()
-      const acumular = (etapaId: string | null, subetapa: string | null, codigo: string, descricao: string, unidade: string, qtd: number) => {
-        if (!codigo || codigo === '—' || qtd <= 0) return
-        const key = `${etapaId ?? 'null'}|${subetapa ?? 'null'}|${codigo}`
-        const atual = mapa.get(key)
-        if (atual) atual.qtd += qtd
-        else mapa.set(key, { qtd, descricao, unidade })
-      }
-
-      for (const item of itensOrcamento) {
-        if (item.sinapi_composicao_id) {
-          const insumos = await buscarInsumosAnaliticosSinapi(item.codigo, item.sinapi_mes_referencia)
-          if (insumos.length === 0) {
-            // Sem detalhamento analítico importado pra essa composição/mês —
-            // lança a própria composição como material (fallback), senão o
-            // item simplesmente não "puxaria" nada pra Materiais.
-            acumular(item.etapa_id, item.subetapa, item.codigo, item.descricao, item.unidade, item.quantidade)
-          } else {
-            for (const ins of insumos) {
-              if (!ins.item_codigo) continue
-              acumular(item.etapa_id, item.subetapa, ins.item_codigo, ins.item_descricao || ins.item_codigo, ins.item_unidade || 'UN', item.quantidade * ins.coeficiente)
-            }
-          }
-        } else if (item.composicao_id) {
-          const lista = item.composicao_itens || []
-          if (lista.length === 0) {
-            acumular(item.etapa_id, item.subetapa, item.codigo, item.descricao, item.unidade, item.quantidade)
-          } else {
-            for (const ins of lista) {
-              const info = infoDoItem(ins, obraUf)
-              if (!info.codigo || info.codigo === '—') continue
-              acumular(item.etapa_id, item.subetapa, info.codigo, info.descricao, info.unidade, item.quantidade * ins.coeficiente)
-            }
-          }
-        }
-        // itens digitados manualmente (sem composição vinculada) não geram materiais —
-        // não há "receita" de insumos pra puxar.
-      }
-
-      // Detecta se a coluna materiais.subetapa existe — em alguns bancos a
-      // migração "fix_2026_06_08_supabase_v1_2_columns.sql" ainda não rodou.
-      const temSubetapa = await materiaisTemSubetapa()
-
-      let criados = 0
-      let atualizados = 0
-      const errosDb: string[] = []
-      for (const [key, acc] of mapa) {
-        const [etapaIdRaw, subetapaRaw, codigo] = key.split('|')
-        const etapaId = etapaIdRaw === 'null' ? null : etapaIdRaw
-        const subetapa = subetapaRaw === 'null' ? null : subetapaRaw
-        let query = supabase.from('materiais').select('id, quantidade_total')
-          .eq('obra_id', resolvedObraId).eq('sinapi_codigo', codigo)
-        query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
-        if (temSubetapa) query = subetapa ? query.eq('subetapa', subetapa) : query.is('subetapa', null)
-        const { data: existente, error: erroSelect } = await query.maybeSingle()
-        if (erroSelect) { errosDb.push(erroSelect.message); continue }
-        const qtdArredondada = Math.round(acc.qtd * 10000) / 10000
-        if (existente) {
-          if (Number(existente.quantidade_total) !== qtdArredondada) {
-            const { error: erroUpdate } = await supabase.from('materiais').update({ quantidade_total: qtdArredondada }).eq('id', existente.id)
-            if (erroUpdate) errosDb.push(erroUpdate.message)
-            else atualizados++
-          }
-        } else {
-          const novoMaterial: Record<string, unknown> = {
-            obra_id: resolvedObraId, etapa_id: etapaId,
-            sinapi_codigo: codigo, descricao: acc.descricao, unidade: acc.unidade,
-            quantidade_total: qtdArredondada, quantidade_comprada: 0, status_compra: 'nao_comprado',
-          }
-          if (temSubetapa) novoMaterial.subetapa = subetapa
-          const { error: erroInsert } = await supabase.from('materiais').insert(novoMaterial)
-          if (erroInsert) errosDb.push(erroInsert.message)
-          else criados++
-        }
-      }
-      if (!temSubetapa) {
-        alert(
-          `Sincronização concluída (sem agrupamento por subetapa — coluna pendente no banco).\n\n` +
-          `${criados} novo(s) · ${atualizados} atualizado(s) · ${errosDb.length} erro(s)${errosDb.length > 0 ? `\nPrimeiro erro: ${errosDb[0]}` : ''}\n\n` +
-          `Para habilitar o agrupamento por subetapa, rode a migração pendente "supabase/fix_2026_06_08_supabase_v1_2_columns.sql" no SQL Editor do Supabase (uma vez só).`
-        )
-      } else if (errosDb.length > 0) {
-        console.error('Erros ao sincronizar materiais:', errosDb)
-        alert(`Sincronização concluída com ${errosDb.length} erro(s) do banco.\n\nCriados: ${criados} · Atualizados: ${atualizados}\n\nPrimeiro erro: ${errosDb[0]}`)
-      } else if (criados === 0 && atualizados === 0) {
+      const { criados, atualizados } = await sincronizarMateriaisLib(supabase, { obraId: resolvedObraId, orcamentoId: orcamento.id })
+      if (criados === 0 && atualizados === 0) {
         alert('Materiais já estavam em dia com o orçamento — nada para sincronizar.\n\n(Se você esperava ver itens novos, confira se o orçamento tem itens com composição vinculada — itens digitados manualmente não geram materiais, pois não têm uma "receita" de insumos.)')
       } else {
         alert(`Materiais sincronizados com o orçamento.\n\n${criados} novo(s) item(ns) criado(s) em Materiais.\n${atualizados} item(ns) com quantidade atualizada.`)
