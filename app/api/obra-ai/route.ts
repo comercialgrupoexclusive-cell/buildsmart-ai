@@ -240,8 +240,19 @@ async function findByName(db: DB, table: string, campo: string, nome: string, ob
   return data?.[0] || null
 }
 
+// Busca uma etapa pelo nome, priorizando o cronograma atualmente selecionado na
+// UI (quando informado) antes de cair para a busca ampla por toda a obra —
+// evita que a Luiza altere/exclua uma etapa homônima de outro cronograma.
+async function findEtapaByName(db: DB, nome: string, obraId: string, cronogramaId?: string): Promise<any | null> {
+  if (cronogramaId) {
+    const { data } = await db.from('etapas').select('*').eq('obra_id', obraId).eq('cronograma_id', cronogramaId).ilike('nome', `%${nome}%`).limit(1)
+    if (data?.[0]) return data[0]
+  }
+  return findByName(db, 'etapas', 'nome', nome, obraId)
+}
+
 // ─── Executor de funções ────────────────────────────────────────────────────
-async function executeTool(db: DB, obraId: string, name: string, args: Record<string, any>): Promise<string> {
+async function executeTool(db: DB, obraId: string, name: string, args: Record<string, any>, cronogramaId?: string): Promise<string> {
   try {
     // Ferramentas compartilhadas (RDO, avanço, boletim) — obra fixa
     const shared = await execObraAiTool(db, name, args, obraId)
@@ -277,6 +288,7 @@ async function executeTool(db: DB, obraId: string, name: string, args: Record<st
           const { error } = await db.from('etapas').insert({
             obra_id: obraId, nome: e.nome, status: 'planejada', ordem: ordem++,
             data_inicio: e.data_inicio || null, data_fim: e.data_fim || null,
+            cronograma_id: cronogramaId || null,
           })
           if (error) return `Erro ao criar "${e.nome}": ${error.message}`
           nomes.push(e.nome)
@@ -285,7 +297,7 @@ async function executeTool(db: DB, obraId: string, name: string, args: Record<st
       }
 
       case 'criar_subetapas': {
-        const etapa = await findByName(db, 'etapas', 'nome', args.etapa_nome, obraId)
+        const etapa = await findEtapaByName(db, args.etapa_nome, obraId, cronogramaId)
         if (!etapa) return `Etapa "${args.etapa_nome}" nao encontrada.`
         const lista = args.subetapas as any[]
         if (!lista?.length) return 'Nenhuma subetapa informada.'
@@ -331,7 +343,7 @@ async function executeTool(db: DB, obraId: string, name: string, args: Record<st
       }
 
       case 'alterar_etapa': {
-        const etapa = await findByName(db, 'etapas', 'nome', args.etapa_nome, obraId)
+        const etapa = await findEtapaByName(db, args.etapa_nome, obraId, cronogramaId)
         if (!etapa) return `Etapa "${args.etapa_nome}" nao encontrada.`
         const update: any = {}
         if (args.novo_nome) update.nome = args.novo_nome
@@ -368,7 +380,7 @@ async function executeTool(db: DB, obraId: string, name: string, args: Record<st
         const tipo = args.tipo as string
         const nome = args.nome as string
         if (tipo === 'etapa') {
-          const etapa = await findByName(db, 'etapas', 'nome', nome, obraId)
+          const etapa = await findEtapaByName(db, nome, obraId, cronogramaId)
           if (!etapa) return `Etapa "${nome}" nao encontrada.`
           const { error } = await db.from('etapas').delete().eq('id', etapa.id)
           if (error) return `Erro: ${error.message}`
@@ -540,11 +552,12 @@ async function executeTool(db: DB, obraId: string, name: string, args: Record<st
 // ─── POST handler ────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
-    const { obraId, messages = [], obraNome = '', obraUf = 'SP' } = await req.json() as {
+    const { obraId, messages = [], obraNome = '', obraUf = 'SP', cronogramaId } = await req.json() as {
       obraId: string
       messages: Msg[]
       obraNome?: string
       obraUf?: string
+      cronogramaId?: string
     }
 
     if (!obraId || !messages.length) {
@@ -622,7 +635,7 @@ REGRAS:
       for (const tc of fnCalls) {
         let args: Record<string, any> = {}
         try { args = JSON.parse(tc.function.arguments) } catch { /* ignore */ }
-        const result = await executeTool(db, obraId, tc.function.name, args)
+        const result = await executeTool(db, obraId, tc.function.name, args, cronogramaId)
         oaiMessages.push({ role: 'tool', tool_call_id: tc.id, content: result })
       }
     }

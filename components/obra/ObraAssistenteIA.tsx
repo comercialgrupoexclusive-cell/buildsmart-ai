@@ -20,10 +20,12 @@ function formatMessage(text: string) {
     .replace(/\n/g, '<br>')
 }
 
-export function ObraAssistenteIA({ obraId, obraNome, obraUf }: {
+export function ObraAssistenteIA({ obraId, obraNome, obraUf, cronogramaId, heightClass = 'h-[calc(100vh-220px)]' }: {
   obraId: string
   obraNome: string
   obraUf: string
+  cronogramaId?: string
+  heightClass?: string
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -70,6 +72,7 @@ export function ObraAssistenteIA({ obraId, obraNome, obraUf }: {
           obraId,
           obraNome,
           obraUf,
+          cronogramaId,
           messages: next.slice(-20),
         }),
       })
@@ -95,7 +98,7 @@ export function ObraAssistenteIA({ obraId, obraNome, obraUf }: {
   const isEmpty = messages.length === 0 && !loading
 
   return (
-    <div className="flex flex-col h-[calc(100vh-220px)] min-h-[400px]">
+    <div className={`flex flex-col ${heightClass} min-h-[400px]`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 rounded-t-2xl"
         style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border)' }}>

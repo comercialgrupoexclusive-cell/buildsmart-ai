@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Calendar, CalendarClock, LineChart, Pencil, Plus, Link2, Unlink } from 'lucide-react'
+import { Calendar, CalendarClock, LineChart, Pencil, Plus, Link2, Unlink, Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { ObraCronograma } from '@/components/obra/ObraCronograma'
 import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
 import { ObraCurvaS } from '@/components/obra/ObraCurvaS'
+import { ObraAssistenteIA } from '@/components/obra/ObraAssistenteIA'
+import { Modal } from '@/components/ui/Modal'
 
 type SubTab = 'gantt' | 'previsoes' | 'curva'
 
@@ -17,7 +19,7 @@ const TABS: { id: SubTab; label: string; icon: typeof Calendar }[] = [
 
 type CronoSelectItem = { id: string; nome: string }
 
-export function ObraCronogramaTab({ obraId, obraNome, orcamentoIds, orcamentoId }: { obraId: string; obraNome: string; orcamentoIds: string[]; orcamentoId: string }) {
+export function ObraCronogramaTab({ obraId, obraNome, obraUf = 'SP', orcamentoIds, orcamentoId }: { obraId: string; obraNome: string; obraUf?: string; orcamentoIds: string[]; orcamentoId: string }) {
   const supabase = createClient()
   const [subTab, setSubTab] = useState<SubTab>('gantt')
   const [cronogramas, setCronogramas] = useState<CronoSelectItem[]>([])
@@ -31,8 +33,15 @@ export function ObraCronogramaTab({ obraId, obraNome, orcamentoIds, orcamentoId 
   const [creating, setCreating] = useState(false)
   const [editingName, setEditingName] = useState(false)
   const [editName, setEditName] = useState('')
+  const [showAssistente, setShowAssistente] = useState(false)
 
   useEffect(() => { load() }, [obraId])
+
+  useEffect(() => {
+    function onDataChanged() { load() }
+    window.addEventListener('buildsmart:obra-data-changed', onDataChanged)
+    return () => window.removeEventListener('buildsmart:obra-data-changed', onDataChanged)
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -183,6 +192,9 @@ export function ObraCronogramaTab({ obraId, obraNome, orcamentoIds, orcamentoId 
               <button onClick={() => { setNovoNome(`${obraNome} - Cronograma`); setShowNovo(true) }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ background: 'var(--accent)' }}>
                 <Plus size={13} /> Novo
               </button>
+              <button onClick={() => setShowAssistente(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium hover:opacity-80" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                <Sparkles size={13} /> Assistente IA
+              </button>
             </div>
           </div>
 
@@ -261,6 +273,16 @@ export function ObraCronogramaTab({ obraId, obraNome, orcamentoIds, orcamentoId 
           </div>
         </div>
       )}
+
+      <Modal open={showAssistente} onClose={() => setShowAssistente(false)} size="xl">
+        <ObraAssistenteIA
+          obraId={obraId}
+          obraNome={obraNome}
+          obraUf={obraUf}
+          cronogramaId={selectedId || undefined}
+          heightClass="h-[70vh]"
+        />
+      </Modal>
     </div>
   )
 }

@@ -8,6 +8,7 @@ import {
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
   Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
   Pencil, GripVertical, Move, MoreVertical, type LucideIcon,
+  Sparkles, LayoutTemplate, Save,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -26,6 +27,8 @@ import { exportOrcamentoXLSX, ItemExportRow } from '@/lib/export-orcamento'
 import { InsumoOrcamentoAntigo, LinhaOrcamentoTabular } from '@/lib/import-export-orcamento'
 import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
+import { SalvarTemplateOrcamentoModal, UsarTemplateOrcamentoModal } from './TemplateOrcamentoModal'
+import { ObraAssistenteIA } from './ObraAssistenteIA'
 import { readEtapasPadrao } from '@/lib/settings/etapas-padrao'
 import { finalizarOrcamento } from '@/lib/project-cycle'
 
@@ -339,6 +342,9 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   // Modal adicionar item
   const [showAddItem, setShowAddItem] = useState(false)
   const [showImportExportTabular, setShowImportExportTabular] = useState(false)
+  const [showUsarTemplate, setShowUsarTemplate] = useState(false)
+  const [showSalvarTemplate, setShowSalvarTemplate] = useState(false)
+  const [showAssistente, setShowAssistente] = useState(false)
   const [selectedEtapaNome, setSelectedEtapaNome] = useState('')
   const [subetapaLivre, setSubetapaLivre] = useState('')
   const [subetapaDescricao, setSubetapaDescricao] = useState('')
@@ -452,6 +458,14 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   useEffect(() => {
     localStorage.setItem(`bs_collapsed_${obraId || orcamentoId}`, JSON.stringify(collapsed))
   }, [collapsed, obraId, orcamentoId])
+
+  // Recarrega quando a Luiza (assistente IA) altera o orçamento por baixo dos panos
+  useEffect(() => {
+    function onDataChanged() { loadAll() }
+    window.addEventListener('buildsmart:obra-data-changed', onDataChanged)
+    return () => window.removeEventListener('buildsmart:obra-data-changed', onDataChanged)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
 
   // ─── Fechar menu ao clicar fora ──────────────────────────────────────────
@@ -2458,11 +2472,19 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         <EmptyState
           icon={FolderPlus}
           title="Orçamento vazio"
-          description="Adicione o primeiro item escolhendo etapa, subetapa e composição."
+          description="Comece do zero, reaproveite um template salvo ou peça para a Luiza montar a estrutura."
           action={!isReadonly ? (
-            <Button icon={<FolderPlus size={16} />} onClick={() => openItemModal()}>
-              Adicionar primeiro item
-            </Button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button icon={<FolderPlus size={16} />} onClick={() => openItemModal()}>
+                Adicionar primeiro item
+              </Button>
+              <Button variant="secondary" icon={<LayoutTemplate size={16} />} onClick={() => setShowUsarTemplate(true)}>
+                Usar template
+              </Button>
+              <Button variant="secondary" icon={<Sparkles size={16} />} onClick={() => setShowAssistente(true)}>
+                Criar com a Luiza
+              </Button>
+            </div>
           ) : undefined}
         />
       ) : (() => {
@@ -2508,6 +2530,14 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                     Adicionar item
                   </Button>
                 )}
+                {!isReadonly && (
+                  <Button size="sm" variant="secondary" icon={<Save size={14} />} onClick={() => setShowSalvarTemplate(true)} title="Salvar a estrutura atual como template reutilizável">
+                    Salvar como template
+                  </Button>
+                )}
+                <Button size="sm" variant="secondary" icon={<Sparkles size={14} />} onClick={() => setShowAssistente(true)}>
+                  Assistente IA
+                </Button>
               </div>
             </div>
 
@@ -3118,6 +3148,30 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         versao={orcamento.versao}
         onImportar={handleImportarOrcamento}
       />
+
+      <SalvarTemplateOrcamentoModal
+        open={showSalvarTemplate}
+        onClose={() => setShowSalvarTemplate(false)}
+        itens={itens}
+        etapas={etapas}
+      />
+
+      <UsarTemplateOrcamentoModal
+        open={showUsarTemplate}
+        onClose={() => setShowUsarTemplate(false)}
+        obraId={resolvedObraId || ''}
+        orcamentoId={orcamento.id}
+        onApplied={() => loadAll()}
+      />
+
+      <Modal open={showAssistente} onClose={() => setShowAssistente(false)} size="xl">
+        <ObraAssistenteIA
+          obraId={resolvedObraId || ''}
+          obraNome={obraName || 'Obra'}
+          obraUf={obraUf}
+          heightClass="h-[70vh]"
+        />
+      </Modal>
     </div>
   )
 }

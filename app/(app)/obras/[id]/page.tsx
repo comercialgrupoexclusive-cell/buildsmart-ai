@@ -432,7 +432,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       <div className="animate-enter">
         {tab === 'projeto' && <ObraProjetoTab obraId={id} obra={obra} onEdit={openEdit} />}
         {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} />}
-        {tab === 'cronograma' && <ObraCronogramaTab obraId={id} obraNome={obra.nome} orcamentoIds={orcamentoIds} orcamentoId={orcamentoId} />}
+        {tab === 'cronograma' && <ObraCronogramaTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} orcamentoIds={orcamentoIds} orcamentoId={orcamentoId} />}
         {tab === 'planejamento' && <ObraPlanejamento2 obraId={id} orcamentoId={orcamentoId} />}
         {tab === 'suprimentos' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
