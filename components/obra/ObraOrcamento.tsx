@@ -8,7 +8,7 @@ import {
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
   Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
   Pencil, GripVertical, Move, MoreVertical, type LucideIcon,
-  Sparkles, LayoutTemplate, Save,
+  Sparkles, LayoutTemplate, Save, Wand2,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -29,6 +29,7 @@ import { LinhaImportada } from '@/lib/import-export-templates'
 import { ImportarExportarOrcamentoModal, ResultadoImportacaoOrcamento } from './ImportarExportarOrcamentoModal'
 import { SalvarTemplateOrcamentoModal, UsarTemplateOrcamentoModal } from './TemplateOrcamentoModal'
 import { ObraAssistenteDock } from './ObraAssistenteDock'
+import { OrcamentoEstruturaIAModal } from './OrcamentoEstruturaIAModal'
 import { fetchEtapasPadrao, ETAPAS_PADRAO_CHANGED_EVENT } from '@/lib/settings/etapas-padrao'
 import { finalizarOrcamento } from '@/lib/project-cycle'
 
@@ -357,6 +358,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   const [showUsarTemplate, setShowUsarTemplate] = useState(false)
   const [showSalvarTemplate, setShowSalvarTemplate] = useState(false)
   const [showAssistente, setShowAssistente] = useState(false)
+  const [showEstruturaIA, setShowEstruturaIA] = useState(false)
   const [selectedEtapaNome, setSelectedEtapaNome] = useState('')
   const [subetapaLivre, setSubetapaLivre] = useState('')
   const [subetapaDescricao, setSubetapaDescricao] = useState('')
@@ -2493,6 +2495,13 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                 Usar template
               </Button>
               <Button
+                variant="secondary" icon={<Wand2 size={16} />} onClick={() => setShowEstruturaIA(true)}
+                disabled={!resolvedObraId || composicoesProprias.length === 0}
+                title={!resolvedObraId ? 'Vincule este orçamento a uma obra para gerar por IA' : composicoesProprias.length === 0 ? 'Cadastre composições próprias primeiro' : 'Gera etapas, subetapas e composições com IA — você revisa antes de aplicar'}
+              >
+                Gerar estrutura com IA
+              </Button>
+              <Button
                 variant="secondary" icon={<Sparkles size={16} />} onClick={() => setShowAssistente(true)}
                 disabled={!resolvedObraId} title={!resolvedObraId ? 'Vincule este orçamento a uma obra para usar a Luiza' : undefined}
               >
@@ -2549,6 +2558,13 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                     Salvar como template
                   </Button>
                 )}
+                <Button
+                  size="sm" variant="secondary" icon={<Wand2 size={14} />} onClick={() => setShowEstruturaIA(true)}
+                  disabled={!resolvedObraId || composicoesProprias.length === 0}
+                  title={!resolvedObraId ? 'Vincule este orçamento a uma obra para gerar por IA' : composicoesProprias.length === 0 ? 'Cadastre composições próprias primeiro' : 'Gera mais etapas/composições com IA — você revisa antes de aplicar'}
+                >
+                  Gerar com IA
+                </Button>
                 <Button
                   size="sm" variant="secondary" icon={<Sparkles size={14} />} onClick={() => setShowAssistente(true)}
                   disabled={!resolvedObraId} title={!resolvedObraId ? 'Vincule este orçamento a uma obra para usar a Luiza' : undefined}
@@ -3187,6 +3203,16 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         obraId={resolvedObraId || ''}
         obraNome={obraName || 'Obra'}
         obraUf={obraUf}
+      />
+
+      <OrcamentoEstruturaIAModal
+        open={showEstruturaIA}
+        onClose={() => setShowEstruturaIA(false)}
+        obraId={resolvedObraId || ''}
+        obraName={obraName || 'Obra'}
+        orcamentoId={orcamento.id}
+        composicoesProprias={composicoesProprias}
+        onApplied={() => loadAll()}
       />
     </div>
   )
