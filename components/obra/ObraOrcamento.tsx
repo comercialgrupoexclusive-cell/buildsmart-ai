@@ -17,6 +17,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { createClient } from '@/lib/supabase/client'
+import { useProfile } from '@/lib/profile-context'
 import { Orcamento, ComposicaoPropria, SinapiComposicao, Etapa, InsumoProprio, SinapiInsumo } from '@/lib/types'
 import { formatCurrency, fixMojibake } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
@@ -314,6 +315,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   obraUf?: string
 }) {
   const supabase = createClient()
+  const { currentProfile } = useProfile()
   const [orcamento, setOrcamento] = useState<Orcamento | null>(null)
   const [itens, setItens] = useState<ItemEnriquecido[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
@@ -1919,9 +1921,10 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
 
   async function confirmarFinalizacao() {
     if (!orcamento) return
+    if (!currentProfile) { setErroFinalizacao('Perfil não identificado.'); return }
     setFinalizando(true)
     try {
-      await finalizarOrcamento(supabase, orcamento.id)
+      await finalizarOrcamento(supabase, orcamento.id, currentProfile.id)
       await loadOrcamento()
       setShowFinalizarModal(false)
     } catch (error) {

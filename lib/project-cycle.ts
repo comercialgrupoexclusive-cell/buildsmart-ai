@@ -25,14 +25,14 @@ export function iniciarObra(supabase: SupabaseClient, projetoId: string) {
   return runCycleRpc(supabase, 'iniciar_obra', { p_projeto_id: projetoId })
 }
 
-export function iniciarObraPorOrcamento(supabase: SupabaseClient, orcamentoId: string) {
-  return runCycleRpc(supabase, 'iniciar_obra_por_orcamento', { p_orcamento_id: orcamentoId })
+export function iniciarObraPorOrcamento(supabase: SupabaseClient, orcamentoId: string, profileId: string) {
+  return runCycleRpc(supabase, 'iniciar_obra_por_orcamento', { p_orcamento_id: orcamentoId, p_profile_id: profileId })
 }
 
 export function entregarObra(supabase: SupabaseClient, projetoId: string) {
   return runCycleRpc(supabase, 'entregar_obra', { p_projeto_id: projetoId })
 }
 
-export function finalizarOrcamento(supabase: SupabaseClient, orcamentoId: string) {
-  return runCycleRpc(supabase, 'finalizar_orcamento', { p_orcamento_id: orcamentoId })
+export function finalizarOrcamento(supabase: SupabaseClient, orcamentoId: string, profileId: string) {
+  return runCycleRpc(supabase, 'finalizar_orcamento', { p_orcamento_id: orcamentoId, p_profile_id: profileId })
 }

@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { NovoCadastroModal } from '@/components/cadastro/NovoCadastroModal'
 import { finalizarOrcamento } from '@/lib/project-cycle'
+import { useProfile } from '@/lib/profile-context'
 
 import ServicosPage from '@/app/(app)/servicos/page'
 import SinapiPage from '@/app/(app)/sinapi/page'
@@ -33,6 +34,7 @@ type OrcamentoComObra = {
 export default function OrcamentosPage() {
   const supabase = createClient()
   const router = useRouter()
+  const { currentProfile } = useProfile()
   const [orcamentos, setOrcamentos] = useState<OrcamentoComObra[]>([])
   const [obras, setObras] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
@@ -136,8 +138,9 @@ export default function OrcamentosPage() {
   async function handleStatusChange(orc: OrcamentoComObra, novoStatus: string) {
     setMenuId(null)
     if (novoStatus === 'ativo') {
+      if (!currentProfile) { alert('Perfil não identificado.'); return }
       if (!confirm(`Iniciar uma obra a partir do orçamento "${orc.nome || `v${orc.versao}`}"? Os valores e insumos serão congelados.`)) return
-      await finalizarOrcamento(supabase, orc.id)
+      await finalizarOrcamento(supabase, orc.id, currentProfile.id)
     } else {
       await supabase.from('orcamentos').update({ status: novoStatus }).eq('id', orc.id)
     }

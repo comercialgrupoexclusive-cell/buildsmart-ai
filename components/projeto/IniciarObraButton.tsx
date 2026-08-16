@@ -5,6 +5,7 @@ import { Rocket, Loader2, Star } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { iniciarObraPorOrcamento } from '@/lib/project-cycle'
+import { useProfile } from '@/lib/profile-context'
 import { Modal } from '@/components/ui/Modal'
 
 type OrcamentoOpcao = { id: string; nome: string | null; versao: number; is_principal: boolean }
@@ -12,6 +13,7 @@ type OrcamentoOpcao = { id: string; nome: string | null; versao: number; is_prin
 export function IniciarObraButton({ projetoId, className, style }: { projetoId: string; className?: string; style?: React.CSSProperties }) {
   const supabase = createClient()
   const router = useRouter()
+  const { currentProfile } = useProfile()
   const [loading, setLoading] = useState(false)
   const [opcoes, setOpcoes] = useState<OrcamentoOpcao[] | null>(null)
   const [iniciando, setIniciando] = useState(false)
@@ -45,11 +47,12 @@ export function IniciarObraButton({ projetoId, className, style }: { projetoId: 
   }
 
   async function confirmarInicio(orcamentoId: string) {
+    if (!currentProfile) { setErro('Perfil não identificado.'); return }
     if (!confirm('Iniciar a obra com este orçamento?\n\nO orçamento e o planejamento atuais viram a linha de base (baseline) da obra — continuam editáveis normalmente depois, mas a baseline fica preservada para comparação futura.')) return
     setIniciando(true)
     setErro('')
     try {
-      const resultado = await iniciarObraPorOrcamento(supabase, orcamentoId)
+      const resultado = await iniciarObraPorOrcamento(supabase, orcamentoId, currentProfile.id)
       if (resultado.obra_id) router.push(`/obras/${resultado.obra_id}`)
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Erro ao iniciar obra')
