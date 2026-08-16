@@ -93,6 +93,8 @@ export function ProjetoAssistenteIA({ projeto, itens, onReload }: {
   const [estruturaSugerida, setEstruturaSugerida] = useState<ItemArvore[] | null>(null)
   const [erroEstrutura, setErroEstrutura] = useState<string | null>(null)
   const [aplicandoEstrutura, setAplicandoEstrutura] = useState(false)
+  const [instrucaoRefinar, setInstrucaoRefinar] = useState('')
+  const [refinandoEstrutura, setRefinandoEstrutura] = useState(false)
 
   // Cronograma
   const [gerandoCronograma, setGerandoCronograma] = useState(false)
@@ -125,6 +127,32 @@ export function ProjetoAssistenteIA({ projeto, itens, onReload }: {
     }
   }
 
+  async function handleRefinarEstrutura() {
+    if (!estruturaSugerida || !instrucaoRefinar.trim()) return
+    setRefinandoEstrutura(true)
+    setErroEstrutura(null)
+    try {
+      const res = await fetch('/api/projetos/estrutura-ia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nomeProjeto: projeto.nome,
+          descricao: descricao.trim() || undefined,
+          itensAtuais: estruturaSugerida,
+          instrucao: instrucaoRefinar.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao refinar estrutura')
+      setEstruturaSugerida(data.itens)
+      setInstrucaoRefinar('')
+    } catch (err) {
+      setErroEstrutura(err instanceof Error ? err.message : 'Erro ao refinar estrutura')
+    } finally {
+      setRefinandoEstrutura(false)
+    }
+  }
+
   async function handleAplicarEstrutura() {
     if (!estruturaSugerida) return
     setAplicandoEstrutura(true)
@@ -133,6 +161,7 @@ export function ProjetoAssistenteIA({ projeto, itens, onReload }: {
       await insertItensArvore(supabase, projeto.id, estruturaSugerida, null, itens.filter(i => !i.parent_id).length)
       setEstruturaSugerida(null)
       setDescricao('')
+      setInstrucaoRefinar('')
       onReload()
     } finally {
       setAplicandoEstrutura(false)
@@ -334,18 +363,43 @@ export function ProjetoAssistenteIA({ projeto, itens, onReload }: {
           <div className="mt-4 rounded-lg border p-3" style={{ borderColor: 'var(--border)', background: 'var(--bg-secondary)' }}>
             <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Pré-visualização da estrutura sugerida:</p>
             <PreviewArvore itens={estruturaSugerida} />
+
+            <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+              <p className="text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>Pedir um ajuste antes de aplicar (opcional):</p>
+              <div className="flex gap-2">
+                <input
+                  value={instrucaoRefinar}
+                  onChange={e => setInstrucaoRefinar(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleRefinarEstrutura()}
+                  placeholder="Ex: remova o item Paisagismo, adicione Impermeabilização em Fundações..."
+                  className="flex-1 px-3 py-1.5 rounded-lg text-xs border outline-none"
+                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  disabled={refinandoEstrutura || aplicandoEstrutura}
+                />
+                <button
+                  onClick={handleRefinarEstrutura}
+                  disabled={!instrucaoRefinar.trim() || refinandoEstrutura || aplicandoEstrutura}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border disabled:opacity-60 flex-shrink-0"
+                  style={{ color: 'var(--text-primary)', borderColor: 'var(--border)' }}
+                >
+                  {refinandoEstrutura ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                  {refinandoEstrutura ? 'Ajustando…' : 'Refinar'}
+                </button>
+              </div>
+            </div>
+
             <div className="flex gap-2 mt-3">
               <button
                 onClick={handleAplicarEstrutura}
-                disabled={aplicandoEstrutura}
+                disabled={aplicandoEstrutura || refinandoEstrutura}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-60"
                 style={{ background: 'var(--accent)' }}
               >
                 <Check size={13} /> {aplicandoEstrutura ? 'Aplicando…' : 'Aplicar estrutura'}
               </button>
               <button
-                onClick={() => setEstruturaSugerida(null)}
-                disabled={aplicandoEstrutura}
+                onClick={() => { setEstruturaSugerida(null); setInstrucaoRefinar('') }}
+                disabled={aplicandoEstrutura || refinandoEstrutura}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border"
                 style={{ color: 'var(--text-secondary)', borderColor: 'var(--border)' }}
               >

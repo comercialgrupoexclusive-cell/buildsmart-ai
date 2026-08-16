@@ -15,10 +15,15 @@ function isItemArvore(value: unknown): value is ItemArvore {
   return true
 }
 
-export async function gerarEstruturaProjeto({ nomeProjeto, descricao, promptPersonalizado }: {
+export async function gerarEstruturaProjeto({ nomeProjeto, descricao, promptPersonalizado, itensAtuais, instrucao }: {
   nomeProjeto: string
   descricao?: string
   promptPersonalizado?: string | null
+  // Quando informados, a IA parte da estrutura já sugerida (ainda não aplicada)
+  // e aplica apenas o ajuste pedido — usado para refinar por prompt antes de
+  // confirmar, em vez de só permitir aceitar ou descartar tudo.
+  itensAtuais?: ItemArvore[]
+  instrucao?: string
 }): Promise<{ itens: ItemArvore[] }> {
   if (!hasOpenAiKey()) {
     throw new Error('Configure OPENAI_API_KEY para gerar estrutura com IA.')
@@ -29,7 +34,19 @@ export async function gerarEstruturaProjeto({ nomeProjeto, descricao, promptPers
 
   const systemPrompt = promptPersonalizado?.trim() || DEFAULT_PROMPT_ESTRUTURA
 
-  const userPrompt = `Projeto: ${nomeProjeto}${descricao ? `\nDescricao/tipo de obra: ${descricao}` : ''}`
+  const temRefinamento = Array.isArray(itensAtuais) && itensAtuais.length > 0 && !!instrucao?.trim()
+
+  const userPrompt = temRefinamento
+    ? `Projeto: ${nomeProjeto}${descricao ? `\nDescricao/tipo de obra: ${descricao}` : ''}
+
+Estrutura atual sugerida, ainda não aplicada (JSON):
+${JSON.stringify(itensAtuais, null, 2)}
+
+O usuario pediu o seguinte ajuste nessa estrutura:
+"${instrucao!.trim()}"
+
+Aplique APENAS o ajuste pedido, preservando o restante da estrutura exatamente como esta. Retorne a estrutura JSON completa e atualizada, no mesmo formato {"itens": [...]}.`
+    : `Projeto: ${nomeProjeto}${descricao ? `\nDescricao/tipo de obra: ${descricao}` : ''}`
 
   const response = await openai.chat.completions.create({
     model,
