@@ -2872,7 +2872,9 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                 <Input label="Grupo" value={livreGrupo} onChange={e => setLivreGrupo(e.target.value)} placeholder="Ex: Alvenaria, fretes..." />
                 <Input label={`Qtd. (${livreUnidade || 'UN'})`} type="number" value={quantidade} onChange={e => setQuantidade(e.target.value)} placeholder="0" min={0} />
                 <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" loading={saving} disabled={!draftAtual()} onClick={handleMaisCampos}>+ linha</Button>
+                  <Button variant="secondary" size="sm" icon={<Plus size={13} />} loading={saving} disabled={!draftAtual()} onClick={handleMaisCampos} title="Adicionar esta linha e continuar lançando mais itens">
+                    Mais um item
+                  </Button>
                 </div>
               </div>
             </div>
@@ -2918,7 +2920,9 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                   </div>
                   <div className="flex gap-2 pb-0.5">
                     <Button variant="secondary" size="sm" onClick={() => { setSelectedItem(null); setQuantidade('') }}>Limpar</Button>
-                    <Button variant="secondary" size="sm" loading={saving} disabled={!draftAtual()} onClick={handleMaisCampos}>+ linha</Button>
+                    <Button variant="secondary" size="sm" icon={<Plus size={13} />} loading={saving} disabled={!draftAtual()} onClick={handleMaisCampos} title="Adicionar esta linha e continuar lançando mais itens">
+                    Mais um item
+                  </Button>
                   </div>
                 </div>
               </div>

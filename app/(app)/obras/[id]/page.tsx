@@ -21,6 +21,7 @@ import { ObraProjetoTab } from '@/components/obra/ObraProjetoTab'
 import { ObraCronogramaTab } from '@/components/obra/ObraCronogramaTab'
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
 import { ObraAssistenteDock } from '@/components/obra/ObraAssistenteDock'
+import { OrcamentoEtapasIniciaisModal } from '@/components/obra/OrcamentoEtapasIniciaisModal'
 import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
 type Tab = 'projeto' | 'orcamento' | 'cronograma' | 'planejamento' | 'suprimentos' | 'medicoes' | 'financeiro'
@@ -594,6 +595,7 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: {
   const [creatingMode, setCreatingMode] = useState<'manual' | 'ai' | null>(null)
   const [createError, setCreateError] = useState('')
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [etapasIniciaisOrcamentoId, setEtapasIniciaisOrcamentoId] = useState<string | null>(null)
   const creatingRef = useRef(false)
   const [editingName, setEditingName] = useState(false)
   const [editName, setEditName] = useState('')
@@ -681,6 +683,7 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: {
 
       await Promise.all([load(), refreshOrcamentos()])
       if (openAssistant && budget) setAssistantOpen(true)
+      else if (!existing && budget) setEtapasIniciaisOrcamentoId(budget.id)
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : 'Nao foi possivel criar o orcamento da obra.')
     } finally {
@@ -793,6 +796,14 @@ function ObraOrcamentosTab({ obraId, obraNome, obraUf, obraArea, selectedId }: {
         obraId={obraId}
         obraNome={obraNome}
         obraUf={obraUf || 'SP'}
+      />
+
+      <OrcamentoEtapasIniciaisModal
+        open={!!etapasIniciaisOrcamentoId}
+        onClose={() => setEtapasIniciaisOrcamentoId(null)}
+        obraId={obraId}
+        orcamentoId={etapasIniciaisOrcamentoId || ''}
+        onDone={() => load()}
       />
 
       {/* Modal renomear */}
