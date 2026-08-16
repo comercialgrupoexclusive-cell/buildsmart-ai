@@ -1,6 +1,5 @@
-'use client'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
-export const ETAPAS_PADRAO_KEY = 'buildsmart-etapas-padrao'
 export const ETAPAS_PADRAO_CHANGED_EVENT = 'buildsmart:etapas-padrao-changed'
 
 export const ETAPAS_PADRAO_SINAPI = [
@@ -26,38 +25,49 @@ export const ETAPAS_PADRAO_SINAPI = [
   'Outros',
 ]
 
-export function limparEtapasPadrao(etapas: string[]) {
-  return Array.from(new Set(etapas.map(e => e.trim()).filter(Boolean))).slice(0, 20)
+export type EtapaPadrao = { id: string; nome: string; ordem: number }
+
+export async function fetchEtapasPadrao(supabase: SupabaseClient): Promise<EtapaPadrao[]> {
+  const { data, error } = await supabase
+    .from('etapas_padrao')
+    .select('id,nome,ordem')
+    .order('ordem', { ascending: true })
+  if (error || !data) return []
+  return data as EtapaPadrao[]
 }
 
-export function readEtapasPadrao() {
-  if (typeof window === 'undefined') return ETAPAS_PADRAO_SINAPI
-
-  const stored = window.localStorage.getItem(ETAPAS_PADRAO_KEY)
-  if (!stored) {
-    window.localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_SINAPI))
-    return ETAPAS_PADRAO_SINAPI
-  }
-
-  try {
-    const parsed = JSON.parse(stored)
-    if (Array.isArray(parsed)) {
-      const cleaned = limparEtapasPadrao(parsed)
-      if (cleaned.length > 0) return cleaned
-    }
-  } catch {
-    // Recria abaixo.
-  }
-
-  window.localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(ETAPAS_PADRAO_SINAPI))
-  return ETAPAS_PADRAO_SINAPI
+export async function criarEtapaPadrao(supabase: SupabaseClient, nome: string, ordem: number) {
+  const { data, error } = await supabase
+    .from('etapas_padrao')
+    .insert({ nome, ordem })
+    .select('id,nome,ordem')
+    .single()
+  if (error) throw error
+  return data as EtapaPadrao
 }
 
-export function saveEtapasPadraoStorage(etapas: string[]) {
-  const cleaned = limparEtapasPadrao(etapas)
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(ETAPAS_PADRAO_KEY, JSON.stringify(cleaned))
-    window.dispatchEvent(new CustomEvent(ETAPAS_PADRAO_CHANGED_EVENT, { detail: cleaned }))
+export async function atualizarEtapaPadrao(supabase: SupabaseClient, id: string, nome: string) {
+  const { error } = await supabase.from('etapas_padrao').update({ nome }).eq('id', id)
+  if (error) throw error
+}
+
+export async function removerEtapaPadrao(supabase: SupabaseClient, id: string) {
+  const { error } = await supabase.from('etapas_padrao').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function restaurarEtapasPadrao(supabase: SupabaseClient): Promise<EtapaPadrao[]> {
+  const { data: existentes } = await supabase.from('etapas_padrao').select('id')
+  const ids = (existentes || []).map((e: { id: string }) => e.id)
+  if (ids.length > 0) {
+    await supabase.from('etapas_padrao').delete().in('id', ids)
   }
-  return cleaned
+  const rows = ETAPAS_PADRAO_SINAPI.map((nome, i) => ({ nome, ordem: i + 1 }))
+  const { data, error } = await supabase.from('etapas_padrao').insert(rows).select('id,nome,ordem').order('ordem', { ascending: true })
+  if (error) throw error
+  return (data || []) as EtapaPadrao[]
+}
+
+export function notifyEtapasPadraoChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(ETAPAS_PADRAO_CHANGED_EVENT))
 }
