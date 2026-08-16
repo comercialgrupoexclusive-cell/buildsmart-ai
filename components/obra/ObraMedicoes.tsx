@@ -18,9 +18,9 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
-  loadObraProgresso, propagarAvancoServicos, clampPct,
-  type ObraProgresso, type EtapaProg,
-} from '@/lib/obra-progresso'
+  loadPlanejamentoProgresso, setItemProgresso, clampPct,
+  type PlanejamentoProgresso, type PlanEtapaNode, type PlanSubetapaNode, type PlanItemNode,
+} from '@/lib/planejamento-progresso'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ObraRdo } from '@/components/obra/ObraRdo'
 import { ObraBoletins } from '@/components/obra/ObraBoletins'
@@ -42,7 +42,7 @@ const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = useMemo(() => createClient(), [])
   const [subTab, setSubTab] = useState<SubTab>('fisico')
-  const [prog, setProg] = useState<ObraProgresso | null>(null)
+  const [prog, setProg] = useState<PlanejamentoProgresso | null>(null)
   const [loading, setLoading] = useState(true)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
@@ -50,15 +50,14 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   // Filtros da aba Avanço
   const [filtroEtapa, setFiltroEtapa] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<'todas' | 'pendente' | 'andamento' | 'concluido'>('todas')
-  const eixo = 'fisico' as const
-  const campoPct = 'percentual_executado'
+  const idsOrcamentos = orcamentoIds.length ? orcamentoIds : [orcamentoId]
 
   const carregar = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
-    const p = await loadObraProgresso(supabase, obraId, eixo, orcamentoIds.length ? orcamentoIds : undefined)
+    const p = await loadPlanejamentoProgresso(supabase, idsOrcamentos)
     setProg(p)
     if (!silent) setLoading(false)
-  }, [obraId, supabase, eixo, orcamentoIds])
+  }, [supabase, idsOrcamentos.join(',')])
 
   useEffect(() => { Promise.resolve().then(() => carregar()) }, [carregar])
 
@@ -74,51 +73,40 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
     }
   }, [subTab, carregar])
 
-  // ── Edição de % que escreve DIRETO no cronograma ────────────────────────────
-  async function setServicoPct(servicoId: string, pct: number) {
+  // ── Edição de % que escreve DIRETO no item do orçamento (fonte única) ───────
+  // Subetapa e etapa não têm percentual próprio (regra 8): editar nesses
+  // níveis só espalha o valor para os itens filhos; o pai é sempre recalculado.
+  async function setItemPct(item: PlanItemNode, pct: number) {
     setSaving(true)
-    await propagarAvancoServicos(supabase, obraId, [{ servicoId, percentual: clampPct(pct) }], eixo)
+    await setItemProgresso(supabase, {
+      orcamentoId: item.orcamentoId, obraId,
+      orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
+      percentual: pct,
+    })
     await carregar(true); setSaving(false)
   }
 
-  async function setSubetapaPct(sub: EtapaProg['subetapas'][number], pct: number) {
-    setSaving(true)
-    const v = clampPct(pct)
-    if (sub.servicos.length > 0) {
-      // Espalha para os serviços e deixa a propagação recalcular subetapa/etapa
-      await propagarAvancoServicos(supabase, obraId, sub.servicos.map(s => ({ servicoId: s.id, percentual: v })), eixo)
-    } else {
-      const status = v >= 100 ? 'concluida' : v > 0 ? 'em_andamento' : 'planejada'
-      await supabase.from('subetapas_cronograma').update(eixo === 'fisico' ? { [campoPct]: v, status } : { [campoPct]: v }).eq('id', sub.id)
-      await recalcEtapaDeSubetapa(sub.id, v)
-    }
-    await carregar(true); setSaving(false)
-  }
-
-  async function setEtapaPct(etapa: EtapaProg, pct: number) {
+  async function setSubetapaPct(sub: PlanSubetapaNode, pct: number) {
     setSaving(true)
     const v = clampPct(pct)
-    const status = v >= 100 ? 'concluida' : v > 0 ? 'em_andamento' : 'planejada'
-    const svcIds = etapa.subetapas.flatMap(s => s.servicos.map(x => x.id))
-    await Promise.all([
-      supabase.from('etapas').update(eixo === 'fisico' ? { [campoPct]: v, status } : { [campoPct]: v }).eq('id', etapa.id),
-      ...etapa.subetapas.map(s => supabase.from('subetapas_cronograma').update(eixo === 'fisico' ? { [campoPct]: v, status } : { [campoPct]: v }).eq('id', s.id)),
-      ...svcIds.map(id => supabase.from('servicos_cronograma').update({ [campoPct]: v }).eq('id', id)),
-    ])
+    await Promise.all(sub.itens.map(item => setItemProgresso(supabase, {
+      orcamentoId: item.orcamentoId, obraId,
+      orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
+      percentual: v,
+    })))
     await carregar(true); setSaving(false)
   }
 
-  async function recalcEtapaDeSubetapa(subId: string, novoPercentual: number) {
-    const etapa = prog?.etapas.find(item => item.subetapas.some(sub => sub.id === subId))
-    if (!etapa) return
-    const subs = etapa.subetapas.map(sub => sub.id === subId ? { ...sub, percentual: novoPercentual } : sub)
-    const valorSubs = subs.reduce((total, sub) => total + sub.valorContratado, 0)
-    const valorResidual = Math.max(0, etapa.valorContratado - valorSubs)
-    const media = etapa.valorContratado > 0 && valorSubs > 0
-      ? (subs.reduce((total, sub) => total + sub.percentual * sub.valorContratado, 0) + etapa.percentual * valorResidual) / etapa.valorContratado
-      : subs.reduce((total, sub) => total + sub.percentual, 0) / Math.max(1, subs.length)
-    const status = media >= 100 ? 'concluida' : media > 0 ? 'em_andamento' : 'planejada'
-    await supabase.from('etapas').update(eixo === 'fisico' ? { [campoPct]: media, status } : { [campoPct]: media }).eq('id', etapa.id)
+  async function setEtapaPct(etapa: PlanEtapaNode, pct: number) {
+    setSaving(true)
+    const v = clampPct(pct)
+    const itens = [...etapa.subetapas.flatMap(s => s.itens), ...etapa.itensSoltos]
+    await Promise.all(itens.map(item => setItemProgresso(supabase, {
+      orcamentoId: item.orcamentoId, obraId,
+      orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
+      percentual: v,
+    })))
+    await carregar(true); setSaving(false)
   }
 
   if (loading) {
@@ -184,9 +172,9 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
             ] as const
             const etapasFiltradas = prog.etapas.filter(e => {
               if (filtroEtapa && e.id !== filtroEtapa) return false
-              if (filtroStatus === 'pendente' && e.percentual > 0) return false
-              if (filtroStatus === 'andamento' && !(e.percentual > 0 && e.percentual < 100)) return false
-              if (filtroStatus === 'concluido' && e.percentual < 100) return false
+              if (filtroStatus === 'pendente' && e.progressoExecutado > 0) return false
+              if (filtroStatus === 'andamento' && !(e.progressoExecutado > 0 && e.progressoExecutado < 100)) return false
+              if (filtroStatus === 'concluido' && e.progressoExecutado < 100) return false
               return true
             })
             return (
@@ -208,7 +196,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
                   </div>
                 </div>
                 <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
-                  Ajuste o avanço físico em qualquer nível. O valor é salvo ao soltar a barra ou sair do campo; definir a etapa espalha para baixo e ajustar serviços recalcula os pais. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
+                  Ajuste o avanço físico em qualquer nível. O valor é salvo ao soltar a barra ou sair do campo; definir a etapa/subetapa espalha para os itens do orçamento, que são a fonte real do avanço — os pais são sempre recalculados a partir deles. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
                 </p>
                 {etapasFiltradas.length === 0 ? (
                   <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma etapa neste filtro.</div>
@@ -218,7 +206,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
                     collapsed={collapsed[etapa.id]} onToggle={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
                     onSetEtapa={v => setEtapaPct(etapa, v)}
                     onSetSub={(sub, v) => setSubetapaPct(sub, v)}
-                    onSetServico={(id, v) => setServicoPct(id, v)}
+                    onSetItem={(item, v) => setItemPct(item, v)}
                   />
                 ))}
               </div>
@@ -230,18 +218,18 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   )
 }
 
-// ─── Etapa com cascata editável ──────────────────────────────────────────────
-function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSetEtapa, onSetSub, onSetServico }: {
-  etapa: EtapaProg
+// ─── Etapa com cascata editável (Etapa → Subetapa → Item do orçamento) ───────
+function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSetEtapa, onSetSub, onSetItem }: {
+  etapa: PlanEtapaNode
   valorTotal: number
   temValores: boolean
   collapsed?: boolean
   onToggle: () => void
   onSetEtapa: (v: number) => void
-  onSetSub: (sub: EtapaProg['subetapas'][number], v: number) => void
-  onSetServico: (id: string, v: number) => void
+  onSetSub: (sub: PlanSubetapaNode, v: number) => void
+  onSetItem: (item: PlanItemNode, v: number) => void
 }) {
-  const temFilhos = etapa.subetapas.length > 0
+  const temFilhos = etapa.subetapas.length > 0 || etapa.itensSoltos.length > 0
   const peso = temValores && valorTotal > 0 ? (etapa.valorContratado / valorTotal) * 100 : 0
 
   return (
@@ -263,13 +251,13 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
             </p>
           </div>
         </div>
-        <CampoPct valor={etapa.percentual} onChange={onSetEtapa} />
+        <CampoPct valor={etapa.progressoExecutado} onChange={onSetEtapa} />
       </div>
 
       {!collapsed && temFilhos && (
         <div className="flex flex-col">
           {etapa.subetapas.map(sub => (
-            <div key={sub.id}>
+            <div key={sub.id ?? sub.nome}>
               <div className="flex flex-col gap-2 pl-9 pr-3 py-2 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)' }}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 min-w-0">
@@ -277,18 +265,24 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
                     {temValores && etapa.valorContratado > 0 && sub.valorContratado > 0 && <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>peso {(sub.valorContratado / etapa.valorContratado * 100).toFixed(1)}%</span>}
                   </div>
                   <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-                    {sub.servicos.length > 0 ? `${sub.servicos.length} serviço(s)` : 'sem serviços'}
+                    {sub.itens.length > 0 ? `${sub.itens.length} item(ns)` : 'sem itens'}
                     {temValores && sub.valorContratado > 0 ? ` · ${brl(sub.valorContratado)}` : ''}
                   </p>
                 </div>
-                <CampoPct valor={sub.percentual} onChange={v => onSetSub(sub, v)} tamanho="sm" />
+                <CampoPct valor={sub.progressoExecutado} onChange={v => onSetSub(sub, v)} tamanho="sm" />
               </div>
-              {sub.servicos.map(svc => (
-                <div key={svc.id} className="flex flex-col gap-2 pl-14 pr-3 py-2 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-                  <div className="flex-1 min-w-0"><p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{svc.nome}</p></div>
-                  <CampoPct valor={svc.percentual} onChange={v => onSetServico(svc.id, v)} tamanho="sm" />
+              {sub.itens.map(item => (
+                <div key={item.id} className="flex flex-col gap-2 pl-14 pr-3 py-2 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+                  <div className="flex-1 min-w-0"><p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{item.descricao}</p></div>
+                  <CampoPct valor={item.progressoExecutado} onChange={v => onSetItem(item, v)} tamanho="sm" />
                 </div>
               ))}
+            </div>
+          ))}
+          {etapa.itensSoltos.map(item => (
+            <div key={item.id} className="flex flex-col gap-2 pl-9 pr-3 py-2 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+              <div className="flex-1 min-w-0"><p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{item.descricao}</p></div>
+              <CampoPct valor={item.progressoExecutado} onChange={v => onSetItem(item, v)} tamanho="sm" />
             </div>
           ))}
         </div>

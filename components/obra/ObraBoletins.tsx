@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Plus, FileBarChart, Lock, Trash2, ChevronDown, ChevronRight, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import type { ObraProgresso } from '@/lib/obra-progresso'
+import type { PlanejamentoProgresso, PlanItemNode } from '@/lib/planejamento-progresso'
 import type { Medicao, MedicaoItem } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
@@ -21,7 +21,7 @@ const hoje = () => new Date().toISOString().slice(0, 10)
 
 export function ObraBoletins({ obraId, prog, onMedicaoFechada, orcamentoId, orcamentoIds }: {
   obraId: string
-  prog: ObraProgresso | null
+  prog: PlanejamentoProgresso | null
   onMedicaoFechada: () => void
   orcamentoId: string
   orcamentoIds: string[]
@@ -78,35 +78,44 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada, orcamentoId, orca
     carregar()
   }
 
-  // ── Fecha o boletim: congela snapshot por etapa ────────────────────────────
+  // ── Fecha o boletim: congela snapshot por item do orçamento (regra 6) ──────
+  function itensFolha(): PlanItemNode[] {
+    if (!prog) return []
+    return prog.etapas.flatMap(e => [...e.subetapas.flatMap(s => s.itens), ...e.itensSoltos])
+  }
+
   async function fechar(b: Medicao) {
     if (!prog) return
-    if (!confirm(`Fechar ${b.nome || 'boletim'}? Isso congela o avanço atual do cronograma como a medição deste período.`)) return
+    if (!confirm(`Fechar ${b.nome || 'boletim'}? Isso congela o avanço atual dos itens do orçamento como a medição deste período.`)) return
     setSaving(true)
 
-    // % acumulado anterior por etapa = pct_atual do último boletim fechado
+    const folhas = itensFolha()
+
+    // % acumulado anterior por item do orçamento = pct_atual do último boletim fechado
     const { data: anterioresRows } = await supabase
       .from('medicao_itens')
-      .select('item_id, pct_atual, medicao_id, medicoes!inner(obra_id, status, periodo_fim)')
+      .select('orcamento_item_id, pct_atual, medicao_id, medicoes!inner(obra_id, orcamento_id, eixo, status)')
       .eq('medicoes.obra_id', obraId)
       .eq('medicoes.orcamento_id', orcamentoId)
       .eq('medicoes.eixo', 'fisico')
       .eq('medicoes.status', 'fechada')
-    const anteriorPorEtapa: Record<string, number> = {}
-    ;((anterioresRows || []) as { item_id: string; pct_atual: number }[]).forEach(r => {
-      // mantém o maior acumulado já registrado por etapa
-      anteriorPorEtapa[r.item_id] = Math.max(anteriorPorEtapa[r.item_id] || 0, Number(r.pct_atual))
+      .not('orcamento_item_id', 'is', null)
+    const anteriorPorItem: Record<string, number> = {}
+    ;((anterioresRows || []) as { orcamento_item_id: string; pct_atual: number }[]).forEach(r => {
+      // mantém o maior acumulado já registrado por item
+      anteriorPorItem[r.orcamento_item_id] = Math.max(anteriorPorItem[r.orcamento_item_id] || 0, Number(r.pct_atual))
     })
 
-    const itens = prog.etapas.map(e => {
-      const antes = anteriorPorEtapa[e.id] || 0
-      const atual = e.percentual
+    const itens = folhas.map(item => {
+      const antes = anteriorPorItem[item.id] || 0
+      const atual = item.progressoExecutado
       const delta = Math.max(0, atual - antes)
       return {
-        medicao_id: b.id, item_tipo: 'etapa' as const, item_id: e.id, nome: e.nome,
-        valor_contratado: e.valorContratado,
+        medicao_id: b.id, item_tipo: 'orcamento_item' as const, item_id: item.id, orcamento_item_id: item.id,
+        nome: item.descricao,
+        valor_contratado: item.valorContratado,
         pct_anterior: antes, pct_atual: atual,
-        valor_periodo: (delta / 100) * e.valorContratado,
+        valor_periodo: (delta / 100) * item.valorContratado,
       }
     })
 
@@ -232,7 +241,7 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada, orcamentoId, orca
                           <table className="w-full text-xs" style={{ color: 'var(--text-primary)' }}>
                             <thead>
                               <tr style={{ color: 'var(--text-secondary)' }}>
-                                <th className="text-left font-medium pb-1.5">Etapa</th>
+                                <th className="text-left font-medium pb-1.5">Item</th>
                                 <th className="text-right font-medium pb-1.5">Ant.</th>
                                 <th className="text-right font-medium pb-1.5">Atual</th>
                                 <th className="text-right font-medium pb-1.5">Δ</th>

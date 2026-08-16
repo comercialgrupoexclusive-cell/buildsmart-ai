@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState, useRef, useMemo } from 'react'
 import {
-  ChevronDown, ChevronRight, CalendarRange, AlertCircle,
+  ChevronDown, ChevronRight, CalendarRange, CalendarClock, LineChart, AlertCircle,
   CheckSquare, Square, Loader2, Link2, Check,
   Table2, GanttChartSquare,
 } from 'lucide-react'
@@ -11,6 +11,8 @@ import { Etapa, PlanejamentoItem, PlanejamentoDependencia, PlanejamentoStatus } 
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ObraPrevisoes } from '@/components/obra/ObraPrevisoes'
+import { ObraCurvaS } from '@/components/obra/ObraCurvaS'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -39,6 +41,8 @@ type OrcItem = {
   tipo_linha: string
   descricao_snapshot: string | null
   codigo_snapshot: string | null
+  quantidade: number
+  preco_unitario_snapshot: number
 }
 
 type TreeNode = {
@@ -53,6 +57,7 @@ type TreeNode = {
   plan: PlanejamentoItem | null
   children: TreeNode[]
   fallbackProgress?: number
+  valorContratado: number
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
@@ -303,8 +308,9 @@ function PredecessorPickerModal({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?: string; projetoId?: string; orcamentoId: string }) {
+export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds }: { obraId?: string; projetoId?: string; orcamentoId: string; orcamentoIds?: string[] }) {
   const supabase = createClient()
+  const [subTab, setSubTab] = useState<'estrutura' | 'previsoes' | 'curva'>('estrutura')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -357,9 +363,10 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
       let etapasQuery = supabase.from('etapas').select('id, nome, ordem, data_inicio, data_fim, status, percentual_executado').eq(etapaContexto.coluna, etapaContexto.id)
       if (etapaContexto.orcamentoFiltro) etapasQuery = etapasQuery.eq('orcamento_id', etapaContexto.orcamentoFiltro)
 
-      const [etapasRes, itemsRes, planRes, depsRes] = await Promise.all([
+      const [etapasRes, itemsRes, headersRes, planRes, depsRes] = await Promise.all([
         etapasQuery.order('ordem'),
-        supabase.from('orcamento_itens').select('id, etapa_id, subetapa, tipo_linha, descricao_snapshot, codigo_snapshot').eq('orcamento_id', orcamentoId).eq('tipo_linha', 'item'),
+        supabase.from('orcamento_itens').select('id, etapa_id, subetapa, tipo_linha, descricao_snapshot, codigo_snapshot, quantidade, preco_unitario_snapshot').eq('orcamento_id', orcamentoId).eq('tipo_linha', 'item'),
+        supabase.from('orcamento_itens').select('id, etapa_id, subetapa').eq('orcamento_id', orcamentoId).eq('tipo_linha', 'subetapa'),
         supabase.from('planejamento_itens').select('*').eq('orcamento_id', orcamentoId),
         supabase.from('planejamento_dependencias').select('*').eq('orcamento_id', orcamentoId),
       ])
@@ -369,15 +376,25 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
 
       const etapas = (etapasRes.data || []) as Etapa[]
       const orcItems = (itemsRes.data || []) as OrcItem[]
+      const headers = (headersRes.data || []) as { id: string; etapa_id: string | null; subetapa: string | null }[]
       const plans = (planRes.data || []) as PlanejamentoItem[]
       const dependencies = (depsRes.data || []) as PlanejamentoDependencia[]
 
       setDeps(dependencies)
 
+      // Regra 3: subetapa reaproveita a linha orcamento_itens (tipo_linha='subetapa')
+      // já existente como identidade estável, em vez de derivar só do nome.
+      const headerPorSubetapa = new Map<string, string>()
+      headers.forEach(h => {
+        const nome = h.subetapa?.trim()
+        if (!nome) return
+        headerPorSubetapa.set(`${h.etapa_id}::${nome}`, h.id)
+      })
+
       const planByRef = new Map<string, PlanejamentoItem>()
       plans.forEach(p => planByRef.set(refKey(p.ref_tipo, p.etapa_id, p.subetapa_key, p.orcamento_item_id), p))
 
-      const newTree = buildTree(etapas, orcItems, planByRef)
+      const newTree = buildTree(etapas, orcItems, planByRef, headerPorSubetapa)
       setTree(newTree)
       allNodesRef.current = newTree
 
@@ -397,7 +414,7 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
     }
   }
 
-  function buildTree(etapas: Etapa[], orcItems: OrcItem[], planByRef: Map<string, PlanejamentoItem>): TreeNode[] {
+  function buildTree(etapas: Etapa[], orcItems: OrcItem[], planByRef: Map<string, PlanejamentoItem>, headerPorSubetapa: Map<string, string>): TreeNode[] {
     const etapaIdsInBudget = new Set(orcItems.map(oi => oi.etapa_id).filter(Boolean))
 
     return etapas
@@ -420,32 +437,38 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
 
         const children: TreeNode[] = []
 
+        const valorItem = (oi: OrcItem) => (Number(oi.quantidade) || 0) * (Number(oi.preco_unitario_snapshot) || 0)
+
         noSub.forEach(oi => {
           children.push({
             key: `I:${oi.id}`, level: 2, codigo: oi.codigo_snapshot || '—',
             descricao: oi.descricao_snapshot || '(sem descrição)',
             refTipo: 'item', etapaId: etapa.id, subetapaKey: null, orcItemId: oi.id,
             plan: planByRef.get(`I:${oi.id}`) || null, children: [],
+            valorContratado: valorItem(oi),
           })
         })
 
         let subIdx = 1
         subGroups.forEach((items, subName) => {
           const subKey = `S:${etapa.id}:${subName}`
+          const itemNodes: TreeNode[] = items.map(oi => ({
+            key: `I:${oi.id}`, level: 2 as const,
+            codigo: oi.codigo_snapshot || '—',
+            descricao: oi.descricao_snapshot || '(sem descrição)',
+            refTipo: 'item' as const, etapaId: etapa.id,
+            subetapaKey: subName, orcItemId: oi.id,
+            plan: planByRef.get(`I:${oi.id}`) || null, children: [],
+            valorContratado: valorItem(oi),
+          }))
           children.push({
             key: subKey, level: 1,
             codigo: `${String(etapa.ordem).padStart(2, '0')}.${subIdx}`,
             descricao: subName, refTipo: 'subetapa',
-            etapaId: etapa.id, subetapaKey: subName, orcItemId: null,
+            etapaId: etapa.id, subetapaKey: subName, orcItemId: headerPorSubetapa.get(`${etapa.id}::${subName}`) || null,
             plan: planByRef.get(subKey) || null,
-            children: items.map(oi => ({
-              key: `I:${oi.id}`, level: 2 as const,
-              codigo: oi.codigo_snapshot || '—',
-              descricao: oi.descricao_snapshot || '(sem descrição)',
-              refTipo: 'item' as const, etapaId: etapa.id,
-              subetapaKey: subName, orcItemId: oi.id,
-              plan: planByRef.get(`I:${oi.id}`) || null, children: [],
-            })),
+            children: itemNodes,
+            valorContratado: itemNodes.reduce((acc, n) => acc + n.valorContratado, 0),
           })
           subIdx++
         })
@@ -457,6 +480,7 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
           etapaId: etapa.id, subetapaKey: null, orcItemId: null,
           plan: planByRef.get(etapaKey) || null, children,
           fallbackProgress: Number(etapa.percentual_executado) || 0,
+          valorContratado: children.reduce((acc, n) => acc + n.valorContratado, 0),
         }
       })
   }
@@ -593,17 +617,31 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
     if (node.level === 2) {
       return { plan: Number(node.plan?.progresso_planejado ?? 0), exec: Number(node.plan?.progresso_executado ?? 0) }
     }
-    // Nós com dados próprios (nível subetapa) contam diretamente; caso contrário,
-    // usa a média dos filhos com dado (evita contar etapa + subetapa em dobro).
-    const planned: TreeNode[] = []
-    function collect(n: TreeNode) {
-      if (n.plan) { planned.push(n); return }
-      n.children.forEach(collect)
+    // Regra 8: subetapa/etapa não têm % executado próprio — sempre calculado
+    // a partir dos itens (folhas) filhos, ponderado pelo valor do orçamento.
+    const folhas: TreeNode[] = []
+    function collectFolhas(n: TreeNode) {
+      if (n.level === 2) { folhas.push(n); return }
+      n.children.forEach(collectFolhas)
     }
-    node.children.forEach(collect)
-    if (planned.length === 0) return { plan: 0, exec: Number(node.fallbackProgress ?? 0) }
-    const plan = planned.reduce((s, l) => s + Number(l.plan?.progresso_planejado ?? 0), 0) / planned.length
-    const exec = planned.reduce((s, l) => s + Number(l.plan?.progresso_executado ?? 0), 0) / planned.length
+    node.children.forEach(collectFolhas)
+    const valorFolhas = folhas.reduce((acc, f) => acc + f.valorContratado, 0)
+    const exec = folhas.length === 0
+      ? Number(node.fallbackProgress ?? 0)
+      : valorFolhas > 0
+        ? folhas.reduce((acc, f) => acc + Number(f.plan?.progresso_executado ?? 0) * f.valorContratado, 0) / valorFolhas
+        : folhas.reduce((acc, f) => acc + Number(f.plan?.progresso_executado ?? 0), 0) / folhas.length
+
+    // % planejado (cronograma-alvo) não é o foco da regra 8 — segue a lógica
+    // anterior: nós com data própria contam diretamente.
+    const planned: TreeNode[] = []
+    function collectPlanned(n: TreeNode) {
+      if (n.plan) { planned.push(n); return }
+      n.children.forEach(collectPlanned)
+    }
+    node.children.forEach(collectPlanned)
+    const plan = planned.length === 0 ? 0 : planned.reduce((s, l) => s + Number(l.plan?.progresso_planejado ?? 0), 0) / planned.length
+
     return { plan: Math.round(plan), exec: Math.round(exec) }
   }
 
@@ -683,37 +721,86 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
       <EmptyState
         icon={CalendarRange}
         title="Sem orçamento"
-        description="Crie um orçamento para esta obra antes de usar o Planejamento 2.0."
+        description="Crie um orçamento para esta obra antes de usar o Planejamento."
       />
+    )
+  }
+
+  // Previsões e Curva S (só existem no contexto de obra) ficam como sub-abas
+  // do Planejamento — regra 1: uma única entrada de navegação, sem duplicar
+  // a árvore Etapa → Subetapa → Item.
+  const idsOrcamentos = orcamentoIds?.length ? orcamentoIds : [orcamentoId]
+  const subTabBar = obraId && (
+    <div className="flex items-center gap-1.5 p-1 rounded-lg w-fit overflow-x-auto max-w-full" style={{ background: 'var(--bg-secondary)' }}>
+      {([
+        { id: 'estrutura' as const, label: 'Estrutura', icon: CalendarRange },
+        { id: 'previsoes' as const, label: 'Previsões', icon: CalendarClock },
+        { id: 'curva' as const, label: 'Curva S', icon: LineChart },
+      ]).map(t => {
+        const Ic = t.icon
+        return (
+          <button key={t.id} onClick={() => setSubTab(t.id)}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap"
+            style={subTab === t.id ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}>
+            <Ic size={15} /> {t.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  if (obraId && subTab === 'previsoes') {
+    return (
+      <div className="flex flex-col gap-4">
+        {subTabBar}
+        <ObraPrevisoes obraId={obraId} orcamentoId={orcamentoId} />
+      </div>
+    )
+  }
+  if (obraId && subTab === 'curva') {
+    return (
+      <div className="flex flex-col gap-4">
+        {subTabBar}
+        <ObraCurvaS obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={idsOrcamentos} />
+      </div>
     )
   }
 
   if (loading) {
     return (
-      <div className="flex justify-center py-16">
-        <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+      <div className="flex flex-col gap-4">
+        {subTabBar}
+        <div className="flex justify-center py-16">
+          <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="card p-6 text-center">
-        <AlertCircle size={32} className="mx-auto mb-3" style={{ color: '#EF4444' }} />
-        <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Erro ao carregar planejamento</p>
-        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>{error}</p>
-        <Button onClick={load}>Tentar novamente</Button>
+      <div className="flex flex-col gap-4">
+        {subTabBar}
+        <div className="card p-6 text-center">
+          <AlertCircle size={32} className="mx-auto mb-3" style={{ color: '#EF4444' }} />
+          <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Erro ao carregar planejamento</p>
+          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>{error}</p>
+          <Button onClick={load}>Tentar novamente</Button>
+        </div>
       </div>
     )
   }
 
   if (tree.length === 0) {
     return (
-      <EmptyState
-        icon={CalendarRange}
-        title="Sem itens no orçamento"
-        description="Adicione etapas e itens ao orçamento para visualizar o planejamento."
-      />
+      <div className="flex flex-col gap-4">
+        {subTabBar}
+        <EmptyState
+          icon={CalendarRange}
+          title="Sem itens no orçamento"
+          description="Adicione etapas e itens ao orçamento para visualizar o planejamento."
+        />
+      </div>
     )
   }
 
@@ -721,10 +808,11 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
 
   return (
     <div className="flex flex-col gap-4">
+      {subTabBar}
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Planejamento 2.0</h2>
+            <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Planejamento</h2>
             {baselineInfo && (
               <span
                 className="text-[10px] px-2 py-0.5 rounded-full border"
@@ -803,7 +891,9 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
               const plan = node.plan
               const status: PlanejamentoStatus = plan?.status || 'nao_iniciado'
               const pPlan = Number(plan?.progresso_planejado ?? 0)
-              const pExec = Number(plan?.progresso_executado ?? (node.fallbackProgress ?? 0))
+              // Regra 8: só o item (folha) tem % executado próprio — etapa e
+              // subetapa são sempre calculados a partir dos itens filhos.
+              const pExec = node.level === 2 ? Number(plan?.progresso_executado ?? 0) : nodeProgress(node).exec
               const { names: predNames, planIds: predPlanIds } = getPredecessors(node)
 
               const bgLevel = node.level === 0 ? 'var(--bg-secondary)' : node.level === 1 ? 'rgba(var(--accent-rgb, 59,123,248),0.04)' : 'transparent'
@@ -905,12 +995,12 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId }: { obraId?:
                     />
                   </td>
 
-                  {/* % Executado */}
+                  {/* % Executado — só o item é editável (regra 8: pais são sempre calculados) */}
                   <td className="px-2 py-2 text-center">
                     <ProgressCell
                       value={pExec}
                       onCommit={v => saveField(node, 'progresso_executado', v)}
-                      disabled={!!saving}
+                      disabled={!!saving || node.level !== 2}
                     />
                   </td>
                 </tr>

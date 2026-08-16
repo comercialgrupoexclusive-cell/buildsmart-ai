@@ -6,7 +6,7 @@
 // paralelos que existiam (diario_obra + rdo).
 //
 // Padrão de mercado (Sienge/Procore/Mobuss): nº sequencial, clima por turno,
-// efetivo (mão de obra), equipamentos, atividades ligadas ao cronograma (que
+// efetivo (mão de obra), equipamentos, atividades ligadas aos itens do orçamento (que
 // atualizam o avanço físico), materiais recebidos, ocorrências e fotos.
 // ═══════════════════════════════════════════════════════════════════════════
 import { useCallback, useEffect, useState } from 'react'
@@ -18,7 +18,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import type { Rdo, Clima, RdoEfetivo, RdoEquipamento, RdoAtividade } from '@/lib/types'
-import { propagarAvancoServicos } from '@/lib/obra-progresso'
+import { loadPlanejamentoProgresso, setItemProgresso } from '@/lib/planejamento-progresso'
 import { EmptyState } from '@/components/ui/EmptyState'
 
 const CLIMA: Record<Clima, { label: string; icon: typeof Sun }> = {
@@ -32,7 +32,7 @@ const TURNOS: { key: 'clima_manha' | 'clima_tarde'; label: string }[] = [
   { key: 'clima_tarde', label: 'Tarde' },
 ]
 
-type SvcFlat = { id: string; nome: string; caminho: string; percentual: number }
+type SvcFlat = { id: string; orcamentoId: string; etapaId: string; subetapaKey: string | null; nome: string; caminho: string; percentual: number }
 
 const hoje = () => new Date().toISOString().slice(0, 10)
 
@@ -65,19 +65,24 @@ export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?:
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const [{ data: rdoData }, { data: etapasData }] = await Promise.all([
+    const [{ data: rdoData }, { data: orcamentosData }] = await Promise.all([
       supabase.from('rdo').select('*').eq('obra_id', obraId).order('data', { ascending: false }).order('numero', { ascending: false }),
-      supabase.from('etapas').select('nome, ordem, subetapas_cronograma(nome, ordem, servicos_cronograma(id, nome, percentual_executado, ordem))').eq('obra_id', obraId).order('ordem'),
+      supabase.from('orcamentos').select('id').eq('obra_id', obraId).neq('status', 'template'),
     ])
     setRdos((rdoData || []) as Rdo[])
 
+    const orcamentoIds = ((orcamentosData || []) as { id: string }[]).map(o => o.id)
+    // Fonte única: os mesmos itens do orçamento usados em Planejamento e Medições.
+    const prog = await loadPlanejamentoProgresso(supabase, orcamentoIds)
     const flat: SvcFlat[] = []
-    type Raw = { nome: string; subetapas_cronograma: { nome: string; servicos_cronograma: { id: string; nome: string; percentual_executado: number }[] }[] }
-    ;((etapasData || []) as Raw[]).forEach(e => {
-      (e.subetapas_cronograma || []).forEach(s => {
-        (s.servicos_cronograma || []).forEach(v => {
-          flat.push({ id: v.id, nome: v.nome, caminho: `${e.nome} › ${s.nome}`, percentual: Number(v.percentual_executado) || 0 })
+    prog.etapas.forEach(e => {
+      e.subetapas.forEach(s => {
+        s.itens.forEach(item => {
+          flat.push({ id: item.id, orcamentoId: item.orcamentoId, etapaId: item.etapaId, subetapaKey: item.subetapaKey, nome: item.descricao, caminho: `${e.nome} › ${s.nome}`, percentual: item.progressoExecutado })
         })
+      })
+      e.itensSoltos.forEach(item => {
+        flat.push({ id: item.id, orcamentoId: item.orcamentoId, etapaId: item.etapaId, subetapaKey: item.subetapaKey, nome: item.descricao, caminho: e.nome, percentual: item.progressoExecutado })
       })
     })
     setServicos(flat)
@@ -153,11 +158,18 @@ export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?:
 
     if (error) { setSaving(false); alert(`Não foi possível salvar o RDO.\n\n${error.message}`); return }
 
-    // Elo com o cronograma: atividades com % informado atualizam o avanço físico
-    const avancos = form.atividades
-      .filter(a => a.item_tipo === 'servico' && typeof a.percentual === 'number')
-      .map(a => ({ servicoId: a.item_id, percentual: a.percentual as number }))
-    if (avancos.length > 0) await propagarAvancoServicos(supabase, obraId, avancos)
+    // Elo com o orçamento: atividades com % informado atualizam o avanço real,
+    // pela mesma fonte única usada em Planejamento e Medições.
+    const avancos = form.atividades.filter(a => a.item_tipo === 'orcamento_item' && typeof a.percentual === 'number')
+    await Promise.all(avancos.map(a => {
+      const item = servicos.find(s => s.id === a.item_id)
+      if (!item) return Promise.resolve()
+      return setItemProgresso(supabase, {
+        orcamentoId: item.orcamentoId, obraId,
+        orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
+        percentual: a.percentual as number,
+      })
+    }))
 
     setSaving(false)
     cancelar()
@@ -198,7 +210,7 @@ export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?:
       )}
 
       {rdos.length === 0 && !showForm ? (
-        <EmptyState icon={ClipboardList} title="Nenhum RDO registrado" description="Registre o dia: clima, efetivo, atividades e ocorrências. As atividades ligadas ao cronograma atualizam o avanço da obra." />
+        <EmptyState icon={ClipboardList} title="Nenhum RDO registrado" description="Registre o dia: clima, efetivo, atividades e ocorrências. As atividades ligadas aos itens do orçamento atualizam o avanço da obra." />
       ) : (
         <div className="flex flex-col gap-2">
           {rdos.map(r => (
@@ -237,7 +249,7 @@ function RdoForm({
     const svc = servicos.find(s => s.id === svcSel)
     if (!svc) return
     const pct = svcPct === '' ? undefined : Math.min(100, Math.max(0, Number(svcPct)))
-    setForm(f => ({ ...f, atividades: [...f.atividades, { item_tipo: 'servico', item_id: svc.id, nome: `${svc.caminho} › ${svc.nome}`, percentual: pct }] }))
+    setForm(f => ({ ...f, atividades: [...f.atividades, { item_tipo: 'orcamento_item', item_id: svc.id, nome: `${svc.caminho} › ${svc.nome}`, percentual: pct }] }))
     setSvcSel(''); setSvcPct('')
   }
 
@@ -328,13 +340,13 @@ function RdoForm({
         {form.equipamentos.length === 0 && <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Nenhum equipamento.</p>}
       </div>
 
-      {/* Atividades ligadas ao cronograma */}
+      {/* Atividades ligadas aos itens do orçamento (mesma fonte de Planejamento/Medições) */}
       <div className="flex flex-col gap-2">
-        <span className={secTitle} style={{ color: 'var(--text-primary)' }}><ClipboardList size={15} style={{ color: 'var(--accent)' }} /> Atividades executadas (cronograma)</span>
+        <span className={secTitle} style={{ color: 'var(--text-primary)' }}><ClipboardList size={15} style={{ color: 'var(--accent)' }} /> Atividades executadas (itens do orçamento)</span>
         {servicos.length > 0 ? (
           <div className={`flex ${compact ? 'flex-col' : ''} gap-2 items-stretch`}>
             <select value={svcSel} onChange={e => setSvcSel(e.target.value)} className="input-base flex-1 text-sm">
-              <option value="">Selecione um serviço do cronograma…</option>
+              <option value="">Selecione um item do orçamento…</option>
               {servicos.map(s => <option key={s.id} value={s.id}>{s.caminho} › {s.nome} ({s.percentual}%)</option>)}
             </select>
             <div className="flex gap-2">
@@ -346,7 +358,7 @@ function RdoForm({
             </div>
           </div>
         ) : (
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Sem serviços no cronograma para vincular.</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Sem itens no orçamento para vincular.</p>
         )}
         {form.atividades.map((a, i) => (
           <div key={i} className="flex items-center gap-2 rounded-md px-2.5 py-1.5" style={{ background: 'var(--bg-secondary)' }}>
@@ -355,7 +367,7 @@ function RdoForm({
             <button type="button" onClick={() => setForm(f => ({ ...f, atividades: f.atividades.filter((_, j) => j !== i) }))} className="p-1 rounded" style={{ color: 'var(--danger)' }}><X size={13} /></button>
           </div>
         ))}
-        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Ao informar um novo %, o avanço do serviço é atualizado no cronograma automaticamente.</p>
+        <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Ao informar um novo %, o avanço do item é atualizado no orçamento/planejamento automaticamente.</p>
       </div>
 
       {/* Textos livres */}
@@ -450,7 +462,7 @@ function RdoCard({ rdo, aberto, onToggle, onEditar, onRemover }: {
             </Bloco>
           )}
           {(rdo.atividades || []).length > 0 && (
-            <Bloco icon={CalendarDays} cor="var(--success)" titulo="Atividades (cronograma)">
+            <Bloco icon={CalendarDays} cor="var(--success)" titulo="Atividades (orçamento)">
               <div className="flex flex-col gap-1">
                 {rdo.atividades.map((a, i) => <p key={i} className="text-sm" style={{ color: 'var(--text-primary)' }}>• {a.nome}{typeof a.percentual === 'number' ? ` — ${a.percentual}%` : ''}</p>)}
               </div>

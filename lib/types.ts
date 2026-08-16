@@ -224,7 +224,10 @@ export type ServicoCronograma = {
 }
 
 // ─── Dependência de Cronograma (predecessora, Fim→Início) ────────────────────
-export type CronogramaItemTipo = 'etapa' | 'subetapa' | 'servico'
+// 'orcamento_item' referencia diretamente um item do orçamento (fonte única
+// de avanço, ver lib/planejamento-progresso.ts) — os demais valores são do
+// cronograma legado (etapas/subetapas_cronograma/servicos_cronograma).
+export type CronogramaItemTipo = 'etapa' | 'subetapa' | 'servico' | 'orcamento_item'
 
 export type CronogramaDependencia = {
   id: string
@@ -286,6 +289,7 @@ export type MedicaoItem = {
   medicao_id: string
   item_tipo: CronogramaItemTipo
   item_id: string
+  orcamento_item_id?: string | null
   nome: string | null
   valor_contratado: number
   pct_anterior: number

@@ -18,19 +18,23 @@ import { ObraCurvaABC } from '@/components/obra/ObraCurvaABC'
 import { ObraMateriais } from '@/components/obra/ObraMateriais'
 import { ObraFinanceiroTab } from '@/components/obra/ObraFinanceiroTab'
 import { ObraProjetoTab } from '@/components/obra/ObraProjetoTab'
-import { ObraCronogramaTab } from '@/components/obra/ObraCronogramaTab'
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
 import { ObraAssistenteDock } from '@/components/obra/ObraAssistenteDock'
 import { OrcamentoEtapasIniciaisModal } from '@/components/obra/OrcamentoEtapasIniciaisModal'
 import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
-type Tab = 'projeto' | 'orcamento' | 'cronograma' | 'planejamento' | 'suprimentos' | 'medicoes' | 'financeiro'
+// Regra 1: "Cronograma" e "Planejamento 2.0" eram duas árvores concorrentes
+// na UI. Só existe "Planejamento" agora — deriva do orçamento (etapa →
+// subetapa → item), com Previsões/Curva S como sub-abas. O editor legado de
+// cronograma (ObraCronograma.tsx, com etapas soltas por cronograma_id)
+// continua no banco por compatibilidade (regra 9), só não tem mais entrada
+// própria aqui.
+type Tab = 'projeto' | 'orcamento' | 'planejamento' | 'suprimentos' | 'medicoes' | 'financeiro'
 
 const TABS: { id: Tab; label: string; icon?: typeof LayoutDashboard }[] = [
   { id: 'projeto', label: 'Projeto', icon: FolderOpen },
   { id: 'orcamento', label: 'Orçamento' },
-  { id: 'cronograma', label: 'Cronograma' },
-  { id: 'planejamento', label: 'Planejamento 2.0', icon: CalendarRange },
+  { id: 'planejamento', label: 'Planejamento', icon: CalendarRange },
   { id: 'suprimentos', label: 'Suprimentos', icon: Truck },
   { id: 'medicoes', label: 'Medições' },
   { id: 'financeiro', label: 'Financeiro', icon: Banknote },
@@ -410,8 +414,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
       <div className="animate-enter">
         {tab === 'projeto' && <ObraProjetoTab obraId={id} obra={obra} onEdit={openEdit} />}
         {tab === 'orcamento' && <ObraOrcamentosTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} obraArea={obra.area_m2} selectedId={orcamentoId} />}
-        {tab === 'cronograma' && <ObraCronogramaTab obraId={id} obraNome={obra.nome} obraUf={obra.uf} orcamentoIds={orcamentoIds} orcamentoId={orcamentoId} />}
-        {tab === 'planejamento' && <ObraPlanejamento2 obraId={id} orcamentoId={orcamentoId} />}
+        {tab === 'planejamento' && <ObraPlanejamento2 obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'suprimentos' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'financeiro' && <ObraFinanceiroTab obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
