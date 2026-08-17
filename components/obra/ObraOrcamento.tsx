@@ -2959,6 +2959,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         open={showUsarTemplate}
         onClose={() => setShowUsarTemplate(false)}
         obraId={resolvedObraId || ''}
+        projetoId={projetoId || orcamento.projeto_id || undefined}
         orcamentoId={orcamento.id}
         onApplied={() => loadAll()}
       />
