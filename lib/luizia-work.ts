@@ -1,13 +1,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// Luiza — Etapa 1: preparação de interface e roteamento para Chat/Work.
+// Luiza — contratos compartilhados de Chat/Work.
 //
-// Este módulo é só INFRAESTRUTURA de preparação: interpreta intenção de
-// alteração de forma heurística (não é NLU completa), decide a skill pelo
-// contexto da página + palavras do pedido, e monta/atualiza um rascunho em
-// memória (nunca grava nada no banco). A próxima etapa é que vai plugar
-// ferramentas CRUD reais no lugar de `interpretarPedidoDeAlteracao`.
+// Este módulo define roteamento, intenção e o rascunho estruturado. O CRUD
+// canônico e a validação server-side vivem exclusivamente em luizia-tools.
 // ═══════════════════════════════════════════════════════════════════════════
-import { randomUUID } from 'crypto'
 
 // ─── Skills internas ──────────────────────────────────────────────────────
 export type LuiziaSkillId =
@@ -42,12 +38,66 @@ export type LuiziaDraftItem = {
   valor: string   // ex.: "30%"
 }
 
-export type LuiziaDraftStatus = 'rascunho' | 'confirmado_pendente_execucao'
+export type LuiziaDraftStatus =
+  | 'rascunho'
+  | 'aguardando_esclarecimento'
+  | 'confirmado_pendente_execucao'
+  | 'concluido'
+  | 'falhou'
+
+export type LuiziaDraftContext = {
+  obraId: string
+  orcamentoId: string
+  projetoId: string | null
+  pathname: string | null
+}
+
+export type LuiziaResolvedTarget = {
+  scope: 'etapa' | 'subetapa' | 'item'
+  label: string
+  etapaId: string
+  subetapaKey: string | null
+  orcamentoItemIds: string[]
+}
+
+export type LuiziaOperation =
+  | { id: string; type: 'set_progress'; target: LuiziaResolvedTarget; percentual: number }
+  | { id: string; type: 'set_planning_dates'; target: LuiziaResolvedTarget; dataInicio: string; dataFim: string }
+  | { id: string; type: 'create_rdo'; data: string; descricao: string; target: LuiziaResolvedTarget; percentual: number }
+  | { id: string; type: 'create_purchase'; descricao: string; valorTotal: number; etapaId: string | null; subetapaOrcamentoItemId: string | null; orcamentoItemId: string | null }
+  | { id: string; type: 'set_purchase_paid'; purchaseId: string; descricao: string }
+  | { id: string; type: 'set_purchase_received'; purchaseId: string; descricao: string }
+  | { id: string; type: 'sync_materials' }
+  | { id: string; type: 'set_budget_item_quantity'; orcamentoItemId: string; descricao: string; quantidade: number }
+
+export type LuiziaDraftCandidate = LuiziaResolvedTarget & { id: string }
+
+export type LuiziaPendingOperation =
+  | { type: 'set_progress'; percentual: number }
+  | { type: 'create_rdo'; data: string; descricao: string; percentual: number }
+  | { type: 'set_planning_dates'; dataInicio: string; dataFim: string }
+
+export type LuiziaExecutionResult = {
+  operationId: string
+  success: boolean
+  message: string
+  entityType?: 'planejamento' | 'rdo' | 'compra' | 'materiais' | 'orcamento_item'
+  entityId?: string
+}
 
 export type LuiziaDraft = {
+  id?: string
+  signature?: string
+  revision?: number
   skill: LuiziaSkillId
   itens: LuiziaDraftItem[]
   status: LuiziaDraftStatus
+  context?: LuiziaDraftContext
+  operations?: LuiziaOperation[]
+  candidates?: LuiziaDraftCandidate[]
+  pendingOperation?: LuiziaPendingOperation | null
+  results?: LuiziaExecutionResult[]
+  executedAt?: string | null
 }
 
 // ─── Roteamento de skill: aba atual tem prioridade sobre o texto do pedido,
@@ -143,45 +193,17 @@ export function interpretarPedidoDeAlteracao(prompt: string): Interpretacao {
   return { tipo: 'nenhuma' }
 }
 
-/** Aplica a interpretação sobre o rascunho atual (ou cria um novo). Nunca
- * toca no banco — só ajusta o objeto em memória que roda de ida e volta
- * entre cliente e servidor durante a conversa. */
-export function aplicarInterpretacaoNoDraft(
-  interpretacao: Interpretacao,
-  draftAtual: LuiziaDraft | null,
-  skill: LuiziaSkillId,
-): LuiziaDraft | null {
-  if (interpretacao.tipo === 'novo_item') {
-    const base: LuiziaDraft = draftAtual && draftAtual.status === 'rascunho'
-      ? draftAtual
-      : { skill, itens: [], status: 'rascunho' }
-    const existente = base.itens.find(i => i.alvo.toLowerCase() === interpretacao.alvo.toLowerCase())
-    const itens = existente
-      ? base.itens.map(i => i === existente ? { ...i, campo: interpretacao.campo, valor: interpretacao.valor } : i)
-      : [...base.itens, { id: randomUUID(), alvo: interpretacao.alvo, campo: interpretacao.campo, valor: interpretacao.valor }]
-    return { skill, itens, status: 'rascunho' }
-  }
-
-  if (interpretacao.tipo === 'refinamento') {
-    if (!draftAtual || draftAtual.itens.length === 0) return draftAtual
-    const ultimo = draftAtual.itens[draftAtual.itens.length - 1]
-    const itens = draftAtual.itens.map(i => i === ultimo ? { ...i, valor: interpretacao.valor } : i)
-    return { ...draftAtual, itens, status: 'rascunho' }
-  }
-
-  if (interpretacao.tipo === 'confirmacao') {
-    if (!draftAtual || draftAtual.itens.length === 0) return draftAtual
-    return { ...draftAtual, status: 'confirmado_pendente_execucao' }
-  }
-
-  return draftAtual
-}
-
 export function renderizarDraft(draft: LuiziaDraft): string {
   const linhas = draft.itens.map((item, i) => `${i + 1}. ${item.alvo}\n${item.campo}: ${item.valor}`).join('\n\n')
-  const rodape = draft.status === 'confirmado_pendente_execucao'
-    ? 'Confirmado. A execução real (gravar essa alteração no banco) será habilitada na próxima etapa — por enquanto nada foi alterado.'
-    : 'Aguardando confirmação.'
+  const rodape = draft.status === 'concluido'
+    ? 'Concluído.'
+    : draft.status === 'falhou'
+      ? 'A execução teve falhas. Você pode confirmar novamente para tentar apenas o que ficou pendente.'
+      : draft.status === 'aguardando_esclarecimento'
+        ? 'Preciso que você escolha uma das opções antes de confirmar.'
+        : draft.status === 'confirmado_pendente_execucao'
+          ? 'Confirmação recebida. Executando exatamente este rascunho.'
+          : 'Aguardando confirmação.'
   return `ALTERAÇÕES PROPOSTAS\n\n${linhas}\n\n${rodape}`
 }
 

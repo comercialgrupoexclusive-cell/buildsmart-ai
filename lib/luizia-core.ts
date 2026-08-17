@@ -1,9 +1,9 @@
 import OpenAI from 'openai'
 import {
-  aplicarInterpretacaoNoDraft, comSkillTag, detectSkill, interpretarPedidoDeAlteracao,
-  MENSAGEM_BLOQUEIO_CHAT, renderizarDraft,
+  comSkillTag, detectSkill, interpretarPedidoDeAlteracao, MENSAGEM_BLOQUEIO_CHAT,
   type LuiziaDraft, type LuiziaPageContext, type LuiziaSkillId,
 } from './luizia-work'
+import { processLuiziaWork } from './luizia-tools'
 
 type Row = Record<string, unknown>
 
@@ -209,25 +209,17 @@ ${limitJson(context, contextLimit)}`
   return { message: content, model, mode: 'openai' }
 }
 
-// Mensagens de esclarecimento quando o Work reconhece um pedido de alteração
-// mas não consegue montar/atualizar o rascunho (heurística ainda limitada
-// nesta etapa — sem ferramenta CRUD real por trás).
-const MSG_ALTERACAO_SEM_DETALHE = 'Entendi que você quer alterar algo, mas preciso do item e do novo valor. Por exemplo: "coloque a Fundação em 30%".'
-const MSG_SEM_RASCUNHO_PARA_REFINAR = 'Ainda não tenho um rascunho para atualizar. Me diga o item e o valor, por exemplo: "coloque a Fundação em 30%".'
-const MSG_SEM_RASCUNHO_PARA_CONFIRMAR = 'Ainda não há nenhum rascunho para confirmar. Peça uma alteração primeiro.'
-
 /**
- * Orquestra Chat/Work (Luiza — Etapa 1 do documento de preparação).
+ * Orquestra Chat/Work.
  *
  * Chat: somente leitura. Qualquer pedido com cara de alteração é bloqueado
  * ANTES de chamar a IA, com a mensagem fixa exigida — nunca muda de modo
  * sozinha.
  *
- * Work: interpreta o pedido de forma heurística, monta/atualiza um rascunho
- * em memória (nunca grava no banco) e mostra "aguardando confirmação".
- * Mesmo depois de "confirmar", deixa claro que a execução real fica para a
- * próxima etapa. Perguntas normais (sem intenção de alteração) respondem
- * igual ao Chat, só que com o modo Work ligado.
+ * Work: monta/atualiza um rascunho estruturado sem escrita antecipada. Uma
+ * confirmação explícita executa exatamente as operações assinadas do draft
+ * pela camada server-side de tools. Perguntas normais continuam respondendo
+ * como no Chat.
  *
  * Em ambos os modos, a resposta ganha uma linha discreta "Usando skill: X"
  * — o roteamento de skill é só contexto de página + palavras do pedido,
@@ -270,20 +262,27 @@ export async function askLuizia({
     return { ...resposta, message: comSkillTag(resposta.message, skill), skill, draft: draftAtual, blocked: false }
   }
 
-  // modo === 'work'
-  if (interpretacao.tipo === 'alteracao_sem_detalhe') {
-    return { message: comSkillTag(MSG_ALTERACAO_SEM_DETALHE, skill), mode: 'draft', skill, draft: draftAtual, blocked: false }
-  }
-
-  if (interpretacao.tipo === 'novo_item' || interpretacao.tipo === 'refinamento' || interpretacao.tipo === 'confirmacao') {
-    const novoDraft = aplicarInterpretacaoNoDraft(interpretacao, draftAtual, skill)
-    if (!novoDraft || novoDraft.itens.length === 0) {
-      const msg = interpretacao.tipo === 'confirmacao' ? MSG_SEM_RASCUNHO_PARA_CONFIRMAR : MSG_SEM_RASCUNHO_PARA_REFINAR
-      return { message: comSkillTag(msg, skill), mode: 'draft', skill, draft: draftAtual, blocked: false }
+  // modo === 'work'. A camada compartilhada resolve o alvo no contexto
+  // canônico e, quando a mensagem é uma confirmação explícita, executa
+  // exatamente as operações estruturadas já presentes no rascunho.
+  try {
+    const work = await processLuiziaWork({ prompt: ultimaMensagem, context, draft: draftAtual, skill })
+    if (!work) {
+      if (interpretacao.tipo !== 'nenhuma') {
+        return {
+          message: comSkillTag('Entendi a alteração, mas preciso de mais detalhes para montar um rascunho seguro.', skill),
+          mode: 'draft', skill, draft: draftAtual, blocked: false,
+        }
+      }
+      const resposta = await gerarRespostaNormal(messages, context, complex)
+      return { ...resposta, message: comSkillTag(resposta.message, skill), skill, draft: draftAtual, blocked: false }
     }
-    return { message: comSkillTag(renderizarDraft(novoDraft), skill), mode: 'draft', skill, draft: novoDraft, blocked: false }
+    return {
+      message: comSkillTag(work.message, skill), mode: 'draft', skill,
+      draft: work.draft, blocked: false,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Não foi possível processar o modo Work.'
+    return { message: comSkillTag(message, skill), mode: 'draft', skill, draft: draftAtual, blocked: false }
   }
-
-  const resposta = await gerarRespostaNormal(messages, context, complex)
-  return { ...resposta, message: comSkillTag(resposta.message, skill), skill, draft: draftAtual, blocked: false }
 }
