@@ -338,13 +338,19 @@ export type TipoCusto =
   | 'outros'          // OUTROS
 
 // ─── Compras — Item de Compra (financeiro, por obra/etapa) ──────────────────
+// Hierarquia estável: Orçamento -> Etapa -> Subetapa do orçamento -> Item do
+// orçamento (quando aplicável). Não depende mais de subetapas_cronograma/
+// servicos_cronograma — subetapa_legado_nome/servico_legado_nome só
+// preservam o texto histórico dos 105 lançamentos migrados.
 export type CompraItem = {
   id: string
   obra_id: string
   orcamento_id: string | null
   etapa_id: string | null
-  subetapa_id: string | null          // detalhamento fino opcional (nível 2)
-  servico_id: string | null           // detalhamento fino opcional (nível 3)
+  subetapa_orcamento_item_id: string | null   // FK orcamento_itens (tipo_linha='subetapa')
+  orcamento_item_id: string | null            // FK orcamento_itens (tipo_linha='item'), opcional
+  subetapa_legado_nome: string | null         // histórico do cronograma legado (pré-migração)
+  servico_legado_nome: string | null          // histórico do cronograma legado (pré-migração)
   lista_id: string | null
   descricao: string
   fornecedor_id: string | null
@@ -433,7 +439,6 @@ export type FinanciamentoItem = {
   nivel: 1 | 2 | 3
   origem: 'sistema' | 'manual'
   etapa_ref_id: string | null
-  subetapa_ref_id: string | null
   data_inicio: string | null
   data_fim: string | null
   created_at: string

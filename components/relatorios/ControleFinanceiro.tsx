@@ -139,7 +139,7 @@ export function ControleFinanceiro() {
             <KpiCard
               icon={TrendingUp} color="var(--warning)"
               label="Custo Atual" value={formatCurrency(custoAtual)}
-              sub={`${formatCurrency(confirmado)} confirmado · ${formatCurrency(estimado)} estimado`}
+              sub={`${formatCurrency(confirmado)} comprometido/contratado · ${formatCurrency(estimado)} estimado`}
             />
             <KpiCard
               icon={TrendingDown} color={saldo >= 0 ? 'var(--success)' : 'var(--danger)'}

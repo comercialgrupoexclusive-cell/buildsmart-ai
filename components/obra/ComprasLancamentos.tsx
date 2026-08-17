@@ -8,7 +8,7 @@ import {
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, FORMA_PAGAMENTO_LABEL, TIPO_CUSTO_LABEL, TIPO_CUSTO_COLOR } from '@/lib/utils'
-import { CompraItem, Etapa, Fornecedor, TipoCusto, SubetapaCronograma, ServicoCronograma } from '@/lib/types'
+import { CompraItem, Etapa, Fornecedor, TipoCusto } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -28,6 +28,12 @@ const STATUS_VALOR_COLOR: Record<CompraItem['status_valor'], string> = {
 const SEM_ETAPA = 'sem_etapa'
 
 type CotacaoLinha = { id: string; fornecedorNome: string; valor: string }
+
+// Hierarquia estável do orçamento (nunca a árvore do cronograma legado):
+// subetapa = cabeçalho orcamento_itens.tipo_linha='subetapa'; item = linha
+// orcamento_itens.tipo_linha='item', agrupada pelo mesmo texto de subetapa.
+type SubetapaOrcamento = { id: string; etapa_id: string; nome: string }
+type ItemOrcamento = { id: string; etapa_id: string; subetapaNome: string | null; nome: string }
 
 export type PrefillLancamento = {
   fornecedorNome?: string
@@ -51,8 +57,8 @@ export function ComprasLancamentos({
   const [supabase] = useState(createClient)
   const [itens, setItens] = useState<CompraItem[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
-  const [subetapas, setSubetapas] = useState<SubetapaCronograma[]>([])
-  const [servicos, setServicos] = useState<ServicoCronograma[]>([])
+  const [subetapas, setSubetapas] = useState<SubetapaOrcamento[]>([])
+  const [itensOrcamento, setItensOrcamento] = useState<ItemOrcamento[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroEtapa, setFiltroEtapa] = useState('todas')
@@ -65,8 +71,8 @@ export function ComprasLancamentos({
   const [form, setForm] = useState({
     descricao: '',
     etapa_id: '',
-    subetapa_id: '',
-    servico_id: '',
+    subetapa_orcamento_item_id: '',
+    orcamento_item_id: '',
     fornecedor_id: '',
     fornecedor_nome: '',
     valor_total: '',
@@ -97,22 +103,32 @@ export function ComprasLancamentos({
     setFornecedores((fornecedoresRes.data || []) as Fornecedor[])
     setLoading(false)
 
-    // Subetapa/Serviço: usados só como refinamento opcional do centro de custo.
-    // Carrega em segundo plano para não travar a abertura do menu Compras.
+    // Subetapa/Item: refinamento opcional do centro de custo, sempre a
+    // partir da hierarquia estável do orçamento (nunca subetapas_cronograma/
+    // servicos_cronograma). Carrega em segundo plano para não travar a
+    // abertura do menu Compras.
     const etapaIds = etapasData.map(e => e.id)
     if (etapaIds.length > 0) {
-      const { data: subs } = await supabase.from('subetapas_cronograma').select('*').in('etapa_id', etapaIds).order('ordem')
-      setSubetapas((subs || []) as SubetapaCronograma[])
-      const subIds = (subs || []).map((s: SubetapaCronograma) => s.id)
-      if (subIds.length > 0) {
-        const { data: svcs } = await supabase.from('servicos_cronograma').select('*').in('subetapa_id', subIds).order('ordem')
-        setServicos((svcs || []) as ServicoCronograma[])
-      } else {
-        setServicos([])
-      }
+      const { data: linhas } = await supabase
+        .from('orcamento_itens')
+        .select('id, etapa_id, subetapa, tipo_linha, descricao_snapshot')
+        .in('etapa_id', etapaIds)
+        .in('tipo_linha', ['subetapa', 'item'])
+      type Linha = { id: string; etapa_id: string; subetapa: string | null; tipo_linha: string; descricao_snapshot: string | null }
+      const todasLinhas = (linhas || []) as Linha[]
+      setSubetapas(
+        todasLinhas
+          .filter(l => l.tipo_linha === 'subetapa' && l.subetapa)
+          .map(l => ({ id: l.id, etapa_id: l.etapa_id, nome: l.subetapa as string }))
+      )
+      setItensOrcamento(
+        todasLinhas
+          .filter(l => l.tipo_linha === 'item')
+          .map(l => ({ id: l.id, etapa_id: l.etapa_id, subetapaNome: l.subetapa?.trim() || null, nome: l.descricao_snapshot || '(sem descrição)' }))
+      )
     } else {
       setSubetapas([])
-      setServicos([])
+      setItensOrcamento([])
     }
   }, [consolidado, obraId, orcamentoId, orcamentoIds, supabase])
 
@@ -122,7 +138,7 @@ export function ComprasLancamentos({
 
   function resetForm() {
     setForm({
-      descricao: '', etapa_id: '', subetapa_id: '', servico_id: '', fornecedor_id: '', fornecedor_nome: '',
+      descricao: '', etapa_id: '', subetapa_orcamento_item_id: '', orcamento_item_id: '', fornecedor_id: '', fornecedor_nome: '',
       valor_total: '', tipo_custo: '', status_valor: 'confirmado', forma_pagamento: '',
       data_compra: new Date().toISOString().slice(0, 10), data_limite_pagamento: '',
     })
@@ -141,8 +157,8 @@ export function ComprasLancamentos({
     setForm({
       descricao: item.descricao,
       etapa_id: item.etapa_id || '',
-      subetapa_id: item.subetapa_id || '',
-      servico_id: item.servico_id || '',
+      subetapa_orcamento_item_id: item.subetapa_orcamento_item_id || '',
+      orcamento_item_id: item.orcamento_item_id || '',
       fornecedor_id: item.fornecedor_id || '',
       fornecedor_nome: item.fornecedor_nome || '',
       valor_total: String(item.valor_total ?? ''),
@@ -163,8 +179,8 @@ export function ComprasLancamentos({
       obra_id: obraId,
       orcamento_id: editando?.orcamento_id || orcamentoId,
       etapa_id: form.etapa_id || null,
-      subetapa_id: form.subetapa_id || null,
-      servico_id: form.servico_id || null,
+      subetapa_orcamento_item_id: form.subetapa_orcamento_item_id || null,
+      orcamento_item_id: form.orcamento_item_id || null,
       descricao: form.descricao.trim(),
       fornecedor_id: fornecedorManual ? null : (form.fornecedor_id || null),
       fornecedor_nome: fornecedorManual ? (form.fornecedor_nome.trim() || null) : null,
@@ -396,7 +412,7 @@ export function ComprasLancamentos({
           <Select
             label="Etapa"
             value={form.etapa_id}
-            onChange={e => setForm(f => ({ ...f, etapa_id: e.target.value, subetapa_id: '', servico_id: '' }))}
+            onChange={e => setForm(f => ({ ...f, etapa_id: e.target.value, subetapa_orcamento_item_id: '', orcamento_item_id: '' }))}
           >
             <option value="">Sem etapa</option>
             {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
@@ -405,23 +421,28 @@ export function ComprasLancamentos({
           {form.etapa_id && subetapas.some(s => s.etapa_id === form.etapa_id) && (
             <div className="grid grid-cols-2 gap-3">
               <Select
-                label="Subetapa (opcional)"
-                value={form.subetapa_id}
-                onChange={e => setForm(f => ({ ...f, subetapa_id: e.target.value, servico_id: '' }))}
+                label="Subetapa do orçamento (opcional)"
+                value={form.subetapa_orcamento_item_id}
+                onChange={e => setForm(f => ({ ...f, subetapa_orcamento_item_id: e.target.value, orcamento_item_id: '' }))}
               >
                 <option value="">Não especificar</option>
                 {subetapas.filter(s => s.etapa_id === form.etapa_id).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </Select>
-              {form.subetapa_id && servicos.some(s => s.subetapa_id === form.subetapa_id) && (
-                <Select
-                  label="Serviço (opcional)"
-                  value={form.servico_id}
-                  onChange={e => setForm(f => ({ ...f, servico_id: e.target.value }))}
-                >
-                  <option value="">Não especificar</option>
-                  {servicos.filter(s => s.subetapa_id === form.subetapa_id).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                </Select>
-              )}
+              {(() => {
+                const subSelecionada = subetapas.find(s => s.id === form.subetapa_orcamento_item_id)
+                const itensDaSubetapa = itensOrcamento.filter(i => i.etapa_id === form.etapa_id && i.subetapaNome === (subSelecionada?.nome || null))
+                if (itensDaSubetapa.length === 0) return null
+                return (
+                  <Select
+                    label="Item do orçamento (opcional)"
+                    value={form.orcamento_item_id}
+                    onChange={e => setForm(f => ({ ...f, orcamento_item_id: e.target.value }))}
+                  >
+                    <option value="">Não especificar</option>
+                    {itensDaSubetapa.map(i => <option key={i.id} value={i.id}>{i.nome}</option>)}
+                  </Select>
+                )
+              })()}
             </div>
           )}
 

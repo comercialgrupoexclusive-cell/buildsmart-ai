@@ -6,9 +6,15 @@ import {
   Copy, Edit3, Eye, Plus, RefreshCw, Save, Trash2, TrendingUp, X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import type { Etapa, FinanciamentoItem, FinanciamentoCronogramaBanco, FinanciamentoMedicao, FinanciamentoMedicaoItem, ObraFonteRecurso, ObraReembolso, OrcamentoItem, SubetapaCronograma } from '@/lib/types'
+import type { Etapa, FinanciamentoItem, FinanciamentoCronogramaBanco, FinanciamentoMedicao, FinanciamentoMedicaoItem, ObraFonteRecurso, ObraReembolso, OrcamentoItem } from '@/lib/types'
 import { formatCurrency } from '@/lib/utils'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
+import { loadPlanejamentoProgresso } from '@/lib/planejamento-progresso'
+
+// Sub-linhas de avanço por subetapa, mostradas na Execução — sempre
+// derivadas da hierarquia estável do orçamento (lib/planejamento-progresso),
+// nunca de subetapas_cronograma (cronograma legado).
+type SubetapaProgresso = { id: string; etapa_id: string; nome: string; percentual_executado: number }
 
 type TreeNode = Omit<FinanciamentoItem, 'children'> & { children: TreeNode[] }
 type ViewTab = 'visao' | 'orcamento' | 'cronograma' | 'execucao' | 'acompanhamento'
@@ -60,7 +66,7 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
   const [medicoes, setMedicoes] = useState<FinanciamentoMedicao[]>([])
   const [cronoBanco, setCronoBanco] = useState<FinanciamentoCronogramaBanco[]>([])
   const [etapas, setEtapas] = useState<Etapa[]>([])
-  const [subetapas, setSubetapas] = useState<SubetapaCronograma[]>([])
+  const [subetapasProgresso, setSubetapasProgresso] = useState<SubetapaProgresso[]>([])
   const [orcItens, setOrcItens] = useState<OrcamentoItem[]>([])
   const [gerenciamentoPct, setGerenciamentoPct] = useState(0)
   const [fontes, setFontes] = useState<ObraFonteRecurso[]>([])
@@ -78,12 +84,13 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
   const carregar = useCallback(async () => {
     setLoading(true)
     const orcId = orcamentoId === TODOS_ORCAMENTOS ? null : orcamentoId
-    const [itensRes, medRes, cronoRes, etapasRes, subRes, orcItensRes, orcRes, fontesRes, reembRes] = await Promise.all([
+    const idsProgresso = orcId ? [orcId] : orcamentoIds
+    const [itensRes, medRes, cronoRes, etapasRes, progresso, orcItensRes, orcRes, fontesRes, reembRes] = await Promise.all([
       supabase.from('financiamento_itens').select('*').eq('obra_id', obraId).order('ordem'),
       supabase.from('financiamento_medicoes').select('*').eq('obra_id', obraId).order('numero', { ascending: false }),
       supabase.from('financiamento_cronograma_banco').select('*').eq('obra_id', obraId).order('mes'),
       supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem'),
-      supabase.from('subetapas_cronograma').select('*').order('ordem'),
+      loadPlanejamentoProgresso(supabase, idsProgresso),
       orcId
         ? supabase.from('orcamento_itens').select('id,etapa_id,subetapa,quantidade,preco_unitario_snapshot,valor_total_informado_snapshot,valor_total_manual_ativo').eq('orcamento_id', orcId)
         : Promise.resolve({ data: [] }),
@@ -97,15 +104,19 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
     setMedicoes((medRes.data || []) as FinanciamentoMedicao[])
     setCronoBanco((cronoRes.data || []) as FinanciamentoCronogramaBanco[])
     setEtapas((etapasRes.data || []) as Etapa[])
-    const allSub = (subRes.data || []) as SubetapaCronograma[]
-    const etapaIds = new Set((etapasRes.data || []).map((e: Etapa) => e.id))
-    setSubetapas(allSub.filter(s => etapaIds.has(s.etapa_id)))
+    // Subetapas com avanço físico real, sempre pela fonte única do
+    // orçamento (nunca subetapas_cronograma).
+    setSubetapasProgresso(
+      progresso.etapas.flatMap(e => e.subetapas
+        .filter(s => s.id)
+        .map(s => ({ id: s.id as string, etapa_id: e.id, nome: s.nome, percentual_executado: s.progressoExecutado })))
+    )
     setOrcItens((orcItensRes.data || []) as OrcamentoItem[])
     setGerenciamentoPct(Number((orcRes.data as Record<string, unknown>)?.gerenciamento_percentual) || 0)
     setFontes((fontesRes.data || []) as ObraFonteRecurso[])
     setReembolsos((reembRes.data || []) as ObraReembolso[])
     setLoading(false)
-  }, [obraId, orcamentoId, supabase])
+  }, [obraId, orcamentoId, orcamentoIds, supabase])
 
   useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
 
@@ -179,13 +190,9 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
         const etapa = etapas.find(e => e.id === item.etapa_ref_id)
         if (etapa) map.set(item.id, etapa.percentual_executado || 0)
       }
-      if (item.subetapa_ref_id) {
-        const sub = subetapas.find(s => s.id === item.subetapa_ref_id)
-        if (sub) map.set(item.id, sub.percentual_executado || 0)
-      }
     })
     return map
-  }, [itens, etapas, subetapas])
+  }, [itens, etapas])
 
   function calcPctItem(node: TreeNode, source: Record<string, number>): number {
     if (node.children.length === 0) return source[node.id] ?? 0
@@ -360,7 +367,7 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
       cronogramaRef={cronogramaRef} cronoBanco={cronoBanco} medicoes={medicoes}
       registrarMedicao={registrarMedicao} registrando={registrando}
       collapsed={collapsed} setCollapsed={setCollapsed} toggleAll={toggleAll}
-      isTodos={isTodos} subetapas={subetapas} itens={itens}
+      isTodos={isTodos} subetapasProgresso={subetapasProgresso} itens={itens}
       updateParentSim={updateParentSim}
     />
   )
@@ -907,7 +914,7 @@ function CronogramaView({ tree, etapas, salvarDatas, isTodos, cronoBanco }: {
 // ════════════════════════════════════════════════════════════════════════════════
 // EXECUÇÃO VIEW
 // ════════════════════════════════════════════════════════════════════════════════
-function ExecucaoView({ tree, totalValor, pctLocal, pctSim, setPctSim, calcPctItemAtual, calcPctItemSim, calcExecObraAtual, calcExecObraSim, acumuladoAtual, acumuladoSim, cronogramaRef, cronoBanco, medicoes, registrarMedicao, registrando, collapsed, setCollapsed, toggleAll, isTodos, subetapas, itens, updateParentSim }: {
+function ExecucaoView({ tree, totalValor, pctLocal, pctSim, setPctSim, calcPctItemAtual, calcPctItemSim, calcExecObraAtual, calcExecObraSim, acumuladoAtual, acumuladoSim, cronogramaRef, cronoBanco, medicoes, registrarMedicao, registrando, collapsed, setCollapsed, toggleAll, isTodos, subetapasProgresso, itens, updateParentSim }: {
   tree: TreeNode[]; totalValor: number
   pctLocal: Record<string, number>; pctSim: Record<string, number>; setPctSim: (v: Record<string, number>) => void
   calcPctItemAtual: (n: TreeNode) => number; calcPctItemSim: (n: TreeNode) => number
@@ -916,7 +923,7 @@ function ExecucaoView({ tree, totalValor, pctLocal, pctSim, setPctSim, calcPctIt
   cronogramaRef: Map<string, number>; cronoBanco: FinanciamentoCronogramaBanco[]; medicoes: FinanciamentoMedicao[]
   registrarMedicao: () => void; registrando: boolean
   collapsed: Record<string, boolean>; setCollapsed: (v: Record<string, boolean>) => void; toggleAll: (e: boolean) => void
-  isTodos: boolean; subetapas: SubetapaCronograma[]; itens: FinanciamentoItem[]
+  isTodos: boolean; subetapasProgresso: SubetapaProgresso[]; itens: FinanciamentoItem[]
   updateParentSim: (node: TreeNode, val: number) => void
 }) {
   const hasSim = Object.keys(pctSim).length > 0
@@ -930,14 +937,14 @@ function ExecucaoView({ tree, totalValor, pctLocal, pctSim, setPctSim, calcPctIt
   const ganhoMedicao = valorReembolsoSim - valorReembolsoAtual
 
   const subMap = useMemo(() => {
-    const map = new Map<string, SubetapaCronograma[]>()
-    subetapas.forEach(s => {
+    const map = new Map<string, SubetapaProgresso[]>()
+    subetapasProgresso.forEach(s => {
       const arr = map.get(s.etapa_id) || []
       arr.push(s)
       map.set(s.etapa_id, arr)
     })
     return map
-  }, [subetapas])
+  }, [subetapasProgresso])
 
   if (tree.length === 0) {
     return (
@@ -1051,7 +1058,7 @@ function TreeRowExec({ node, depth, collapsed, setCollapsed, pctLocal, pctSim, s
   pctLocal: Record<string, number>; pctSim: Record<string, number>; setPctSim: (v: Record<string, number>) => void
   calcPctItemAtual: (n: TreeNode) => number; calcPctItemSim: (n: TreeNode) => number
   calcExecObraSim: (n: TreeNode) => number
-  cronogramaRef: Map<string, number>; subMap: Map<string, SubetapaCronograma[]>
+  cronogramaRef: Map<string, number>; subMap: Map<string, SubetapaProgresso[]>
   updateParentSim: (node: TreeNode, val: number) => void
 }) {
   const hasChildren = node.children.length > 0
