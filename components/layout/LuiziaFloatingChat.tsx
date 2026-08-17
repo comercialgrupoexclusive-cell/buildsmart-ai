@@ -1,11 +1,15 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { BotMessageSquare, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Plus, Send, Trash2 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { logLuizia } from '@/lib/luizia-monitor'
 import { createClient } from '@/lib/supabase/client'
+import { useObraOrcamento, TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
+import type { LuiziaDraft, LuiziaPageContext } from '@/lib/luizia-work'
+import type { LuiziaModo } from '@/lib/luizia-core'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -14,6 +18,8 @@ type Message = {
 
 const CHAT_KEY = 'buildsmart-luizia-floating-chat-session'
 const ASSIST_ON_ENTRY_KEY = 'buildsmart-open-luizia-on-entry'
+const MODE_KEY = 'buildsmart-luizia-modo'
+const DRAFT_KEY = 'buildsmart-luizia-draft'
 
 function greeting(name?: string) {
   return `Oi${name ? `, ${name}` : ''}! Eu sou a Luiza.
@@ -35,15 +41,36 @@ function safeRows(result: any) {
   return Array.isArray(result?.data) ? result.data : []
 }
 
+// Deriva projetoId/obraId/orcamentoId/aba da URL atual + da obra/orçamento
+// globalmente selecionados (lib/obra-orcamento-context). O contexto da
+// página sempre tem prioridade: se a rota é /obras/[id], é essa obra que
+// vale, nunca a primeira obra da lista.
+function derivarContextoPagina(pathname: string | null, tabParam: string | null, obraIdGlobal: string, orcamentoIdGlobal: string): LuiziaPageContext {
+  const obraMatch = pathname?.match(/^\/obras\/([^/?#]+)/)
+  const projetoMatch = pathname?.match(/^\/projetos\/([^/?#]+)/)
+  const obraIdDaRota = obraMatch && obraMatch[1] !== 'novo' ? obraMatch[1] : null
+  const projetoId = projetoMatch && projetoMatch[1] !== 'novo' ? projetoMatch[1] : null
+  const obraId = obraIdDaRota || obraIdGlobal || null
+  const orcamentoId = orcamentoIdGlobal && orcamentoIdGlobal !== TODOS_ORCAMENTOS ? orcamentoIdGlobal : null
+  const aba = obraIdDaRota ? (tabParam || 'projeto') : null
+
+  return { pathname: pathname || null, projetoId, obraId, orcamentoId, aba }
+}
+
 export function LuiziaFloatingChat() {
   const { currentProfile } = useProfile()
   const supabaseRef = useRef(createClient())
   const supabase = supabaseRef.current
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const { obraId: obraIdGlobal, orcamentoId: orcamentoIdGlobal } = useObraOrcamento()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [modo, setModo] = useState<LuiziaModo>('chat')
+  const [draft, setDraft] = useState<LuiziaDraft | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -51,6 +78,15 @@ export function LuiziaFloatingChat() {
     const stored = sessionStorage.getItem(CHAT_KEY)
     const initial = stored ? JSON.parse(stored) as Message[] : []
     setMessages(initial)
+
+    const storedModo = sessionStorage.getItem(MODE_KEY)
+    if (storedModo === 'work' || storedModo === 'chat') setModo(storedModo)
+
+    const storedDraft = sessionStorage.getItem(DRAFT_KEY)
+    if (storedDraft) {
+      try { setDraft(JSON.parse(storedDraft)) } catch { /* rascunho corrompido, ignora */ }
+    }
+
     setLoaded(true)
 
     if (sessionStorage.getItem(ASSIST_ON_ENTRY_KEY) === '1') {
@@ -83,8 +119,24 @@ export function LuiziaFloatingChat() {
   }, [messages, loaded])
 
   useEffect(() => {
+    if (!loaded || typeof window === 'undefined') return
+    sessionStorage.setItem(MODE_KEY, modo)
+  }, [modo, loaded])
+
+  useEffect(() => {
+    if (!loaded || typeof window === 'undefined') return
+    if (draft) sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
+    else sessionStorage.removeItem(DRAFT_KEY)
+  }, [draft, loaded])
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, historyOpen])
+
+  function limparConversa() {
+    setMessages([])
+    setDraft(null)
+  }
 
   async function sendMessage() {
     if (!input.trim() || loading) return
@@ -116,8 +168,13 @@ export function LuiziaFloatingChat() {
         supabase.from('insumos_proprios').select('id,codigo,descricao,unidade,categoria,classificacao,grupo,preco_unitario,ativo').order('codigo').limit(80),
       ])
       const obras = safeRows(obrasRes)
-      const obraAtual = obras[0] || null
-      const obraId = obraAtual?.id || ''
+
+      // Contexto da página manda: a obra da rota atual (ou a última obra
+      // selecionada globalmente) tem prioridade sobre qualquer outra —
+      // nunca a primeira obra da lista (obras[0]).
+      const pagina = derivarContextoPagina(pathname, searchParams.get('tab'), obraIdGlobal, orcamentoIdGlobal)
+      const obraId = pagina.obraId || ''
+      const obraAtual = obras.find((o: any) => o.id === obraId) || null
 
       const res = await fetch('/api/buildassist', {
         method: 'POST',
@@ -127,6 +184,9 @@ export function LuiziaFloatingChat() {
           complex: false,
           context: {
             modo: 'atalho-luizia',
+            modoLuiza: modo,
+            pagina,
+            draftAtual: draft,
             geradoEm: new Date().toISOString(),
             usuario: currentProfile ? {
               id: currentProfile.id,
@@ -172,6 +232,7 @@ export function LuiziaFloatingChat() {
         role: 'assistant',
         content: data.message || 'Nao consegui responder agora. Abra o BuildAssistente IA para tentar de novo.',
       }])
+      if ('draft' in data) setDraft(data.draft || null)
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -203,7 +264,7 @@ export function LuiziaFloatingChat() {
               <div className="flex items-center gap-1">
                 {messages.length > 0 && (
                   <button
-                    onClick={() => setMessages([])}
+                    onClick={limparConversa}
                     className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)]"
                     style={{ color: 'var(--text-secondary)' }}
                     title="Limpar conversa"
@@ -268,6 +329,31 @@ export function LuiziaFloatingChat() {
             <Plus size={18} />
           </button>
 
+          {/* Seletor Chat/Work — discreto, ao estilo de um seletor de modelo
+              de IA. Não é um botão grande e não muda o layout da barra. */}
+          <div
+            className="flex items-center gap-0.5 rounded-full p-0.5 shrink-0"
+            style={{ background: 'var(--bg-secondary)' }}
+            title="Chat: só leitura. Work: prepara um rascunho de alteração."
+          >
+            <button
+              type="button"
+              onClick={() => setModo('chat')}
+              className="px-2 sm:px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors"
+              style={modo === 'chat' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+            >
+              Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => setModo('work')}
+              className="px-2 sm:px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors"
+              style={modo === 'work' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+            >
+              Work
+            </button>
+          </div>
+
           {!historyOpen && messages.length > 0 && (
             <button
               onClick={() => setHistoryOpen(true)}
@@ -284,7 +370,7 @@ export function LuiziaFloatingChat() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && sendMessage()}
             onFocus={() => messages.length > 0 && setHistoryOpen(true)}
-            placeholder="Pergunte à Luiza ou peça uma alteração..."
+            placeholder={modo === 'work' ? 'Peça uma alteração ou pergunte à Luiza...' : 'Pergunte à Luiza...'}
             className="flex-1 min-w-0 h-10 text-sm bg-transparent border-0 outline-none placeholder:text-[var(--text-secondary)]"
             style={{ color: 'var(--text-primary)' }}
             disabled={loading}
