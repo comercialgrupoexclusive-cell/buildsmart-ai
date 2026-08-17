@@ -1984,11 +1984,20 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     if (sincronizandoMateriais || !orcamento || !resolvedObraId) return
     setSincronizandoMateriais(true)
     try {
-      const { criados, atualizados } = await sincronizarMateriaisLib(supabase, { obraId: resolvedObraId, orcamentoId: orcamento.id })
-      if (criados === 0 && atualizados === 0) {
-        alert('Materiais já estavam em dia com o orçamento — nada para sincronizar.\n\n(Se você esperava ver itens novos, confira se o orçamento tem itens com composição vinculada — itens digitados manualmente não geram materiais, pois não têm uma "receita" de insumos.)')
+      const { criados, atualizados, reativados, marcados_obsoletos, removidos, avisos } = await sincronizarMateriaisLib(supabase, { obraId: resolvedObraId, orcamentoId: orcamento.id })
+      const nada = criados === 0 && atualizados === 0 && reativados === 0 && marcados_obsoletos === 0 && removidos === 0
+      const avisoTexto = avisos.length > 0 ? `\n\n${avisos.length} composição(ões) sem insumos cadastrados — não geraram material:\n${avisos.slice(0, 8).join('\n')}${avisos.length > 8 ? `\n… e mais ${avisos.length - 8}` : ''}` : ''
+      if (nada) {
+        alert(`Materiais já estavam em dia com o orçamento — nada para sincronizar.${avisoTexto}`)
       } else {
-        alert(`Materiais sincronizados com o orçamento.\n\n${criados} novo(s) item(ns) criado(s) em Materiais.\n${atualizados} item(ns) com quantidade atualizada.`)
+        const partes = [
+          criados > 0 ? `${criados} novo(s)` : null,
+          atualizados > 0 ? `${atualizados} atualizado(s)` : null,
+          reativados > 0 ? `${reativados} reativado(s)` : null,
+          marcados_obsoletos > 0 ? `${marcados_obsoletos} marcado(s) como obsoleto (têm compra/lista/requisição, preservados)` : null,
+          removidos > 0 ? `${removidos} removido(s) (obsoletos sem histórico)` : null,
+        ].filter(Boolean).join('\n')
+        alert(`Materiais sincronizados com o orçamento.\n\n${partes}${avisoTexto}`)
       }
     } catch (e) {
       console.error('Erro ao sincronizar materiais:', e)

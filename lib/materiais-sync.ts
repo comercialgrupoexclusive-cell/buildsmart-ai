@@ -1,22 +1,33 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // Fonte ÚNICA de sincronização Orçamento → Materiais.
 //
-// Substitui as duas implementações divergentes que existiam (uma em
-// ObraOrcamento.tsx sem orcamento_id na chave, outra em ObraMateriais.tsx com
-// chave diferente) — daqui pra frente as duas telas chamam esta função.
+// Regra central: COMPOSIÇÃO NÃO É MATERIAL. Um item do orçamento só gera
+// necessidade de material quando existir (1) insumo real em
+// composicao_insumos, (2) INSUMO no analítico SINAPI, ou (3) o próprio item
+// estiver explicitamente classificado como material (tipo_item_snapshot=
+// 'INSUMO' ou classificacao_snapshot='MATERIAL_SERVICOS') — nunca lançando a
+// composição em si como material "de qualquer jeito". Quando uma composição
+// não tem detalhamento de insumos, isso vira um AVISO ("Composição sem
+// insumos cadastrados"), não uma linha falsa em Materiais.
 //
-// Caminho: Etapa → Subetapa (id estável) → Item do orçamento → Insumo. Para
-// cada item, expande a composição (própria ou SINAPI) em insumos e soma a
-// necessidade por (etapa, subetapa, código do insumo) — a mesma linha de
-// material sempre recebe a mesma identidade, então rodar a sincronização
-// várias vezes atualiza a mesma linha em vez de criar outra (upsert atômico
-// via RPC, sobre o índice único uq_materiais_identidade). Nunca mexe em
-// quantidade_comprada/status_compra/data_recebimento — isso é histórico de
-// compra e não pode ser perdido numa sincronização.
+// A sincronização é uma RECONCILIAÇÃO, não só um upsert: o RPC
+// sincronizar_materiais_orcamento recebe o conjunto esperado calculado aqui,
+// grava (upsert atômico, ON CONFLICT sobre uq_materiais_identidade) e depois
+// identifica materiais origem='orcamento' que saíram do conjunto — remove os
+// sem histórico (compra/lista/requisição) e marca ativo=false os que têm
+// histórico, preservando o registro. Materiais origem='manual' nunca são
+// tocados por esta função.
 // ═══════════════════════════════════════════════════════════════════════════
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export type SincronizarMateriaisResultado = { criados: number; atualizados: number }
+export type SincronizarMateriaisResultado = {
+  criados: number
+  atualizados: number
+  reativados: number
+  marcados_obsoletos: number
+  removidos: number
+  avisos: string[]
+}
 
 type OrcItem = {
   id: string
@@ -27,6 +38,8 @@ type OrcItem = {
   codigo_snapshot: string | null
   descricao_snapshot: string | null
   unidade_snapshot: string | null
+  tipo_item_snapshot: string | null
+  classificacao_snapshot: string | null
   quantidade: number
 }
 
@@ -40,7 +53,7 @@ export async function sincronizarMateriaisDoOrcamento(
 
   const [{ data: itensData, error: eItens }, { data: headersData, error: eHeaders }] = await Promise.all([
     supabase.from('orcamento_itens')
-      .select('id, etapa_id, subetapa, composicao_id, sinapi_composicao_id, codigo_snapshot, descricao_snapshot, unidade_snapshot, quantidade')
+      .select('id, etapa_id, subetapa, composicao_id, sinapi_composicao_id, codigo_snapshot, descricao_snapshot, unidade_snapshot, tipo_item_snapshot, classificacao_snapshot, quantidade')
       .eq('orcamento_id', orcamentoId).eq('tipo_linha', 'item'),
     supabase.from('orcamento_itens')
       .select('id, etapa_id, subetapa')
@@ -102,33 +115,39 @@ export async function sincronizarMateriaisDoOrcamento(
     else mapa.set(key, { qtd, descricao, unidade })
   }
 
+  const avisos: string[] = []
+
   for (const item of itens) {
     const nomeSub = item.subetapa?.trim()
     const subOrcItemId = nomeSub ? headerPorSubetapa.get(`${item.etapa_id}::${nomeSub}`) || null : null
 
-    if (item.sinapi_composicao_id && item.codigo_snapshot) {
-      const analiticos = analiticoPorCodigo.get(item.codigo_snapshot) || []
-      if (analiticos.length === 0) {
-        // Sem detalhamento analítico importado — lança a própria composição
-        // como material (fallback), senão o item não "puxaria" nada.
-        acumular(item.etapa_id, subOrcItemId, item.codigo_snapshot, item.descricao_snapshot || item.codigo_snapshot, item.unidade_snapshot || 'UN', item.quantidade)
-      } else {
-        for (const ins of analiticos) {
-          acumular(item.etapa_id, subOrcItemId, ins.item_codigo, ins.item_descricao || ins.item_codigo, ins.item_unidade || 'UN', item.quantidade * ins.coeficiente)
-        }
-      }
-    } else if (item.composicao_id) {
+    if (item.composicao_id) {
+      // Via 1: insumo real cadastrado na composição própria.
       const lista = insumosPorComposicao.get(item.composicao_id) || []
       if (lista.length === 0) {
-        if (item.codigo_snapshot) acumular(item.etapa_id, subOrcItemId, item.codigo_snapshot, item.descricao_snapshot || item.codigo_snapshot, item.unidade_snapshot || 'UN', item.quantidade)
+        avisos.push(`Composição sem insumos cadastrados: ${item.codigo_snapshot || '—'} — ${item.descricao_snapshot || '(sem descrição)'}`)
       } else {
         for (const ins of lista) {
           acumular(item.etapa_id, subOrcItemId, ins.codigo, ins.descricao, ins.unidade, item.quantidade * ins.coeficiente)
         }
       }
+    } else if (item.sinapi_composicao_id && item.codigo_snapshot) {
+      // Via 2: INSUMO no detalhamento analítico SINAPI.
+      const analiticos = analiticoPorCodigo.get(item.codigo_snapshot) || []
+      if (analiticos.length === 0) {
+        avisos.push(`Composição sem insumos cadastrados: ${item.codigo_snapshot} — ${item.descricao_snapshot || '(sem descrição)'}`)
+      } else {
+        for (const ins of analiticos) {
+          acumular(item.etapa_id, subOrcItemId, ins.item_codigo, ins.item_descricao || ins.item_codigo, ins.item_unidade || 'UN', item.quantidade * ins.coeficiente)
+        }
+      }
+    } else if (item.tipo_item_snapshot === 'INSUMO' || item.classificacao_snapshot === 'MATERIAL_SERVICOS') {
+      // Via 3: item sem composição, mas explicitamente classificado como
+      // material no próprio orçamento — usa o item como sua própria demanda.
+      acumular(item.etapa_id, subOrcItemId, item.codigo_snapshot, item.descricao_snapshot || item.codigo_snapshot || '—', item.unidade_snapshot || 'UN', item.quantidade)
     }
-    // itens digitados manualmente (sem composição vinculada) não geram
-    // materiais — não há "receita" de insumos pra puxar.
+    // Demais itens (mão de obra, item livre sem classificação) não geram
+    // material — composição não é material, e não há "receita" de insumos.
   }
 
   const payload = [...mapa.entries()].map(([key, acc]) => {
@@ -147,5 +166,5 @@ export async function sincronizarMateriaisDoOrcamento(
     p_obra_id: obraId, p_orcamento_id: orcamentoId, p_itens: payload,
   })
   if (error) throw error
-  return data as SincronizarMateriaisResultado
+  return { ...(data as Omit<SincronizarMateriaisResultado, 'avisos'>), avisos }
 }

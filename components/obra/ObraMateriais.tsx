@@ -197,11 +197,13 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
         .from('materiais')
         .select('*, etapas(nome)')
         .eq('obra_id', obraId)
+        .eq('ativo', true)
         .order('data_necessidade', { ascending: true, nullsFirst: false })
       : supabase
         .from('materiais')
         .select('id, obra_id, orcamento_id, etapa_id, subetapa, insumo_id, quantidade_total, quantidade_comprada, status_compra, data_necessidade, data_recebimento, etapas(nome), insumo:sinapi_insumos(codigo,descricao,unidade)')
         .eq('obra_id', obraId)
+        .eq('ativo', true)
         .order('data_necessidade', { ascending: true, nullsFirst: false })
     const [matsRes, etapasRes, fornecedoresRes, subetapasRes] = await Promise.all([
       matsQuery,
@@ -266,12 +268,21 @@ export function ObraMateriais({ obraId, orcamentoId, orcamentoIds }: { obraId: s
     }
     setImportando(true)
     try {
-      const { criados, atualizados } = await sincronizarMateriaisLib(supabase, { obraId, orcamentoId })
+      const { criados, atualizados, reativados, marcados_obsoletos, removidos, avisos } = await sincronizarMateriaisLib(supabase, { obraId, orcamentoId })
       await loadMateriais()
-      if (criados === 0 && atualizados === 0) {
-        alert('Materiais já estavam em dia com o orçamento — nada para sincronizar.')
+      const nada = criados === 0 && atualizados === 0 && reativados === 0 && marcados_obsoletos === 0 && removidos === 0
+      const avisoTexto = avisos.length > 0 ? `\n\n${avisos.length} composição(ões) sem insumos cadastrados — não geraram material:\n${avisos.slice(0, 8).join('\n')}${avisos.length > 8 ? `\n… e mais ${avisos.length - 8}` : ''}` : ''
+      if (nada) {
+        alert(`Materiais já estavam em dia com o orçamento — nada para sincronizar.${avisoTexto}`)
       } else {
-        alert(`Materiais sincronizados com o orçamento.\n\n${criados} novo(s) material(is) criado(s).\n${atualizados} material(is) com quantidade atualizada.`)
+        const partes = [
+          criados > 0 ? `${criados} novo(s)` : null,
+          atualizados > 0 ? `${atualizados} atualizado(s)` : null,
+          reativados > 0 ? `${reativados} reativado(s)` : null,
+          marcados_obsoletos > 0 ? `${marcados_obsoletos} marcado(s) como obsoleto (preservados, com compra/lista/requisição)` : null,
+          removidos > 0 ? `${removidos} removido(s) (obsoletos sem histórico)` : null,
+        ].filter(Boolean).join('\n')
+        alert(`Materiais sincronizados com o orçamento.\n\n${partes}${avisoTexto}`)
       }
     } catch (e) {
       console.error('Erro ao sincronizar materiais:', e)
