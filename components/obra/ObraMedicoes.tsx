@@ -14,11 +14,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   TrendingUp, ChevronDown, ChevronRight, ListChecks, ClipboardList,
   NotebookPen, FileBarChart,
-  BriefcaseBusiness, WalletCards,
+  BriefcaseBusiness, History, SlidersHorizontal, WalletCards,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
-  loadPlanejamentoProgresso, setItemProgresso, clampPct,
+  loadPlanejamentoProgresso, setItemProgresso, setItemProximaMedicao, clampPct,
   type PlanejamentoProgresso, type PlanEtapaNode, type PlanSubetapaNode, type PlanItemNode,
 } from '@/lib/planejamento-progresso'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -26,6 +26,7 @@ import { ObraRdo } from '@/components/obra/ObraRdo'
 import { ObraBoletins } from '@/components/obra/ObraBoletins'
 import { ObraMedicaoMaoObra } from '@/components/obra/ObraMedicaoMaoObra'
 import { ProgressControl } from '@/components/obra/ProgressControl'
+import { Modal } from '@/components/ui/Modal'
 
 type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'boletins' | 'diario'
 
@@ -38,6 +39,14 @@ const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
 ]
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+const BARRAS_STORAGE_KEY = 'buildsmart-medicoes-mostrar-barras'
+
+type HistoricoMedicaoItem = {
+  medicaoId: string
+  nome: string
+  data: string
+  percentual: number
+}
 
 export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = useMemo(() => createClient(), [])
@@ -46,6 +55,10 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   const [loading, setLoading] = useState(true)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
+  const [mostrarBarras, setMostrarBarras] = useState(false)
+  const [historicoItem, setHistoricoItem] = useState<PlanItemNode | null>(null)
+  const [historico, setHistorico] = useState<HistoricoMedicaoItem[]>([])
+  const [historicoLoading, setHistoricoLoading] = useState(false)
   const primeiraAbaRef = useRef(true)
   // Filtros da aba Avanço
   const [filtroEtapa, setFiltroEtapa] = useState('')
@@ -60,6 +73,19 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   }, [supabase, idsOrcamentos.join(',')])
 
   useEffect(() => { Promise.resolve().then(() => carregar()) }, [carregar])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    setMostrarBarras(localStorage.getItem(BARRAS_STORAGE_KEY) === '1')
+  }, [])
+
+  function alternarBarras() {
+    setMostrarBarras(atual => {
+      const proximo = !atual
+      localStorage.setItem(BARRAS_STORAGE_KEY, proximo ? '1' : '0')
+      return proximo
+    })
+  }
 
   // Recarrega o avanço (fonte única) ao voltar para abas que dependem dele —
   // ex.: um RDO lançado no Diário pode ter mexido no % do cronograma.
@@ -84,6 +110,48 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
       percentual: pct,
     })
     await carregar(true); setSaving(false)
+  }
+
+  async function setItemProximaPct(item: PlanItemNode, pct: number) {
+    setSaving(true)
+    await setItemProximaMedicao(supabase, {
+      orcamentoId: item.orcamentoId, obraId,
+      orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
+      percentual: pct,
+    })
+    await carregar(true); setSaving(false)
+  }
+
+  async function abrirHistorico(item: PlanItemNode) {
+    setHistoricoItem(item)
+    setHistorico([])
+    setHistoricoLoading(true)
+    const { data, error } = await supabase
+      .from('medicao_itens')
+      .select('medicao_id, pct_atual, medicoes!inner(nome, periodo_fim, status, eixo, obra_id)')
+      .eq('orcamento_item_id', item.id)
+      .eq('medicoes.obra_id', obraId)
+      .eq('medicoes.eixo', 'fisico')
+      .eq('medicoes.status', 'fechada')
+
+    if (!error) {
+      type Row = {
+        medicao_id: string
+        pct_atual: number
+        medicoes: { nome: string | null; periodo_fim: string } | { nome: string | null; periodo_fim: string }[]
+      }
+      const rows = ((data || []) as unknown as Row[]).map(row => {
+        const medicao = Array.isArray(row.medicoes) ? row.medicoes[0] : row.medicoes
+        return {
+          medicaoId: row.medicao_id,
+          nome: medicao?.nome || 'Medição',
+          data: medicao?.periodo_fim || '',
+          percentual: Number(row.pct_atual || 0),
+        }
+      }).filter(row => row.data).sort((a, b) => b.data.localeCompare(a.data))
+      setHistorico(rows)
+    }
+    setHistoricoLoading(false)
   }
 
   async function setSubetapaPct(sub: PlanSubetapaNode, pct: number) {
@@ -194,10 +262,20 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
                       </button>
                     ))}
                   </div>
+                  <button type="button" onClick={alternarBarras} aria-pressed={mostrarBarras}
+                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium sm:ml-auto"
+                    style={mostrarBarras
+                      ? { background: 'color-mix(in srgb, var(--accent) 14%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 36%, var(--border))' }
+                      : { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                    <SlidersHorizontal size={13} /> {mostrarBarras ? 'Ocultar barras' : 'Mostrar barras'}
+                  </button>
                 </div>
                 <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
-                  Ajuste o avanço físico em qualquer nível. O valor é salvo ao soltar a barra ou sair do campo; definir a etapa/subetapa espalha para os itens do orçamento, que são a fonte real do avanço — os pais são sempre recalculados a partir deles. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
+                  Digite o percentual executado ou use as barras quando preferir. Etapas e subetapas são recalculadas pelos itens do orçamento. {saving && <span style={{ color: 'var(--accent)' }}>salvando…</span>}
                 </p>
+                <div className="hidden grid-cols-[minmax(0,1fr)_minmax(90px,220px)_110px_38px] items-center gap-3 px-3 text-[10px] font-semibold uppercase sm:grid" style={{ color: 'var(--text-secondary)' }}>
+                  <span>Item</span><span>Executado</span><span>Próx. medição</span><span className="sr-only">Histórico</span>
+                </div>
                 {etapasFiltradas.length === 0 ? (
                   <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma etapa neste filtro.</div>
                 ) : etapasFiltradas.map(etapa => (
@@ -207,6 +285,9 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
                     onSetEtapa={v => setEtapaPct(etapa, v)}
                     onSetSub={(sub, v) => setSubetapaPct(sub, v)}
                     onSetItem={(item, v) => setItemPct(item, v)}
+                    onSetProxima={(item, v) => setItemProximaPct(item, v)}
+                    onHistorico={abrirHistorico}
+                    mostrarBarras={mostrarBarras}
                   />
                 ))}
               </div>
@@ -214,12 +295,32 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
           })()}
         </>
       )}
+
+      <Modal open={historicoItem != null} onClose={() => setHistoricoItem(null)} title={historicoItem ? `Histórico — ${historicoItem.descricao}` : 'Histórico'} size="md">
+        {historicoLoading ? (
+          <div className="flex justify-center py-8"><div className="h-5 w-5 animate-spin rounded-full border-2" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>
+        ) : historico.length === 0 ? (
+          <p className="py-6 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Este item ainda não aparece em nenhum boletim fechado.</p>
+        ) : (
+          <div className="flex flex-col">
+            {historico.map(registro => (
+              <div key={registro.medicaoId} className="flex items-center justify-between gap-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+                <div>
+                  <p className="text-sm font-medium">{new Date(`${registro.data}T12:00:00`).toLocaleDateString('pt-BR')}</p>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{registro.nome}</p>
+                </div>
+                <strong className="tabular-nums" style={{ color: 'var(--accent)' }}>{registro.percentual.toFixed(1)}%</strong>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
 
 // ─── Etapa com cascata editável (Etapa → Subetapa → Item do orçamento) ───────
-function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSetEtapa, onSetSub, onSetItem }: {
+function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSetEtapa, onSetSub, onSetItem, onSetProxima, onHistorico, mostrarBarras }: {
   etapa: PlanEtapaNode
   valorTotal: number
   temValores: boolean
@@ -228,6 +329,9 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
   onSetEtapa: (v: number) => void
   onSetSub: (sub: PlanSubetapaNode, v: number) => void
   onSetItem: (item: PlanItemNode, v: number) => void
+  onSetProxima: (item: PlanItemNode, v: number) => void
+  onHistorico: (item: PlanItemNode) => void
+  mostrarBarras: boolean
 }) {
   const temFilhos = etapa.subetapas.length > 0 || etapa.itensSoltos.length > 0
   const peso = temValores && valorTotal > 0 ? (etapa.valorContratado / valorTotal) * 100 : 0
@@ -251,7 +355,7 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
             </p>
           </div>
         </div>
-        <CampoPct valor={etapa.progressoExecutado} onChange={onSetEtapa} />
+        <CampoPct valor={etapa.progressoExecutado} onChange={onSetEtapa} mostrarBarra={mostrarBarras} />
       </div>
 
       {!collapsed && temFilhos && (
@@ -269,21 +373,15 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
                     {temValores && sub.valorContratado > 0 ? ` · ${brl(sub.valorContratado)}` : ''}
                   </p>
                 </div>
-                <CampoPct valor={sub.progressoExecutado} onChange={v => onSetSub(sub, v)} tamanho="sm" />
+                <CampoPct valor={sub.progressoExecutado} onChange={v => onSetSub(sub, v)} tamanho="sm" mostrarBarra={mostrarBarras} />
               </div>
               {sub.itens.map(item => (
-                <div key={item.id} className="flex flex-col gap-2 pl-14 pr-3 py-2 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-                  <div className="flex-1 min-w-0"><p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{item.descricao}</p></div>
-                  <CampoPct valor={item.progressoExecutado} onChange={v => onSetItem(item, v)} tamanho="sm" />
-                </div>
+                <ItemAvanco key={item.id} item={item} mostrarBarras={mostrarBarras} onSetItem={onSetItem} onSetProxima={onSetProxima} onHistorico={onHistorico} indentado />
               ))}
             </div>
           ))}
           {etapa.itensSoltos.map(item => (
-            <div key={item.id} className="flex flex-col gap-2 pl-9 pr-3 py-2 sm:flex-row sm:items-center" style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-              <div className="flex-1 min-w-0"><p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{item.descricao}</p></div>
-              <CampoPct valor={item.progressoExecutado} onChange={v => onSetItem(item, v)} tamanho="sm" />
-            </div>
+            <ItemAvanco key={item.id} item={item} mostrarBarras={mostrarBarras} onSetItem={onSetItem} onSetProxima={onSetProxima} onHistorico={onHistorico} />
           ))}
         </div>
       )}
@@ -292,6 +390,46 @@ function EtapaAvanco({ etapa, valorTotal, temValores, collapsed, onToggle, onSet
 }
 
 // ─── Campo de % com presets + input ──────────────────────────────────────────
-function CampoPct({ valor, onChange, tamanho = 'md' }: { valor: number; onChange: (v: number) => void; tamanho?: 'md' | 'sm' }) {
-  return <ProgressControl valor={valor} onChange={onChange} compact={tamanho === 'sm'} />
+function CampoPct({ valor, onChange, tamanho = 'md', mostrarBarra = false, minimo = 0, label = 'Executado' }: {
+  valor: number
+  onChange: (v: number) => void
+  tamanho?: 'md' | 'sm'
+  mostrarBarra?: boolean
+  minimo?: number
+  label?: string
+}) {
+  return <ProgressControl valor={valor} onChange={onChange} compact={tamanho === 'sm'} minimo={minimo} showSlider={mostrarBarra} showPresets={false} label={label} />
+}
+
+function ItemAvanco({ item, mostrarBarras, onSetItem, onSetProxima, onHistorico, indentado = false }: {
+  item: PlanItemNode
+  mostrarBarras: boolean
+  onSetItem: (item: PlanItemNode, v: number) => void
+  onSetProxima: (item: PlanItemNode, v: number) => void
+  onHistorico: (item: PlanItemNode) => void
+  indentado?: boolean
+}) {
+  const proxima = Math.max(item.progressoExecutado, item.proximaMedicaoPercentual ?? item.progressoExecutado)
+  return (
+    <div className={`grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_36px] gap-2 py-2 pr-3 sm:grid-cols-[minmax(0,1fr)_minmax(90px,220px)_110px_38px] sm:items-center sm:gap-3 ${indentado ? 'pl-10 sm:pl-14' : 'pl-7 sm:pl-9'}`}
+      style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+      <div className="col-span-3 min-w-0 sm:col-span-1">
+        <p className="text-xs font-medium sm:truncate" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
+        {item.codigo !== '—' && <p className="mt-0.5 text-[10px]" style={{ color: 'var(--text-secondary)' }}>{item.codigo}</p>}
+      </div>
+      <div className="min-w-0">
+        <span className="mb-1 block text-[10px] uppercase sm:hidden" style={{ color: 'var(--text-secondary)' }}>Executado</span>
+        <CampoPct valor={item.progressoExecutado} onChange={v => onSetItem(item, v)} tamanho="sm" mostrarBarra={mostrarBarras} label={`Executado — ${item.descricao}`} />
+      </div>
+      <div className="min-w-0">
+        <span className="mb-1 block text-[10px] uppercase sm:hidden" style={{ color: 'var(--text-secondary)' }}>Próx. medição</span>
+        <CampoPct valor={proxima} onChange={v => onSetProxima(item, v)} tamanho="sm" minimo={item.progressoExecutado} label={`Próxima medição — ${item.descricao}`} />
+      </div>
+      <button type="button" onClick={() => onHistorico(item)} title="Histórico de medições" aria-label={`Histórico de medições — ${item.descricao}`}
+        className="mt-4 flex h-8 w-8 items-center justify-center rounded-md sm:mt-0"
+        style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+        <History size={14} />
+      </button>
+    </div>
+  )
 }

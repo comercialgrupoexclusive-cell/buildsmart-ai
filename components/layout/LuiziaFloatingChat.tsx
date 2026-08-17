@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
-import { BotMessageSquare, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Plus, Send, Trash2 } from 'lucide-react'
+import { ArrowLeftRight, BotMessageSquare, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Plus, Send, Trash2 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { logLuizia } from '@/lib/luizia-monitor'
 import { createClient } from '@/lib/supabase/client'
@@ -70,8 +70,10 @@ export function LuiziaFloatingChat() {
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [modo, setModo] = useState<LuiziaModo>('chat')
+  const [modoFeedback, setModoFeedback] = useState<LuiziaModo | null>(null)
   const [draft, setDraft] = useState<LuiziaDraft | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -133,9 +135,21 @@ export function LuiziaFloatingChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, historyOpen])
 
+  useEffect(() => () => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+  }, [])
+
   function limparConversa() {
     setMessages([])
     setDraft(null)
+  }
+
+  function alternarModo() {
+    const proximo: LuiziaModo = modo === 'chat' ? 'work' : 'chat'
+    setModo(proximo)
+    setModoFeedback(proximo)
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+    feedbackTimerRef.current = setTimeout(() => setModoFeedback(null), 1400)
   }
 
   async function sendMessage() {
@@ -329,29 +343,25 @@ export function LuiziaFloatingChat() {
             <Plus size={18} />
           </button>
 
-          {/* Seletor Chat/Work — discreto, ao estilo de um seletor de modelo
-              de IA. Não é um botão grande e não muda o layout da barra. */}
-          <div
-            className="flex items-center gap-0.5 rounded-full p-0.5 shrink-0"
-            style={{ background: 'var(--bg-secondary)' }}
-            title="Chat: só leitura. Work: prepara um rascunho de alteração."
-          >
+          <div className="relative shrink-0">
             <button
               type="button"
-              onClick={() => setModo('chat')}
-              className="px-2 sm:px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors"
-              style={modo === 'chat' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+              onClick={alternarModo}
+              title={modo === 'chat' ? 'Modo Chat — mudar para Work' : 'Modo Work — mudar para Chat'}
+              aria-label={modo === 'chat' ? 'Modo Chat — mudar para Work' : 'Modo Work — mudar para Chat'}
+              className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors"
+              style={modo === 'work'
+                ? { background: 'color-mix(in srgb, var(--accent) 16%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in srgb, var(--accent) 40%, var(--border))' }
+                : { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
             >
-              Chat
+              <ArrowLeftRight size={15} />
             </button>
-            <button
-              type="button"
-              onClick={() => setModo('work')}
-              className="px-2 sm:px-2.5 h-7 rounded-full text-[11px] font-semibold transition-colors"
-              style={modo === 'work' ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
-            >
-              Work
-            </button>
+            {modoFeedback && (
+              <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-semibold shadow-lg"
+                style={{ background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}>
+                Modo {modoFeedback === 'chat' ? 'Chat' : 'Work'}
+              </span>
+            )}
           </div>
 
           {!historyOpen && messages.length > 0 && (

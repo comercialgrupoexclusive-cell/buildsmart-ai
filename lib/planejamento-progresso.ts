@@ -27,6 +27,7 @@ export type PlanItemNode = {
   valorContratado: number
   progressoExecutado: number
   progressoPlanejado: number
+  proximaMedicaoPercentual: number | null
   planId: string | null      // planejamento_itens.id, se já existir
 }
 
@@ -85,7 +86,7 @@ export async function loadPlanejamentoProgresso(
       .select('id, orcamento_id, etapa_id, subetapa, tipo_linha, descricao_snapshot, codigo_snapshot, quantidade, preco_unitario_snapshot, subetapa_valor_manual, subetapa_valor_manual_ativo')
       .in('orcamento_id', orcamentoIds),
     supabase.from('planejamento_itens')
-      .select('id, orcamento_item_id, ref_tipo, progresso_executado, progresso_planejado')
+      .select('id, orcamento_item_id, ref_tipo, progresso_executado, progresso_planejado, proxima_medicao_percentual')
       .in('orcamento_id', orcamentoIds)
       .eq('ref_tipo', 'item'),
   ])
@@ -97,7 +98,13 @@ export async function loadPlanejamentoProgresso(
     quantidade: number; preco_unitario_snapshot: number
     subetapa_valor_manual: number | null; subetapa_valor_manual_ativo: boolean
   }
-  type RawPlan = { id: string; orcamento_item_id: string | null; progresso_executado: number; progresso_planejado: number }
+  type RawPlan = {
+    id: string
+    orcamento_item_id: string | null
+    progresso_executado: number
+    progresso_planejado: number
+    proxima_medicao_percentual: number | null
+  }
 
   const etapas = (etapasData || []) as RawEtapa[]
   const itens = (itensData || []) as RawItem[]
@@ -130,6 +137,9 @@ export async function loadPlanejamentoProgresso(
       valorContratado: num(it.quantidade) * num(it.preco_unitario_snapshot),
       progressoExecutado: clampPct(num(plan?.progresso_executado)),
       progressoPlanejado: clampPct(num(plan?.progresso_planejado)),
+      proximaMedicaoPercentual: plan?.proxima_medicao_percentual == null
+        ? null
+        : clampPct(num(plan.proxima_medicao_percentual)),
       planId: plan?.id || null,
     }
   }
@@ -201,16 +211,23 @@ export async function setItemProgresso(
   const pct = clampPct(params.percentual)
   const { data: existente } = await supabase
     .from('planejamento_itens')
-    .select('id')
+    .select('id, proxima_medicao_percentual')
     .eq('orcamento_id', params.orcamentoId)
     .eq('ref_tipo', 'item')
     .eq('orcamento_item_id', params.orcamentoItemId)
     .maybeSingle()
 
   if (existente) {
+    const proximaAtual = existente.proxima_medicao_percentual == null
+      ? null
+      : clampPct(num(existente.proxima_medicao_percentual))
     const { error } = await supabase
       .from('planejamento_itens')
-      .update({ progresso_executado: pct, updated_at: new Date().toISOString() })
+      .update({
+        progresso_executado: pct,
+        proxima_medicao_percentual: proximaAtual != null && proximaAtual < pct ? pct : proximaAtual,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', existente.id)
     if (error) throw error
   } else {
@@ -227,6 +244,51 @@ export async function setItemProgresso(
       })
     if (error) throw error
   }
+}
+
+/** Previsão operacional acumulada da próxima medição, ligada ao mesmo item. */
+export async function setItemProximaMedicao(
+  supabase: SupabaseClient,
+  params: {
+    orcamentoId: string
+    obraId: string
+    orcamentoItemId: string
+    etapaId: string
+    subetapaKey: string | null
+    percentual: number
+  },
+): Promise<void> {
+  const { data: existente, error: loadError } = await supabase
+    .from('planejamento_itens')
+    .select('id, progresso_executado')
+    .eq('orcamento_id', params.orcamentoId)
+    .eq('ref_tipo', 'item')
+    .eq('orcamento_item_id', params.orcamentoItemId)
+    .maybeSingle()
+  if (loadError) throw loadError
+
+  const executado = clampPct(num(existente?.progresso_executado))
+  const proxima = Math.max(executado, clampPct(params.percentual))
+  if (existente) {
+    const { error } = await supabase
+      .from('planejamento_itens')
+      .update({ proxima_medicao_percentual: proxima, updated_at: new Date().toISOString() })
+      .eq('id', existente.id)
+    if (error) throw error
+    return
+  }
+
+  const { error } = await supabase.from('planejamento_itens').insert({
+    obra_id: params.obraId,
+    orcamento_id: params.orcamentoId,
+    ref_tipo: 'item',
+    etapa_id: params.etapaId,
+    subetapa_key: params.subetapaKey,
+    orcamento_item_id: params.orcamentoItemId,
+    progresso_executado: 0,
+    proxima_medicao_percentual: proxima,
+  })
+  if (error) throw error
 }
 
 /** Cor por percentual — mesmo padrão do app. */

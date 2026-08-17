@@ -4,22 +4,28 @@ import { useRef, useState } from 'react'
 import { CheckSquare, Square } from 'lucide-react'
 import { clampPct, corPorPercentual } from '@/lib/obra-progresso'
 
-export function ProgressControl({ valor, onChange, compact = false, minimo = 0, disabled = false }: {
+export function ProgressControl({ valor, onChange, compact = false, minimo = 0, disabled = false, showSlider = true, showPresets = true, label = 'Percentual de avanço' }: {
   valor: number
   onChange: (valor: number) => void
   compact?: boolean
   minimo?: number
   disabled?: boolean
+  showSlider?: boolean
+  showPresets?: boolean
+  label?: string
 }) {
-  return <ProgressControlState key={`${valor}-${minimo}`} valor={valor} onChange={onChange} compact={compact} minimo={minimo} disabled={disabled} />
+  return <ProgressControlState key={`${valor}-${minimo}`} valor={valor} onChange={onChange} compact={compact} minimo={minimo} disabled={disabled} showSlider={showSlider} showPresets={showPresets} label={label} />
 }
 
-function ProgressControlState({ valor, onChange, compact, minimo, disabled }: {
+function ProgressControlState({ valor, onChange, compact, minimo, disabled, showSlider, showPresets, label }: {
   valor: number
   onChange: (valor: number) => void
   compact: boolean
   minimo: number
   disabled: boolean
+  showSlider: boolean
+  showPresets: boolean
+  label: string
 }) {
   const [draft, setDraft] = useState(valor)
   const submittedRef = useRef<number | null>(null)
@@ -39,7 +45,7 @@ function ProgressControlState({ valor, onChange, compact, minimo, disabled }: {
   ]
 
   return <div className={`flex flex-col flex-shrink-0 ${compact ? 'gap-1.5' : 'gap-2'} w-full sm:w-auto`} onClick={event => event.stopPropagation()}>
-    <div className="grid grid-cols-3 gap-1">
+    {showPresets && <div className="grid grid-cols-3 gap-1">
       {presets.map(preset => <button key={preset.label} type="button" disabled={disabled || !preset.editable}
         onClick={() => { if (preset.value == null) return; setDraft(preset.value); commit(preset.value) }}
         aria-pressed={preset.active} title={preset.editable ? `Marcar como ${preset.label.toLowerCase()}` : 'O andamento acompanha o percentual'}
@@ -50,16 +56,17 @@ function ProgressControlState({ valor, onChange, compact, minimo, disabled }: {
         {preset.active ? <CheckSquare size={11} /> : <Square size={11} />}
         <span>{preset.short}</span>
       </button>)}
-    </div>
-    <div className="flex items-center gap-2">
-      <input type="range" min={minimo} max={100} step={1} value={Math.round(draft)} disabled={disabled}
+    </div>}
+    <div className={`flex gap-2 ${showSlider ? 'flex-col items-stretch sm:flex-row sm:items-center' : 'items-center'}`}>
+      {showSlider && <input type="range" min={minimo} max={100} step={1} value={Math.round(draft)} disabled={disabled}
         onChange={event => setDraft(Number(event.target.value))}
         onPointerUp={() => commit()} onTouchEnd={() => commit()} onKeyUp={() => commit()} onBlur={() => commit()}
-        className="flex-1 min-w-20 accent-[var(--accent)] disabled:opacity-60" aria-label="Percentual de avanço" />
+        className="flex-1 min-w-20 accent-[var(--accent)] disabled:opacity-60" aria-label={label} />}
       <div className="relative flex items-center">
         <input type="number" min={minimo} max={100} step={0.5} value={Number(draft.toFixed(1)) || 0} disabled={disabled}
           onChange={event => setDraft(Math.max(minimo, clampPct(parseFloat(event.target.value))))}
           onBlur={() => commit()} onKeyDown={event => { if (event.key === 'Enter') commit() }}
+          aria-label={label}
           className="input-base py-1 text-xs text-right tabular-nums disabled:opacity-70"
           style={{ width: compact ? 68 : 76, height: compact ? 30 : 34, color: corPorPercentual(draft), fontWeight: 700, paddingRight: 21 }} />
         <span className="absolute right-2 text-xs pointer-events-none" style={{ color: 'var(--text-secondary)' }}>%</span>
