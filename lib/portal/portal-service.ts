@@ -18,7 +18,7 @@ export async function getPortalContext(token: string, orcamentoId = 'todos'): Pr
   if (!token || token.length < 24) return null
   const db = portalDb()
   const params = { p_token_hash: hashPortalToken(token), p_orcamento_id: orcamentoId || 'todos' }
-  const [{ data, error }, { data: cronograma, error: scheduleError }, { data: previsoes, error: forecastsError }, { data: visibility }, { data: presentation, error: presentationError }, { data: feed, error: feedError }, { data: contentVisibility }, { data: messages }, { data: financial, error: financialError }] = await Promise.all([
+  const [{ data, error }, { data: cronograma, error: scheduleError }, { data: previsoes, error: forecastsError }, { data: visibility }, { data: presentation, error: presentationError }, { data: feed, error: feedError }, { data: contentVisibility }, { data: messages }, { data: financial, error: financialError }, { data: overview, error: overviewError }] = await Promise.all([
     db.rpc('portal_get_context', params),
     db.rpc('portal_get_schedule', params),
     db.rpc('portal_get_previsoes', params),
@@ -28,14 +28,19 @@ export async function getPortalContext(token: string, orcamentoId = 'todos'): Pr
     db.rpc('portal_get_content_visibility', { p_token_hash: params.p_token_hash }),
     db.rpc('portal_messages_get', { p_token_hash: params.p_token_hash }),
     db.rpc('portal_get_financial', params),
+    db.rpc('portal_get_overview', params),
   ])
-  if (error || scheduleError || forecastsError || presentationError || feedError || financialError || !data || !presentation || !financial) return null
+  if (error || scheduleError || forecastsError || presentationError || feedError || financialError || overviewError || !data || !presentation || !financial || !overview) return null
   const context = data as PortalContextDTO
   const visibleBudgets = context.orcamentos.filter(item => item.status !== 'arquivado')
   if ((orcamentoId === 'todos' || !orcamentoId) && visibleBudgets.length === 1) {
     return getPortalContext(token, visibleBudgets[0].id)
   }
-  const normalizedPresentation = { ...(presentation as PortalPresentationDTO), financial: financial as PortalPresentationDTO['financial'] }
+  const normalizedPresentation = {
+    ...(presentation as PortalPresentationDTO),
+    financial: financial as PortalPresentationDTO['financial'],
+    overview: overview as PortalPresentationDTO['overview'],
+  }
   return {
     ...context,
     visibility: normalizePortalVisibility(visibility as PortalContextDTO['visibility'] | null),
@@ -48,6 +53,7 @@ export async function getPortalContext(token: string, orcamentoId = 'todos'): Pr
     presentation: normalizedPresentation,
     summary: {
       ...context.summary,
+      avancoFisico: normalizedPresentation.overview.physical.current,
       valorOrcado: normalizedPresentation.financial.budget,
       realizadoFinanceiro: normalizedPresentation.financial.realized,
       pago: normalizedPresentation.financial.paid,

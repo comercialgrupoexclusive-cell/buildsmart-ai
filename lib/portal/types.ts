@@ -135,6 +135,26 @@ export type PortalPrevisaoDTO = {
 }
 
 export type PortalPresentationDTO = {
+  overview: {
+    payments: {
+      materials: { planned: number; paid: number }
+      labor: { planned: number; paid: number }
+      management: { planned: number; paid: number }
+      total: { planned: number; paid: number }
+      otherEquipmentPaid: number
+    }
+    physical: {
+      current: number
+      next: number
+      caixaTotal: number
+    }
+    monthlyEvolution: Array<{
+      month: string
+      physical: number
+      value: number
+      kind: 'realized' | 'forecast'
+    }>
+  }
   axes: {
     physical: number
     labor: number
