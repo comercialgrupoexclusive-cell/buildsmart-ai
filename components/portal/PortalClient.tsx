@@ -233,7 +233,13 @@ function ScheduleView({ context }: { context: PortalContextDTO }) {
 }
 
 function ForecastSummary({ context, onNavigate }: { context: PortalContextDTO; onNavigate: (view: View) => void }) {
-  const upcoming = context.previsoes.filter(item => item.tipo === 'desembolso_financeiro' && !['realizada', 'cancelada'].includes(item.status)).slice(0, 3)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const upcoming = context.previsoes
+    .filter(item => item.tipo === 'desembolso_financeiro' && !['realizada', 'cancelada'].includes(item.status))
+    // Uma previsão vencida (data já passada e ainda não realizada) não é a
+    // "próxima compra" -- só previsões realmente futuras entram aqui.
+    .filter(item => !item.dataPrevista || new Date(`${item.dataPrevista}T00:00:00`) >= today)
+    .slice(0, 3)
   if (!upcoming.length) return null
   return <section>
     <div className="mb-3 flex items-end justify-between gap-3"><div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Planejamento</p><h2 className="mt-1 text-xl font-semibold">Próximos lançamentos</h2></div><button type="button" onClick={() => onNavigate('previsoes')} className="text-sm font-medium" style={{ color: 'var(--accent)' }}>Ver todos</button></div>

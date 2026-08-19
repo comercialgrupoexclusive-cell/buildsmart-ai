@@ -176,6 +176,11 @@ export type PortalPresentationDTO = {
     realized: number
     paid: number
     balance: number
+    // Pagamento fisico-financeiro operacional (materiais + mao de obra
+    // medida + gerenciamento medido) -- mesmo calculo de overview.payments,
+    // nunca recalculado em paralelo. Distinto de `paid`, que e so o total de
+    // compra_itens pagos (Pagamentos lançados / Caixa realizado).
+    operational: PortalPresentationDTO['overview']['payments']
     timeline: Array<{ month: string; realized: number; paid: number }>
     entries: Array<{
       id: string
@@ -244,7 +249,10 @@ export type PortalContextDTO = {
     inicio: string | null
     fim: string | null
     percentual: number
-    filhos: Array<{ id: string; nome: string; status: string; inicio: string | null; fim: string | null; percentual: number }>
+    // Subetapa so tem percentual quando existe progresso proprio real
+    // (planejamento_itens). Sem dado valido, fica null -- nunca copia o
+    // percentual da etapa. A UI mostra so periodo/status nesse caso.
+    filhos: Array<{ id: string; nome: string; status: string; inicio: string | null; fim: string | null; percentual: number | null }>
   }>
   boardItems: PortalBoardItemDTO[]
   tours: PortalTourDTO[]
