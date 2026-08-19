@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, BookOpen, ChevronDown, Crop, ImagePlus, LayoutDashboard, Loader2, Megaphone, Newspaper, Send, Star, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
+import { adminRpc } from '@/lib/portal-admin-client'
 import { PhotoCropEditor } from '@/components/media/PhotoCropEditor'
 import type { PortalFeedItemDTO } from '@/lib/portal/types'
 import { ObraPortalMessages } from './ObraPortalMessages'
@@ -53,7 +54,7 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
     if (!currentProfile) return
     setLoading(true)
     const [feedResult, fileResult, budgetResult, diarioResult, comunicadoResult, rdoResult] = await Promise.all([
-      supabase.rpc('feed_admin_list', { p_obra_id: obraId, p_profile_id: currentProfile.id }),
+      adminRpc('feed_admin_list', { p_obra_id: obraId }),
       supabase.from('obra_files').select('id,nome,url,tipo,source_type,source_id,source_index').eq('obra_id', obraId).like('tipo', 'image/%').not('url', 'is', null).order('criado_em', { ascending: false }),
       supabase.from('orcamentos').select('id,nome,versao').eq('obra_id', obraId).neq('status', 'arquivado').order('versao', { ascending: false }),
       supabase.from('diario_obra').select('id,data,atividades,observacoes').eq('obra_id', obraId).order('data', { ascending: false }).limit(30),
@@ -145,7 +146,7 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
     const uploaded = await supabase.storage.from('project-files').upload(path, blob, { cacheControl: '3600', upsert: false, contentType: 'image/jpeg' })
     if (uploaded.error) throw uploaded.error
     const url = supabase.storage.from('project-files').getPublicUrl(path).data.publicUrl
-    const result = await supabase.rpc('feed_admin_update_photo', { p_file_id: editingFile.id, p_profile_id: currentProfile.id, p_url: url, p_tamanho: blob.size })
+    const result = await adminRpc('feed_admin_update_photo', { p_file_id: editingFile.id, p_url: url, p_tamanho: blob.size })
     if (result.error) throw result.error
     setMessage('Foto atualizada em todas as publicacoes que a utilizam.')
     await load()
@@ -155,7 +156,7 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
     if (!currentProfile) return
     setSaving(true)
     setError('')
-    const result = await supabase.rpc('feed_admin_send_photo_to_board', { p_file_id: file.id, p_profile_id: currentProfile.id, p_orcamento_id: budgetId || null })
+    const result = await adminRpc('feed_admin_send_photo_to_board', { p_file_id: file.id, p_orcamento_id: budgetId || null })
     setSaving(false)
     if (result.error) { setError(result.error.message); return }
     setMessage('Foto enviada ao Board da obra.')
@@ -166,8 +167,8 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
     setSaving(true)
     setError('')
     const [sourceType, sourceId] = source === 'manual' ? ['manual', null] : source.split(':')
-    const { error: publishError } = await supabase.rpc('feed_admin_publish', {
-      p_obra_id: obraId, p_profile_id: currentProfile.id, p_orcamento_id: budgetId || null,
+    const { error: publishError } = await adminRpc('feed_admin_publish', {
+      p_obra_id: obraId, p_orcamento_id: budgetId || null,
       p_titulo: title.trim(), p_conteudo: content.trim() || null, p_visibility: visibility,
       p_is_story: isStory, p_album_nome: album.trim() || null, p_file_ids: selectedFiles,
       p_source_type: sourceType, p_source_id: sourceId,
@@ -181,7 +182,7 @@ export function ObraFeedManager({ obraId }: { obraId: string }) {
 
   async function archive(itemId: string, archived: boolean) {
     if (!currentProfile) return
-    await supabase.rpc('feed_admin_archive', { p_item_id: itemId, p_profile_id: currentProfile.id, p_archived: archived })
+    await adminRpc('feed_admin_archive', { p_item_id: itemId, p_archived: archived })
     await load()
   }
 

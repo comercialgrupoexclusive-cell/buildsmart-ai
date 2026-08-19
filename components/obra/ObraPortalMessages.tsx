@@ -1,15 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Loader2, MessageSquareText, Send } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
+import { adminRpc } from '@/lib/portal-admin-client'
 import type { PortalMessageDTO } from '@/lib/portal/types'
 
 type Recipient = { id: string; nome: string; papel: string }
 
 export function ObraPortalMessages({ obraId }: { obraId: string }) {
-  const supabase = useMemo(() => createClient(), [])
   const { currentProfile } = useProfile()
   const [messages, setMessages] = useState<PortalMessageDTO[]>([])
   const [recipients, setRecipients] = useState<Recipient[]>([])
@@ -20,21 +19,21 @@ export function ObraPortalMessages({ obraId }: { obraId: string }) {
 
   const load = useCallback(async () => {
     if (!currentProfile) return
-    const { data, error: loadError } = await supabase.rpc('portal_messages_admin_get', { p_obra_id: obraId, p_profile_id: currentProfile.id })
+    const { data, error: loadError } = await adminRpc('portal_messages_admin_get', { p_obra_id: obraId })
     const payload = data as { messages?: PortalMessageDTO[]; recipients?: Recipient[] } | null
     setMessages(payload?.messages || [])
     setRecipients(payload?.recipients || [])
     setError(loadError?.message || '')
     setLoading(false)
-  }, [currentProfile, obraId, supabase])
+  }, [currentProfile, obraId])
 
   useEffect(() => { void Promise.resolve().then(load) }, [load])
 
   async function send() {
     if (!currentProfile || !draft.trim() || sending) return
     setSending(true)
-    const { data, error: sendError } = await supabase.rpc('portal_message_admin_send', {
-      p_obra_id: obraId, p_profile_id: currentProfile.id, p_portal_access_id: null, p_texto: draft.trim(),
+    const { data, error: sendError } = await adminRpc('portal_message_admin_send', {
+      p_obra_id: obraId, p_portal_access_id: null, p_texto: draft.trim(),
     })
     setSending(false)
     if (sendError) { setError(sendError.message); return }

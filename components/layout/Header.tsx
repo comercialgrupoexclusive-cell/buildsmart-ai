@@ -45,6 +45,7 @@ export function Header({ hasSidebar = false, onOpenMobileNav }: { hasSidebar?: b
 
   function handleSwitchProfile() {
     setCurrentProfile(null)
+    fetch('/api/session', { method: 'DELETE' }).catch(() => {})
     router.push('/')
   }
 

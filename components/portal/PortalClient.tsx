@@ -25,22 +25,59 @@ const BuildSmartTourViewer = dynamic(
   { ssr: false, loading: () => <div className="grid min-h-[430px] place-items-center rounded-lg bg-[#171914] text-sm text-white">Carregando Tour...</div> },
 )
 
-const NAV = [
-  { id: 'feed', label: 'Feed', icon: Newspaper },
-  { id: 'overview', label: 'Visão Geral', icon: LayoutDashboard },
-  { id: 'evolucao', label: 'Evolução', icon: BarChart3 },
-  { id: 'cronograma', label: 'Cronograma', icon: CalendarRange },
-  { id: 'financeiro', label: 'Financeiro', icon: CircleDollarSign },
-  { id: 'previsoes', label: 'Previsões', icon: CalendarClock },
-  { id: 'financiamento', label: 'Financiamento', icon: Landmark },
-  { id: 'tour', label: 'Tour Virtual', icon: PanelsTopLeft },
-  { id: 'board', label: 'Board', icon: ClipboardList },
-  { id: 'fotos', label: 'Fotos', icon: Camera },
-  { id: 'relatorios', label: 'Relatórios', icon: FileText },
-  { id: 'ia', label: 'Pergunte à IA', icon: Bot },
+// Metadados (rótulo + ícone) de cada seção original do Portal — os ids e o
+// significado de cada seção não mudam, só a forma como são agrupadas na
+// navegação principal abaixo.
+const SECTION_META: Record<PortalSectionId, { label: string; icon: typeof Newspaper }> = {
+  feed: { label: 'Feed', icon: Newspaper },
+  overview: { label: 'Visão Geral', icon: LayoutDashboard },
+  evolucao: { label: 'Evolução', icon: BarChart3 },
+  cronograma: { label: 'Cronograma', icon: CalendarRange },
+  financeiro: { label: 'Financeiro', icon: CircleDollarSign },
+  previsoes: { label: 'Previsões', icon: CalendarClock },
+  financiamento: { label: 'Financiamento', icon: Landmark },
+  tour: { label: 'Tour Virtual', icon: PanelsTopLeft },
+  board: { label: 'Board', icon: ClipboardList },
+  fotos: { label: 'Fotos', icon: Camera },
+  relatorios: { label: 'Relatórios', icon: FileText },
+  ia: { label: 'Pergunte à IA', icon: Bot },
+}
+
+// Navegação principal agrupada em 4 áreas — cada grupo reaproveita as
+// mesmas seções/telas/RPCs de sempre; só a composição da navegação muda.
+// 'inicio' não é uma seção do backend: é a view local (client-only) usada
+// para o resumo combinado de Visão Geral + Evolução + Cronograma + Previsões.
+const NAV_GROUPS = [
+  { id: 'inicio', label: 'Início', icon: LayoutDashboard, children: ['overview', 'evolucao', 'cronograma', 'previsoes'] as const },
+  { id: 'atualizacoes', label: 'Atualizações', icon: Newspaper, children: ['feed', 'fotos'] as const },
+  { id: 'financeiro-grupo', label: 'Financeiro', icon: CircleDollarSign, children: ['financeiro', 'financiamento'] as const },
+  { id: 'projeto', label: 'Projeto', icon: PanelsTopLeft, children: ['board', 'tour', 'relatorios', 'ia'] as const },
 ] as const
 
-type View = PortalSectionId
+type View = PortalSectionId | 'inicio'
+
+// 'overview' e 'evolucao' viviam como abas próprias; agora fazem parte do
+// resumo de Início. Links antigos (?view=overview / ?view=evolucao) caem
+// para 'inicio' em vez de quebrar.
+function normalizeView(id: string): View {
+  return id === 'overview' || id === 'evolucao' ? 'inicio' : (id as View)
+}
+
+function isViewVisible(view: View, visibility: PortalVisibility): boolean {
+  if (view === 'inicio') return visibility.overview || visibility.evolucao || visibility.cronograma || visibility.previsoes
+  return Boolean(visibility[view as PortalSectionId])
+}
+
+function resolveView(visibility: PortalVisibility, requested?: string): View {
+  const normalized = requested ? normalizeView(requested) : undefined
+  if (normalized && isViewVisible(normalized, visibility)) return normalized
+  for (const group of NAV_GROUPS) {
+    if (group.id === 'inicio' && isViewVisible('inicio', visibility)) return 'inicio'
+    const child = group.children.find(c => visibility[c])
+    if (child) return child as View
+  }
+  return 'inicio'
+}
 
 type Props = {
   token: string
@@ -72,10 +109,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
   const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false)
   const [portalTheme, setPortalTheme] = useState<'dark' | 'light'>('light')
   const [context, setContext] = useState(initialContext)
-  const initialVisibleView = NAV.find(item => item.id === initialView && initialContext.visibility[item.id])?.id
-    || NAV.find(item => initialContext.visibility[item.id])?.id
-    || 'feed'
-  const [view, setView] = useState<View>(initialVisibleView)
+  const [view, setView] = useState<View>(() => resolveView(initialContext.visibility, initialView))
   const [loading, setLoading] = useState(false)
   const [draftTour, setDraftTour] = useState<PortalTourPosition | null>(null)
   const [focusBoardItemId, setFocusBoardItemId] = useState<string | null>(null)
@@ -88,7 +122,20 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
 
   const selectedTour = context.tours.find(tour => tour.id === selectedTourId) || context.tours[0]
   const progress = Math.max(0, Math.min(100, Number(context.summary.avancoFisico || 0)))
-  const visibleNav = useMemo(() => NAV.filter(item => context.visibility[item.id]), [context.visibility])
+  const visibleGroups = useMemo(() => NAV_GROUPS.filter(group =>
+    group.id === 'inicio' ? isViewVisible('inicio', context.visibility) : group.children.some(c => context.visibility[c])
+  ), [context.visibility])
+  const activeGroup = useMemo(() => (view === 'inicio' ? NAV_GROUPS[0] : NAV_GROUPS.find(group => (group.children as readonly string[]).includes(view)) || NAV_GROUPS[0]), [view])
+  const subTabs = useMemo(() => {
+    if (activeGroup.id === 'inicio') {
+      const tabs: { id: View; label: string }[] = []
+      if (isViewVisible('inicio', context.visibility)) tabs.push({ id: 'inicio', label: 'Resumo' })
+      if (context.visibility.cronograma) tabs.push({ id: 'cronograma', label: 'Cronograma' })
+      if (context.visibility.previsoes) tabs.push({ id: 'previsoes', label: 'Previsões' })
+      return tabs
+    }
+    return activeGroup.children.filter(c => context.visibility[c]).map(c => ({ id: c as View, label: SECTION_META[c].label }))
+  }, [activeGroup, context.visibility])
 
   useEffect(() => {
     if (!currentProfile) document.documentElement.setAttribute('data-theme', 'light')
@@ -111,7 +158,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
       if (!response.ok) throw new Error('Não foi possível atualizar o Portal.')
       const next = await response.json() as PortalContextDTO
       setContext(next)
-      const nextView = next.visibility[view] ? view : NAV.find(item => next.visibility[item.id])?.id || 'feed'
+      const nextView = isViewVisible(view, next.visibility) ? view : resolveView(next.visibility)
       if (nextView !== view) setView(nextView)
       window.history.replaceState(null, '', `/portal/${token}?view=${nextView}`)
       if (!next.tours.some(tour => tour.id === selectedTourId)) setSelectedTourId(next.tours[0]?.id || '')
@@ -146,9 +193,18 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
       </header>
 
       <div className="sticky top-16 z-30 border-b" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-        <nav role="tablist" aria-label="Seções do Portal" className="mx-auto flex max-w-[1480px] overflow-x-auto px-3 sm:px-5">
-          {visibleNav.map(item => <PortalTab key={item.id} item={item} active={view === item.id} onClick={() => navigate(item.id)} />)}
+        <nav role="tablist" aria-label="Áreas do Portal" className="mx-auto flex max-w-[1480px] overflow-x-auto px-3 sm:px-5">
+          {visibleGroups.map(group => <PortalTab key={group.id} item={group} active={activeGroup.id === group.id} onClick={() => navigate(group.id === 'inicio' ? 'inicio' : (group.children.find(c => context.visibility[c]) as View))} />)}
         </nav>
+        {subTabs.length > 1 && (
+          <nav aria-label="Subseções" className="mx-auto flex max-w-[1480px] gap-1 overflow-x-auto px-3 pb-2 sm:px-5">
+            {subTabs.map(tab => (
+              <button key={tab.id} type="button" onClick={() => navigate(tab.id)} className="shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors" style={{ background: view === tab.id ? 'var(--accent)' : 'var(--bg-secondary)', color: view === tab.id ? '#fff' : 'var(--text-secondary)' }}>
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        )}
       </div>
 
       <div className="mx-auto max-w-[1320px]">
@@ -156,8 +212,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
           {loading && <div className="mb-3 h-1 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}><div className="h-full w-1/2 animate-pulse" style={{ background: 'var(--accent)' }} /></div>}
 
           {view === 'feed' && <PortalFeed key={context.selectedOrcamentoId} token={token} items={context.feed} messages={context.messages} obraNome={context.obra.nome} showStories={context.contentVisibility.feed.stories} showPosts={context.contentVisibility.feed.posts} showMessages={context.contentVisibility.feed.messages} />}
-          {view === 'overview' && <Overview context={context} progress={progress} budgetName={budgetName} visibility={context.visibility} onNavigate={navigate} />}
-          {view === 'evolucao' && <EvolutionView context={context} />}
+          {view === 'inicio' && <InicioResumo context={context} progress={progress} budgetName={budgetName} visibility={context.visibility} onNavigate={navigate} />}
           {view === 'cronograma' && <ScheduleView context={context} />}
           {view === 'financeiro' && <FinancialDetailView context={context} />}
           {view === 'previsoes' && <ForecastView context={context} />}
@@ -179,9 +234,31 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
   )
 }
 
-function PortalTab({ item, active, onClick }: { item: typeof NAV[number]; active: boolean; onClick: () => void }) {
+function PortalTab({ item, active, onClick }: { item: { id: string; label: string; icon: typeof Newspaper }; active: boolean; onClick: () => void }) {
   const Icon = item.icon
   return <button type="button" role="tab" aria-selected={active} onClick={onClick} className="relative flex min-h-13 shrink-0 items-center gap-1.5 px-2.5 text-sm font-medium transition-colors hover:bg-[var(--bg-secondary)] sm:gap-2 sm:px-4" style={{ color: active ? 'var(--accent)' : 'var(--text-secondary)' }}><Icon size={17} className="shrink-0" /><span className="whitespace-nowrap">{item.label}</span><span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full" style={{ background: active ? 'var(--accent)' : 'transparent' }} /></button>
+}
+
+function InicioResumo({ context, progress, budgetName, visibility, onNavigate }: { context: PortalContextDTO; progress: number; budgetName: string; visibility: PortalVisibility; onNavigate: (view: View) => void }) {
+  return <div className="space-y-8">
+    {visibility.overview && <Overview context={context} progress={progress} budgetName={budgetName} visibility={visibility} onNavigate={onNavigate} />}
+    {visibility.evolucao && <EvolutionView context={context} />}
+    {visibility.cronograma && <CronogramaResumo items={context.cronograma} onSeeAll={() => onNavigate('cronograma')} />}
+  </div>
+}
+
+function CronogramaResumo({ items, onSeeAll }: { items: PortalContextDTO['cronograma']; onSeeAll: () => void }) {
+  const relevant = items.filter(item => item.status !== 'concluida').slice(0, 4)
+  if (!relevant.length) return null
+  return <div className="card overflow-hidden">
+    <div className="flex items-center justify-between gap-3 border-b px-4 py-3" style={{ borderColor: 'var(--border)' }}>
+      <div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Cronograma</p><h2 className="mt-0.5 font-semibold">Próximas etapas</h2></div>
+      <button type="button" onClick={onSeeAll} className="shrink-0 text-xs font-medium" style={{ color: 'var(--accent)' }}>Ver tudo</button>
+    </div>
+    <div className="divide-y" style={{ borderColor: 'var(--border)', '--tw-divide-color': 'var(--border)' } as React.CSSProperties}>
+      {relevant.map(item => <div key={item.id} className="flex items-center justify-between gap-3 px-4 py-3"><div className="min-w-0"><p className="truncate text-sm font-medium">{item.nome}</p><p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{date(item.inicio)} a {date(item.fim)}</p></div>{item.percentual != null ? <span className="shrink-0 whitespace-nowrap text-xs font-bold tabular-nums" style={{ color: item.percentual >= 100 ? 'var(--success)' : 'var(--accent)' }}>{formatPercent(item.percentual)}</span> : <span className="shrink-0 text-xs" style={{ color: 'var(--text-secondary)' }}>Planejado</span>}</div>)}
+    </div>
+  </div>
 }
 
 function Overview({ context, progress, budgetName, visibility, onNavigate }: { context: PortalContextDTO; progress: number; budgetName: string; visibility: PortalVisibility; onNavigate: (view: View) => void }) {

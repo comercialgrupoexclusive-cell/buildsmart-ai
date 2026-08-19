@@ -25,14 +25,14 @@ export function EvolutionView({ context }: { context: PortalContextDTO }) {
   const completed = stages.filter(item => item.physical >= 100).length
   return <section className="space-y-6">
     <div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Evolução da obra</p><h1 className="mt-1 text-3xl font-semibold">Avanços independentes</h1><p className="mt-2 max-w-2xl text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>Execução física, mão de obra, movimentação financeira e financiamento são acompanhados separadamente.</p></div>
-    {visibility.indicators && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><RingMetricCard label="Avanço físico" value={axes.physical} detail={`Medição · ${completed} de ${stages.length} etapas concluídas`} tone="success" /><RingMetricCard label="Mão de obra" value={axes.labor} detail="Medição de mão de obra" /><RingMetricCard label="Realização financeira" value={axes.financial} detail="Lançamentos sobre o orçamento" tone="warning" /><RingMetricCard label="Financiamento recebido" value={axes.financing} detail="Sobre os recursos previstos" /></div>}
+    {visibility.indicators && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><RingMetricCard label="Avanço físico — medido" value={axes.physical} detail={`Medição · ${completed} de ${stages.length} etapas concluídas`} tone="success" /><RingMetricCard label="Mão de obra — medido" value={axes.labor} detail="Medição de mão de obra" /><RingMetricCard label="Realização financeira" value={axes.financial} detail="Lançamentos confirmados sobre o orçamento" tone="warning" /><RingMetricCard label="Financiamento — recebido" value={axes.financing} detail="Sobre os recursos previstos" /></div>}
     {visibility.activeStages && active.length > 0 && <div><div className="mb-3 flex items-center gap-2"><Clock3 size={18} style={{ color: 'var(--accent)' }} /><h2 className="text-lg font-semibold">Em execucao agora</h2></div><div className="grid gap-3 md:grid-cols-2">{active.map(stage => <StageProgress key={stage.id} stage={stage} />)}</div></div>}
     {visibility.stageProgress && <div className="card overflow-hidden"><div className="border-b px-4 py-4 sm:px-5" style={{ borderColor: 'var(--border)' }}><h2 className="font-semibold">Avanço por etapa</h2><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Percentual físico registrado pela equipe.</p></div><div className="divide-y" style={{ borderColor: 'var(--border)', '--tw-divide-color': 'var(--border)' } as React.CSSProperties}>{stages.map(stage => <div key={stage.id} className="px-4 py-3.5 sm:px-5"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><p className="truncate text-sm font-medium">{stage.name}</p><p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{date(stage.start)} a {date(stage.end)}</p></div><span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: stage.physical >= 100 ? 'var(--success)' : 'var(--accent)' }}>{percent(stage.physical)}</span></div><Progress value={stage.physical} /></div>)}</div></div>}
   </section>
 }
 
 function StageProgress({ stage }: { stage: PortalContextDTO['presentation']['stages'][number] }) {
-  return <article className="card p-4 sm:p-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-semibold">{stage.name}</p><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{date(stage.start)} a {date(stage.end)}</p></div><Badge variant="info">{statusLabel[stage.status] || stage.status}</Badge></div><div className="mt-4 grid grid-cols-2 gap-4"><div><p className="text-xs">Fisico: {percent(stage.physical)}</p><Progress value={stage.physical} /></div><div><p className="text-xs">Mao de obra: {percent(stage.labor)}</p><Progress value={stage.labor} /></div></div></article>
+  return <article className="card p-4 sm:p-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-semibold">{stage.name}</p><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{date(stage.start)} a {date(stage.end)}</p></div><Badge variant="info">{statusLabel[stage.status] || stage.status}</Badge></div><div className="mt-4 grid grid-cols-2 gap-4"><div><p className="text-xs">Físico medido: {percent(stage.physical)}</p><Progress value={stage.physical} /></div><div><p className="text-xs">Mão de obra medida: {percent(stage.labor)}</p><Progress value={stage.labor} /></div></div></article>
 }
 function Progress({ value }: { value: number }) { return <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--border)' }}><div className="h-full rounded-full" style={{ width: `${Math.min(100, value)}%`, background: 'var(--accent)' }} /></div> }
 
@@ -68,12 +68,12 @@ function PaymentPercentCard({ label, planned, paid, detail, className }: { label
 export function PaymentPercentGrid({ operational }: { operational: PortalContextDTO['presentation']['financial']['operational'] }) {
   return <>
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <PaymentPercentCard label="Materiais pagos" planned={operational.materials.planned} paid={operational.materials.paid} />
-      <PaymentPercentCard label="Mão de obra paga" planned={operational.labor.planned} paid={operational.labor.paid} detail="Medição de mão de obra" />
-      <PaymentPercentCard label="Gerenciamento pago" planned={operational.management.planned} paid={operational.management.paid} detail="Medição de gerenciamento" />
-      <MetricCard label="Equipamentos" value={money(operational.otherEquipmentPaid)} detail="Fora do total operacional" />
+      <PaymentPercentCard label="Materiais — pago" planned={operational.materials.planned} paid={operational.materials.paid} detail="Lançamentos de compra pagos" />
+      <PaymentPercentCard label="Mão de obra — medido" planned={operational.labor.planned} paid={operational.labor.paid} detail="Valor pago registrado na medição" />
+      <PaymentPercentCard label="Gerenciamento — medido" planned={operational.management.planned} paid={operational.management.paid} detail="Valor pago registrado na medição" />
+      <MetricCard label="Equipamentos — pago" value={money(operational.otherEquipmentPaid)} detail="Fora do total operacional" />
     </div>
-    <PaymentPercentCard className="mt-3" label="Total operacional pago" planned={operational.total.planned} paid={operational.total.paid} detail="Sobre o total previsto" />
+    <PaymentPercentCard className="mt-3" label="Total operacional" planned={operational.total.planned} paid={operational.total.paid} detail="Soma de compras pagas + mão de obra e gerenciamento medidos" />
   </>
 }
 

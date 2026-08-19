@@ -1,9 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Check, ChevronDown, Eye, EyeOff, Loader2, PanelsTopLeft } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
+import { adminRpc } from '@/lib/portal-admin-client'
 import {
   DEFAULT_PORTAL_CONTENT_VISIBILITY, DEFAULT_PORTAL_VISIBILITY, PORTAL_CONTENT_ITEMS, PORTAL_SECTIONS,
   normalizePortalContentVisibility, normalizePortalVisibility, type PortalContentSection,
@@ -11,7 +11,6 @@ import {
 } from '@/lib/portal/sections'
 
 export function PortalVisibilitySettings({ obraId }: { obraId: string }) {
-  const supabase = useMemo(() => createClient(), [])
   const { currentProfile } = useProfile()
   const [visibility, setVisibility] = useState<PortalVisibility>(DEFAULT_PORTAL_VISIBILITY)
   const [content, setContent] = useState<PortalContentVisibility>(DEFAULT_PORTAL_CONTENT_VISIBILITY)
@@ -24,15 +23,15 @@ export function PortalVisibilitySettings({ obraId }: { obraId: string }) {
     if (!currentProfile) return
     setLoading(true)
     const [sectionsResult, contentResult] = await Promise.all([
-      supabase.rpc('portal_visibility_admin_get', { p_profile_id: currentProfile.id, p_obra_id: obraId }),
-      supabase.rpc('portal_content_admin_get', { p_profile_id: currentProfile.id, p_obra_id: obraId }),
+      adminRpc('portal_visibility_admin_get', { p_obra_id: obraId }),
+      adminRpc('portal_content_admin_get', { p_obra_id: obraId }),
     ])
     setLoading(false)
     if (sectionsResult.error || contentResult.error) { setError('Nao foi possivel carregar a configuracao do Portal.'); return }
     setError('')
     setVisibility(normalizePortalVisibility(sectionsResult.data as Partial<PortalVisibility>))
     setContent(normalizePortalContentVisibility(contentResult.data as Partial<PortalContentVisibility>))
-  }, [currentProfile, obraId, supabase])
+  }, [currentProfile, obraId])
 
   useEffect(() => { void Promise.resolve().then(load) }, [load])
 
@@ -41,7 +40,7 @@ export function PortalVisibilitySettings({ obraId }: { obraId: string }) {
     const next = !visibility[sectionId]
     const previous = visibility
     setSaving(sectionId); setVisibility(current => ({ ...current, [sectionId]: next }))
-    const result = await supabase.rpc('portal_visibility_admin_set', { p_profile_id: currentProfile.id, p_obra_id: obraId, p_secao: sectionId, p_habilitada: next })
+    const result = await adminRpc('portal_visibility_admin_set', { p_obra_id: obraId, p_secao: sectionId, p_habilitada: next })
     setSaving(null)
     if (result.error) { setVisibility(previous); setError(result.error.code === '23514' ? 'Mantenha pelo menos uma secao visivel.' : 'Nao foi possivel salvar.'); return }
     setVisibility(normalizePortalVisibility(result.data as Partial<PortalVisibility>))
@@ -53,7 +52,7 @@ export function PortalVisibilitySettings({ obraId }: { obraId: string }) {
     const previous = content
     const next = !content[section][item as keyof (typeof content)[typeof section]]
     setSaving(key); setContent(current => ({ ...current, [section]: { ...current[section], [item]: next } }))
-    const result = await supabase.rpc('portal_content_admin_set', { p_profile_id: currentProfile.id, p_obra_id: obraId, p_secao: section, p_item: item, p_habilitado: next })
+    const result = await adminRpc('portal_content_admin_set', { p_obra_id: obraId, p_secao: section, p_item: item, p_habilitado: next })
     setSaving(null)
     if (result.error) { setContent(previous); setError('Nao foi possivel salvar este conteudo.'); return }
     setContent(normalizePortalContentVisibility(result.data as Partial<PortalContentVisibility>))

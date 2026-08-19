@@ -85,8 +85,15 @@ function ProfileSelectionPage() {
     enterProfile(profile)
   }
 
-  function enterProfile(profile: Profile) {
+  function enterProfile(profile: Profile, password?: string) {
     setCurrentProfile(profile)
+    // Registra a sessao assinada usada pelas RPCs administrativas do Portal/
+    // Feed no servidor — nao bloqueia a navegacao se falhar (ex.: offline).
+    fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId: profile.id, password }),
+    }).catch(() => {})
     if (!profile.onboarding_done) {
       router.push('/onboarding')
     } else {
@@ -98,7 +105,7 @@ function ProfileSelectionPage() {
     if (!pendingProfile) return
     // Comparação simples (sem hash real para MVP — melhorar depois)
     if (passwordInput === pendingProfile.password_hash) {
-      enterProfile(pendingProfile)
+      enterProfile(pendingProfile, passwordInput)
       setPendingProfile(null)
     } else {
       setPasswordError(true)
@@ -150,12 +157,13 @@ function ProfileSelectionPage() {
       savedProfile = data as Profile
     }
 
+    const enteredPassword = formData.password.trim() || undefined
     setSaving(false)
     setShowForm(false)
     setEditingProfile(null)
     resetForm()
     if (savedProfile) {
-      enterProfile(savedProfile)
+      enterProfile(savedProfile, enteredPassword)
       return
     }
     loadProfiles()

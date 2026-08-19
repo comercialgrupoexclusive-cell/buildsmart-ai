@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { ChevronDown, Eye, ImagePlus, Link2, Loader2, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
+import { adminRpc } from '@/lib/portal-admin-client'
 import { BuildSmartTourViewer } from '@/components/portal/BuildSmartTourViewer'
 import type { PortalTourDTO } from '@/lib/portal/types'
 
@@ -33,8 +34,7 @@ export function TourManager({ obraId, projectId }: { obraId?: string | null; pro
 
   const load = useCallback(async () => {
     if (!currentProfile || (!obraId && !projectId)) return
-    const { data, error: tourError } = await supabase.rpc('portal_tour_admin_list', {
-      p_profile_id: currentProfile.id,
+    const { data, error: tourError } = await adminRpc('portal_tour_admin_list', {
       p_obra_id: obraId || null,
       p_project_id: projectId || null,
     })
@@ -43,19 +43,18 @@ export function TourManager({ obraId, projectId }: { obraId?: string | null; pro
     setTours(list)
     const nextSelectedId = selectedId && list.some(tour => tour.id === selectedId) ? selectedId : list[0]?.id || ''
     setSelectedId(nextSelectedId)
-  }, [currentProfile, obraId, projectId, selectedId, supabase])
+  }, [currentProfile, obraId, projectId, selectedId])
 
   const manage = useCallback(async (action: string, entityId: string | null, payload: Record<string, unknown> = {}) => {
-    if (!currentProfile || (!obraId && !projectId)) return { data: null, error: new Error('Perfil ou contexto indisponível.') }
-    return supabase.rpc('portal_tour_admin_manage', {
-      p_profile_id: currentProfile.id,
+    if (!currentProfile || (!obraId && !projectId)) return { data: null, error: { message: 'Perfil ou contexto indisponível.' } }
+    return adminRpc<string>('portal_tour_admin_manage', {
       p_action: action,
       p_obra_id: obraId || null,
       p_project_id: projectId || null,
       p_entity_id: entityId,
       p_payload: payload,
     })
-  }, [currentProfile, obraId, projectId, supabase])
+  }, [currentProfile, obraId, projectId])
 
   useEffect(() => { void Promise.resolve().then(load) }, [load])
 

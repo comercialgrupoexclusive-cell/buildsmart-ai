@@ -10,7 +10,13 @@ if (!obraId || !profileId) {
 }
 
 const env = await loadEnv('.env.local')
-const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+// feed_admin_list/feed_admin_publish agora só aceitam execute de service_role
+// (ver migration lock_down_portal_admin_rpcs) — script de seed precisa da
+// service role key, não mais da anon key.
+if (!env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('SUPABASE_SERVICE_ROLE_KEY ausente em .env.local — necessária para publicar no feed via seed script.')
+}
+const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
 const demoKey = 'portal-feed-demo-v1'
 const images = [
   { file: 'public/demo/feed/allegra-estrutura-demo.png', name: 'DEMO - Estrutura da residencia.png' },

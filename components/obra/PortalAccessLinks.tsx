@@ -1,9 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Check, Copy, ExternalLink, Link2, Loader2 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
-import { createClient } from '@/lib/supabase/client'
+import { adminRpc } from '@/lib/portal-admin-client'
 
 type PortalLink = {
   id: string
@@ -19,7 +19,6 @@ async function sha256(value: string) {
 }
 
 export function PortalAccessLinks({ obraId }: { obraId: string }) {
-  const supabase = useMemo(() => createClient(), [])
   const { currentProfile } = useProfile()
   const [url, setUrl] = useState('')
   const [ready, setReady] = useState(false)
@@ -33,10 +32,7 @@ export function PortalAccessLinks({ obraId }: { obraId: string }) {
     setReady(false)
     setError('')
 
-    const { data, error: listError } = await supabase.rpc('portal_links_list', {
-      p_obra_id: obraId,
-      p_profile_id: currentProfile.id,
-    })
+    const { data, error: listError } = await adminRpc('portal_links_list', { p_obra_id: obraId })
     if (listError) {
       setError('Não foi possível ativar o Portal desta obra.')
       return
@@ -44,9 +40,8 @@ export function PortalAccessLinks({ obraId }: { obraId: string }) {
 
     const fixed = ((data || []) as PortalLink[]).find(link => link.token_hint === FIXED_HINT)
     if (!fixed) {
-      const { error: createError } = await supabase.rpc('portal_link_create', {
+      const { error: createError } = await adminRpc('portal_link_create', {
         p_obra_id: obraId,
-        p_profile_id: currentProfile.id,
         p_token_hash: await sha256(obraId),
         p_token_hint: FIXED_HINT,
         p_nome: 'Portal do cliente',
@@ -56,10 +51,9 @@ export function PortalAccessLinks({ obraId }: { obraId: string }) {
         return
       }
     } else if (!fixed.ativo) {
-      const { error: activateError } = await supabase.rpc('portal_link_set_active', {
+      const { error: activateError } = await adminRpc('portal_link_set_active', {
         p_link_id: fixed.id,
         p_obra_id: obraId,
-        p_profile_id: currentProfile.id,
         p_ativo: true,
       })
       if (activateError) {
@@ -69,7 +63,7 @@ export function PortalAccessLinks({ obraId }: { obraId: string }) {
     }
 
     setReady(true)
-  }, [currentProfile, obraId, supabase])
+  }, [currentProfile, obraId])
 
   useEffect(() => { void Promise.resolve().then(ensureFixedLink) }, [ensureFixedLink])
 
