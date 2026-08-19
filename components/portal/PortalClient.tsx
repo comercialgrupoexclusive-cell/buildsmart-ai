@@ -16,7 +16,8 @@ import { MetricCard, StatusItemCard } from '@/components/ui/InsightCard'
 import { CONDICAO_PAGAMENTO_LABEL, PREVISAO_TIPO_LABEL, previsaoPrazo, previsaoTone } from '@/lib/previsoes'
 import { PortalGantt } from './PortalGantt'
 import type { PortalSectionId, PortalVisibility } from '@/lib/portal/sections'
-import { EvolutionView, FinancialDetailView, FinancingDetailView, ForecastCharts, OverviewCharts } from './PortalPresentation'
+import { EvolutionView, FinancialDetailView, FinancingDetailView, ForecastCharts, OverviewCharts, PaymentPercentGrid } from './PortalPresentation'
+import { formatPercent } from '@/lib/portal/format'
 import { PortalFeed } from './PortalFeed'
 
 const BuildSmartTourViewer = dynamic(
@@ -62,8 +63,8 @@ function forecastDate(value: string | null) {
     .format(new Date(`${value}T12:00:00Z`))
 }
 
-function portalPercent(value: number, maximumFractionDigits = 2) {
-  return `${new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits }).format(Number(value || 0))}%`
+function portalPercent(value: number) {
+  return formatPercent(value)
 }
 
 export function PortalClient({ token, initialContext, initialView, deepLink }: Props) {
@@ -180,7 +181,7 @@ export function PortalClient({ token, initialContext, initialView, deepLink }: P
 
 function PortalTab({ item, active, onClick }: { item: typeof NAV[number]; active: boolean; onClick: () => void }) {
   const Icon = item.icon
-  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className="relative flex min-h-13 shrink-0 items-center gap-2 px-3 text-sm font-medium transition-colors hover:bg-[var(--bg-secondary)] sm:px-4" style={{ color: active ? 'var(--accent)' : 'var(--text-secondary)' }}><Icon size={17} /><span>{item.label}</span><span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full" style={{ background: active ? 'var(--accent)' : 'transparent' }} /></button>
+  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className="relative flex min-h-13 shrink-0 items-center gap-1.5 px-2.5 text-sm font-medium transition-colors hover:bg-[var(--bg-secondary)] sm:gap-2 sm:px-4" style={{ color: active ? 'var(--accent)' : 'var(--text-secondary)' }}><Icon size={17} className="shrink-0" /><span className="whitespace-nowrap">{item.label}</span><span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full" style={{ background: active ? 'var(--accent)' : 'transparent' }} /></button>
 }
 
 function Overview({ context, progress, budgetName, visibility, onNavigate }: { context: PortalContextDTO; progress: number; budgetName: string; visibility: PortalVisibility; onNavigate: (view: View) => void }) {
@@ -189,7 +190,7 @@ function Overview({ context, progress, budgetName, visibility, onNavigate }: { c
     {context.contentVisibility.overview.hero && <section className="relative min-h-[330px] overflow-hidden rounded-lg sm:min-h-[410px]" style={{ background: context.obra.fotoUrl ? '#303631' : 'var(--accent)' }}>
       {context.obra.fotoUrl && <Image src={context.obra.fotoUrl} alt={context.obra.nome} fill sizes="(min-width: 1024px) 70vw, 100vw" unoptimized className="object-cover" />}
       {context.obra.fotoUrl && <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/5" />}
-      {!context.obra.fotoUrl && <div className="absolute right-6 top-7 text-right text-white/90 sm:right-9 sm:top-9"><p className="text-xs font-semibold uppercase text-white/70">Avanço físico</p><p className="mt-1 text-5xl font-semibold tabular-nums sm:text-7xl">{progress.toFixed(1)}%</p></div>}
+      {!context.obra.fotoUrl && <div className="absolute right-6 top-7 text-right text-white/90 sm:right-9 sm:top-9"><p className="text-xs font-semibold uppercase text-white/70">Avanço físico</p><p className="mt-1 whitespace-nowrap text-4xl font-semibold tabular-nums sm:text-7xl">{portalPercent(progress)}</p></div>}
       <div className="absolute inset-x-0 bottom-0 p-6 text-white sm:p-9">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/70">{budgetName}</p>
         <h1 className="mt-2 max-w-3xl text-3xl font-semibold sm:text-5xl">{context.obra.nome}</h1>
@@ -199,18 +200,10 @@ function Overview({ context, progress, budgetName, visibility, onNavigate }: { c
 
     {context.contentVisibility.overview.indicators && (visibility.evolucao || visibility.financeiro || visibility.financiamento) && <section className="space-y-4">
       {visibility.evolucao && <div className="card grid gap-5 p-5 sm:grid-cols-[auto_1fr] sm:items-center">
-        <div className="portal-progress-ring grid size-28 shrink-0 place-items-center rounded-full" style={{ '--progress': progress } as React.CSSProperties}><div className="grid size-[5.25rem] place-items-center rounded-full" style={{ background: 'var(--bg-card)' }}><span className="text-lg font-bold tabular-nums">{portalPercent(overview.physical.current, 3)}</span></div></div>
-        <div className="min-w-0"><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Avanço físico atual</p><p className="mt-1 text-2xl font-semibold">Evolução em campo</p><div className="mt-4 grid grid-cols-2 gap-3"><div><p className="text-[11px] uppercase" style={{ color: 'var(--text-secondary)' }}>Próxima medição</p><p className="mt-1 font-bold tabular-nums">{portalPercent(overview.physical.next, 3)}</p></div><div><p className="text-[11px] uppercase" style={{ color: 'var(--text-secondary)' }}>Cronograma Caixa</p><p className="mt-1 font-bold tabular-nums">{money(overview.physical.caixaTotal)}</p></div></div></div>
+        <div className="portal-progress-ring grid size-28 shrink-0 place-items-center rounded-full" style={{ '--progress': progress } as React.CSSProperties}><div className="grid size-[5.25rem] place-items-center rounded-full" style={{ background: 'var(--bg-card)' }}><span className="whitespace-nowrap text-base font-bold tabular-nums">{portalPercent(overview.physical.current)}</span></div></div>
+        <div className="min-w-0"><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Avanço físico atual</p><p className="mt-1 text-2xl font-semibold">Evolução em campo</p><div className="mt-4 grid grid-cols-2 gap-3"><div><p className="text-[11px] uppercase" style={{ color: 'var(--text-secondary)' }}>Próxima medição</p><p className="mt-1 whitespace-nowrap font-bold tabular-nums">{portalPercent(overview.physical.next)}</p></div><div><p className="text-[11px] uppercase" style={{ color: 'var(--text-secondary)' }}>Cronograma Caixa</p><p className="mt-1 whitespace-nowrap font-bold tabular-nums">{money(overview.physical.caixaTotal)}</p></div></div></div>
       </div>}
-      {visibility.financeiro && <>
-        <div className="grid gap-3 md:grid-cols-3">
-          <OverviewPaymentCard label="Materiais e serviços" planned={overview.payments.materials.planned} paid={overview.payments.materials.paid} />
-          <OverviewPaymentCard label="Mão de obra" planned={overview.payments.labor.planned} paid={overview.payments.labor.paid} />
-          <OverviewPaymentCard label="Gerenciamento" planned={overview.payments.management.planned} paid={overview.payments.management.paid} />
-        </div>
-        <div className="card flex flex-col gap-4 p-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Total operacional</p><p className="mt-2 text-2xl font-bold tabular-nums">{money(overview.payments.total.paid)}</p><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>de {money(overview.payments.total.planned)} previstos</p></div><div className="sm:text-right"><p className="text-2xl font-bold tabular-nums" style={{ color: 'var(--success)' }}>{portalPercent(overview.payments.total.planned > 0 ? overview.payments.total.paid / overview.payments.total.planned * 100 : 0)}</p><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>do total pago</p></div></div>
-        {overview.payments.otherEquipmentPaid > 0 && <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Outros / equipamentos pagos, fora do total operacional: <strong style={{ color: 'var(--text-primary)' }}>{money(overview.payments.otherEquipmentPaid)}</strong></p>}
-      </>}
+      {visibility.financeiro && <PaymentPercentGrid operational={overview.payments} />}
     </section>}
 
     {context.contentVisibility.overview.charts && <OverviewCharts context={context} />}
@@ -221,11 +214,6 @@ function Overview({ context, progress, budgetName, visibility, onNavigate }: { c
       {visibility.board && <button type="button" onClick={() => onNavigate('board')} className="card group min-h-44 p-6 text-left"><MessageSquare size={24} style={{ color: 'var(--accent)' }} /><h2 className="mt-8 text-2xl font-semibold">Decisões e pendências</h2><p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>{context.boardItems.length} itens compartilhados com você</p></button>}
     </section>}
   </div>
-}
-
-function OverviewPaymentCard({ label, planned, paid }: { label: string; planned: number; paid: number }) {
-  const paidPercent = planned > 0 ? paid / planned * 100 : 0
-  return <article className="card relative min-w-0 overflow-hidden p-5"><span className="absolute inset-x-0 top-0 h-0.5" style={{ background: 'var(--accent)' }} /><p className="text-[11px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>{label}</p><p className="mt-3 text-2xl font-bold tabular-nums">{money(paid)}</p><div className="mt-4 flex items-end justify-between gap-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}><div><p className="text-[10px] uppercase" style={{ color: 'var(--text-secondary)' }}>Previsto</p><p className="mt-1 text-sm font-semibold tabular-nums">{money(planned)}</p></div><p className="text-lg font-bold tabular-nums" style={{ color: 'var(--success)' }}>{portalPercent(paidPercent)}</p></div></article>
 }
 
 function ScheduleView({ context }: { context: PortalContextDTO }) {

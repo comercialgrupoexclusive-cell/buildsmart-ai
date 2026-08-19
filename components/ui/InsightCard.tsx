@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
-type Tone = 'accent' | 'success' | 'warning' | 'danger' | 'neutral'
+export type Tone = 'accent' | 'success' | 'warning' | 'danger' | 'neutral'
 
-const toneColor: Record<Tone, string> = {
+export const toneColor: Record<Tone, string> = {
   accent: 'var(--accent)',
   success: 'var(--success)',
   warning: 'var(--warning)',
@@ -24,7 +24,7 @@ export function MetricCard({
     <article className={cn('card relative min-w-0 overflow-hidden p-4 sm:p-5', className)}>
       <span className="absolute inset-x-0 top-0 h-0.5" style={{ background: toneColor[tone] }} />
       <p className="text-[11px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>{label}</p>
-      <p className="mt-2 break-words text-xl font-bold tabular-nums sm:text-2xl" style={{ color: 'var(--text-primary)' }}>{value}</p>
+      <p className="mt-2 whitespace-nowrap text-lg font-bold leading-tight tabular-nums sm:text-2xl" style={{ color: 'var(--text-primary)' }}>{value}</p>
       {detail && <p className="mt-1.5 text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>{detail}</p>}
     </article>
   )

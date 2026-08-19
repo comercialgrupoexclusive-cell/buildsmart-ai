@@ -2542,7 +2542,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
               <div className="px-3 py-2 text-xs font-semibold" style={{ color: 'var(--text-primary)', borderBottom: '1px solid var(--border)' }}>
                 Itens do lancamento
               </div>
-              <div className="flex flex-col divide-y" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex flex-col divide-y" style={{ borderColor: 'var(--border)', '--tw-divide-color': 'var(--border)' } as React.CSSProperties}>
                 {itensPendentes.map((draft, idx) => (
                   <div key={draft.id} className="grid grid-cols-2 lg:grid-cols-[32px_minmax(190px,1fr)_minmax(130px,0.65fr)_150px_72px_88px_125px_92px_44px] gap-2 p-3 items-end">
                     <div className="hidden lg:flex h-9 items-center justify-center rounded-lg text-xs font-semibold" style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>
@@ -3677,7 +3677,7 @@ function GrupoEtapa({
                     </div>
 
                     {!subFechada && (
-                      <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                      <div className="divide-y" style={{ borderColor: 'var(--border)', '--tw-divide-color': 'var(--border)' } as React.CSSProperties}>
                         <SortableList
                           items={grupo.itens}
                           disabled={!onReorderItens || mobileDragLocked}
@@ -3805,7 +3805,7 @@ function GrupoEtapa({
                                   <div className="px-3 py-2 text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
                                     Insumos
                                   </div>
-                                  <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                                  <div className="divide-y" style={{ borderColor: 'var(--border)', '--tw-divide-color': 'var(--border)' } as React.CSSProperties}>
                                     {item.composicao_itens!.map(ins => {
                                       const info = infoDoItem(ins, obraUf)
                                       const insumoKey = info.codigo !== '\u2014' ? info.codigo : ins.id
