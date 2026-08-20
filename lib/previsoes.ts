@@ -54,6 +54,10 @@ export type ObraPrevisao = {
   orcamentoItemInsumoId: string | null
   compraVinculada: boolean | null
   compraRecebida: boolean
+  // Identificacao simples da compra vinculada (somente quando o vinculo e a
+  // nivel de insumo -- o caso que este vinculo estrutural garante ser exato).
+  compraFornecedorNome: string | null
+  compraDescricao: string | null
 }
 
 export const PREVISAO_TIPO_LABEL: Record<PrevisaoTipo, string> = {

@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ShoppingCart, Plus, Pencil, Trash2, ChevronDown, ChevronRight,
-  CheckSquare, Square, Scale, FileText, X, Building2,
+  CheckSquare, Square, Scale, FileText, X, Building2, Link2,
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { adminRpc } from '@/lib/portal-admin-client'
 import { formatCurrency, FORMA_PAGAMENTO_LABEL, TIPO_CUSTO_LABEL, TIPO_CUSTO_COLOR } from '@/lib/utils'
 import { CompraItem, Etapa, Fornecedor, TipoCusto } from '@/lib/types'
+import type { ObraPrevisao } from '@/lib/previsoes'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -26,6 +28,11 @@ const STATUS_VALOR_COLOR: Record<CompraItem['status_valor'], string> = {
 }
 
 const SEM_ETAPA = 'sem_etapa'
+
+function formatDataCurta(value: string | null) {
+  if (!value) return '—'
+  return new Intl.DateTimeFormat('pt-BR').format(new Date(`${value.slice(0, 10)}T12:00:00`))
+}
 
 type CotacaoLinha = { id: string; fornecedorNome: string; valor: string }
 
@@ -60,6 +67,7 @@ export function ComprasLancamentos({
   const [subetapas, setSubetapas] = useState<SubetapaOrcamento[]>([])
   const [itensOrcamento, setItensOrcamento] = useState<ItemOrcamento[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
+  const [previsoesMaterial, setPrevisoesMaterial] = useState<ObraPrevisao[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroEtapa, setFiltroEtapa] = useState('todas')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
@@ -73,6 +81,7 @@ export function ComprasLancamentos({
     etapa_id: '',
     subetapa_orcamento_item_id: '',
     orcamento_item_id: '',
+    orcamento_item_insumo_id: '',
     fornecedor_id: '',
     fornecedor_nome: '',
     valor_total: '',
@@ -136,9 +145,31 @@ export function ComprasLancamentos({
     void Promise.resolve().then(loadDados)
   }, [loadDados])
 
+  // Materiais previstos (obra_previsoes) para o seletor "Vincular ao
+  // material previsto" -- mesma fonte da tela de Previsões, sem motor novo.
+  useEffect(() => {
+    void adminRpc<ObraPrevisao[]>('obra_previsoes_list', { p_obra_id: obraId, p_orcamento_id: TODOS_ORCAMENTOS })
+      .then(({ data }) => setPrevisoesMaterial((data || []) as ObraPrevisao[]))
+  }, [obraId])
+
+  const materiaisVinculaveis = useMemo(
+    () => previsoesMaterial.filter(p =>
+      p.tipo === 'compra_material'
+      && !['cancelada', 'substituida', 'realizada'].includes(p.status)
+      && p.orcamentoItemInsumoId
+      && (p.compraVinculada !== true || p.orcamentoItemInsumoId === form.orcamento_item_insumo_id)
+    ),
+    [previsoesMaterial, form.orcamento_item_insumo_id]
+  )
+  const materialTituloPorInsumoId = useMemo(() => {
+    const map: Record<string, string> = {}
+    previsoesMaterial.forEach(p => { if (p.orcamentoItemInsumoId) map[p.orcamentoItemInsumoId] = p.titulo })
+    return map
+  }, [previsoesMaterial])
+
   function resetForm() {
     setForm({
-      descricao: '', etapa_id: '', subetapa_orcamento_item_id: '', orcamento_item_id: '', fornecedor_id: '', fornecedor_nome: '',
+      descricao: '', etapa_id: '', subetapa_orcamento_item_id: '', orcamento_item_id: '', orcamento_item_insumo_id: '', fornecedor_id: '', fornecedor_nome: '',
       valor_total: '', tipo_custo: '', status_valor: 'confirmado', forma_pagamento: '',
       data_compra: new Date().toISOString().slice(0, 10), data_limite_pagamento: '',
     })
@@ -159,6 +190,7 @@ export function ComprasLancamentos({
       etapa_id: item.etapa_id || '',
       subetapa_orcamento_item_id: item.subetapa_orcamento_item_id || '',
       orcamento_item_id: item.orcamento_item_id || '',
+      orcamento_item_insumo_id: item.orcamento_item_insumo_id || '',
       fornecedor_id: item.fornecedor_id || '',
       fornecedor_nome: item.fornecedor_nome || '',
       valor_total: String(item.valor_total ?? ''),
@@ -181,6 +213,7 @@ export function ComprasLancamentos({
       etapa_id: form.etapa_id || null,
       subetapa_orcamento_item_id: form.subetapa_orcamento_item_id || null,
       orcamento_item_id: form.orcamento_item_id || null,
+      orcamento_item_insumo_id: form.orcamento_item_insumo_id || null,
       descricao: form.descricao.trim(),
       fornecedor_id: fornecedorManual ? null : (form.fornecedor_id || null),
       fornecedor_nome: fornecedorManual ? (form.fornecedor_nome.trim() || null) : null,
@@ -369,6 +402,7 @@ export function ComprasLancamentos({
               onTogglePago={alternarPago}
               onToggleRecebido={alternarRecebido}
               onCotacao={abrirCotacao}
+              materialTituloPorInsumoId={materialTituloPorInsumoId}
             />
           )}
           {etapas.map(etapa => {
@@ -387,6 +421,7 @@ export function ComprasLancamentos({
                 onTogglePago={alternarPago}
                 onToggleRecebido={alternarRecebido}
                 onCotacao={abrirCotacao}
+                materialTituloPorInsumoId={materialTituloPorInsumoId}
               />
             )
           })}
@@ -417,6 +452,21 @@ export function ComprasLancamentos({
             <option value="">Sem etapa</option>
             {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
           </Select>
+
+          {materiaisVinculaveis.length > 0 && (
+            <Select
+              label="Vincular ao material previsto (opcional)"
+              value={form.orcamento_item_insumo_id}
+              onChange={e => setForm(f => ({ ...f, orcamento_item_insumo_id: e.target.value }))}
+            >
+              <option value="">Não vincular</option>
+              {materiaisVinculaveis.map(p => (
+                <option key={p.orcamentoItemInsumoId as string} value={p.orcamentoItemInsumoId as string}>
+                  {p.titulo} · {[p.etapaNome, p.subetapaNome].filter(Boolean).join(' · ') || 'Sem etapa'} · Necessário {formatDataCurta(p.dataNecessidade)} · Providenciar até {formatDataCurta(p.dataPrevista)}
+                </option>
+              ))}
+            </Select>
+          )}
 
           {form.etapa_id && subetapas.some(s => s.etapa_id === form.etapa_id) && (
             <div className="grid grid-cols-2 gap-3">
@@ -806,7 +856,7 @@ export function LancamentoRapidoForm({
 */
 
 function GrupoEtapaCompra({
-  chave, nome, itens, collapsed, onToggle, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao,
+  chave, nome, itens, collapsed, onToggle, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, materialTituloPorInsumoId,
 }: {
   chave: string
   nome: string
@@ -818,6 +868,7 @@ function GrupoEtapaCompra({
   onTogglePago: (item: CompraItem) => void
   onToggleRecebido: (item: CompraItem) => void
   onCotacao: (item: CompraItem) => void
+  materialTituloPorInsumoId: Record<string, string>
 }) {
   const subtotal = itens.reduce((s, i) => s + (i.valor_total || 0), 0)
   const pagos = itens.filter(i => i.status_pagamento === 'pago').length
@@ -844,7 +895,7 @@ function GrupoEtapaCompra({
       {!collapsed && (
         <div className="flex flex-col">
           {itens.map(item => (
-            <LinhaCompra key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onTogglePago={onTogglePago} onToggleRecebido={onToggleRecebido} onCotacao={onCotacao} />
+            <LinhaCompra key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onTogglePago={onTogglePago} onToggleRecebido={onToggleRecebido} onCotacao={onCotacao} materialVinculado={item.orcamento_item_insumo_id ? materialTituloPorInsumoId[item.orcamento_item_insumo_id] : undefined} />
           ))}
         </div>
       )}
@@ -853,7 +904,7 @@ function GrupoEtapaCompra({
 }
 
 function LinhaCompra({
-  item, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao,
+  item, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, materialVinculado,
 }: {
   item: CompraItem
   onEdit: (item: CompraItem) => void
@@ -861,6 +912,7 @@ function LinhaCompra({
   onTogglePago: (item: CompraItem) => void
   onToggleRecebido: (item: CompraItem) => void
   onCotacao: (item: CompraItem) => void
+  materialVinculado?: string
 }) {
   const pago = item.status_pagamento === 'pago'
   const recebido = item.status_recebimento === 'recebido'
@@ -881,6 +933,11 @@ function LinhaCompra({
           )}
           {fornecedorNome && (
             <span className="inline-flex items-center gap-1"><Building2 size={11} /> {fornecedorNome}</span>
+          )}
+          {materialVinculado && (
+            <span className="inline-flex items-center gap-1" style={{ color: 'var(--accent)' }} title={`Vinculado ao material previsto: ${materialVinculado}`}>
+              <Link2 size={11} /> {materialVinculado}
+            </span>
           )}
           {item.forma_pagamento && <span>{FORMA_PAGAMENTO_LABEL[item.forma_pagamento]}</span>}
           {item.data_limite_pagamento && (

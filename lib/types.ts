@@ -349,6 +349,7 @@ export type CompraItem = {
   etapa_id: string | null
   subetapa_orcamento_item_id: string | null   // FK orcamento_itens (tipo_linha='subetapa')
   orcamento_item_id: string | null            // FK orcamento_itens (tipo_linha='item'), opcional
+  orcamento_item_insumo_id: string | null     // FK orcamento_item_insumos: vinculo exato ao material previsto (nunca por nome)
   subetapa_legado_nome: string | null         // histórico do cronograma legado (pré-migração)
   servico_legado_nome: string | null          // histórico do cronograma legado (pré-migração)
   lista_id: string | null
