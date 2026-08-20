@@ -35,6 +35,13 @@ export type ObraPrevisao = {
   externalKey: string | null
   createdAt: string
   updatedAt: string
+  // Prazo de fornecimento por material (V1): guardados em obra_previsoes.metadados,
+  // presentes apenas quando a previsao veio de uma sugestao de compra de material.
+  prazoFornecimentoDias: number | null
+  dataNecessidade: string | null
+  // true quando a data de inicio no cronograma (planejamento_itens) mudou
+  // desde que esta previsao foi criada a partir de uma sugestao do orcamento.
+  cronogramaAlterado: boolean
 }
 
 export const PREVISAO_TIPO_LABEL: Record<PrevisaoTipo, string> = {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BellRing, CalendarClock, ChevronDown, Eye, Pencil, Plus, Undo2 } from 'lucide-react'
+import { CalendarClock, ChevronDown, Eye, Pencil, Plus, RefreshCw, Truck, Undo2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
@@ -34,9 +34,12 @@ type ForecastSuggestion = {
   titulo: string
   descricao: string | null
   dataPrevista: string
-  inicioOperacional: string
+  dataNecessidade: string
+  prazoFornecimentoDias: number
   valorSugerido: number | null
   tipoSugerido: PrevisaoTipo
+  compraVinculada: boolean
+  origemCronograma: { fonte: string | null; subetapaOrcamentoItemId: string | null; planejamentoItemId: string | null }
   jaCriada: boolean
 }
 
@@ -47,11 +50,18 @@ const EMPTY_FORM = {
   condicaoPagamento: '' as CondicaoPagamento | '', status: 'prevista' as PrevisaoStatus,
   origem: 'manual' as PrevisaoOrigem, baseline: false, publicadoCliente: false, observacaoInterna: '',
   fornecedorNome: '', externalKey: '',
+  metadados: undefined as Record<string, unknown> | undefined,
 }
 
 function formatForecastDate(value: string | null) {
   if (!value) return '—'
   return new Intl.DateTimeFormat('pt-BR').format(new Date(`${value.slice(0, 10)}T12:00:00`))
+}
+
+function subtractDays(dateStr: string, days: number) {
+  const d = new Date(`${dateStr.slice(0, 10)}T12:00:00`)
+  d.setDate(d.getDate() - days)
+  return d.toISOString().slice(0, 10)
 }
 
 export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamentoId: string }) {
@@ -75,7 +85,11 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
   const [statusFilter, setStatusFilter] = useState<'ativos' | PrevisaoStatus>('ativos')
   const [suggestions, setSuggestions] = useState<ForecastSuggestion[]>([])
   const [showAllSuggestions, setShowAllSuggestions] = useState(false)
+  const [showOtherSuggestions, setShowOtherSuggestions] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [materialPeriod, setMaterialPeriod] = useState<'30' | '60' | '90' | 'todos'>('30')
+  const [prazoEdits, setPrazoEdits] = useState<Record<string, number>>({})
+  const [usingKey, setUsingKey] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -110,6 +124,26 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
 
   const activeItems = useMemo(() => items.filter(item => !['cancelada', 'substituida', 'realizada'].includes(item.status)), [items])
   const pendingSuggestions = useMemo(() => suggestions.filter(item => !item.jaCriada), [suggestions])
+  const materialSuggestions = useMemo(() => pendingSuggestions.filter(item => item.tipoSugerido === 'compra_material'), [pendingSuggestions])
+  const otherSuggestions = useMemo(() => pendingSuggestions.filter(item => item.tipoSugerido !== 'compra_material'), [pendingSuggestions])
+
+  function effectivePrazo(item: ForecastSuggestion) {
+    return prazoEdits[item.key] ?? item.prazoFornecimentoDias
+  }
+  function effectiveDataPrevista(item: ForecastSuggestion) {
+    return subtractDays(item.dataNecessidade, effectivePrazo(item))
+  }
+
+  const visibleMaterialSuggestions = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const withDates = materialSuggestions.map(item => ({ item, providenciar: effectiveDataPrevista(item) }))
+    const filtered = materialPeriod === 'todos' ? withDates : withDates.filter(({ providenciar }) => {
+      const due = new Date(`${providenciar}T00:00:00`)
+      return due.getTime() <= today.getTime() + Number(materialPeriod) * 86400000
+    })
+    return filtered.sort((a, b) => a.providenciar.localeCompare(b.providenciar)).map(({ item }) => item)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [materialSuggestions, materialPeriod, prazoEdits])
   const totals = useMemo(() => {
     const today = new Date(); today.setHours(0, 0, 0, 0)
     const totalUntil = (days: number) => activeItems.filter(item => {
@@ -147,6 +181,7 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
     setEditing(item)
     setShowAdvanced(false)
     setForm({
+      ...EMPTY_FORM,
       orcamentoId: item.orcamentoId || '', etapaId: item.etapaId || '', subetapaId: item.subetapaId || '', servicoId: item.servicoId || '',
       tipo: item.tipo, titulo: item.titulo, descricao: item.descricao || '', valorPrevisto: item.valorPrevisto == null ? '' : String(item.valorPrevisto),
       tituloCliente: item.tituloCliente || '', descricaoCliente: item.descricaoCliente || '',
@@ -208,6 +243,22 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
     setModalOpen(true)
   }
 
+  async function acceptMaterialSuggestion(item: ForecastSuggestion) {
+    const prazo = effectivePrazo(item)
+    const dataPrevista = effectiveDataPrevista(item)
+    setUsingKey(item.key)
+    await save({
+      ...EMPTY_FORM,
+      orcamentoId: item.orcamentoId || (orcamentoId === TODOS_ORCAMENTOS ? '' : orcamentoId),
+      etapaId: item.etapaId || '', subetapaId: item.subetapaId || '', servicoId: item.servicoId || '',
+      tipo: item.tipoSugerido, titulo: item.titulo, descricao: item.descricao || '',
+      valorPrevisto: item.valorSugerido == null ? '' : String(item.valorSugerido), dataPrevista,
+      status: 'confirmada' as PrevisaoStatus, origem: 'orcamento' as PrevisaoOrigem, publicadoCliente: false, externalKey: item.key,
+      metadados: { prazoFornecimentoDias: prazo, dataNecessidade: item.dataNecessidade, origemCronograma: item.origemCronograma },
+    }, null)
+    setUsingKey(null)
+  }
+
   if (loading) return <div className="flex justify-center py-14"><div className="size-7 animate-spin rounded-full border-2" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>
 
   return (
@@ -219,11 +270,40 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
       {feedback && <div className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}>{feedback}</div>}
 
       <div className="card overflow-hidden">
-        <div className="flex items-start gap-3 p-4 sm:p-5"><div className="grid size-10 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}><BellRing size={18} /></div><div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold">Próximos itens</h3><p className="mt-1 text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>O orçamento informa o que será necessário; o cronograma informa quando.</p></div><Badge variant="info">{pendingSuggestions.length} novos</Badge></div></div></div>
-        <div className="divide-y border-t" style={{ borderColor: 'var(--border)' }}>
-          {pendingSuggestions.length === 0 ? <p className="p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum item novo com data no cronograma.</p> : pendingSuggestions.slice(0, showAllSuggestions ? 20 : 5).map(item => <div key={item.key} className="flex items-center gap-3 px-4 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{item.titulo}</p><p className="mt-1 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{formatForecastDate(item.dataPrevista)}{item.valorSugerido != null ? ` · ${formatCurrency(item.valorSugerido)}` : ' · Valor a definir'}{item.etapaNome ? ` · ${item.etapaNome}` : ''}</p></div><Button size="sm" variant="secondary" onClick={() => reviewSuggestion(item)}>Usar previsão</Button></div>)}
+        <div className="flex flex-wrap items-start justify-between gap-3 p-4 sm:p-5">
+          <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}><Truck size={18} /></div><div className="min-w-0"><h3 className="font-semibold">Próximos materiais</h3><p className="mt-1 text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>Necessário em = início no cronograma. Providenciar até = necessário em − prazo de fornecimento.</p></div></div>
+          <div className="flex items-center gap-2"><Badge variant="info">{materialSuggestions.length} materiais</Badge><Select value={materialPeriod} onChange={event => setMaterialPeriod(event.target.value as typeof materialPeriod)} className="min-h-9 w-auto"><option value="30">30 dias</option><option value="60">60 dias</option><option value="90">90 dias</option><option value="todos">Todo o período</option></Select></div>
         </div>
-        {pendingSuggestions.length > 5 && <button type="button" onClick={() => setShowAllSuggestions(value => !value)} className="flex w-full items-center justify-center gap-1 border-t px-4 py-3 text-xs font-medium" style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}>{showAllSuggestions ? 'Mostrar menos' : `Ver mais ${Math.min(pendingSuggestions.length - 5, 15)} itens`}<ChevronDown size={14} className={showAllSuggestions ? 'rotate-180' : ''} /></button>}
+        <div className="divide-y border-t" style={{ borderColor: 'var(--border)' }}>
+          {visibleMaterialSuggestions.length === 0 ? <p className="p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum material a providenciar neste período.</p> : visibleMaterialSuggestions.map(item => {
+            const prazo = effectivePrazo(item)
+            const providenciar = effectiveDataPrevista(item)
+            const overdue = providenciar < new Date().toISOString().slice(0, 10)
+            return (
+              <div key={item.key} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5"><p className="truncate text-sm font-medium">{item.titulo}</p>{item.compraVinculada && <Badge variant="success">Já em compras</Badge>}</div>
+                  <p className="mt-1 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{[item.etapaNome, item.subetapaNome].filter(Boolean).join(' · ') || 'Sem etapa'}</p>
+                  <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Necessário em <strong style={{ color: 'var(--text-primary)' }}>{formatForecastDate(item.dataNecessidade)}</strong> · {item.valorSugerido != null ? formatCurrency(item.valorSugerido) : 'Valor a definir'}</p>
+                </div>
+                <div className="flex shrink-0 items-end gap-3">
+                  <label className="flex flex-col gap-1"><span className="text-[10px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Prazo (dias)</span><input type="number" min={0} max={180} value={prazo} onChange={event => setPrazoEdits(current => ({ ...current, [item.key]: Math.max(0, Number(event.target.value) || 0) }))} className="input-base h-9 w-20 px-2 text-sm" /></label>
+                  <div className="flex flex-col gap-1"><span className="text-[10px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Providenciar até</span><span className="text-sm font-semibold tabular-nums" style={{ color: overdue ? 'var(--danger)' : 'var(--text-primary)' }}>{formatForecastDate(providenciar)}</span></div>
+                  <Button size="sm" variant="secondary" loading={usingKey === item.key} onClick={() => void acceptMaterialSuggestion(item)}>Usar</Button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {otherSuggestions.length > 0 && (
+          <div className="border-t" style={{ borderColor: 'var(--border)' }}>
+            <button type="button" onClick={() => setShowOtherSuggestions(value => !value)} className="flex w-full items-center justify-between gap-1 px-4 py-3 text-xs font-medium" style={{ color: 'var(--accent)' }}>Outras sugestões (mão de obra e desembolsos) · {otherSuggestions.length}<ChevronDown size={14} className={showOtherSuggestions ? 'rotate-180' : ''} /></button>
+            {showOtherSuggestions && <div className="divide-y border-t" style={{ borderColor: 'var(--border)' }}>
+              {otherSuggestions.slice(0, showAllSuggestions ? 30 : 5).map(item => <div key={item.key} className="flex items-center gap-3 px-4 py-3"><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{item.titulo}</p><p className="mt-1 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{formatForecastDate(item.dataPrevista)}{item.valorSugerido != null ? ` · ${formatCurrency(item.valorSugerido)}` : ' · Valor a definir'}{item.etapaNome ? ` · ${item.etapaNome}` : ''}</p></div><Button size="sm" variant="secondary" onClick={() => reviewSuggestion(item)}>Usar previsão</Button></div>)}
+              {otherSuggestions.length > 5 && <button type="button" onClick={() => setShowAllSuggestions(value => !value)} className="flex w-full items-center justify-center gap-1 px-4 py-3 text-xs font-medium" style={{ color: 'var(--accent)' }}>{showAllSuggestions ? 'Mostrar menos' : `Ver mais ${Math.min(otherSuggestions.length - 5, 25)} itens`}</button>}
+            </div>}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -261,7 +341,7 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
 
 function ForecastRow({ item, onEdit }: { item: ObraPrevisao; onEdit: () => void }) {
   const tone = previsaoTone(item.status, item.dataPrevista)
-  return <StatusItemCard title={item.titulo} eyebrow={PREVISAO_TIPO_LABEL[item.tipo]} value={item.valorPrevisto == null ? 'Valor a definir' : formatCurrency(item.valorPrevisto)} detail={previsaoPrazo(item.dataPrevista, item.status)} tone={tone} badge={<div className="flex items-center gap-1.5"><Badge variant={tone === 'success' ? 'success' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>{PREVISAO_STATUS_LABEL[item.status]}</Badge>{item.publicadoCliente && <Eye size={14} aria-label="Visível no Portal" />}</div>} meta={<div className="flex flex-wrap gap-x-4 gap-y-1"><span>{item.dataPrevista ? formatForecastDate(item.dataPrevista) : 'Data a definir'}</span>{item.etapaNome && <span>{item.etapaNome}</span>}{item.fornecedorNome && <span>{item.fornecedorNome}</span>}</div>} actions={<button type="button" onClick={onEdit} className="grid size-9 place-items-center rounded-lg hover:bg-[var(--bg-secondary)]" title="Editar previsão"><Pencil size={15} /></button>} />
+  return <StatusItemCard title={item.titulo} eyebrow={PREVISAO_TIPO_LABEL[item.tipo]} value={item.valorPrevisto == null ? 'Valor a definir' : formatCurrency(item.valorPrevisto)} detail={previsaoPrazo(item.dataPrevista, item.status)} tone={tone} badge={<div className="flex items-center gap-1.5"><Badge variant={tone === 'success' ? 'success' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>{PREVISAO_STATUS_LABEL[item.status]}</Badge>{item.publicadoCliente && <Eye size={14} aria-label="Visível no Portal" />}</div>} meta={<div className="flex flex-wrap items-center gap-x-4 gap-y-1"><span>{item.dataPrevista ? formatForecastDate(item.dataPrevista) : 'Data a definir'}</span>{item.etapaNome && <span>{item.etapaNome}</span>}{item.fornecedorNome && <span>{item.fornecedorNome}</span>}{item.cronogramaAlterado && <span className="flex items-center gap-1 font-medium" style={{ color: 'var(--warning)' }}><RefreshCw size={12} /> Cronograma alterado — recalcular previsão?</span>}</div>} actions={<button type="button" onClick={onEdit} className="grid size-9 place-items-center rounded-lg hover:bg-[var(--bg-secondary)]" title="Editar previsão"><Pencil size={15} /></button>} />
 }
 
 function countUntil(items: ObraPrevisao[], days: number) {
