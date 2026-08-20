@@ -132,6 +132,12 @@ export type PortalPrevisaoDTO = {
   origem: string
   baseline: boolean
   fornecedorNome?: string | null
+  // Presentes apenas para previsões de material com vínculo estrutural
+  // (mesmo dado de obra_previsoes_list) -- baseline_importado antigo não
+  // tem esses campos e retorna null, o que é esperado.
+  dataNecessidade: string | null
+  prazoFornecimentoDias: number | null
+  compraVinculada: boolean | null
 }
 
 export type PortalPresentationDTO = {
@@ -200,6 +206,9 @@ export type PortalPresentationDTO = {
     approved: number
     received: number
     balance: number
+    // Contrapartida do cliente -- nunca entra no numerador/denominador do
+    // percentual de financiamento (axes.financing), mostrado separadamente.
+    ownResources: number
     sources: Array<{
       id: string
       type: 'recursos_proprios' | 'financiamento' | 'fgts'

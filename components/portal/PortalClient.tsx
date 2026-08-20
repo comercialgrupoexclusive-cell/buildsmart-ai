@@ -43,15 +43,19 @@ const SECTION_META: Record<PortalSectionId, { label: string; icon: typeof Newspa
   ia: { label: 'Pergunte à IA', icon: Bot },
 }
 
-// Navegação principal agrupada em 4 áreas — cada grupo reaproveita as
+// Navegação principal do Portal V1 (somente Obra) em exatamente 4 áreas —
+// Resumo / Atualizações / Financeiro / Arquivos — cada grupo reaproveita as
 // mesmas seções/telas/RPCs de sempre; só a composição da navegação muda.
 // 'inicio' não é uma seção do backend: é a view local (client-only) usada
 // para o resumo combinado de Visão Geral + Evolução + Cronograma + Previsões.
+// Board/Tour/IA (conteúdo interativo do dia a dia da obra, não do Portal de
+// Projetos) ficam agrupados em Atualizações; Fotos + Relatórios formam
+// Arquivos (ambos vêm só de obra_files publicado_cliente=true).
 const NAV_GROUPS = [
-  { id: 'inicio', label: 'Início', icon: LayoutDashboard, children: ['overview', 'evolucao', 'cronograma', 'previsoes'] as const },
-  { id: 'atualizacoes', label: 'Atualizações', icon: Newspaper, children: ['feed', 'fotos'] as const },
+  { id: 'inicio', label: 'Resumo', icon: LayoutDashboard, children: ['overview', 'evolucao', 'cronograma', 'previsoes'] as const },
+  { id: 'atualizacoes', label: 'Atualizações', icon: Newspaper, children: ['feed', 'board', 'tour', 'ia'] as const },
   { id: 'financeiro-grupo', label: 'Financeiro', icon: CircleDollarSign, children: ['financeiro', 'financiamento'] as const },
-  { id: 'projeto', label: 'Projeto', icon: PanelsTopLeft, children: ['board', 'tour', 'relatorios', 'ia'] as const },
+  { id: 'arquivos', label: 'Arquivos', icon: FileText, children: ['fotos', 'relatorios'] as const },
 ] as const
 
 type View = PortalSectionId | 'inicio'
@@ -315,9 +319,17 @@ function ForecastSummary({ context, onNavigate }: { context: PortalContextDTO; o
 function ForecastView({ context }: { context: PortalContextDTO }) {
   const valid = context.previsoes
   const active = valid.filter(item => item.status !== 'realizada')
-  const launches = valid.filter(item => item.tipo !== 'compra_material')
-  const purchases = valid.filter(item => item.tipo === 'compra_material')
   const today = new Date(); today.setHours(0, 0, 0, 0)
+  // Uma previsão vencida (data já passada, ainda não realizada) nunca é
+  // "Próxima" -- ela cai para Realizados/Histórico junto com o que já
+  // aconteceu, sem apagar nada.
+  const isVencida = (item: (typeof valid)[number]) => item.status !== 'realizada' && !!item.dataPrevista && new Date(`${item.dataPrevista}T00:00:00`) < today
+  const upcoming = valid.filter(item => item.status === 'confirmada' && !isVencida(item))
+  const history = valid.filter(item => item.status === 'realizada' || isVencida(item))
+  const launches = upcoming.filter(item => item.tipo !== 'compra_material')
+  const purchases = upcoming.filter(item => item.tipo === 'compra_material')
+  const launchesHistory = history.filter(item => item.tipo !== 'compra_material')
+  const purchasesHistory = history.filter(item => item.tipo === 'compra_material')
   const within = (days: number) => active.filter(item => {
     if (!item.dataPrevista) return false
     const due = new Date(`${item.dataPrevista}T00:00:00`)
@@ -341,7 +353,7 @@ function ForecastView({ context }: { context: PortalContextDTO }) {
   return <section className="space-y-5">
     <div><p className="text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--text-secondary)' }}>Planejamento publicado</p><h1 className="mt-1 text-3xl font-semibold">Previsões da obra</h1></div>
     {context.contentVisibility.previsoes.indicators && <><div className="grid gap-3 sm:grid-cols-3"><MetricCard label="Lançamentos · próximos 7 dias" value={money(sum(sevenLaunches))} detail={`${sevenLaunches.length} pendente${sevenLaunches.length === 1 ? '' : 's'}`} tone="warning" /><MetricCard label="Compras · próximos 7 dias" value={money(sum(sevenPurchases))} detail={`${sevenPurchases.length} pendente${sevenPurchases.length === 1 ? '' : 's'}`} tone="accent" /><MetricCard label="Total do mês" value={money(totalValue)} detail={`Pago: ${money(paidValue)} · Pendente: ${money(totalValue - paidValue)}`} /></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><ForecastPaymentCard label="Total pago" value={paidValue} count={paid.length} detail={`${paid.length} ${paid.length === 1 ? 'item pago' : 'itens pagos'}`} color="var(--success)" icon={<CircleCheckBig size={18} />} />{paymentGroups.map(group => <ForecastPaymentCard key={group.key} label={group.label} value={group.value} count={group.items.length} detail={group.paid > 0 ? `${group.items.length} itens · Pago: ${money(group.paid)}` : `${group.items.length} itens · Pendente`} color={group.color} icon={group.icon} />)}</div></>}
-    {context.previsoes.length === 0 ? <Empty title="Nenhuma previsão publicada" description="A equipe controla o que pode ser visualizado pelo cliente." /> : <div className="space-y-6">{context.contentVisibility.previsoes.launches && <ForecastGroup title="Próximos lançamentos" items={launches} />}{context.contentVisibility.previsoes.purchases && <ForecastGroup title="Próximas compras" items={purchases} />}</div>}
+    {context.previsoes.length === 0 ? <Empty title="Nenhuma previsão publicada" description="A equipe controla o que pode ser visualizado pelo cliente." /> : <div className="space-y-6">{context.contentVisibility.previsoes.launches && <ForecastGroup title="Próximos lançamentos" items={launches} />}{context.contentVisibility.previsoes.purchases && <ForecastGroup title="Próximas compras" items={purchases} />}{context.contentVisibility.previsoes.launches && <ForecastGroup title="Lançamentos realizados" items={launchesHistory} />}{context.contentVisibility.previsoes.purchases && <ForecastGroup title="Compras realizadas" items={purchasesHistory} />}</div>}
     {context.contentVisibility.previsoes.charts && <ForecastCharts context={context} />}
     <p className="text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>Previsto e realizado são momentos diferentes. Uma diferença não representa automaticamente economia ou estouro de orçamento.</p>
   </section>
@@ -359,7 +371,8 @@ function ForecastGroup({ title, items }: { title: string; items: PortalContextDT
 function PortalForecastCard({ item }: { item: PortalContextDTO['previsoes'][number] }) {
   const tone = previsaoTone(item.status, item.dataPrevista)
   const paymentLabel = item.condicaoPagamento ? CONDICAO_PAGAMENTO_LABEL[item.condicaoPagamento] : null
-  return <StatusItemCard title={item.titulo} eyebrow={`${PREVISAO_TIPO_LABEL[item.tipo]} · ${item.orcamentoNome}`} value={item.valorPrevisto == null ? 'Valor a definir' : money(item.valorPrevisto)} detail={previsaoPrazo(item.dataPrevista, item.status)} tone={tone} badge={<div className="flex flex-wrap justify-end gap-1.5"><Badge variant={tone === 'success' ? 'success' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>{item.status === 'realizada' ? 'Pago' : 'Pendente'}</Badge>{paymentLabel && <Badge variant="info">{paymentLabel}</Badge>}</div>} meta={<div className="flex flex-wrap gap-x-4 gap-y-1"><span>{forecastDate(item.dataPrevista)}</span>{item.etapaNome && <span>{item.etapaNome}</span>}{item.fornecedorNome && <span>{item.fornecedorNome}</span>}{item.baseline && <span>Baseline</span>}</div>} />
+  const comprado = item.tipo === 'compra_material' && item.compraVinculada === true
+  return <StatusItemCard title={item.titulo} eyebrow={`${PREVISAO_TIPO_LABEL[item.tipo]} · ${item.orcamentoNome}`} value={item.valorPrevisto == null ? 'Valor a definir' : money(item.valorPrevisto)} detail={previsaoPrazo(item.dataPrevista, item.status)} tone={tone} badge={<div className="flex flex-wrap justify-end gap-1.5"><Badge variant={tone === 'success' ? 'success' : tone === 'danger' ? 'danger' : tone === 'warning' ? 'warning' : 'info'}>{item.status === 'realizada' ? 'Pago' : 'Pendente'}</Badge>{comprado && <Badge variant="success">Comprado</Badge>}{paymentLabel && <Badge variant="info">{paymentLabel}</Badge>}</div>} meta={<div className="flex flex-wrap gap-x-4 gap-y-1"><span>{forecastDate(item.dataPrevista)}</span>{item.tipo === 'compra_material' && item.dataNecessidade && <span>Necessário em {date(item.dataNecessidade)}</span>}{item.etapaNome && <span>{item.etapaNome}</span>}{item.fornecedorNome && <span>{item.fornecedorNome}</span>}{item.baseline && <span>Baseline</span>}</div>} />
 }
 
 function PublishedFilesView({ context, mode }: { context: PortalContextDTO; mode: 'photos' | 'reports' }) {
