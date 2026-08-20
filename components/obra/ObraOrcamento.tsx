@@ -8,7 +8,7 @@ import {
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
   Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
   Pencil, GripVertical, Move, MoreVertical, type LucideIcon,
-  Sparkles, LayoutTemplate, Save, Wand2,
+  Sparkles, LayoutTemplate, Save, Wand2, ClipboardCheck, Check, Minus,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -146,6 +146,9 @@ type ComposicaoItemJoin = {
   valor_total_informado_snapshot?: number | null
   valor_total_divergente?: boolean
   ordem?: number
+  verificado?: boolean | null
+  verificado_por?: string | null
+  verificado_em?: string | null
 }
 
 type ClassificacaoInsumo = 'EQUIPAMENTO' | 'MAO_DE_OBRA' | 'MATERIAL_SERVICOS'
@@ -246,6 +249,10 @@ type ItemEnriquecido = {
   sinapi_mes_referencia?: string | null
   // ordem de exibição dentro do grupo (etapa+subetapa, ou etapa p/ linhas de subetapa) — arrastar para reordenar
   ordem?: number | null
+  // Conferência do orçamento (QA/revisão) — não é execução física nem afeta cálculos.
+  verificado?: boolean | null
+  verificado_por?: string | null
+  verificado_em?: string | null
 }
 
 type SubetapaMeta = {
@@ -257,6 +264,9 @@ type SubetapaMeta = {
   ativo: boolean
   categoria: string | null
   ordem: number | null
+  verificado?: boolean | null
+  verificado_por?: string | null
+  verificado_em?: string | null
 }
 
 type AddItemDraft = {
@@ -307,6 +317,62 @@ function getEtapaIcone(nome: string): { icon: LucideIcon; cor: string } {
   return found ? { icon: found.icon, cor: found.cor } : { icon: FolderPlus, cor: '#64748B' }
 }
 
+// ─── Conferência do orçamento (QA/revisão) ────────────────────────────────────
+// Estado tri-valorado sempre CALCULADO a partir dos filhos (nunca uma coluna
+// nova): 'none' = nada conferido, 'full' = próprio + todos os descendentes
+// conferidos, 'partial' = qualquer outra combinação.
+type VerifState = 'none' | 'partial' | 'full'
+function verifStateFromCounts(done: number, total: number): VerifState {
+  if (total <= 0 || done <= 0) return 'none'
+  return done >= total ? 'full' : 'partial'
+}
+function insumoVerifCounts(ins: ComposicaoItemJoin): { done: number; total: number } {
+  return { done: ins.verificado ? 1 : 0, total: 1 }
+}
+function itemVerifCounts(item: ItemEnriquecido): { done: number; total: number } {
+  const insumos = item.composicao_itens || []
+  let done = item.verificado ? 1 : 0
+  let total = 1
+  for (const ins of insumos) { const c = insumoVerifCounts(ins); done += c.done; total += c.total }
+  return { done, total }
+}
+function subetapaVerifCounts(meta: SubetapaMeta | undefined, itensDaSubetapa: ItemEnriquecido[]): { done: number; total: number } {
+  let done = meta?.verificado ? 1 : 0
+  let total = meta ? 1 : 0
+  for (const item of itensDaSubetapa) { const c = itemVerifCounts(item); done += c.done; total += c.total }
+  return { done, total }
+}
+// Checkbox tri-estado (☐ / ◩ indeterminate / ☑) usado em todos os níveis da
+// hierarquia de conferência. Touch target ~36px, adequado para mobile.
+function VerificacaoCheck({ state, onClick, loading, title }: { state: VerifState; onClick: (e: React.MouseEvent) => void; loading?: boolean; title?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={e => { e.stopPropagation(); if (!loading) onClick(e) }}
+      disabled={loading}
+      title={title}
+      aria-label={title}
+      className="grid size-8 shrink-0 place-items-center rounded-md transition-colors disabled:opacity-50"
+      style={{
+        background: state === 'full' ? 'var(--success)' : state === 'partial' ? 'color-mix(in srgb, var(--warning) 22%, transparent)' : 'var(--bg-card)',
+        border: `1px solid ${state === 'full' ? 'var(--success)' : state === 'partial' ? 'var(--warning)' : 'var(--border)'}`,
+      }}
+    >
+      {loading ? <RefreshCw size={13} className="animate-spin" style={{ color: 'var(--text-secondary)' }} />
+        : state === 'full' ? <Check size={15} color="white" strokeWidth={3} />
+        : state === 'partial' ? <Minus size={13} strokeWidth={3} style={{ color: 'var(--warning)' }} />
+        : null}
+    </button>
+  )
+}
+
+function verifTitle(verificado: boolean | null | undefined, por: string | null | undefined, em: string | null | undefined, nomesPerfis: Record<string, string>) {
+  if (!verificado) return 'Clique para marcar como conferido'
+  const quem = por ? (nomesPerfis[por] || 'usuário') : null
+  const quando = em ? new Date(em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null
+  return quem && quando ? `Conferido por ${quem}\n${quando}` : 'Conferido — clique para reabrir'
+}
+
 export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName, obraUf = 'SP' }: {
   obraId?: string
   projetoId?: string
@@ -337,6 +403,22 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     return () => mq.removeEventListener('change', onChange)
   }, [])
   const mobileDragLocked = isMobileViewport && !reorderMode
+
+  // Conferência do orçamento (QA/revisão) — modo opt-in que só mostra os
+  // checkboxes quando ativado, para não poluir a tela o tempo inteiro.
+  const [modoConferencia, setModoConferencia] = useState(false)
+  const [filtroConferencia, setFiltroConferencia] = useState<'todos' | 'pendentes'>('todos')
+  const [verificandoId, setVerificandoId] = useState<string | null>(null)
+  const [confirmarEtapa, setConfirmarEtapa] = useState<{ id: string; nome: string; acao: 'verificar' | 'reabrir' } | null>(null)
+  const [profileNomes, setProfileNomes] = useState<Record<string, string>>({})
+  useEffect(() => {
+    supabase.from('profiles').select('id,name').then(({ data }: { data: { id: string; name: string }[] | null }) => {
+      const map: Record<string, string> = {}
+      for (const p of data || []) map[p.id] = p.name
+      setProfileNomes(map)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const [etapasPadrao, setEtapasPadrao] = useState<string[]>([])
   useEffect(() => {
@@ -588,6 +670,31 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     setEtapas(data || [])
   }
 
+  // Conferência do orçamento (QA/revisão) — marca/reabre uma etapa, subetapa,
+  // item ou insumo, com cascata opcional para os filhos. Não mexe em status
+  // de execução, medição, financeiro nem Portal — só nas 3 colunas verificado*.
+  async function handleVerificar(entidadeTipo: 'etapa' | 'subetapa' | 'item' | 'insumo', entidadeId: string, acao: 'verificar' | 'reabrir', incluirFilhos = false) {
+    if (!orcamento || !currentProfile) return
+    setVerificandoId(entidadeId)
+    const { error } = await supabase.rpc('orcamento_verificacao_marcar', {
+      p_orcamento_id: orcamento.id,
+      p_entidade_tipo: entidadeTipo,
+      p_entidade_id: entidadeId,
+      p_acao: acao,
+      p_profile_id: currentProfile.id,
+      p_incluir_filhos: incluirFilhos,
+    })
+    if (error) { alert(`Não foi possível atualizar a conferência.\n\n${error.message}`); setVerificandoId(null); return }
+    await Promise.all([loadItens(orcamento.id), loadEtapas()])
+    setVerificandoId(null)
+  }
+
+  // Etapa é o único nível que pede confirmação antes de cascatear (regra
+  // explícita: subetapa e item cascateiam direto, sem perguntar).
+  function onClickEtapaCheckbox(etapa: Etapa, state: VerifState) {
+    setConfirmarEtapa({ id: etapa.id, nome: etapa.nome, acao: state === 'full' ? 'reabrir' : 'verificar' })
+  }
+
   async function loadComposicoesProprias() {
     const { data } = await supabase
       .from('composicoes_proprias')
@@ -701,7 +808,19 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       ativo: Boolean(item.subetapa_valor_manual_ativo),
       categoria: item.subetapa_categoria_snapshot ?? null,
       ordem: item.ordem ?? null,
+      verificado: item.verificado ?? false,
+      verificado_por: item.verificado_por ?? null,
+      verificado_em: item.verificado_em ?? null,
     }))
+
+  // Conferência do orçamento (QA/revisão): TOTAL = etapas + todos orcamento_itens
+  // (subetapa + item) + todos os insumos. Sem peso financeiro — só contagem.
+  const totalConferencia = etapas.length + itens.length
+    + itens.reduce((acc, item) => acc + (item.composicao_itens?.length || 0), 0)
+  const conferidosConferencia = etapas.filter(e => e.verificado).length
+    + itens.filter(item => item.verificado).length
+    + itens.reduce((acc, item) => acc + (item.composicao_itens?.filter(ins => ins.verificado).length || 0), 0)
+  const percentualConferencia = totalConferencia > 0 ? Math.round((conferidosConferencia / totalConferencia) * 100) : 0
 
   const subtotal = itensOrcamento.reduce((acc, item) => acc + getItemTotal(item), 0)
     + subetapasMeta
@@ -2242,6 +2361,25 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         </div>
       </div>
 
+      {/* Conferência do orçamento — QA/revisão, sem peso financeiro. Sempre
+          visível, altura mínima (não é execução física nem publicação). */}
+      {totalConferencia > 0 && (
+        <div className="rounded-xl px-3.5 py-2.5 flex items-center gap-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          <ClipboardCheck size={16} className="shrink-0" style={{ color: 'var(--text-secondary)' }} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Conferência do orçamento</span>
+              <span className="text-xs font-semibold tabular-nums flex-shrink-0" style={{ color: percentualConferencia >= 100 ? 'var(--success)' : 'var(--text-primary)' }}>
+                {percentualConferencia}% · {conferidosConferencia}/{totalConferencia}
+              </span>
+            </div>
+            <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
+              <div className="h-full rounded-full transition-all" style={{ width: `${percentualConferencia}%`, background: percentualConferencia >= 100 ? 'var(--success)' : 'var(--accent)' }} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Estrutura da Obra (etapas + composições em cascata) ── */}
       {etapas.length === 0 && itensOrcamento.length === 0 && subetapasMeta.length === 0 ? (
         <EmptyState
@@ -2310,6 +2448,28 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                     <Move size={13} /> {reorderMode ? 'Concluir' : 'Mover'}
                   </button>
                 )}
+                {modoConferencia && (
+                  <select
+                    value={filtroConferencia}
+                    onChange={e => setFiltroConferencia(e.target.value as 'todos' | 'pendentes')}
+                    className="input-base w-auto py-1.5 text-xs"
+                    title="Filtrar conferência"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="pendentes">Pendentes</option>
+                  </select>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setModoConferencia(v => !v)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                  style={modoConferencia
+                    ? { background: 'var(--accent)', color: 'white' }
+                    : { color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                  title="Mostrar checkboxes de conferência do orçamento"
+                >
+                  <ClipboardCheck size={13} /> {modoConferencia ? 'Sair da conferência' : 'Conferir orçamento'}
+                </button>
                 {!isReadonly && (
                   <Button size="sm" icon={<FolderPlus size={14} />} onClick={() => openItemModal(filtroEtapaId !== 'todas' && filtroEtapaId !== 'sem_etapa' ? filtroEtapaId : null)}>
                     Adicionar item
@@ -2367,6 +2527,14 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                 onReorderSubetapas={!isReadonly ? (novaOrdem) => handleReorderSubetapas(null, novaOrdem) : undefined}
                 onReorderItens={!isReadonly ? handleReorderItens : undefined}
                 mobileDragLocked={mobileDragLocked}
+                etapaId={null}
+                modoConferencia={modoConferencia}
+                filtroConferencia={filtroConferencia}
+                verificandoId={verificandoId}
+                profileNomes={profileNomes}
+                onVerificarSubetapa={(id, acao) => handleVerificar('subetapa', id, acao, true)}
+                onVerificarItem={(id, acao) => handleVerificar('item', id, acao, true)}
+                onVerificarInsumo={(id, acao) => handleVerificar('insumo', id, acao, false)}
               />
             )}
             <SortableList
@@ -2418,6 +2586,16 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                       menuAberto={etapaMenuAberto === etapa.id}
                       onToggleMenu={() => setEtapaMenuAberto(v => v === etapa.id ? null : etapa.id)}
                       menuRef={etapaMenuAberto === etapa.id ? etapaMenuRef : undefined}
+                      etapaId={etapa.id}
+                      etapaVerificado={etapa.verificado}
+                      modoConferencia={modoConferencia}
+                      filtroConferencia={filtroConferencia}
+                      verificandoId={verificandoId}
+                      profileNomes={profileNomes}
+                      onVerificarEtapa={(state) => onClickEtapaCheckbox(etapa, state)}
+                      onVerificarSubetapa={(id, acao) => handleVerificar('subetapa', id, acao, true)}
+                      onVerificarItem={(id, acao) => handleVerificar('item', id, acao, true)}
+                      onVerificarInsumo={(id, acao) => handleVerificar('insumo', id, acao, false)}
                     />
                   </div>
                 )
@@ -2812,6 +2990,35 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         )}
       </Modal>
 
+      {/* Conferência do orçamento — cascata opcional ao marcar/reabrir uma
+          etapa inteira. Subetapa e item cascateiam sem perguntar (regra fixa). */}
+      <Modal open={!!confirmarEtapa} onClose={() => setConfirmarEtapa(null)} title={confirmarEtapa?.acao === 'verificar' ? 'Conferir etapa' : 'Reabrir etapa'} size="sm">
+        {confirmarEtapa && (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {confirmarEtapa.acao === 'verificar'
+                ? <>Marcar a etapa &quot;{confirmarEtapa.nome}&quot; e todos os seus itens como conferidos?</>
+                : <>Reabrir a etapa &quot;{confirmarEtapa.nome}&quot; e todos os seus itens conferidos?</>}
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button
+                variant="secondary"
+                loading={verificandoId === confirmarEtapa.id}
+                onClick={async () => { const alvo = confirmarEtapa; setConfirmarEtapa(null); if (alvo) await handleVerificar('etapa', alvo.id, alvo.acao, false) }}
+              >
+                {confirmarEtapa.acao === 'verificar' ? 'Só a etapa' : 'Só a etapa'}
+              </Button>
+              <Button
+                loading={verificandoId === confirmarEtapa.id}
+                onClick={async () => { const alvo = confirmarEtapa; setConfirmarEtapa(null); if (alvo) await handleVerificar('etapa', alvo.id, alvo.acao, true) }}
+              >
+                {confirmarEtapa.acao === 'verificar' ? 'Etapa + todos os itens' : 'Etapa + todos os itens'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <Modal
         open={showFinalizarModal}
         onClose={() => !finalizando && setShowFinalizarModal(false)}
@@ -3037,6 +3244,8 @@ function GrupoEtapa({
   obraUf, icon: Icon, iconCor, subtotalDireto,
   onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditSubetapaValor, onRestoreSubetapaValor, onRestoreItemValor, onRestoreInsumoValor, onEditItem, menuAberto, onToggleMenu, menuRef,
   onReorderSubetapas, onReorderItens, mobileDragLocked,
+  etapaId, etapaVerificado, modoConferencia, filtroConferencia, verificandoId, profileNomes,
+  onVerificarEtapa, onVerificarSubetapa, onVerificarItem, onVerificarInsumo,
 }: {
   nome: string
   dragHandle?: React.ReactNode
@@ -3075,6 +3284,16 @@ function GrupoEtapa({
   onReorderSubetapas?: (novaOrdemNomes: string[]) => void
   onReorderItens?: (novaOrdemIds: string[]) => void
   mobileDragLocked?: boolean
+  etapaId?: string | null
+  etapaVerificado?: boolean | null
+  modoConferencia?: boolean
+  filtroConferencia?: 'todos' | 'pendentes'
+  verificandoId?: string | null
+  profileNomes?: Record<string, string>
+  onVerificarEtapa?: (state: VerifState) => void
+  onVerificarSubetapa?: (subetapaId: string, acao: 'verificar' | 'reabrir') => void
+  onVerificarItem?: (itemId: string, acao: 'verificar' | 'reabrir') => void
+  onVerificarInsumo?: (insumoId: string, acao: 'verificar' | 'reabrir') => void
 }) {
   const [subetapasFechadas, setSubetapasFechadas] = useState<Record<string, boolean>>({})
   const [subMenuAberto, setSubMenuAberto] = useState<string | null>(null)
@@ -3113,6 +3332,21 @@ function GrupoEtapa({
   const totalGrupo = subtotalGrupo * (1 + bdi / 100)
   const pctDoDireto = subtotalDireto && subtotalDireto > 0 ? (subtotalGrupo / subtotalDireto) * 100 : null
 
+  // Conferência do orçamento: estado tri-valorado da etapa, sempre calculado
+  // a partir dos filhos (nunca lido de uma coluna "parcial" nova).
+  const etapaCounts = gruposSubetapa.reduce((acc, grupo) => {
+    const c = subetapaVerifCounts(grupo.meta, grupo.itens)
+    return { done: acc.done + c.done, total: acc.total + c.total }
+  }, { done: etapaVerificado ? 1 : 0, total: etapaId != null ? 1 : 0 })
+  const etapaState = verifStateFromCounts(etapaCounts.done, etapaCounts.total)
+  const filtroPendentes = Boolean(modoConferencia && filtroConferencia === 'pendentes')
+  const gruposParaExibir = filtroPendentes
+    ? gruposSubetapa.filter(grupo => {
+        const c = subetapaVerifCounts(grupo.meta, grupo.itens)
+        return verifStateFromCounts(c.done, c.total) !== 'full'
+      })
+    : gruposSubetapa
+
   function parseQuantidadeInput(value: string) {
     const parsed = Number(value.replace(',', '.'))
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null
@@ -3150,6 +3384,14 @@ function GrupoEtapa({
         <span className="hidden sm:inline text-sm font-semibold ml-1 flex-shrink-0" style={{ color: 'var(--accent)' }}>
           {formatCurrency(totalGrupo)}
         </span>
+        {modoConferencia && etapaId != null && (
+          <VerificacaoCheck
+            state={etapaState}
+            loading={verificandoId === etapaId}
+            onClick={() => onVerificarEtapa?.(etapaState)}
+            title={verifTitle(etapaVerificado, undefined, undefined, profileNomes || {})}
+          />
+        )}
         {!isReadonly && (
           <button
             onClick={e => { e.stopPropagation(); onAddItem() }}
@@ -3202,6 +3444,10 @@ function GrupoEtapa({
                 </button>
               )}
             </div>
+          ) : filtroPendentes && gruposParaExibir.length === 0 ? (
+            <div className="px-4 py-6 text-center text-sm" style={{ color: 'var(--success)' }}>
+              Tudo conferido nesta etapa.
+            </div>
           ) : (
             <>
             <div className="hidden md:block overflow-x-auto">
@@ -3219,7 +3465,7 @@ function GrupoEtapa({
                 </thead>
                 <tbody>
                   <SortableList
-                    items={gruposSubetapa.map(g => ({ ...g, id: g.key }))}
+                    items={gruposParaExibir.map(g => ({ ...g, id: g.key }))}
                     disabled={!onReorderSubetapas || mobileDragLocked}
                     onReorder={novaOrdem => onReorderSubetapas?.(novaOrdem.map(g => g.nome))}
                   >
@@ -3247,6 +3493,18 @@ function GrupoEtapa({
                           </td>
                           <td className="px-3 py-2 font-semibold" colSpan={3} style={{ color: 'var(--text-primary)' }}>
                             <div className="flex items-center gap-2">
+                              {modoConferencia && grupo.meta && (() => {
+                                const c = subetapaVerifCounts(grupo.meta, grupo.itens)
+                                const state = verifStateFromCounts(c.done, c.total)
+                                return (
+                                  <VerificacaoCheck
+                                    state={state}
+                                    loading={verificandoId === grupo.meta!.id}
+                                    onClick={() => onVerificarSubetapa?.(grupo.meta!.id, state === 'full' ? 'reabrir' : 'verificar')}
+                                    title={verifTitle(grupo.meta!.verificado, grupo.meta!.verificado_por, grupo.meta!.verificado_em, profileNomes || {})}
+                                  />
+                                )
+                              })()}
                               <span>{grupo.nome}</span>
                               {onAddItemToSubetapa && !isReadonly && (
                                 <button
@@ -3375,7 +3633,21 @@ function GrupoEtapa({
                                   </div>
                                 </td>
                                 <td className="px-3 py-2 align-top" style={{ color: 'var(--text-primary)' }}>
-                                  <span className="truncate block">{item.descricao}</span>
+                                  <div className="flex items-center gap-2">
+                                    {modoConferencia && (() => {
+                                      const c = itemVerifCounts(item)
+                                      const state = verifStateFromCounts(c.done, c.total)
+                                      return (
+                                        <VerificacaoCheck
+                                          state={state}
+                                          loading={verificandoId === item.id}
+                                          onClick={() => onVerificarItem?.(item.id, state === 'full' ? 'reabrir' : 'verificar')}
+                                          title={verifTitle(item.verificado, item.verificado_por, item.verificado_em, profileNomes || {})}
+                                        />
+                                      )
+                                    })()}
+                                    <span className="truncate block">{item.descricao}</span>
+                                  </div>
                                 </td>
                                 <td className="px-3 py-2 align-top text-center" style={{ color: 'var(--text-secondary)' }}>{item.unidade}</td>
                                 <td className="px-3 py-2 align-top text-center">
@@ -3500,7 +3772,17 @@ function GrupoEtapa({
                                             return (
                                               <tr key={ins.id} style={{ borderBottom: '1px solid var(--border)' }}>
                                                 <td className="px-3 py-2">
-                                                  <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{info.descricao}</p>
+                                                  <div className="flex items-center gap-2">
+                                                    {modoConferencia && (
+                                                      <VerificacaoCheck
+                                                        state={ins.verificado ? 'full' : 'none'}
+                                                        loading={verificandoId === ins.id}
+                                                        onClick={() => onVerificarInsumo?.(ins.id, ins.verificado ? 'reabrir' : 'verificar')}
+                                                        title={verifTitle(ins.verificado, ins.verificado_por, ins.verificado_em, profileNomes || {})}
+                                                      />
+                                                    )}
+                                                    <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{info.descricao}</p>
+                                                  </div>
                                                 </td>
                                                 <td className="px-3 py-2 text-center" style={{ color: 'var(--text-secondary)' }}>{info.unidade}</td>
                                                 <td className="px-3 py-2 text-right" style={{ color: 'var(--text-secondary)' }}>{preco > 0 ? formatCurrency(preco) : '-'}</td>
@@ -3567,7 +3849,7 @@ function GrupoEtapa({
 
             <div className="flex flex-col md:hidden">
               <SortableList
-                items={gruposSubetapa.map(g => ({ ...g, id: g.key }))}
+                items={gruposParaExibir.map(g => ({ ...g, id: g.key }))}
                 disabled={!onReorderSubetapas || mobileDragLocked}
                 onReorder={novaOrdem => onReorderSubetapas?.(novaOrdem.map(g => g.nome))}
               >
@@ -3590,6 +3872,18 @@ function GrupoEtapa({
                       <span className="flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
                         {subFechada ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
                       </span>
+                      {modoConferencia && grupo.meta && (() => {
+                        const c = subetapaVerifCounts(grupo.meta, grupo.itens)
+                        const state = verifStateFromCounts(c.done, c.total)
+                        return (
+                          <VerificacaoCheck
+                            state={state}
+                            loading={verificandoId === grupo.meta!.id}
+                            onClick={() => onVerificarSubetapa?.(grupo.meta!.id, state === 'full' ? 'reabrir' : 'verificar')}
+                            title={verifTitle(grupo.meta!.verificado, grupo.meta!.verificado_por, grupo.meta!.verificado_em, profileNomes || {})}
+                          />
+                        )
+                      })()}
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold leading-snug truncate" style={{ color: 'var(--text-primary)' }}>{grupo.nome}</p>
                         <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
@@ -3717,6 +4011,18 @@ function GrupoEtapa({
                                 ) : (
                                   <span className="flex-shrink-0" style={{ width: 14 }} />
                                 )}
+                                {modoConferencia && (() => {
+                                  const c = itemVerifCounts(item)
+                                  const state = verifStateFromCounts(c.done, c.total)
+                                  return (
+                                    <VerificacaoCheck
+                                      state={state}
+                                      loading={verificandoId === item.id}
+                                      onClick={() => onVerificarItem?.(item.id, state === 'full' ? 'reabrir' : 'verificar')}
+                                      title={verifTitle(item.verificado, item.verificado_por, item.verificado_em, profileNomes || {})}
+                                    />
+                                  )
+                                })()}
 
                                 <div className="min-w-0 flex-1">
                                   <p className="text-sm font-medium leading-snug truncate" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
@@ -3820,11 +4126,21 @@ function GrupoEtapa({
 
                                       return (
                                         <div key={ins.id} className="px-3 py-2.5">
-                                          <div className="min-w-0">
-                                            <p className="text-xs font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>{info.descricao}</p>
-                                            <p className="mt-0.5 text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                                              {info.unidade}
-                                            </p>
+                                          <div className="min-w-0 flex items-start gap-2">
+                                            {modoConferencia && (
+                                              <VerificacaoCheck
+                                                state={ins.verificado ? 'full' : 'none'}
+                                                loading={verificandoId === ins.id}
+                                                onClick={() => onVerificarInsumo?.(ins.id, ins.verificado ? 'reabrir' : 'verificar')}
+                                                title={verifTitle(ins.verificado, ins.verificado_por, ins.verificado_em, profileNomes || {})}
+                                              />
+                                            )}
+                                            <div className="min-w-0 flex-1">
+                                              <p className="text-xs font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>{info.descricao}</p>
+                                              <p className="mt-0.5 text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>
+                                                {info.unidade}
+                                              </p>
+                                            </div>
                                           </div>
 
                                           <div className="mt-2 grid grid-cols-[auto_auto_1fr] items-center gap-x-2 gap-y-1 text-xs" onClick={e => e.stopPropagation()}>

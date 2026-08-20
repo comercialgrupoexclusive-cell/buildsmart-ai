@@ -189,6 +189,11 @@ export type Etapa = {
   percentual_mao_obra?: number
   ordem: number
   is_marco: boolean
+  orcamento_id?: string | null
+  // Conferência do orçamento (QA/revisão) — não é execução física nem afeta cálculos.
+  verificado?: boolean | null
+  verificado_por?: string | null
+  verificado_em?: string | null
 }
 
 // ─── Subetapa de Cronograma (nível 2) ────────────────────────────────────────
