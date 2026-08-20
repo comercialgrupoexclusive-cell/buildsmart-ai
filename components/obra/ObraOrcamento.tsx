@@ -695,6 +695,27 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     setConfirmarEtapa({ id: etapa.id, nome: etapa.nome, acao: state === 'full' ? 'reabrir' : 'verificar' })
   }
 
+  // Todo update de conteúdo em etapas/orcamento_itens/orcamento_item_insumos
+  // que pode reverter uma verificação já feita passa por aqui em vez de
+  // .update() direto: a RPC seta um GUC transaction-local com o profile
+  // atual, que os triggers de invalidação leem para gravar o usuario_id
+  // real em alterado_apos_verificacao (em vez de null).
+  async function atualizarComAtor(
+    tabela: 'etapas' | 'orcamento_itens' | 'orcamento_item_insumos',
+    ids: string[],
+    patch: Record<string, unknown>
+  ): Promise<{ ids: string[]; error: { message: string } | null }> {
+    if (ids.length === 0) return { ids: [], error: null }
+    const { data, error } = await supabase.rpc('orcamento_atualizar_com_ator', {
+      p_tabela: tabela,
+      p_ids: ids,
+      p_patch: patch,
+      p_profile_id: currentProfile?.id ?? null,
+    })
+    if (error) return { ids: [], error }
+    return { ids: ((data || []) as string[]), error: null }
+  }
+
   async function loadComposicoesProprias() {
     const { data } = await supabase
       .from('composicoes_proprias')
@@ -1099,7 +1120,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       subetapa_categoria_snapshot: categoria?.trim() || null,
     }
     const { error } = existente?.id
-      ? await supabase.from('orcamento_itens').update(payload).eq('id', existente.id)
+      ? await atualizarComAtor('orcamento_itens', [existente.id], payload)
       : await supabase.from('orcamento_itens').insert(payload)
     if (error) throw error
   }
@@ -1228,10 +1249,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     const quantidadeAnterior = item.quantidade
     setItens(prev => prev.map(i => i.id === itemId ? { ...i, quantidade: novaQuantidade } : i))
 
-    const { error } = await supabase
-      .from('orcamento_itens')
-      .update({ quantidade: novaQuantidade })
-      .eq('id', itemId)
+    const { error } = await atualizarComAtor('orcamento_itens', [itemId], { quantidade: novaQuantidade })
 
     if (error) {
       setItens(prev => prev.map(i => i.id === itemId ? { ...i, quantidade: quantidadeAnterior } : i))
@@ -1261,7 +1279,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         etapa_id: novaEtapaId,
       }
 
-      const { error } = await supabase.from('orcamento_itens').update(updates).eq('id', editItem.id)
+      const { error } = await atualizarComAtor('orcamento_itens', [editItem.id], updates)
       if (error) throw error
 
       await loadItens(orcamento.id)
@@ -1402,16 +1420,19 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         )
         if (repetida) throw new Error('Ja existe uma etapa com esse nome nesta obra.')
 
-        let updateQuery = supabase
+        let checkQuery = supabase
           .from('etapas')
-          .update({ nome })
+          .select('id')
           .eq('id', hierarquiaDialog.etapaId)
           .eq(etapaContexto.coluna, etapaContexto.id)
-        if (etapaContexto.orcamentoFiltro) updateQuery = updateQuery.eq('orcamento_id', etapaContexto.orcamentoFiltro)
-        const { data, error } = await updateQuery.select('id,nome').maybeSingle()
+        if (etapaContexto.orcamentoFiltro) checkQuery = checkQuery.eq('orcamento_id', etapaContexto.orcamentoFiltro)
+        const { data: etapaValida } = await checkQuery.maybeSingle()
+        if (!etapaValida) throw new Error('A etapa nao foi encontrada para edicao.')
+
+        const etapaIdAlvo = hierarquiaDialog.etapaId
+        const { error } = await atualizarComAtor('etapas', [etapaIdAlvo], { nome })
         if (error) throw error
-        if (!data) throw new Error('A etapa nao foi encontrada para edicao.')
-        setEtapas(prev => prev.map(etapa => etapa.id === data.id ? { ...etapa, nome: data.nome } : etapa))
+        setEtapas(prev => prev.map(etapa => etapa.id === etapaIdAlvo ? { ...etapa, nome } : etapa))
       }
 
       if (hierarquiaDialog.tipo === 'renomear-subetapa') {
@@ -1426,15 +1447,17 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         )
         if (repetida) throw new Error('Ja existe uma subetapa com esse nome nesta etapa.')
 
-        let query = supabase
+        let selectQuery = supabase
           .from('orcamento_itens')
-          .update({ subetapa: nome })
+          .select('id')
           .eq('orcamento_id', orcamento.id)
-        query = atual ? query.eq('subetapa', atual) : query.is('subetapa', null)
-        query = hierarquiaDialog.etapaId ? query.eq('etapa_id', hierarquiaDialog.etapaId) : query.is('etapa_id', null)
-        const { data, error } = await query.select('id')
+        selectQuery = atual ? selectQuery.eq('subetapa', atual) : selectQuery.is('subetapa', null)
+        selectQuery = hierarquiaDialog.etapaId ? selectQuery.eq('etapa_id', hierarquiaDialog.etapaId) : selectQuery.is('etapa_id', null)
+        const { data: alvoIds } = await selectQuery
+        if (!alvoIds || alvoIds.length === 0) throw new Error('A subetapa nao foi encontrada para edicao.')
+
+        const { error } = await atualizarComAtor('orcamento_itens', alvoIds.map((r: { id: string }) => r.id), { subetapa: nome })
         if (error) throw error
-        if (!data || data.length === 0) throw new Error('A subetapa nao foi encontrada para edicao.')
 
         if (resolvedObraId && atual && await materiaisTemSubetapa()) {
           let materiaisQuery = supabase
@@ -1478,14 +1501,15 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
 
   async function handleRestoreSubetapaValor(etapaId: string | null, subetapaNome: string) {
     if (!orcamento) return
-    let query = supabase
+    let selectQuery = supabase
       .from('orcamento_itens')
-      .update({ subetapa_valor_manual_ativo: false })
+      .select('id')
       .eq('orcamento_id', orcamento.id)
       .eq('tipo_linha', 'subetapa')
       .eq('subetapa', subetapaNome)
-    query = etapaId ? query.eq('etapa_id', etapaId) : query.is('etapa_id', null)
-    const { error } = await query
+    selectQuery = etapaId ? selectQuery.eq('etapa_id', etapaId) : selectQuery.is('etapa_id', null)
+    const { data: alvoIds } = await selectQuery
+    const { error } = await atualizarComAtor('orcamento_itens', (alvoIds || []).map((r: { id: string }) => r.id), { subetapa_valor_manual_ativo: false })
     if (error) {
       alert(`Nao foi possivel restaurar o valor calculado: ${error.message}`)
       return
@@ -1495,10 +1519,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
 
   async function handleRestoreItemValor(itemId: string) {
     if (!orcamento) return
-    const { error } = await supabase.from('orcamento_itens')
-      .update({ valor_total_manual_ativo: false, importacao_alertas: [] })
-      .eq('id', itemId)
-      .eq('orcamento_id', orcamento.id)
+    const { error } = await atualizarComAtor('orcamento_itens', [itemId], { valor_total_manual_ativo: false, importacao_alertas: [] })
     if (error) {
       alert(`Não foi possível restaurar o valor calculado: ${error.message}`)
       return
@@ -1508,9 +1529,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
 
   async function handleRestoreInsumoValor(insumoId: string) {
     if (!orcamento) return
-    const { error } = await supabase.from('orcamento_item_insumos')
-      .update({ valor_total_divergente: false, valor_total_informado_snapshot: null })
-      .eq('id', insumoId)
+    const { error } = await atualizarComAtor('orcamento_item_insumos', [insumoId], { valor_total_divergente: false, valor_total_informado_snapshot: null })
     if (error) {
       alert(`Não foi possível restaurar o total do insumo: ${error.message}`)
       return
@@ -3346,6 +3365,23 @@ function GrupoEtapa({
         return verifStateFromCounts(c.done, c.total) !== 'full'
       })
     : gruposSubetapa
+  // Filtro "Pendentes" é recursivo: etapa 100% conferida some da lista;
+  // dentro de uma etapa/subetapa parcial, só aparecem itens/insumos
+  // pendentes — os totais do orçamento continuam usando as listas sem
+  // filtro (gruposSubetapa/grupo.itens/item.composicao_itens), nunca as
+  // versões "ParaExibir" abaixo, que servem só para renderização.
+  function itensParaExibir(itensDaSubetapa: ItemEnriquecido[]) {
+    if (!filtroPendentes) return itensDaSubetapa
+    return itensDaSubetapa.filter(item => {
+      const c = itemVerifCounts(item)
+      return verifStateFromCounts(c.done, c.total) !== 'full'
+    })
+  }
+  function insumosParaExibir(item: ItemEnriquecido) {
+    const todos = item.composicao_itens || []
+    return filtroPendentes ? todos.filter(ins => !ins.verificado) : todos
+  }
+  if (filtroPendentes && etapaId != null && etapaState === 'full') return null
 
   function parseQuantidadeInput(value: string) {
     const parsed = Number(value.replace(',', '.'))
@@ -3600,7 +3636,7 @@ function GrupoEtapa({
 
                         {!subFechada && (
                         <SortableList
-                          items={grupo.itens}
+                          items={itensParaExibir(grupo.itens)}
                           disabled={!onReorderItens || mobileDragLocked}
                           onReorder={novaOrdem => onReorderItens?.(novaOrdem.map(it => it.id))}
                         >
@@ -3757,7 +3793,7 @@ function GrupoEtapa({
                                           </tr>
                                         </thead>
                                         <tbody>
-                                          {item.composicao_itens!.map(ins => {
+                                          {insumosParaExibir(item).map(ins => {
                                             const info = infoDoItem(ins, obraUf)
                                             const insumoKey = info.codigo !== '\u2014' ? info.codigo : ins.id
                                             const key = overrideKey(item.id, insumoKey)
@@ -3973,7 +4009,7 @@ function GrupoEtapa({
                     {!subFechada && (
                       <div className="divide-y" style={{ borderColor: 'var(--border)', '--tw-divide-color': 'var(--border)' } as React.CSSProperties}>
                         <SortableList
-                          items={grupo.itens}
+                          items={itensParaExibir(grupo.itens)}
                           disabled={!onReorderItens || mobileDragLocked}
                           onReorder={novaOrdem => onReorderItens?.(novaOrdem.map(it => it.id))}
                         >
@@ -4112,7 +4148,7 @@ function GrupoEtapa({
                                     Insumos
                                   </div>
                                   <div className="divide-y" style={{ borderColor: 'var(--border)', '--tw-divide-color': 'var(--border)' } as React.CSSProperties}>
-                                    {item.composicao_itens!.map(ins => {
+                                    {insumosParaExibir(item).map(ins => {
                                       const info = infoDoItem(ins, obraUf)
                                       const insumoKey = info.codigo !== '\u2014' ? info.codigo : ins.id
                                       const key = overrideKey(item.id, insumoKey)
