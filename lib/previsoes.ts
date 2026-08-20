@@ -42,6 +42,13 @@ export type ObraPrevisao = {
   // true quando a data de inicio no cronograma (planejamento_itens) mudou
   // desde que esta previsao foi criada a partir de uma sugestao do orcamento.
   cronogramaAlterado: boolean
+  // Estado de compra, sempre por vinculo estrutural (compra_itens.orcamento_item_id /
+  // subetapa_orcamento_item_id) -- nunca por nome. null = sem vinculo estrutural
+  // gravado (previsao manual/baseline, ou anterior a esta funcionalidade): não
+  // significa "não comprado", significa "não sabemos".
+  vinculoEstruturalId: string | null
+  compraVinculada: boolean | null
+  compraRecebida: boolean
 }
 
 export const PREVISAO_TIPO_LABEL: Record<PrevisaoTipo, string> = {

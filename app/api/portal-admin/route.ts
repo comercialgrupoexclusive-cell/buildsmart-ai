@@ -10,8 +10,10 @@ import { SESSION_COOKIE, verifyProfileToken } from '@/lib/portal-admin-session'
 // este endpoint e o unico lugar que as chama, sempre com o profile_id da
 // sessao assinada, nunca com o que o cliente mandar no corpo.
 
-// Nome do argumento de perfil de cada RPC administrativa permitida.
-const ADMIN_RPC_PROFILE_ARG: Record<string, string> = {
+// Nome do argumento de perfil de cada RPC administrativa permitida. `null`
+// significa que a função não recebe profile_id (é só leitura interna) mas
+// ainda exige sessão válida — nenhum argumento é substituído nesse caso.
+const ADMIN_RPC_PROFILE_ARG: Record<string, string | null> = {
   feed_admin_archive: 'p_profile_id',
   feed_admin_list: 'p_profile_id',
   feed_admin_publish: 'p_profile_id',
@@ -28,6 +30,10 @@ const ADMIN_RPC_PROFILE_ARG: Record<string, string> = {
   portal_tour_admin_manage: 'p_profile_id',
   portal_visibility_admin_get: 'p_profile_id',
   portal_visibility_admin_set: 'p_profile_id',
+  obra_previsao_sugestoes: null,
+  obra_previsao_save: 'p_profile_id',
+  obra_previsao_undo_last: 'p_profile_id',
+  obra_previsoes_list: null,
 }
 
 export async function POST(req: NextRequest) {
@@ -47,7 +53,8 @@ export async function POST(req: NextRequest) {
   if (!db) return NextResponse.json({ error: 'Servidor nao configurado.' }, { status: 500 })
 
   const args = { ...(body?.args || {}) }
-  args[ADMIN_RPC_PROFILE_ARG[fn]] = profileId
+  const profileArg = ADMIN_RPC_PROFILE_ARG[fn]
+  if (profileArg) args[profileArg] = profileId
 
   const { data, error } = await db.rpc(fn, args)
   if (error) return NextResponse.json({ error: error.message, code: error.code }, { status: 400 })

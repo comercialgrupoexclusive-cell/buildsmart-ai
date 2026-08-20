@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarClock, ChevronDown, Eye, Pencil, Plus, RefreshCw, Truck, Undo2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { useProfile } from '@/lib/profile-context'
+import { adminRpc } from '@/lib/portal-admin-client'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 import { formatCurrency } from '@/lib/utils'
 import { Badge } from '@/components/ui/Badge'
@@ -39,7 +39,7 @@ type ForecastSuggestion = {
   valorSugerido: number | null
   tipoSugerido: PrevisaoTipo
   compraVinculada: boolean
-  origemCronograma: { fonte: string | null; subetapaOrcamentoItemId: string | null; planejamentoItemId: string | null }
+  origemCronograma: { fonte: string | null; subetapaOrcamentoItemId: string | null; orcamentoItemId: string | null; planejamentoItemId: string | null }
   jaCriada: boolean
 }
 
@@ -66,7 +66,6 @@ function subtractDays(dateStr: string, days: number) {
 
 export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamentoId: string }) {
   const [supabase] = useState(createClient)
-  const { currentProfile } = useProfile()
   const [items, setItems] = useState<ObraPrevisao[]>([])
   const [orcamentos, setOrcamentos] = useState<Lookup[]>([])
   const [etapas, setEtapas] = useState<Lookup[]>([])
@@ -94,10 +93,10 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
   const load = useCallback(async () => {
     setLoading(true)
     const [forecastRes, budgetRes, stageRes, suggestionRes] = await Promise.all([
-      supabase.rpc('obra_previsoes_list', { p_obra_id: obraId, p_orcamento_id: orcamentoId || TODOS_ORCAMENTOS }),
+      adminRpc<ObraPrevisao[]>('obra_previsoes_list', { p_obra_id: obraId, p_orcamento_id: orcamentoId || TODOS_ORCAMENTOS }),
       supabase.from('orcamentos').select('id,nome,versao').eq('obra_id', obraId).order('versao'),
       supabase.from('etapas').select('id,nome').eq('obra_id', obraId).order('ordem'),
-      supabase.rpc('obra_previsao_sugestoes', { p_obra_id: obraId, p_orcamento_id: orcamentoId || TODOS_ORCAMENTOS, p_antecedencia: 7 }),
+      adminRpc<ForecastSuggestion[]>('obra_previsao_sugestoes', { p_obra_id: obraId, p_orcamento_id: orcamentoId || TODOS_ORCAMENTOS, p_antecedencia: 7 }),
     ])
     setItems((forecastRes.data || []) as ObraPrevisao[])
     setSuggestions((suggestionRes.data || []) as ForecastSuggestion[])
@@ -123,6 +122,25 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
   useEffect(() => { void Promise.resolve().then(load) }, [load])
 
   const activeItems = useMemo(() => items.filter(item => !['cancelada', 'substituida', 'realizada'].includes(item.status)), [items])
+  // Alerta operacional: previsão vigente, não realizada/cancelada, com data
+  // para providenciar vencida ou próxima, e sem evidência estrutural de
+  // compra já feita (compraVinculada === true). Ausência de vínculo (null)
+  // conta como "ainda não comprado" -- nunca escondemos por falta de dado.
+  const materialAlerts = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const buckets: { atrasados: ObraPrevisao[]; hoje: ObraPrevisao[]; semana: ObraPrevisao[]; mes: ObraPrevisao[] } = { atrasados: [], hoje: [], semana: [], mes: [] }
+    for (const item of activeItems) {
+      if (item.tipo !== 'compra_material' || !item.dataPrevista || item.compraVinculada === true) continue
+      const due = new Date(`${item.dataPrevista}T00:00:00`)
+      const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000)
+      if (diffDays < 0) buckets.atrasados.push(item)
+      else if (diffDays === 0) buckets.hoje.push(item)
+      else if (diffDays <= 7) buckets.semana.push(item)
+      else if (diffDays <= 30) buckets.mes.push(item)
+    }
+    return buckets
+  }, [activeItems])
+  const totalAlertas = materialAlerts.atrasados.length + materialAlerts.hoje.length + materialAlerts.semana.length + materialAlerts.mes.length
   const pendingSuggestions = useMemo(() => suggestions.filter(item => !item.jaCriada), [suggestions])
   const materialSuggestions = useMemo(() => pendingSuggestions.filter(item => item.tipoSugerido === 'compra_material'), [pendingSuggestions])
   const otherSuggestions = useMemo(() => pendingSuggestions.filter(item => item.tipoSugerido !== 'compra_material'), [pendingSuggestions])
@@ -200,9 +218,7 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
       ? normalizedPayload
       : { ...normalizedPayload, publicadoCliente: false }
     setSaving(true)
-    const { error } = await supabase.rpc('obra_previsao_save', {
-      p_obra_id: obraId, p_id: id, p_payload: nextPayload, p_profile_id: currentProfile?.id || null,
-    })
+    const { error } = await adminRpc('obra_previsao_save', { p_obra_id: obraId, p_id: id, p_payload: nextPayload })
     setSaving(false)
     if (error) { alert(`Não foi possível salvar a previsão.\n\n${error.message}`); return }
     setFeedback('Previsão salva. Use Desfazer se precisar voltar esta ação.')
@@ -211,17 +227,13 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
 
   async function undoLast() {
     setUndoing(true)
-    const { data, error } = await supabase.rpc('obra_previsao_undo_last', {
-      p_obra_id: obraId,
-      p_profile_id: currentProfile?.id || null,
-    })
+    const { data, error } = await adminRpc<{ titulo?: string }>('obra_previsao_undo_last', { p_obra_id: obraId })
     setUndoing(false)
     if (error) {
       setFeedback(error.message.includes('nenhuma_acao_para_desfazer') ? 'Não há mais ações para desfazer.' : `Não foi possível desfazer: ${error.message}`)
       return
     }
-    const result = data as { titulo?: string } | null
-    setFeedback(result?.titulo ? `Desfeito: ${result.titulo}` : 'Última ação desfeita.')
+    setFeedback(data?.titulo ? `Desfeito: ${data.titulo}` : 'Última ação desfeita.')
     await load()
   }
 
@@ -268,6 +280,31 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
         <div className="flex gap-2"><Button variant="secondary" icon={<Undo2 size={16} />} loading={undoing} onClick={() => void undoLast()}>Desfazer</Button><Button icon={<Plus size={16} />} onClick={openNew}>Nova previsão</Button></div>
       </div>
       {feedback && <div className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}>{feedback}</div>}
+
+      {totalAlertas > 0 && (
+        <div className="card overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5">
+            <div className="flex items-center gap-3">
+              <div className="grid size-10 shrink-0 place-items-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--danger)' }}><CalendarClock size={18} /></div>
+              <div><h3 className="font-semibold">Materiais a providenciar</h3><p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Previsões de compra confirmadas, agrupadas pela data limite para providenciar.</p></div>
+            </div>
+            <Badge variant="danger">{totalAlertas} alerta{totalAlertas === 1 ? '' : 's'}</Badge>
+          </div>
+          <div className="divide-y border-t" style={{ borderColor: 'var(--border)' }}>
+            {([
+              ['Atrasados', materialAlerts.atrasados],
+              ['Hoje', materialAlerts.hoje],
+              ['Próximos 7 dias', materialAlerts.semana],
+              ['Próximos 30 dias', materialAlerts.mes],
+            ] as const).filter(([, list]) => list.length > 0).map(([label, list]) => (
+              <div key={label}>
+                <div className="px-4 pt-3 text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>{label} · {list.length}</div>
+                {list.map(item => <AlertRow key={item.id} item={item} />)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-start justify-between gap-3 p-4 sm:p-5">
@@ -335,6 +372,35 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
         </div>
         <div className="sticky -bottom-6 -mx-6 mt-6 flex justify-end gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button><Button loading={saving} onClick={() => save()}>Salvar</Button></div>
       </Modal>
+    </div>
+  )
+}
+
+// Estado de compra sempre a partir de vinculo estrutural (compra_itens),
+// nunca por nome. null = nenhum vinculo estrutural gravado na previsao
+// (ex.: baseline importado ou previsao manual) -- nao sabemos, entao nao
+// afirmamos "nao comprado". false = ha vinculo estrutural, mas nenhuma
+// compra_itens correspondente foi encontrada -- confirmadamente pendente.
+function purchaseBadge(item: ObraPrevisao) {
+  if (item.compraVinculada === true && item.compraRecebida) return <Badge variant="success">Recebido</Badge>
+  if (item.compraVinculada === true) return <Badge variant="info">Comprado</Badge>
+  if (item.compraVinculada === false) return <Badge variant="warning">Ainda não comprado</Badge>
+  return <Badge variant="default">Vínculo não identificado</Badge>
+}
+
+function AlertRow({ item }: { item: ObraPrevisao }) {
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5"><p className="truncate text-sm font-medium">{item.titulo}</p>{purchaseBadge(item)}</div>
+        <p className="mt-1 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{[item.etapaNome, item.subetapaNome, item.servicoNome].filter(Boolean).join(' · ') || 'Sem etapa'}</p>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+        {item.dataNecessidade && <span>Necessário em <strong style={{ color: 'var(--text-primary)' }}>{formatForecastDate(item.dataNecessidade)}</strong></span>}
+        {item.prazoFornecimentoDias != null && <span>Prazo {item.prazoFornecimentoDias}d</span>}
+        <span>Providenciar até <strong style={{ color: 'var(--danger)' }}>{formatForecastDate(item.dataPrevista)}</strong></span>
+        <Badge variant={item.status === 'confirmada' ? 'info' : 'default'}>{PREVISAO_STATUS_LABEL[item.status]}</Badge>
+      </div>
     </div>
   )
 }
