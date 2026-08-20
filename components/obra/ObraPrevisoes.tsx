@@ -39,6 +39,7 @@ type ForecastSuggestion = {
   valorSugerido: number | null
   tipoSugerido: PrevisaoTipo
   compraVinculada: boolean
+  orcamentoItemInsumoId: string | null
   origemCronograma: { fonte: string | null; subetapaOrcamentoItemId: string | null; orcamentoItemId: string | null; planejamentoItemId: string | null }
   jaCriada: boolean
 }
@@ -266,7 +267,7 @@ export function ObraPrevisoes({ obraId, orcamentoId }: { obraId: string; orcamen
       tipo: item.tipoSugerido, titulo: item.titulo, descricao: item.descricao || '',
       valorPrevisto: item.valorSugerido == null ? '' : String(item.valorSugerido), dataPrevista,
       status: 'confirmada' as PrevisaoStatus, origem: 'orcamento' as PrevisaoOrigem, publicadoCliente: false, externalKey: item.key,
-      metadados: { prazoFornecimentoDias: prazo, dataNecessidade: item.dataNecessidade, origemCronograma: item.origemCronograma },
+      metadados: { prazoFornecimentoDias: prazo, dataNecessidade: item.dataNecessidade, origemCronograma: item.origemCronograma, orcamentoItemInsumoId: item.orcamentoItemInsumoId },
     }, null)
     setUsingKey(null)
   }

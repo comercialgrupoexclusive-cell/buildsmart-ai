@@ -42,11 +42,16 @@ export type ObraPrevisao = {
   // true quando a data de inicio no cronograma (planejamento_itens) mudou
   // desde que esta previsao foi criada a partir de uma sugestao do orcamento.
   cronogramaAlterado: boolean
-  // Estado de compra, sempre por vinculo estrutural (compra_itens.orcamento_item_id /
-  // subetapa_orcamento_item_id) -- nunca por nome. null = sem vinculo estrutural
-  // gravado (previsao manual/baseline, ou anterior a esta funcionalidade): não
+  // Estado de compra, sempre por vinculo estrutural -- nunca por nome. Quando a
+  // previsao veio de um insumo especifico (orcamentoItemInsumoId gravado),
+  // compraVinculada so fica true com compra_itens.orcamento_item_insumo_id
+  // igual: orcamento_item_id/subetapa_orcamento_item_id nao bastam mais para
+  // confirmar aquele material (podem ter outros insumos do mesmo servico).
+  // null = sem vinculo estrutural gravado, ou vinculo so a nivel de
+  // servico/subetapa para um material que tem varios insumos -- não
   // significa "não comprado", significa "não sabemos".
   vinculoEstruturalId: string | null
+  orcamentoItemInsumoId: string | null
   compraVinculada: boolean | null
   compraRecebida: boolean
 }
