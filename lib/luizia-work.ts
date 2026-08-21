@@ -8,7 +8,7 @@
 // ─── Skills internas ──────────────────────────────────────────────────────
 export type LuiziaSkillId =
   | 'geral' | 'orcamento' | 'planejamento' | 'execucao'
-  | 'rdo' | 'suprimentos' | 'compras' | 'financeiro'
+  | 'rdo' | 'suprimentos' | 'compras' | 'financeiro' | 'tarefas'
 
 export const SKILL_LABELS: Record<LuiziaSkillId, string> = {
   geral: 'Geral',
@@ -19,6 +19,7 @@ export const SKILL_LABELS: Record<LuiziaSkillId, string> = {
   suprimentos: 'Suprimentos',
   compras: 'Compras',
   financeiro: 'Financeiro',
+  tarefas: 'Tarefas',
 }
 
 // ─── Contexto de página (detectado no cliente a partir da URL/estado atual) ─
@@ -109,17 +110,26 @@ const ABA_PARA_SKILL: Record<string, LuiziaSkillId> = {
   suprimentos: 'suprimentos',
   medicoes: 'rdo',
   financeiro: 'financeiro',
+  tarefas: 'tarefas',
   projeto: 'geral',
 }
 
 const PATH_PARA_SKILL: { padrao: RegExp; skill: LuiziaSkillId }[] = [
+  { padrao: /^\/tarefas/, skill: 'tarefas' },
   { padrao: /\/orcamentos/, skill: 'orcamento' },
   { padrao: /\/materiais/, skill: 'suprimentos' },
   { padrao: /\/cronograma/, skill: 'planejamento' },
   { padrao: /\/relatorios/, skill: 'financeiro' },
 ]
 
+// TAREFA != PLANEJAMENTO: de propósito não uso palavras genéricas como
+// "hoje"/"amanhã"/"atrasada" aqui (colidiriam com perguntas sobre etapa do
+// cronograma, ex. "essa etapa está atrasada?"). Só palavras que só fazem
+// sentido para o motor de Tarefas — o contexto de página (/tarefas ou aba
+// Tarefas de Obra/Projeto) é o sinal primário; isto é o reforço por texto,
+// utilizável de qualquer página.
 const PALAVRAS_CHAVE_SKILL: { padrao: RegExp; skill: LuiziaSkillId }[] = [
+  { padrao: /\btarefas?\b|\bpend[êe]ncias?\b|\bagenda\b|\baguardando\b/i, skill: 'tarefas' },
   { padrao: /\borcamento|orçamento|composi[çc][ãa]o|insumo|bdi\b/i, skill: 'orcamento' },
   { padrao: /\bavan[çc]o f[íi]sico|planejamento|cronograma\b/i, skill: 'planejamento' },
   { padrao: /\brdo\b|di[áa]rio de obra|boletim/i, skill: 'rdo' },
@@ -145,7 +155,7 @@ export function detectSkill(pageContext: LuiziaPageContext | null | undefined, p
 }
 
 // ─── Intenção de alteração (heurística — não é a ferramenta CRUD real) ─────
-const VERBOS_ALTERACAO = /\b(coloque|coloca|mude|mudar|altere|alterar|atualize|atualizar|marque|marcar|defina|definir|troque|trocar|exclua|excluir|delete|deletar|remova|remover|crie|criar|adicione|adicionar|cadastre|cadastrar|registre|registrar|lance|lan[çc]ar|pague|pagar|edite|editar)\b/i
+const VERBOS_ALTERACAO = /\b(coloque|coloca|mude|muda|mudar|altere|alterar|atualize|atualizar|marque|marcar|defina|definir|troque|trocar|exclua|excluir|delete|deletar|remova|remover|crie|criar|adicione|adicionar|cadastre|cadastrar|registre|registrar|lance|lan[çc]ar|pague|pagar|edite|editar|passa|passe)\b/i
 
 const REGEX_CONFIRMACAO = /\b(confirmar|confirmo|confirma(do)?|pode confirmar|pode salvar)\b/i
 

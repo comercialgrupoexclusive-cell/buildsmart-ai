@@ -32,10 +32,11 @@ type Args = Record<string, any>
 
 export type TarefasAiCtx = {
   actor: string           // nome/telefone de quem está conversando (label livre, sem auth real)
-  origem: 'whatsapp' | 'obra_ai'
-  fixedObraId?: string    // modo escopado (obra-ai): tarefas restritas a esta obra
-  profileId?: string | null   // identidade estrutural do remetente (whatsapp: via luizia_wa_phone_rules.profile_id)
-  conversationKey: string     // chave da conversa p/ propostas pendentes (whatsapp: telefone; obra_ai: obra_ai:{obraId})
+  origem: 'whatsapp' | 'obra_ai' | 'floating'
+  fixedObraId?: string    // modo escopado (obra-ai, floating dentro de Obra>Tarefas): tarefas restritas a esta obra
+  fixedProjetoId?: string // modo escopado (floating dentro de Projeto>Tarefas): tarefas restritas a este projeto
+  profileId?: string | null   // identidade estrutural do remetente (whatsapp: luizia_wa_phone_rules.profile_id; floating: currentProfile.id direto — nunca por nome)
+  conversationKey: string     // chave da conversa p/ propostas pendentes (whatsapp: telefone; obra_ai: obra_ai:{obraId}; floating: floating:{profileId})
 }
 
 export const TAREFAS_AI_TOOL_NAMES = [
@@ -66,8 +67,8 @@ export function tarefasAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletionTo
           properties: {
             filtro: {
               type: 'string',
-              enum: ['hoje', 'atrasadas', 'semana', 'proximas', 'aguardando', 'todas'],
-              description: 'hoje = vence hoje ou atrasada; atrasadas = só vencidas; semana = prazo nos próximos 7 dias; proximas = qualquer prazo futuro; aguardando = status aguardando; todas = sem filtro de prazo/status (ainda exclui concluída/cancelada por padrão)',
+              enum: ['hoje', 'amanha', 'atrasadas', 'semana', 'proximas', 'aguardando', 'todas'],
+              description: 'hoje = vence hoje ou atrasada; amanha = prazo EXATAMENTE amanhã (não confundir com hoje); atrasadas = só vencidas; semana = prazo nos próximos 7 dias; proximas = qualquer prazo futuro; aguardando = status aguardando; todas = sem filtro de prazo/status (ainda exclui concluída/cancelada por padrão)',
             },
             responsavel_nome: { type: 'string', description: 'Nome ou parte do nome do responsável — só informe quando o usuário pedir tarefas de OUTRA pessoa explicitamente (ex.: "o que o Gabriel tem?"). Não informe para perguntas pessoais ("minhas tarefas").' },
             incluir_concluidas: { type: 'boolean', description: 'Se true, inclui tarefas concluídas/canceladas (padrão false)' },
@@ -229,9 +230,10 @@ async function resolveResponsavelPorNome(db: DB, nome?: string): Promise<Resolve
 // Acha uma tarefa pelo título com a mesma regra de segurança (exata > fuzzy
 // única > ambígua > não encontrada). `escopoResponsavelId`, quando informado,
 // restringe a busca às tarefas dessa pessoa (usado por "minhas tarefas").
-async function acharTarefa(db: DB, titulo: string, fixedObraId?: string, escopoResponsavelId?: string | null): Promise<ResolveOutcome<Tarefa>> {
+async function acharTarefa(db: DB, titulo: string, fixedObraId?: string, fixedProjetoId?: string, escopoResponsavelId?: string | null): Promise<ResolveOutcome<Tarefa>> {
   let query = db.from('tarefas').select('*').ilike('titulo', `%${titulo}%`).limit(8)
   if (fixedObraId) query = query.eq('obra_id', fixedObraId)
+  else if (fixedProjetoId) query = query.eq('projeto_id', fixedProjetoId)
   if (escopoResponsavelId) query = query.eq('responsavel_id', escopoResponsavelId)
   const { data } = await query
   return resolverComSeguranca(titulo, (data || []) as Tarefa[], t => t.titulo)
@@ -366,19 +368,24 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
       case 'list_tasks': {
         let query = db.from('tarefas').select('*')
         if (ctx.fixedObraId) query = query.eq('obra_id', ctx.fixedObraId)
+        else if (ctx.fixedProjetoId) query = query.eq('projeto_id', ctx.fixedProjetoId)
 
         const semEscopoExplicito = !args.obra_nome && !args.projeto_nome && !args.responsavel_nome
+        const temIdentidadePessoal = ctx.origem === 'whatsapp' || ctx.origem === 'floating'
 
-        // "Minhas tarefas": só no WhatsApp (onde existe identidade de remetente),
+        // "Minhas tarefas": só onde existe identidade real do remetente
+        // (WhatsApp via telefone vinculado, floating via currentProfile.id),
         // e só quando o usuário não deu nenhum outro escopo explícito — nunca
-        // adivinha por semelhança de nome, exige o vínculo estrutural do telefone.
-        if (ctx.origem === 'whatsapp' && semEscopoExplicito) {
+        // adivinha por semelhança de nome, exige a identidade estrutural.
+        if (temIdentidadePessoal && semEscopoExplicito) {
           if (!ctx.profileId) {
-            return 'Seu WhatsApp ainda não está vinculado a um perfil do BuildSmart, então não consigo saber quais são "suas" tarefas com segurança. Peça para um administrador vincular seu número em Configurações > Luiza > Conversas, ou me diga o nome do responsável que você quer consultar (ex.: "o que o Gabriel tem?").'
+            return ctx.origem === 'whatsapp'
+              ? 'Seu WhatsApp ainda não está vinculado a um perfil do BuildSmart, então não consigo saber quais são "suas" tarefas com segurança. Peça para um administrador vincular seu número em Configurações > Luiza > Conversas, ou me diga o nome do responsável que você quer consultar (ex.: "o que o Gabriel tem?").'
+              : 'Não consegui identificar seu perfil para saber quais são "suas" tarefas. Me diga o nome do responsável que você quer consultar (ex.: "o que o Gabriel tem?").'
           }
           query = query.eq('responsavel_id', ctx.profileId)
         } else {
-          if (!ctx.fixedObraId) {
+          if (!ctx.fixedObraId && !ctx.fixedProjetoId) {
             const obra = await resolveObraPorNome(db, args.obra_nome)
             if (obra) {
               if (obra.tipo === 'nao_encontrada') return `Não encontrei obra "${args.obra_nome}".`
@@ -403,8 +410,10 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
         if (!args.incluir_concluidas) query = query.in('status', TAREFAS_ABERTAS as unknown as string[])
 
         const hoje = hojeISO()
+        const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
         const emSeteDias = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
         if (args.filtro === 'hoje') query = query.lte('data_prazo', hoje).not('data_prazo', 'is', null)
+        else if (args.filtro === 'amanha') query = query.eq('data_prazo', amanha)
         else if (args.filtro === 'atrasadas') query = query.lt('data_prazo', hoje).not('data_prazo', 'is', null)
         else if (args.filtro === 'semana') query = query.gte('data_prazo', hoje).lte('data_prazo', emSeteDias)
         else if (args.filtro === 'proximas') query = query.gt('data_prazo', hoje)
@@ -420,7 +429,7 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
       }
 
       case 'get_task': {
-        const achado = await acharTarefa(db, String(args.titulo || ''), ctx.fixedObraId)
+        const achado = await acharTarefa(db, String(args.titulo || ''), ctx.fixedObraId, ctx.fixedProjetoId)
         if (achado.tipo === 'nao_encontrada') return `Não encontrei nenhuma tarefa com título parecido com "${args.titulo}".`
         if (achado.tipo === 'ambigua') return formatarAmbiguidade('tarefas', args.titulo, achado.candidatos.map(t => t.titulo))
         const t = achado.item
@@ -432,14 +441,14 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
         if (!args.titulo || !String(args.titulo).trim()) return 'Preciso de um título para criar a tarefa.'
 
         let obraId: string | null = ctx.fixedObraId || null
-        if (!ctx.fixedObraId && args.obra_nome) {
+        if (!ctx.fixedObraId && !ctx.fixedProjetoId && args.obra_nome) {
           const obra = await resolveObraPorNome(db, args.obra_nome)
           if (!obra || obra.tipo === 'nao_encontrada') return `Não encontrei obra "${args.obra_nome}". A tarefa não foi criada — confirme o nome da obra.`
           if (obra.tipo === 'ambigua') return formatarAmbiguidade('obras', args.obra_nome, obra.candidatos.map(o => o.nome)) + ' A tarefa não foi criada.'
           obraId = obra.item.id
         }
-        let projetoId: string | null = null
-        if (!ctx.fixedObraId && args.projeto_nome) {
+        let projetoId: string | null = ctx.fixedProjetoId || null
+        if (!ctx.fixedObraId && !ctx.fixedProjetoId && args.projeto_nome) {
           const projeto = await resolveProjetoPorNome(db, args.projeto_nome)
           if (!projeto || projeto.tipo === 'nao_encontrada') return `Não encontrei projeto "${args.projeto_nome}". A tarefa não foi criada — confirme o nome do projeto.`
           if (projeto.tipo === 'ambigua') return formatarAmbiguidade('projetos', args.projeto_nome, projeto.candidatos.map(p => p.nome)) + ' A tarefa não foi criada.'
@@ -477,7 +486,7 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
       }
 
       case 'update_task': {
-        const achado = await acharTarefa(db, String(args.titulo || ''), ctx.fixedObraId)
+        const achado = await acharTarefa(db, String(args.titulo || ''), ctx.fixedObraId, ctx.fixedProjetoId)
         if (achado.tipo === 'nao_encontrada') return `Não encontrei nenhuma tarefa com título parecido com "${args.titulo}".`
         if (achado.tipo === 'ambigua') return formatarAmbiguidade('tarefas', args.titulo, achado.candidatos.map(t => t.titulo))
         const t = achado.item
@@ -490,7 +499,7 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
       case 'complete_task':
       case 'reopen_task':
       case 'cancel_task': {
-        const achado = await acharTarefa(db, String(args.titulo || ''), ctx.fixedObraId)
+        const achado = await acharTarefa(db, String(args.titulo || ''), ctx.fixedObraId, ctx.fixedProjetoId)
         if (achado.tipo === 'nao_encontrada') return `Não encontrei nenhuma tarefa com título parecido com "${args.titulo}".`
         if (achado.tipo === 'ambigua') return formatarAmbiguidade('tarefas', args.titulo, achado.candidatos.map(t => t.titulo))
         const t = achado.item
@@ -500,7 +509,7 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
       }
 
       case 'suggest_task_change': {
-        const achado = await acharTarefa(db, String(args.titulo || ''), ctx.fixedObraId)
+        const achado = await acharTarefa(db, String(args.titulo || ''), ctx.fixedObraId, ctx.fixedProjetoId)
         if (achado.tipo === 'nao_encontrada') return `Não encontrei nenhuma tarefa com título parecido com "${args.titulo}".`
         if (achado.tipo === 'ambigua') return formatarAmbiguidade('tarefas', args.titulo, achado.candidatos.map(t => t.titulo))
         const t = achado.item

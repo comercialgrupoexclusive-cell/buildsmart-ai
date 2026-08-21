@@ -8,7 +8,7 @@ import { useProfile } from '@/lib/profile-context'
 import { logLuizia } from '@/lib/luizia-monitor'
 import { createClient } from '@/lib/supabase/client'
 import { useObraOrcamento, TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
-import type { LuiziaDraft, LuiziaPageContext } from '@/lib/luizia-work'
+import { detectSkill, type LuiziaDraft, type LuiziaPageContext } from '@/lib/luizia-work'
 import type { LuiziaModo } from '@/lib/luizia-core'
 
 type Message = {
@@ -52,7 +52,10 @@ function derivarContextoPagina(pathname: string | null, tabParam: string | null,
   const projetoId = projetoMatch && projetoMatch[1] !== 'novo' ? projetoMatch[1] : null
   const obraId = obraIdDaRota || obraIdGlobal || null
   const orcamentoId = orcamentoIdGlobal && orcamentoIdGlobal !== TODOS_ORCAMENTOS ? orcamentoIdGlobal : null
-  const aba = obraIdDaRota ? (tabParam || 'projeto') : null
+  // `aba` também precisa existir para rotas de Projeto (não só Obra) — é o
+  // sinal que diz "estou na aba Tarefas deste projeto/obra", usado para
+  // herdar obra_id/projeto_id nas consultas de Tarefas (Luiza unificada).
+  const aba = obraIdDaRota ? (tabParam || 'projeto') : projetoId ? (tabParam || null) : null
 
   return { pathname: pathname || null, projetoId, obraId, orcamentoId, aba }
 }
@@ -162,76 +165,92 @@ export function LuiziaFloatingChat() {
     setHistoryOpen(true)
 
     try {
-      const [
-        obrasRes,
-        orcamentosRes,
-        etapasRes,
-        materiaisRes,
-        medicoesRes,
-        fornecedoresRes,
-        composicoesRes,
-        insumosRes,
-      ] = await Promise.all([
-        supabase.from('obras').select('id,nome,status,data_inicio,data_previsao,responsavel,area_m2,uf').order('created_at', { ascending: false }),
-        supabase.from('orcamentos').select('id,obra_id,tipo,status,versao,bdi_percentual,created_at').order('created_at', { ascending: false }),
-        supabase.from('etapas').select('id,obra_id,nome,data_inicio,data_fim,status,ordem').order('data_inicio'),
-        supabase.from('materiais').select('id,obra_id,etapa_id,subetapa,descricao,unidade,quantidade_total,quantidade_comprada,status_compra,data_necessidade').order('data_necessidade'),
-        supabase.from('medicoes').select('id,obra_id,etapa_id,periodo_inicio,periodo_fim,percentual_executado,observacao,created_at').order('created_at', { ascending: false }).limit(20),
-        supabase.from('fornecedores').select('id,obra_id,nome,categoria,contato,telefone,email,ativo').order('nome'),
-        supabase.from('composicoes_proprias').select('id,codigo,descricao,unidade,grupo,ativo').order('codigo').limit(50),
-        supabase.from('insumos_proprios').select('id,codigo,descricao,unidade,categoria,classificacao,grupo,preco_unitario,ativo').order('codigo').limit(80),
-      ])
-      const obras = safeRows(obrasRes)
-
       // Contexto da página manda: a obra da rota atual (ou a última obra
       // selecionada globalmente) tem prioridade sobre qualquer outra —
       // nunca a primeira obra da lista (obras[0]).
       const pagina = derivarContextoPagina(pathname, searchParams.get('tab'), obraIdGlobal, orcamentoIdGlobal)
-      const obraId = pagina.obraId || ''
-      const obraAtual = obras.find((o: any) => o.id === obraId) || null
+      const usuario = currentProfile ? {
+        id: currentProfile.id,
+        name: currentProfile.name,
+        apelido: currentProfile.apelido,
+        cidade: currentProfile.cidade,
+        estado: currentProfile.estado,
+        tipo: currentProfile.tipo,
+      } : null
+
+      // Tarefas tem tools/consulta próprias no servidor (lib/luizia-tarefas-
+      // runtime.ts, reaproveitando lib/tarefas-ai-tools.ts) — contexto sob
+      // demanda: nem pergunta o banco inteiro (obras/orçamentos/etapas/
+      // materiais/medições/fornecedores/composições/insumos) pra uma
+      // pergunta de tarefa, o servidor busca só o que a tool precisar.
+      const skill = detectSkill(pagina, userMsg.content)
+      const contextoBase = {
+        modo: 'atalho-luizia',
+        modoLuiza: modo,
+        pagina,
+        draftAtual: draft,
+        geradoEm: new Date().toISOString(),
+        usuario,
+      }
+
+      const body = skill === 'tarefas'
+        ? { messages: next, complex: false, context: contextoBase }
+        : await (async () => {
+            const [
+              obrasRes,
+              orcamentosRes,
+              etapasRes,
+              materiaisRes,
+              medicoesRes,
+              fornecedoresRes,
+              composicoesRes,
+              insumosRes,
+            ] = await Promise.all([
+              supabase.from('obras').select('id,nome,status,data_inicio,data_previsao,responsavel,area_m2,uf').order('created_at', { ascending: false }),
+              supabase.from('orcamentos').select('id,obra_id,tipo,status,versao,bdi_percentual,created_at').order('created_at', { ascending: false }),
+              supabase.from('etapas').select('id,obra_id,nome,data_inicio,data_fim,status,ordem').order('data_inicio'),
+              supabase.from('materiais').select('id,obra_id,etapa_id,subetapa,descricao,unidade,quantidade_total,quantidade_comprada,status_compra,data_necessidade').order('data_necessidade'),
+              supabase.from('medicoes').select('id,obra_id,etapa_id,periodo_inicio,periodo_fim,percentual_executado,observacao,created_at').order('created_at', { ascending: false }).limit(20),
+              supabase.from('fornecedores').select('id,obra_id,nome,categoria,contato,telefone,email,ativo').order('nome'),
+              supabase.from('composicoes_proprias').select('id,codigo,descricao,unidade,grupo,ativo').order('codigo').limit(50),
+              supabase.from('insumos_proprios').select('id,codigo,descricao,unidade,categoria,classificacao,grupo,preco_unitario,ativo').order('codigo').limit(80),
+            ])
+            const obras = safeRows(obrasRes)
+            const obraId = pagina.obraId || ''
+            const obraAtual = obras.find((o: any) => o.id === obraId) || null
+            return {
+              messages: next,
+              complex: false,
+              context: {
+                ...contextoBase,
+                obraAtual,
+                obras,
+                orcamentos: safeRows(orcamentosRes).filter((item: any) => !obraId || item.obra_id === obraId),
+                etapas: safeRows(etapasRes).filter((item: any) => !obraId || item.obra_id === obraId),
+                materiais: safeRows(materiaisRes).filter((item: any) => !obraId || item.obra_id === obraId),
+                medicoes: safeRows(medicoesRes).filter((item: any) => !obraId || item.obra_id === obraId),
+                fornecedores: safeRows(fornecedoresRes).filter((item: any) => !item.obra_id || item.obra_id === obraId),
+                composicoes: safeRows(composicoesRes),
+                insumosProprios: safeRows(insumosRes),
+                resumoSistema: {
+                  obras: obras.length,
+                  orcamentos: safeRows(orcamentosRes).length,
+                  etapas: safeRows(etapasRes).length,
+                  materiais: safeRows(materiaisRes).length,
+                  medicoes: safeRows(medicoesRes).length,
+                  fornecedores: safeRows(fornecedoresRes).length,
+                  composicoesProprias: safeRows(composicoesRes).length,
+                  insumosProprios: safeRows(insumosRes).length,
+                },
+                observacao: 'Chat rapido flutuante. Contexto resumido do sistema carregado somente para leitura.',
+              },
+            }
+          })()
 
       const res = await fetch('/api/buildassist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: next,
-          complex: false,
-          context: {
-            modo: 'atalho-luizia',
-            modoLuiza: modo,
-            pagina,
-            draftAtual: draft,
-            geradoEm: new Date().toISOString(),
-            usuario: currentProfile ? {
-              id: currentProfile.id,
-              name: currentProfile.name,
-              apelido: currentProfile.apelido,
-              cidade: currentProfile.cidade,
-              estado: currentProfile.estado,
-              tipo: currentProfile.tipo,
-            } : null,
-            obraAtual,
-            obras,
-            orcamentos: safeRows(orcamentosRes).filter((item: any) => !obraId || item.obra_id === obraId),
-            etapas: safeRows(etapasRes).filter((item: any) => !obraId || item.obra_id === obraId),
-            materiais: safeRows(materiaisRes).filter((item: any) => !obraId || item.obra_id === obraId),
-            medicoes: safeRows(medicoesRes).filter((item: any) => !obraId || item.obra_id === obraId),
-            fornecedores: safeRows(fornecedoresRes).filter((item: any) => !item.obra_id || item.obra_id === obraId),
-            composicoes: safeRows(composicoesRes),
-            insumosProprios: safeRows(insumosRes),
-            resumoSistema: {
-              obras: obras.length,
-              orcamentos: safeRows(orcamentosRes).length,
-              etapas: safeRows(etapasRes).length,
-              materiais: safeRows(materiaisRes).length,
-              medicoes: safeRows(medicoesRes).length,
-              fornecedores: safeRows(fornecedoresRes).length,
-              composicoesProprias: safeRows(composicoesRes).length,
-              insumosProprios: safeRows(insumosRes).length,
-            },
-            observacao: 'Chat rapido flutuante. Contexto resumido do sistema carregado somente para leitura.',
-          },
-        }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       void logLuizia({

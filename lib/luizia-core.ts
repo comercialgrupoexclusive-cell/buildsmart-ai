@@ -4,6 +4,7 @@ import {
   type LuiziaDraft, type LuiziaPageContext, type LuiziaSkillId,
 } from './luizia-work'
 import { processLuiziaWork } from './luizia-tools'
+import { runTarefasSkill } from './luizia-tarefas-runtime'
 
 type Row = Record<string, unknown>
 
@@ -39,7 +40,7 @@ export type LuiziaContext = {
 
 export type LuiziaResult = {
   message: string
-  mode: 'local-fallback' | 'openai' | 'blocked' | 'draft'
+  mode: 'local-fallback' | 'openai' | 'blocked' | 'draft' | 'tool'
   model?: string
   skill: LuiziaSkillId
   draft: LuiziaDraft | null
@@ -241,6 +242,33 @@ export async function askLuizia({
   const ultimaMensagem = firstUserQuestion(messages)
   const skill = detectSkill(context.pagina, ultimaMensagem)
   const draftAtual = context.draftAtual || null
+
+  // Tarefas tem runtime próprio (lib/luizia-tarefas-runtime.ts): reaproveita
+  // as MESMAS tools/regras de autorização do WhatsApp e obra-ai, nunca o
+  // dump de obras/orçamentos/etapas/materiais/etc. deste arquivo — e nunca
+  // passa pelo sistema de rascunho de Orçamento/Planejamento/RDO/Compras
+  // (lib/luizia-tools.ts), que não sabe nada sobre tarefas.
+  if (skill === 'tarefas') {
+    const usuario = context.usuario as { id?: string; name?: string } | null | undefined
+    const pagina = context.pagina
+    const escopadoATarefas = pagina?.aba === 'tarefas'
+    const resultado = await runTarefasSkill({
+      prompt: ultimaMensagem,
+      history: messages.slice(0, -1),
+      modo: context.modoLuiza === 'work' ? 'work' : 'chat',
+      profileId: usuario?.id || null,
+      actor: usuario?.name || 'Usuário do painel',
+      fixedObraId: escopadoATarefas && pagina?.obraId ? pagina.obraId : undefined,
+      fixedProjetoId: escopadoATarefas && !pagina?.obraId && pagina?.projetoId ? pagina.projetoId : undefined,
+    })
+    return {
+      message: comSkillTag(resultado.message, skill),
+      mode: resultado.blocked ? 'blocked' : 'tool',
+      skill,
+      draft: draftAtual,
+      blocked: resultado.blocked,
+    }
+  }
 
   // Compatibilidade: chamadores que ainda não migraram para Chat/Work
   // (WhatsApp, BuildAssistente IA completo) não mandam modoLuiza — mantêm o
