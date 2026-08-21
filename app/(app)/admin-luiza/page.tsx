@@ -24,7 +24,7 @@ type Tab = 'conversas' | 'usuarios' | 'disparos' | 'configuracao'
 type Dispatch = {
   id: string
   nome: string
-  tipo: 'resumo_obra' | 'personalizada'
+  tipo: 'resumo_obra' | 'personalizada' | 'resumo_tarefas'
   obra_id: string | null
   destino_phone: string
   destino_nome: string | null
@@ -150,7 +150,7 @@ export default function AdminLuizaPage() {
   const [savingDispatch, setSavingDispatch] = useState(false)
   const [sendingNow, setSendingNow] = useState<string | null>(null)
   const [dispatchForm, setDispatchForm] = useState({
-    nome: '', tipo: 'resumo_obra' as 'resumo_obra' | 'personalizada',
+    nome: '', tipo: 'resumo_obra' as 'resumo_obra' | 'personalizada' | 'resumo_tarefas',
     obra_id: '', destino_phone: '', mensagem: '',
     dias: [1, 2, 3, 4, 5] as number[], horario: '07:30', recorrente: true,
   })
@@ -304,7 +304,7 @@ export default function AdminLuizaPage() {
     const row = {
       nome: f.nome.trim(),
       tipo: f.tipo,
-      obra_id: f.tipo === 'resumo_obra' ? f.obra_id : null,
+      obra_id: (f.tipo === 'resumo_obra' || f.tipo === 'resumo_tarefas') ? (f.obra_id || null) : null,
       destino_phone: f.destino_phone,
       destino_nome: conversas.find(c => c.phone === f.destino_phone)?.nome
         || rules.find(r => r.phone === f.destino_phone)?.nome || null,
@@ -623,22 +623,25 @@ export default function AdminLuizaPage() {
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Tipo</label>
                   <select value={dispatchForm.tipo}
-                    onChange={e => setDispatchForm(f => ({ ...f, tipo: e.target.value as 'resumo_obra' | 'personalizada' }))}
+                    onChange={e => setDispatchForm(f => ({ ...f, tipo: e.target.value as 'resumo_obra' | 'personalizada' | 'resumo_tarefas' }))}
                     className="input-base text-sm">
                     <option value="resumo_obra">🤖 Resumo da obra (gerado pela IA)</option>
+                    <option value="resumo_tarefas">📋 Resumo de tarefas (atrasadas/hoje/aguardando)</option>
                     <option value="personalizada">✍️ Mensagem personalizada (texto fixo)</option>
                   </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {dispatchForm.tipo === 'resumo_obra' && (
+                {(dispatchForm.tipo === 'resumo_obra' || dispatchForm.tipo === 'resumo_tarefas') && (
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Obra vinculada</label>
+                    <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                      Obra vinculada{dispatchForm.tipo === 'resumo_tarefas' ? ' (opcional — filtra só tarefas dessa obra)' : ''}
+                    </label>
                     <select value={dispatchForm.obra_id}
                       onChange={e => setDispatchForm(f => ({ ...f, obra_id: e.target.value }))}
                       className="input-base text-sm">
-                      <option value="">Selecione a obra...</option>
+                      <option value="">{dispatchForm.tipo === 'resumo_tarefas' ? 'Todas as obras/projetos' : 'Selecione a obra...'}</option>
                       {obras.map(o => <option key={o.id} value={o.id}>{o.nome} ({o.status})</option>)}
                     </select>
                   </div>
@@ -660,16 +663,26 @@ export default function AdminLuizaPage() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
-                  {dispatchForm.tipo === 'personalizada' ? 'Mensagem a enviar' : 'Instrução extra para a IA (opcional)'}
-                </label>
-                <textarea value={dispatchForm.mensagem} onChange={e => setDispatchForm(f => ({ ...f, mensagem: e.target.value }))}
-                  rows={3} className="input-base resize-y text-sm"
-                  placeholder={dispatchForm.tipo === 'personalizada'
-                    ? 'Ex: Bom dia equipe! Lembrem de preencher o diário de obra até as 17h.'
-                    : 'Ex: Destaque sempre os materiais pendentes e cobre prazos.'} />
-              </div>
+              {dispatchForm.tipo !== 'resumo_tarefas' && (
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                    {dispatchForm.tipo === 'personalizada' ? 'Mensagem a enviar' : 'Instrução extra para a IA (opcional)'}
+                  </label>
+                  <textarea value={dispatchForm.mensagem} onChange={e => setDispatchForm(f => ({ ...f, mensagem: e.target.value }))}
+                    rows={3} className="input-base resize-y text-sm"
+                    placeholder={dispatchForm.tipo === 'personalizada'
+                      ? 'Ex: Bom dia equipe! Lembrem de preencher o diário de obra até as 17h.'
+                      : 'Ex: Destaque sempre os materiais pendentes e cobre prazos.'} />
+                </div>
+              )}
+              {dispatchForm.tipo === 'resumo_tarefas' && (
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  Resumo gerado automaticamente (sem IA): atrasadas, tarefas que vencem hoje, próximas urgentes/altas nos
+                  próximos 3 dias e tarefas aguardando há mais de 2 dias — do responsável ligado ao destino escolhido
+                  (nome vinculado ao contato/grupo, comparado com o nome do usuário no BuildSmart). Se não houver nada
+                  relevante, nada é enviado nesse dia.
+                </p>
+              )}
 
               <div className="flex flex-wrap items-end gap-4">
                 <div className="flex flex-col gap-1">
@@ -730,12 +743,12 @@ export default function AdminLuizaPage() {
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
                       <p className="font-semibold text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                        {d.tipo === 'resumo_obra' ? '🤖' : '✍️'} {d.nome}
+                        {d.tipo === 'resumo_obra' ? '🤖' : d.tipo === 'resumo_tarefas' ? '📋' : '✍️'} {d.nome}
                         {!d.ativo && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>inativo</span>}
                       </p>
                       <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
                         Para: {d.destino_nome || d.destino_phone} · {diasLabel} às {d.horario.slice(0, 5)} · {d.recorrente ? 'recorrente' : 'envio único'}
-                        {d.tipo === 'resumo_obra' && d.obra_id && ` · Obra: ${obras.find(o => o.id === d.obra_id)?.nome || '?'}`}
+                        {(d.tipo === 'resumo_obra' || d.tipo === 'resumo_tarefas') && d.obra_id && ` · Obra: ${obras.find(o => o.id === d.obra_id)?.nome || '?'}`}
                       </p>
                       <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
                         {d.last_sent_at ? `Último envio: ${fmt(d.last_sent_at)}` : 'Nunca enviado'}

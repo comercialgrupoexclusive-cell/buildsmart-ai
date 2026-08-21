@@ -17,7 +17,7 @@ type DB = NonNullable<ReturnType<typeof supabase>>
 type Dispatch = {
   id: string
   nome: string
-  tipo: 'resumo_obra' | 'personalizada'
+  tipo: 'resumo_obra' | 'personalizada' | 'resumo_tarefas'
   obra_id: string | null
   destino_phone: string
   destino_nome: string | null
@@ -109,6 +109,59 @@ async function gerarResumoObra(db: DB, obraId: string, instrucaoExtra: string | 
   return res.choices[0]?.message?.content?.trim() || ''
 }
 
+// ─── Resumo diário de Tarefas (determinístico, sem IA) ───────────────────────
+// Junta atrasadas + vencem hoje + próximas relevantes (urgente/alta nos
+// próximos 3 dias) + aguardando há mais de 2 dias. Mensagem curta, sem
+// markdown. Retorna '' quando não há nada relevante — nesse caso o disparo
+// não envia mensagem (silêncio proposital, não é erro), evitando ruído
+// diário sem nada a dizer.
+async function resolveResponsavelDispatch(db: DB, destinoNome: string | null): Promise<{ id: string; nome: string } | null> {
+  if (!destinoNome) return null
+  const { data } = await db.from('profiles').select('id,name').ilike('name', `%${destinoNome}%`).order('name').limit(1)
+  const row = data?.[0] as any
+  return row ? { id: row.id, nome: row.name } : null
+}
+
+async function gerarResumoTarefas(db: DB, destinoNome: string | null, obraIdFiltro: string | null): Promise<string> {
+  const resp = await resolveResponsavelDispatch(db, destinoNome)
+  let query = db.from('tarefas').select('*').in('status', ['pendente', 'em_andamento', 'aguardando'])
+  if (resp) query = query.eq('responsavel_id', resp.id)
+  if (obraIdFiltro) query = query.eq('obra_id', obraIdFiltro)
+  const { data } = await query
+  const tarefas = (data || []) as any[]
+  if (tarefas.length === 0) return ''
+
+  const hoje = new Date().toISOString().slice(0, 10)
+  const em3dias = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10)
+  const doisDiasAtras = new Date(Date.now() - 2 * 86400000).toISOString()
+
+  const atrasadas = tarefas.filter(t => t.data_prazo && t.data_prazo < hoje)
+  const vencemHoje = tarefas.filter(t => t.data_prazo === hoje)
+  const proximasRelevantes = tarefas.filter(t => t.data_prazo && t.data_prazo > hoje && t.data_prazo <= em3dias && ['urgente', 'alta'].includes(t.prioridade))
+  const aguardandoRelevante = tarefas.filter(t => t.status === 'aguardando' && t.updated_at && t.updated_at < doisDiasAtras)
+
+  if (!atrasadas.length && !vencemHoje.length && !proximasRelevantes.length && !aguardandoRelevante.length) return ''
+
+  const obraIds = [...new Set(tarefas.map(t => t.obra_id).filter(Boolean))]
+  const projetoIds = [...new Set(tarefas.map(t => t.projeto_id).filter(Boolean))]
+  const [obrasRes, projetosRes] = await Promise.all([
+    obraIds.length ? db.from('obras').select('id,nome').in('id', obraIds) : Promise.resolve({ data: [] as any[] }),
+    projetoIds.length ? db.from('projetos').select('id,nome').in('id', projetoIds) : Promise.resolve({ data: [] as any[] }),
+  ])
+  const obraNomeMap: Record<string, string> = Object.fromEntries((obrasRes.data || []).map((o: any) => [o.id, o.nome]))
+  const projetoNomeMap: Record<string, string> = Object.fromEntries((projetosRes.data || []).map((p: any) => [p.id, p.nome]))
+  const ctxDe = (t: any) => t.obra_id ? (obraNomeMap[t.obra_id] || null) : t.projeto_id ? (projetoNomeMap[t.projeto_id] || null) : null
+
+  const linhas: string[] = []
+  for (const t of atrasadas) linhas.push(`🔴 ${t.titulo}${ctxDe(t) ? ` — ${ctxDe(t)}` : ''} — vencida`)
+  for (const t of vencemHoje) linhas.push(`${t.titulo}${ctxDe(t) ? ` — ${ctxDe(t)}` : ''} — hoje`)
+  for (const t of proximasRelevantes) linhas.push(`${t.titulo}${ctxDe(t) ? ` — ${ctxDe(t)}` : ''} — ${new Date(t.data_prazo + 'T12:00').toLocaleDateString('pt-BR')}`)
+  for (const t of aguardandoRelevante) linhas.push(`${t.titulo}${ctxDe(t) ? ` — ${ctxDe(t)}` : ''}`)
+
+  const titulo = resp ? `Tarefas de hoje — ${resp.nome}:` : 'Tarefas de hoje:'
+  return titulo + '\n' + linhas.slice(0, 10).map(l => `• ${l}`).join('\n')
+}
+
 // ─── Processa um disparo ──────────────────────────────────────────────────────
 async function processDispatch(db: DB, d: Dispatch, botName: string) {
   let conteudo = ''
@@ -120,11 +173,19 @@ async function processDispatch(db: DB, d: Dispatch, botName: string) {
       conteudo = d.mensagem || ''
     } else if (d.tipo === 'resumo_obra' && d.obra_id) {
       conteudo = await gerarResumoObra(db, d.obra_id, d.mensagem, botName)
+    } else if (d.tipo === 'resumo_tarefas') {
+      conteudo = await gerarResumoTarefas(db, d.destino_nome, d.obra_id)
     }
 
     if (!conteudo.trim()) {
-      status = 'erro'
-      erro = 'Conteudo vazio (verifique mensagem/obra do disparo)'
+      if (d.tipo === 'resumo_tarefas') {
+        // Nada relevante hoje — silêncio proposital, não é erro (evita spam
+        // de "sem tarefas" todo dia e não polui o log como falha).
+        conteudo = '(sem tarefas relevantes — nada enviado)'
+      } else {
+        status = 'erro'
+        erro = 'Conteudo vazio (verifique mensagem/obra do disparo)'
+      }
     } else {
       const sent = await sendZApiText(d.destino_phone, conteudo)
       if (!sent.ok) { status = 'erro'; erro = sent.error || 'Falha no envio Z-API' }
@@ -187,8 +248,12 @@ export async function POST(req: NextRequest) {
       const disp = d as Dispatch
       let conteudo = ''
       if (disp.tipo === 'personalizada') conteudo = disp.mensagem || ''
+      else if (disp.tipo === 'resumo_tarefas') conteudo = await gerarResumoTarefas(db, disp.destino_nome, disp.obra_id)
       else if (disp.obra_id) conteudo = await gerarResumoObra(db, disp.obra_id, disp.mensagem, botName)
-      if (!conteudo.trim()) return NextResponse.json({ error: 'Conteudo vazio' }, { status: 400 })
+      if (!conteudo.trim()) {
+        if (disp.tipo === 'resumo_tarefas') conteudo = '(sem tarefas relevantes — nada enviado)'
+        else return NextResponse.json({ error: 'Conteudo vazio' }, { status: 400 })
+      }
       const sent = await sendZApiText(disp.destino_phone, conteudo)
       await db.from('luizia_wa_dispatch_log').insert({
         dispatch_id: disp.id, conteudo: conteudo.slice(0, 4000),

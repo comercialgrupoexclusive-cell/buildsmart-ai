@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 import { obraAiToolDefs, execObraAiTool } from '@/lib/ai-obra-tools'
 import { projetoAiToolDefs, execProjetoAiTool } from '@/lib/projeto-ai-tools'
+import { tarefasAiToolDefs, execTarefasAiTool } from '@/lib/tarefas-ai-tools'
 
 // Aumenta o timeout do Vercel de 10s para 60s (funciona no plano Pro)
 // No plano Hobby permanece 10s — se CRUD travar, assinar Vercel Pro
@@ -215,11 +216,13 @@ function buildTools(crudEnabled: boolean): OpenAI.Chat.ChatCompletionTool[] {
     },
     // Ferramentas de CRUD de projetos (disciplinas, itens, subitens)
     ...projetoAiToolDefs(false),
+    // Ferramentas do motor de Tarefas (ação de pessoa, não etapa de obra)
+    ...tarefasAiToolDefs(false),
   ]
 }
 
 // ─── Executor de funções ──────────────────────────────────────────────────────
-async function executeTool(db: DB, name: string, args: Record<string, unknown>): Promise<string> {
+async function executeTool(db: DB, name: string, args: Record<string, unknown>, actor: string): Promise<string> {
   try {
     // Ferramentas compartilhadas (RDO, avanço, boletim) — resolve a obra pelo nome
     const shared = await execObraAiTool(db, name, args as Record<string, any>)
@@ -228,6 +231,10 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>):
     // Ferramentas de projeto (estrutura, itens, predecessoras) — resolve o projeto pelo nome
     const projResult = await execProjetoAiTool(db, name, args as Record<string, any>)
     if (projResult !== null) return projResult
+
+    // Ferramentas de Tarefas (motor único, não confundir com etapas/cronograma)
+    const tarefaResult = await execTarefasAiTool(db, name, args as Record<string, any>, { actor, origem: 'whatsapp' })
+    if (tarefaResult !== null) return tarefaResult
 
     switch (name) {
 
@@ -587,6 +594,7 @@ export async function POST(req: NextRequest) {
       config['persona_global'] || DEFAULT_PERSONA,
       `Seu nome e ${botName}.`,
       'Diferencie OBRA de PROJETO: obra e a construcao fisica; projeto e cadastro tecnico no modulo Projetos. Se o usuario pedir projeto, planta, projeto executivo, projeto arquitetonico, projeto estrutural ou disciplina tecnica, use criar_projeto, nunca criar_obra. Voce tambem pode gerenciar a estrutura de projetos: criar disciplinas, itens e subitens, renomear, excluir, alterar datas/status/responsavel, definir predecessoras e marcar como concluido. Informe o nome_projeto para identificar qual projeto.',
+      'TAREFAS: use list_tasks, get_task, create_task, update_task, complete_task, reopen_task e cancel_task para o motor de Tarefas do BuildSmart. TAREFA E DIFERENTE DE ETAPA/CRONOGRAMA: tarefa e uma acao que uma PESSOA precisa fazer (ex: "confirmar pontos de ar-condicionado antes da concretagem"), etapa/servico e uma atividade que a OBRA precisa executar (isso e Planejamento, use as outras funcoes). Nunca misture os dois. Reprogramar uma tarefa e so mudar o prazo dela com update_task, nunca mexe em etapas. REGRA DE AUTORIZACAO PARA ESCREVER EM TAREFAS: se o usuario pedir algo explicitamente (ex: "muda essa tarefa para sexta", "cria uma tarefa para o Gabriel", "marca como concluida", "coloca como aguardando cliente"), a propria ordem ja autoriza — pode chamar a funcao direto. Mas se a mudanca for uma SUGESTAO SUA (por exemplo, voce percebeu uma tarefa atrasada e quer recomendar mudar o prazo), NUNCA chame update_task/complete_task/etc sozinha — primeiro descreva a sugestao em texto e pergunte se pode alterar; so chame a funcao na proxima mensagem, se o usuario confirmar explicitamente. Ao listar tarefas (list_tasks), baseie a resposta sempre no resultado da funcao — nunca invente uma tarefa que nao apareceu no resultado. Se o titulo for ambiguo (a funcao retornar mais de uma tarefa parecida), pergunte qual delas antes de agir.',
       (phoneRule as any)?.persona || '',
       userCtx || '',
       obrasCtx || '',
@@ -653,7 +661,7 @@ export async function POST(req: NextRequest) {
       for (const tc of fnCalls) {
         let args: Record<string, unknown> = {}
         try { args = JSON.parse(tc.function.arguments) } catch { /* ignore */ }
-        const result = db ? await executeTool(db, tc.function.name, args) : 'Banco de dados indisponivel.'
+        const result = db ? await executeTool(db, tc.function.name, args, senderName) : 'Banco de dados indisponivel.'
         console.log(`TOOL [${tc.function.name}]`, result.slice(0, 80))
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
       }

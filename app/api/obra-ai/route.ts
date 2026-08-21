@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 import { obraAiToolDefs, execObraAiTool } from '@/lib/ai-obra-tools'
+import { tarefasAiToolDefs, execTarefasAiTool } from '@/lib/tarefas-ai-tools'
 
 export const maxDuration = 60
 
@@ -20,6 +21,8 @@ function buildTools(): OpenAI.Chat.ChatCompletionTool[] {
   return [
     // Ferramentas de RDO / avanço / boletim (compartilhadas com o WhatsApp)
     ...obraAiToolDefs(true),
+    // Ferramentas do motor de Tarefas (ação de pessoa, escopado a esta obra)
+    ...tarefasAiToolDefs(true),
     {
       type: 'function',
       function: {
@@ -257,6 +260,10 @@ async function executeTool(db: DB, obraId: string, name: string, args: Record<st
     // Ferramentas compartilhadas (RDO, avanço, boletim) — obra fixa
     const shared = await execObraAiTool(db, name, args, obraId)
     if (shared !== null) return shared
+
+    // Ferramentas de Tarefas — escopadas a esta obra (não confundir com etapas do cronograma)
+    const tarefaResult = await execTarefasAiTool(db, name, args, { actor: 'BuildAssistente (in-app)', origem: 'obra_ai', fixedObraId: obraId })
+    if (tarefaResult !== null) return tarefaResult
 
     switch (name) {
 
@@ -589,9 +596,11 @@ CAPACIDADES:
 - Voce pode registrar o RDO (diario de obra) do dia com clima, efetivo, equipamentos, atividades e ocorrencias (registrar_rdo).
 - Voce pode atualizar o avanco fisico de qualquer item do cronograma pelo nome (atualizar_avanco).
 - Voce pode criar e fechar boletins de medicao por periodo (criar_boletim, fechar_boletim).
+- Voce pode consultar, criar, editar, concluir, reabrir e cancelar TAREFAS desta obra (list_tasks, get_task, create_task, update_task, complete_task, reopen_task, cancel_task). TAREFA E DIFERENTE DE ETAPA: tarefa e uma acao que uma PESSOA precisa fazer; etapa/servico e uma atividade do cronograma da obra. Nunca confunda as duas nem use uma funcao de etapa para o que e uma tarefa. Reprogramar uma tarefa e so mudar o prazo dela (update_task), nunca mexe no cronograma.
 - Use as funcoes disponiveis para executar acoes. Nao invente dados.
 
 REGRAS:
+- Escrita em TAREFAS: se o usuario pedir explicitamente (ex: "muda essa tarefa para sexta", "marca como concluida"), a ordem ja autoriza executar direto. Se a mudanca for uma sugestao SUA, descreva a sugestao e peca confirmacao antes de chamar a funcao — so execute na proxima mensagem, se o usuario confirmar.
 - Responda sempre em portugues brasileiro.
 - Seja pratica e objetiva. Maximo 4 blocos curtos.
 - Ao criar itens, confirme o que foi criado com um resumo.
