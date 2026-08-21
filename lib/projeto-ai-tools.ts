@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type OpenAI from 'openai'
+import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from './ai-resolve'
 
 type DB = SupabaseClient
 type Args = Record<string, any>
@@ -199,21 +200,40 @@ export function projetoAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletionTo
   ]
 }
 
-async function resolveProjetoId(db: DB, args: Args, fixedId?: string): Promise<{ id: string; nome: string } | null> {
+// Segura: nunca escolhe sozinha entre dois projetos que batem no nome
+// (ver lib/ai-resolve.ts) — substitui o antigo `ilike(...).limit(1)`.
+export async function resolveProjetoSegura(db: DB, nome?: string): Promise<ResolveOutcome<{ id: string; nome: string }> | null> {
+  if (!nome) return null
+  const { data } = await db.from('projetos').select('id,nome').ilike('nome', `%${nome}%`).limit(8)
+  return resolverComSeguranca(nome, (data || []) as { id: string; nome: string }[], p => p.nome)
+}
+
+async function resolveProjetoId(db: DB, args: Args, fixedId?: string): Promise<{ id: string; nome: string } | { ambigua: { id: string; nome: string }[] } | null> {
   if (fixedId) {
     const { data } = await db.from('projetos').select('id,nome').eq('id', fixedId).maybeSingle()
     return (data as any) || { id: fixedId, nome: 'projeto' }
   }
-  if (!args.nome_projeto) return null
-  const { data } = await db.from('projetos').select('id,nome').ilike('nome', `%${args.nome_projeto}%`).limit(1)
-  return (data?.[0] as any) || null
+  const resolved = await resolveProjetoSegura(db, args.nome_projeto)
+  if (!resolved || resolved.tipo === 'nao_encontrada') return null
+  if (resolved.tipo === 'ambigua') return { ambigua: resolved.candidatos }
+  return resolved.item
 }
 
-async function findItem(db: DB, projetoId: string, nome: string): Promise<any | null> {
+type FindItemResultado = { tipo: 'unica'; item: any } | { tipo: 'ambigua'; candidatos: any[] } | { tipo: 'nao_encontrada' }
+
+// Segura: nunca escolhe sozinha entre dois itens/disciplinas/subitens do
+// projeto que batem no nome — toda escrita (renomear, excluir, alterar,
+// predecessoras, marcar concluído) passa por aqui.
+async function findItem(db: DB, projetoId: string, nome: string): Promise<FindItemResultado> {
   const alvo = nome.toLowerCase()
   const { data } = await db.from('projeto_itens').select('*').eq('projeto_id', projetoId)
-  if (!data?.length) return null
-  return data.find((i: any) => i.nome.toLowerCase().includes(alvo)) || null
+  if (!data?.length) return { tipo: 'nao_encontrada' }
+  const match = data.filter((i: any) => i.nome.toLowerCase().includes(alvo))
+  if (!match.length) return { tipo: 'nao_encontrada' }
+  const r = resolverComSeguranca(nome, match, (i: any) => i.nome)
+  if (r.tipo === 'unica') return { tipo: 'unica', item: r.item }
+  if (r.tipo === 'ambigua') return { tipo: 'ambigua', candidatos: r.candidatos }
+  return { tipo: 'nao_encontrada' }
 }
 
 function collectDescendantIds(all: any[], parentId: string): string[] {
@@ -229,8 +249,10 @@ function collectDescendantIds(all: any[], parentId: string): string[] {
 export async function execProjetoAiTool(db: DB, name: string, args: Args, fixedProjetoId?: string): Promise<string | null> {
   if (!PROJETO_AI_TOOL_NAMES.includes(name)) return null
   try {
-    const proj = await resolveProjetoId(db, args, fixedProjetoId)
-    if (!proj) return `Projeto "${args.nome_projeto || ''}" nao encontrado.`
+    const projResolvido = await resolveProjetoId(db, args, fixedProjetoId)
+    if (!projResolvido) return `Projeto "${args.nome_projeto || ''}" nao encontrado.`
+    if ('ambigua' in projResolvido) return formatarAmbiguidade('projetos', args.nome_projeto, projResolvido.ambigua.map(p => p.nome))
+    const proj = projResolvido
 
     switch (name) {
       case 'listar_estrutura': {
@@ -275,8 +297,10 @@ export async function execProjetoAiTool(db: DB, name: string, args: Args, fixedP
       }
 
       case 'criar_item': {
-        const pai = await findItem(db, proj.id, args.disciplina_nome)
-        if (!pai) return `Disciplina "${args.disciplina_nome}" nao encontrada em "${proj.nome}".`
+        const paiR = await findItem(db, proj.id, args.disciplina_nome)
+        if (paiR.tipo === 'nao_encontrada') return `Disciplina "${args.disciplina_nome}" nao encontrada em "${proj.nome}".`
+        if (paiR.tipo === 'ambigua') return formatarAmbiguidade('disciplinas', args.disciplina_nome, paiR.candidatos.map(c => c.nome))
+        const pai = paiR.item
         const lista = args.itens as any[]
         if (!lista?.length) return 'Nenhum item informado.'
         const { data: existing } = await db.from('projeto_itens').select('ordem').eq('parent_id', pai.id).order('ordem', { ascending: false }).limit(1)
@@ -295,8 +319,10 @@ export async function execProjetoAiTool(db: DB, name: string, args: Args, fixedP
       }
 
       case 'criar_subitem': {
-        const pai = await findItem(db, proj.id, args.item_nome)
-        if (!pai) return `Item "${args.item_nome}" nao encontrado em "${proj.nome}".`
+        const paiR = await findItem(db, proj.id, args.item_nome)
+        if (paiR.tipo === 'nao_encontrada') return `Item "${args.item_nome}" nao encontrado em "${proj.nome}".`
+        if (paiR.tipo === 'ambigua') return formatarAmbiguidade('itens', args.item_nome, paiR.candidatos.map(c => c.nome))
+        const pai = paiR.item
         const lista = args.subitens as any[]
         if (!lista?.length) return 'Nenhum subitem informado.'
         const { data: existing } = await db.from('projeto_itens').select('ordem').eq('parent_id', pai.id).order('ordem', { ascending: false }).limit(1)
@@ -314,16 +340,20 @@ export async function execProjetoAiTool(db: DB, name: string, args: Args, fixedP
       }
 
       case 'renomear_item': {
-        const item = await findItem(db, proj.id, args.nome_atual)
-        if (!item) return `Item "${args.nome_atual}" nao encontrado em "${proj.nome}".`
+        const itemR = await findItem(db, proj.id, args.nome_atual)
+        if (itemR.tipo === 'nao_encontrada') return `Item "${args.nome_atual}" nao encontrado em "${proj.nome}".`
+        if (itemR.tipo === 'ambigua') return formatarAmbiguidade('itens', args.nome_atual, itemR.candidatos.map(c => c.nome))
+        const item = itemR.item
         const { error } = await db.from('projeto_itens').update({ nome: args.novo_nome }).eq('id', item.id)
         if (error) return `Erro: ${error.message}`
         return `"${item.nome}" renomeado para "${args.novo_nome}".`
       }
 
       case 'excluir_item': {
-        const item = await findItem(db, proj.id, args.nome)
-        if (!item) return `Item "${args.nome}" nao encontrado em "${proj.nome}".`
+        const itemR = await findItem(db, proj.id, args.nome)
+        if (itemR.tipo === 'nao_encontrada') return `Item "${args.nome}" nao encontrado em "${proj.nome}".`
+        if (itemR.tipo === 'ambigua') return formatarAmbiguidade('itens', args.nome, itemR.candidatos.map(c => c.nome))
+        const item = itemR.item
         const { data: allItens } = await db.from('projeto_itens').select('id,parent_id').eq('projeto_id', proj.id)
         const descendantIds = collectDescendantIds(allItens || [], item.id)
         const allIds = [item.id, ...descendantIds]
@@ -332,8 +362,10 @@ export async function execProjetoAiTool(db: DB, name: string, args: Args, fixedP
       }
 
       case 'alterar_item': {
-        const item = await findItem(db, proj.id, args.nome)
-        if (!item) return `Item "${args.nome}" nao encontrado em "${proj.nome}".`
+        const itemR = await findItem(db, proj.id, args.nome)
+        if (itemR.tipo === 'nao_encontrada') return `Item "${args.nome}" nao encontrado em "${proj.nome}".`
+        if (itemR.tipo === 'ambigua') return formatarAmbiguidade('itens', args.nome, itemR.candidatos.map(c => c.nome))
+        const item = itemR.item
         const update: any = {}
         if (args.data_inicio) update.data_inicio = args.data_inicio
         if (args.data_prazo) update.data_prazo = args.data_prazo
@@ -348,14 +380,18 @@ export async function execProjetoAiTool(db: DB, name: string, args: Args, fixedP
       }
 
       case 'alterar_predecessoras': {
-        const item = await findItem(db, proj.id, args.nome)
-        if (!item) return `Item "${args.nome}" nao encontrado em "${proj.nome}".`
+        const itemR = await findItem(db, proj.id, args.nome)
+        if (itemR.tipo === 'nao_encontrada') return `Item "${args.nome}" nao encontrado em "${proj.nome}".`
+        if (itemR.tipo === 'ambigua') return formatarAmbiguidade('itens', args.nome, itemR.candidatos.map(c => c.nome))
+        const item = itemR.item
         const predNomes = args.predecessoras as string[]
         const predIds: string[] = []
         const notFound: string[] = []
+        const ambiguous: string[] = []
         for (const pn of predNomes) {
-          const pred = await findItem(db, proj.id, pn)
-          if (pred) predIds.push(pred.id)
+          const predR = await findItem(db, proj.id, pn)
+          if (predR.tipo === 'unica') predIds.push(predR.item.id)
+          else if (predR.tipo === 'ambigua') ambiguous.push(pn)
           else notFound.push(pn)
         }
         await db.from('projeto_item_dependencias').delete().eq('item_id', item.id)
@@ -366,12 +402,15 @@ export async function execProjetoAiTool(db: DB, name: string, args: Args, fixedP
         }
         let msg = `Predecessoras de "${item.nome}" atualizadas: ${predIds.length} predecessora(s).`
         if (notFound.length > 0) msg += ` Nao encontrados: ${notFound.join(', ')}.`
+        if (ambiguous.length > 0) msg += ` Ambiguos (nome bate em mais de um item, nao incluidos): ${ambiguous.join(', ')}.`
         return msg
       }
 
       case 'marcar_concluido': {
-        const item = await findItem(db, proj.id, args.nome)
-        if (!item) return `Item "${args.nome}" nao encontrado em "${proj.nome}".`
+        const itemR = await findItem(db, proj.id, args.nome)
+        if (itemR.tipo === 'nao_encontrada') return `Item "${args.nome}" nao encontrado em "${proj.nome}".`
+        if (itemR.tipo === 'ambigua') return formatarAmbiguidade('itens', args.nome, itemR.candidatos.map(c => c.nome))
+        const item = itemR.item
         const concluido = !!args.concluido
         const { data: allItens } = await db.from('projeto_itens').select('id,parent_id').eq('projeto_id', proj.id)
         const descendantIds = collectDescendantIds(allItens || [], item.id)

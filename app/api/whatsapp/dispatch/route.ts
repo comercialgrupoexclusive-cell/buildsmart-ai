@@ -115,21 +115,43 @@ async function gerarResumoObra(db: DB, obraId: string, instrucaoExtra: string | 
 // markdown. Retorna '' quando não há nada relevante — nesse caso o disparo
 // não envia mensagem (silêncio proposital, não é erro), evitando ruído
 // diário sem nada a dizer.
-async function resolveResponsavelDispatch(db: DB, destinoNome: string | null): Promise<{ id: string; nome: string } | null> {
-  if (!destinoNome) return null
-  const { data } = await db.from('profiles').select('id,name').ilike('name', `%${destinoNome}%`).order('name').limit(1)
-  const row = data?.[0] as any
-  return row ? { id: row.id, nome: row.name } : null
+//
+// Resolução do responsável para resumo PESSOAL: sempre pelo vínculo
+// estrutural destino_phone -> luizia_wa_phone_rules.profile_id, nunca por
+// semelhança de nome (mesmo risco de vincular a pessoa errada que motivou a
+// correção em lib/tarefas-ai-tools.ts). Um resumo por OBRA não precisa de
+// responsável — filtra só por obra_id.
+type ResolucaoResponsavelDispatch =
+  | { tipo: 'nenhum' }               // resumo por obra, sem filtro pessoal
+  | { tipo: 'resolvido'; id: string; nome: string }
+  | { tipo: 'nao_vinculado' }        // resumo pessoal, mas telefone sem profile_id — não adivinha
+
+export async function resolveResponsavelDispatch(db: DB, destinoPhone: string, exigeResponsavel: boolean): Promise<ResolucaoResponsavelDispatch> {
+  if (!exigeResponsavel) return { tipo: 'nenhum' }
+  const { data } = await db.from('luizia_wa_phone_rules').select('profile_id').eq('phone', destinoPhone).maybeSingle()
+  const profileId = (data as any)?.profile_id as string | null
+  if (!profileId) return { tipo: 'nao_vinculado' }
+  const { data: profile } = await db.from('profiles').select('id,name').eq('id', profileId).maybeSingle()
+  if (!profile) return { tipo: 'nao_vinculado' }
+  return { tipo: 'resolvido', id: (profile as any).id, nome: (profile as any).name }
 }
 
-async function gerarResumoTarefas(db: DB, destinoNome: string | null, obraIdFiltro: string | null): Promise<string> {
-  const resp = await resolveResponsavelDispatch(db, destinoNome)
+export type ResumoTarefasResultado = { conteudo: string; erro?: string }
+
+export async function gerarResumoTarefas(db: DB, destinoPhone: string, obraIdFiltro: string | null): Promise<ResumoTarefasResultado> {
+  // Resumo por obra (obraIdFiltro setado) não exige responsável vinculado;
+  // resumo "geral"/pessoal exige, para não escolher a pessoa por adivinhação.
+  const resolucao = await resolveResponsavelDispatch(db, destinoPhone, !obraIdFiltro)
+  if (resolucao.tipo === 'nao_vinculado') {
+    return { conteudo: '', erro: 'Telefone de destino nao esta vinculado a um perfil do BuildSmart (configure em Conversas, no admin da Luiza) — resumo pessoal de tarefas nao enviado para nao arriscar mostrar tarefas de outra pessoa.' }
+  }
+  const resp = resolucao.tipo === 'resolvido' ? resolucao : null
   let query = db.from('tarefas').select('*').in('status', ['pendente', 'em_andamento', 'aguardando'])
   if (resp) query = query.eq('responsavel_id', resp.id)
   if (obraIdFiltro) query = query.eq('obra_id', obraIdFiltro)
   const { data } = await query
   const tarefas = (data || []) as any[]
-  if (tarefas.length === 0) return ''
+  if (tarefas.length === 0) return { conteudo: '' }
 
   const hoje = new Date().toISOString().slice(0, 10)
   const em3dias = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10)
@@ -140,7 +162,7 @@ async function gerarResumoTarefas(db: DB, destinoNome: string | null, obraIdFilt
   const proximasRelevantes = tarefas.filter(t => t.data_prazo && t.data_prazo > hoje && t.data_prazo <= em3dias && ['urgente', 'alta'].includes(t.prioridade))
   const aguardandoRelevante = tarefas.filter(t => t.status === 'aguardando' && t.updated_at && t.updated_at < doisDiasAtras)
 
-  if (!atrasadas.length && !vencemHoje.length && !proximasRelevantes.length && !aguardandoRelevante.length) return ''
+  if (!atrasadas.length && !vencemHoje.length && !proximasRelevantes.length && !aguardandoRelevante.length) return { conteudo: '' }
 
   const obraIds = [...new Set(tarefas.map(t => t.obra_id).filter(Boolean))]
   const projetoIds = [...new Set(tarefas.map(t => t.projeto_id).filter(Boolean))]
@@ -159,7 +181,7 @@ async function gerarResumoTarefas(db: DB, destinoNome: string | null, obraIdFilt
   for (const t of aguardandoRelevante) linhas.push(`${t.titulo}${ctxDe(t) ? ` — ${ctxDe(t)}` : ''}`)
 
   const titulo = resp ? `Tarefas de hoje — ${resp.nome}:` : 'Tarefas de hoje:'
-  return titulo + '\n' + linhas.slice(0, 10).map(l => `• ${l}`).join('\n')
+  return { conteudo: titulo + '\n' + linhas.slice(0, 10).map(l => `• ${l}`).join('\n') }
 }
 
 // ─── Processa um disparo ──────────────────────────────────────────────────────
@@ -174,10 +196,12 @@ async function processDispatch(db: DB, d: Dispatch, botName: string) {
     } else if (d.tipo === 'resumo_obra' && d.obra_id) {
       conteudo = await gerarResumoObra(db, d.obra_id, d.mensagem, botName)
     } else if (d.tipo === 'resumo_tarefas') {
-      conteudo = await gerarResumoTarefas(db, d.destino_nome, d.obra_id)
+      const resultado = await gerarResumoTarefas(db, d.destino_phone, d.obra_id)
+      conteudo = resultado.conteudo
+      if (resultado.erro) { status = 'erro'; erro = resultado.erro }
     }
 
-    if (!conteudo.trim()) {
+    if (status !== 'erro' && !conteudo.trim()) {
       if (d.tipo === 'resumo_tarefas') {
         // Nada relevante hoje — silêncio proposital, não é erro (evita spam
         // de "sem tarefas" todo dia e não polui o log como falha).
@@ -186,7 +210,7 @@ async function processDispatch(db: DB, d: Dispatch, botName: string) {
         status = 'erro'
         erro = 'Conteudo vazio (verifique mensagem/obra do disparo)'
       }
-    } else {
+    } else if (status !== 'erro') {
       const sent = await sendZApiText(d.destino_phone, conteudo)
       if (!sent.ok) { status = 'erro'; erro = sent.error || 'Falha no envio Z-API' }
     }
@@ -247,19 +271,36 @@ export async function POST(req: NextRequest) {
       // Envio manual não desativa nem reagenda — só envia e loga
       const disp = d as Dispatch
       let conteudo = ''
+      let erroResumo: string | null = null
       if (disp.tipo === 'personalizada') conteudo = disp.mensagem || ''
-      else if (disp.tipo === 'resumo_tarefas') conteudo = await gerarResumoTarefas(db, disp.destino_nome, disp.obra_id)
+      else if (disp.tipo === 'resumo_tarefas') {
+        const resultado = await gerarResumoTarefas(db, disp.destino_phone, disp.obra_id)
+        conteudo = resultado.conteudo
+        erroResumo = resultado.erro || null
+      }
       else if (disp.obra_id) conteudo = await gerarResumoObra(db, disp.obra_id, disp.mensagem, botName)
+
+      if (erroResumo) {
+        await db.from('luizia_wa_dispatch_log').insert({ dispatch_id: disp.id, conteudo: '', status: 'erro', erro: erroResumo })
+        return NextResponse.json({ ok: false, manual: true, sent: false, erro: erroResumo })
+      }
       if (!conteudo.trim()) {
-        if (disp.tipo === 'resumo_tarefas') conteudo = '(sem tarefas relevantes — nada enviado)'
-        else return NextResponse.json({ error: 'Conteudo vazio' }, { status: 400 })
+        if (disp.tipo === 'resumo_tarefas') {
+          // Sem tarefas relevantes: NAO manda placeholder por WhatsApp — só
+          // informa o painel. Antes disparava um WhatsApp real dizendo "sem
+          // tarefas" mesmo sem nada a dizer; corrigido para nunca enviar
+          // mensagem quando não há conteúdo real.
+          await db.from('luizia_wa_dispatch_log').insert({ dispatch_id: disp.id, conteudo: '(sem tarefas relevantes)', status: 'ok', erro: null })
+          return NextResponse.json({ ok: true, manual: true, sent: false, reason: 'sem_tarefas_relevantes' })
+        }
+        return NextResponse.json({ error: 'Conteudo vazio' }, { status: 400 })
       }
       const sent = await sendZApiText(disp.destino_phone, conteudo)
       await db.from('luizia_wa_dispatch_log').insert({
         dispatch_id: disp.id, conteudo: conteudo.slice(0, 4000),
         status: sent.ok ? 'ok' : 'erro', erro: sent.error || null,
       })
-      return NextResponse.json({ ok: sent.ok, manual: true, erro: sent.error || null })
+      return NextResponse.json({ ok: sent.ok, manual: true, sent: sent.ok, erro: sent.error || null })
     }
 
     // ── Modo cron: exige o secret ──────────────────────────────────────────────

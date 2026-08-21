@@ -16,8 +16,9 @@ function supabase() {
 }
 
 type WaMessage = { id: string; phone: string; sender_name: string | null; role: 'user' | 'assistant'; content: string; created_at: string }
-type PhoneRule = { phone: string; nome: string | null; persona: string | null; bloqueado: boolean }
+type PhoneRule = { phone: string; nome: string | null; persona: string | null; bloqueado: boolean; profile_id: string | null }
 type WaUser = { phone: string; nome: string | null; user_id: string | null; contexto: string | null }
+type Profile = { id: string; name: string }
 type Conversa = { phone: string; nome: string; msgs: WaMessage[]; isGroup: boolean }
 type Tab = 'conversas' | 'usuarios' | 'disparos' | 'configuracao'
 
@@ -114,7 +115,9 @@ export default function AdminLuizaPage() {
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null)
   const [nomePhone, setNomePhone] = useState('')
   const [personaPhone, setPersonaPhone] = useState('')
+  const [profileIdPhone, setProfileIdPhone] = useState('')
   const [savingPhone, setSavingPhone] = useState(false)
+  const [profiles, setProfiles] = useState<Profile[]>([])
 
   // ── Estado usuários ─────────────────────────────────────────────────────────
   const [waUsers, setWaUsers] = useState<WaUser[]>([])
@@ -157,7 +160,7 @@ export default function AdminLuizaPage() {
 
   // ── Load ─────────────────────────────────────────────────────────────────────
   async function load() {
-    const [cfgRes, msgsRes, rulesRes, usersRes, dispRes, logsRes, obrasRes] = await Promise.all([
+    const [cfgRes, msgsRes, rulesRes, usersRes, dispRes, logsRes, obrasRes, profilesRes] = await Promise.all([
       db.from('luizia_wa_config').select('key,value'),
       db.from('luizia_wa_messages').select('*').order('created_at', { ascending: false }).limit(300),
       db.from('luizia_wa_phone_rules').select('*'),
@@ -165,10 +168,12 @@ export default function AdminLuizaPage() {
       db.from('luizia_wa_dispatches').select('*').order('created_at', { ascending: false }),
       db.from('luizia_wa_dispatch_log').select('*').order('sent_at', { ascending: false }).limit(50),
       db.from('obras').select('id,nome,status').order('created_at', { ascending: false }),
+      db.from('profiles').select('id,name').order('name'),
     ])
     setDispatches((dispRes.data || []) as Dispatch[])
     setDispatchLogs((logsRes.data || []) as DispatchLog[])
     setObras((obrasRes.data || []) as { id: string; nome: string; status: string }[])
+    setProfiles((profilesRes.data || []) as Profile[])
 
     const cfgMap = Object.fromEntries((cfgRes.data || []).map((r: any) => [r.key, r.value]))
     setConfig({
@@ -230,6 +235,7 @@ export default function AdminLuizaPage() {
     const rule = rules.find(r => r.phone === phone)
     setNomePhone(rule?.nome || '')
     setPersonaPhone(rule?.persona || '')
+    setProfileIdPhone(rule?.profile_id || '')
   }
 
   async function savePhoneRule(bloqueado?: boolean) {
@@ -239,6 +245,7 @@ export default function AdminLuizaPage() {
       phone: selectedPhone,
       nome: nomePhone || null,
       persona: personaPhone || null,
+      profile_id: profileIdPhone || null,
       bloqueado: bloqueado !== undefined ? bloqueado : (rules.find(r => r.phone === selectedPhone)?.bloqueado || false),
       updated_at: new Date().toISOString(),
     })
@@ -355,7 +362,9 @@ export default function AdminLuizaPage() {
         body: JSON.stringify({ dispatch_id: id }),
       })
       const data = await res.json()
-      flash(data.ok ? 'Mensagem enviada agora!' : `Erro: ${data.erro || data.error || 'falha no envio'}`)
+      if (data.reason === 'sem_tarefas_relevantes') flash('Nenhuma tarefa relevante para enviar — nada foi mandado pelo WhatsApp.')
+      else if (!data.ok) flash(`Erro: ${data.erro || data.error || 'falha no envio'}`)
+      else flash('Mensagem enviada agora!')
     } catch (err: any) {
       flash(`Erro: ${err.message}`)
     }
@@ -503,6 +512,16 @@ export default function AdminLuizaPage() {
                     <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Instrucao especifica</label>
                     <input value={personaPhone} onChange={e => setPersonaPhone(e.target.value)} className="input-base text-sm" placeholder="Ex: Trate com prioridade" />
                   </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Vincular a um perfil do BuildSmart</label>
+                  <select value={profileIdPhone} onChange={e => setProfileIdPhone(e.target.value)} className="input-base text-sm max-w-xs">
+                    <option value="">Nao vinculado</option>
+                    {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Necessario para a Luiza responder &quot;minhas tarefas&quot;/&quot;o que tenho hoje&quot; com seguranca — sem isso ela nao adivinha quem e a pessoa e pede o vinculo.
+                  </p>
                 </div>
                 <button onClick={() => void savePhoneRule()} disabled={savingPhone}
                   className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium"

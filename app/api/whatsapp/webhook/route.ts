@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
-import { obraAiToolDefs, execObraAiTool } from '@/lib/ai-obra-tools'
+import { obraAiToolDefs, execObraAiTool, resolveObraSegura } from '@/lib/ai-obra-tools'
 import { projetoAiToolDefs, execProjetoAiTool } from '@/lib/projeto-ai-tools'
 import { tarefasAiToolDefs, execTarefasAiTool } from '@/lib/tarefas-ai-tools'
+import { formatarAmbiguidade } from '@/lib/ai-resolve'
 
 // Aumenta o timeout do Vercel de 10s para 60s (funciona no plano Pro)
 // No plano Hobby permanece 10s — se CRUD travar, assinar Vercel Pro
@@ -221,8 +222,18 @@ function buildTools(crudEnabled: boolean): OpenAI.Chat.ChatCompletionTool[] {
   ]
 }
 
+// Resolução segura de obra por nome, reaproveitada nos caminhos deste
+// arquivo que ainda faziam `ilike(...).limit(1)` direto — nunca escolhe
+// sozinha entre duas obras com nome parecido (ver lib/ai-resolve.ts).
+async function obraOuMensagem(db: DB, nomeObra: unknown): Promise<{ obra: { id: string; nome: string } } | { mensagem: string }> {
+  const resolved = await resolveObraSegura(db, nomeObra as string)
+  if (!resolved || resolved.tipo === 'nao_encontrada') return { mensagem: `Obra "${nomeObra}" nao encontrada.` }
+  if (resolved.tipo === 'ambigua') return { mensagem: formatarAmbiguidade('obras', String(nomeObra), resolved.candidatos.map(o => o.nome)) }
+  return { obra: resolved.item }
+}
+
 // ─── Executor de funções ──────────────────────────────────────────────────────
-async function executeTool(db: DB, name: string, args: Record<string, unknown>, actor: string): Promise<string> {
+async function executeTool(db: DB, name: string, args: Record<string, unknown>, actor: string, profileId: string | null, conversationKey: string): Promise<string> {
   try {
     // Ferramentas compartilhadas (RDO, avanço, boletim) — resolve a obra pelo nome
     const shared = await execObraAiTool(db, name, args as Record<string, any>)
@@ -233,7 +244,7 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>, 
     if (projResult !== null) return projResult
 
     // Ferramentas de Tarefas (motor único, não confundir com etapas/cronograma)
-    const tarefaResult = await execTarefasAiTool(db, name, args as Record<string, any>, { actor, origem: 'whatsapp' })
+    const tarefaResult = await execTarefasAiTool(db, name, args as Record<string, any>, { actor, origem: 'whatsapp', profileId, conversationKey })
     if (tarefaResult !== null) return tarefaResult
 
     switch (name) {
@@ -270,10 +281,14 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>, 
       }
 
       case 'criar_projeto': {
+        // Obra e opcional aqui: nao encontrada = so nao vincula (como antes).
+        // Ambigua e diferente: nao dá pra vincular "a mais provável" em
+        // silêncio, então pede desambiguação em vez de arriscar o vínculo errado.
         let obraId: string | null = null
         if (args.nome_obra) {
-          const { data: obras } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
-          if (obras?.length) obraId = (obras[0] as any).id
+          const resolved = await resolveObraSegura(db, args.nome_obra as string)
+          if (resolved?.tipo === 'ambigua') return formatarAmbiguidade('obras', String(args.nome_obra), resolved.candidatos.map(o => o.nome)) + ' Diga qual delas para eu vincular o projeto, ou peça para criar sem vincular a obra.'
+          if (resolved?.tipo === 'unica') obraId = resolved.item.id
         }
 
         const { data, error } = await db.from('projetos').insert({
@@ -291,27 +306,27 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>, 
       }
 
       case 'atualizar_status_obra': {
-        const { data: obras } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
-        if (!obras?.length) return `Obra "${args.nome_obra}" nao encontrada.`
-        const obra = obras[0] as any
+        const r = await obraOuMensagem(db, args.nome_obra)
+        if ('mensagem' in r) return r.mensagem
+        const obra = r.obra
         const { error } = await db.from('obras').update({ status: args.status }).eq('id', obra.id)
         if (error) return `Erro: ${error.message}`
         return `Status da obra "${obra.nome}" atualizado para "${args.status}".`
       }
 
       case 'listar_etapas': {
-        const { data: obras } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
-        if (!obras?.length) return `Obra "${args.nome_obra}" nao encontrada.`
-        const obra = obras[0] as any
+        const r = await obraOuMensagem(db, args.nome_obra)
+        if ('mensagem' in r) return r.mensagem
+        const obra = r.obra
         const { data: etapas } = await db.from('etapas').select('nome,status,ordem').eq('obra_id', obra.id).order('ordem')
         if (!etapas?.length) return `Obra "${obra.nome}" nao tem etapas cadastradas.`
         return `Etapas de "${obra.nome}":\n${(etapas as any[]).map(e => `- ${e.nome} (${e.status})`).join('\n')}`
       }
 
       case 'criar_etapa': {
-        const { data: obras } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
-        if (!obras?.length) return `Obra "${args.nome_obra}" nao encontrada.`
-        const obra = obras[0] as any
+        const r = await obraOuMensagem(db, args.nome_obra)
+        if ('mensagem' in r) return r.mensagem
+        const obra = r.obra
         const { count } = await db.from('etapas').select('*', { count: 'exact', head: true }).eq('obra_id', obra.id)
         const { error } = await db.from('etapas').insert({
           obra_id: obra.id,
@@ -324,9 +339,9 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>, 
       }
 
       case 'listar_materiais': {
-        const { data: obras } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
-        if (!obras?.length) return `Obra "${args.nome_obra}" nao encontrada.`
-        const obra = obras[0] as any
+        const r = await obraOuMensagem(db, args.nome_obra)
+        if ('mensagem' in r) return r.mensagem
+        const obra = r.obra
         let query = db.from('materiais').select('descricao,quantidade_total,unidade,status_compra').eq('obra_id', obra.id)
         const sc = args.status_compra as string
         if (sc && sc !== 'todos') query = query.eq('status_compra', sc)
@@ -336,9 +351,9 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>, 
       }
 
       case 'adicionar_material': {
-        const { data: obras } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
-        if (!obras?.length) return `Obra "${args.nome_obra}" nao encontrada.`
-        const obra = obras[0] as any
+        const r = await obraOuMensagem(db, args.nome_obra)
+        if ('mensagem' in r) return r.mensagem
+        const obra = r.obra
         const codigo = `WA-${Date.now().toString(36).toUpperCase()}`
         const { error } = await db.from('materiais').insert({
           obra_id: obra.id,
@@ -547,6 +562,11 @@ export async function POST(req: NextRequest) {
     if (config['modo_pausado'] === 'true') return NextResponse.json({ ok: true, skip: 'paused' })
     if ((phoneRule as any)?.bloqueado) return NextResponse.json({ ok: true, skip: 'blocked' })
 
+    // Identidade estrutural do remetente (para "minhas tarefas" e propostas
+    // pendentes) — vem só do vínculo manual telefone->profile em
+    // luizia_wa_phone_rules.profile_id, nunca de semelhança de nome.
+    const phoneProfileId: string | null = (phoneRule as any)?.profile_id || null
+
     const crudEnabled = config['crud_enabled'] !== 'false'
     const audioEnabled = config['audio_enabled'] !== 'false'
     const photosEnabled = config['photos_enabled'] !== 'false'
@@ -594,7 +614,10 @@ export async function POST(req: NextRequest) {
       config['persona_global'] || DEFAULT_PERSONA,
       `Seu nome e ${botName}.`,
       'Diferencie OBRA de PROJETO: obra e a construcao fisica; projeto e cadastro tecnico no modulo Projetos. Se o usuario pedir projeto, planta, projeto executivo, projeto arquitetonico, projeto estrutural ou disciplina tecnica, use criar_projeto, nunca criar_obra. Voce tambem pode gerenciar a estrutura de projetos: criar disciplinas, itens e subitens, renomear, excluir, alterar datas/status/responsavel, definir predecessoras e marcar como concluido. Informe o nome_projeto para identificar qual projeto.',
-      'TAREFAS: use list_tasks, get_task, create_task, update_task, complete_task, reopen_task e cancel_task para o motor de Tarefas do BuildSmart. TAREFA E DIFERENTE DE ETAPA/CRONOGRAMA: tarefa e uma acao que uma PESSOA precisa fazer (ex: "confirmar pontos de ar-condicionado antes da concretagem"), etapa/servico e uma atividade que a OBRA precisa executar (isso e Planejamento, use as outras funcoes). Nunca misture os dois. Reprogramar uma tarefa e so mudar o prazo dela com update_task, nunca mexe em etapas. REGRA DE AUTORIZACAO PARA ESCREVER EM TAREFAS: se o usuario pedir algo explicitamente (ex: "muda essa tarefa para sexta", "cria uma tarefa para o Gabriel", "marca como concluida", "coloca como aguardando cliente"), a propria ordem ja autoriza — pode chamar a funcao direto. Mas se a mudanca for uma SUGESTAO SUA (por exemplo, voce percebeu uma tarefa atrasada e quer recomendar mudar o prazo), NUNCA chame update_task/complete_task/etc sozinha — primeiro descreva a sugestao em texto e pergunte se pode alterar; so chame a funcao na proxima mensagem, se o usuario confirmar explicitamente. Ao listar tarefas (list_tasks), baseie a resposta sempre no resultado da funcao — nunca invente uma tarefa que nao apareceu no resultado. Se o titulo for ambiguo (a funcao retornar mais de uma tarefa parecida), pergunte qual delas antes de agir.',
+      'TAREFAS: use list_tasks, get_task, create_task, update_task, complete_task, reopen_task e cancel_task para o motor de Tarefas do BuildSmart. TAREFA E DIFERENTE DE ETAPA/CRONOGRAMA: tarefa e uma acao que uma PESSOA precisa fazer (ex: "confirmar pontos de ar-condicionado antes da concretagem"), etapa/servico e uma atividade que a OBRA precisa executar (isso e Planejamento, use as outras funcoes). Nunca misture os dois. Reprogramar uma tarefa e so mudar o prazo dela com update_task, nunca mexe em etapas.'
+      + ' MINHAS TAREFAS: se o usuario perguntar de forma pessoal ("o que tenho hoje", "minhas tarefas", "o que esta atrasado pra mim", "o que estou aguardando") NAO informe responsavel_nome — a funcao resolve automaticamente quem e o remetente pelo vinculo do telefone dele. Se ele perguntar por OUTRA pessoa explicitamente ("o que o Gabriel tem?"), ai sim informe responsavel_nome com o nome dela. Se list_tasks disser que o telefone nao esta vinculado a um perfil, repasse isso ao usuario exatamente — nunca tente adivinhar quem ele e pelo nome do contato do WhatsApp.'
+      + ' REGRA DE AUTORIZACAO PARA ESCREVER EM TAREFAS: se o usuario pedir algo explicitamente NESTA mensagem (ex: "muda essa tarefa para sexta", "cria uma tarefa para o Gabriel", "marca como concluida", "coloca como aguardando cliente"), a propria ordem ja autoriza — chame update_task/complete_task/reopen_task/cancel_task direto. Se a mudanca for uma SUGESTAO SUA (por exemplo, voce percebeu uma tarefa atrasada e quer recomendar mudar o prazo), NUNCA chame update_task/complete_task/etc — em vez disso chame suggest_task_change, que grava a proposta e devolve o texto para voce repassar terminando com uma pergunta. So quando o usuario confirmar numa mensagem seguinte (ex: "sim", "pode", "faz isso") chame confirm_pending_action (sem precisar saber o id — ela acha a proposta certa sozinha na maioria dos casos). Se ele recusar ("nao"), chame reject_pending_action. Se ele mudar os parametros ao confirmar ("sim, mas passa pra terca"), trate como ordem nova e chame update_task direto com os dados corrigidos, nao confirm_pending_action.'
+      + ' Ao listar tarefas (list_tasks), baseie a resposta sempre no resultado da funcao — nunca invente uma tarefa que nao apareceu no resultado. Se o titulo for ambiguo ou a obra/projeto/responsavel baterem em mais de um registro, a funcao vai te dizer isso e listar as opcoes — pergunte qual delas antes de agir, nunca escolha sozinho.',
       (phoneRule as any)?.persona || '',
       userCtx || '',
       obrasCtx || '',
@@ -661,7 +684,7 @@ export async function POST(req: NextRequest) {
       for (const tc of fnCalls) {
         let args: Record<string, unknown> = {}
         try { args = JSON.parse(tc.function.arguments) } catch { /* ignore */ }
-        const result = db ? await executeTool(db, tc.function.name, args, senderName) : 'Banco de dados indisponivel.'
+        const result = db ? await executeTool(db, tc.function.name, args, senderName, phoneProfileId, lookupPhone) : 'Banco de dados indisponivel.'
         console.log(`TOOL [${tc.function.name}]`, result.slice(0, 80))
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
       }

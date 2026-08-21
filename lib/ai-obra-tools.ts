@@ -9,6 +9,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type OpenAI from 'openai'
 import { loadObraProgresso, propagarAvancoServicos, clampPct } from './obra-progresso'
+import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from './ai-resolve'
 
 type DB = SupabaseClient
 type Args = Record<string, any>
@@ -131,33 +132,64 @@ export function obraAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletionTool[
 }
 
 // ─── Resolução de obra (modo global) ─────────────────────────────────────────
-async function resolveObraId(db: DB, args: Args, fixedObraId?: string): Promise<{ id: string; nome: string } | null> {
+// Segura: nunca escolhe sozinha entre duas obras que batem no nome (ver
+// lib/ai-resolve.ts) — corrige o padrão antigo `ilike(...).limit(1)`, que
+// escolhia uma linha arbitrária do Postgres quando havia homônimos.
+export async function resolveObraSegura(db: DB, nome?: string): Promise<ResolveOutcome<{ id: string; nome: string }> | null> {
+  if (!nome) return null
+  const { data } = await db.from('obras').select('id,nome').ilike('nome', `%${nome}%`).limit(8)
+  return resolverComSeguranca(nome, (data || []) as { id: string; nome: string }[], o => o.nome)
+}
+
+async function resolveObraId(db: DB, args: Args, fixedObraId?: string): Promise<{ id: string; nome: string } | { ambigua: { id: string; nome: string }[] } | null> {
   if (fixedObraId) {
     const { data } = await db.from('obras').select('id,nome').eq('id', fixedObraId).maybeSingle()
     return (data as any) || { id: fixedObraId, nome: 'obra' }
   }
-  if (!args.nome_obra) return null
-  const { data } = await db.from('obras').select('id,nome').ilike('nome', `%${args.nome_obra}%`).limit(1)
-  return (data?.[0] as any) || null
+  const resolved = await resolveObraSegura(db, args.nome_obra)
+  if (!resolved || resolved.tipo === 'nao_encontrada') return null
+  if (resolved.tipo === 'ambigua') return { ambigua: resolved.candidatos }
+  return resolved.item
 }
 
-// Acha um item do cronograma (serviço → subetapa → etapa) por nome
-async function acharItem(db: DB, obraId: string, nome: string): Promise<{ tipo: 'servico' | 'subetapa' | 'etapa'; id: string; nome: string } | null> {
+type ItemCronogramaAlvo = { tipo: 'servico' | 'subetapa' | 'etapa'; id: string; nome: string }
+type AcharItemResultado = { tipo: 'unica'; item: ItemCronogramaAlvo } | { tipo: 'ambigua'; candidatos: ItemCronogramaAlvo[] } | { tipo: 'nao_encontrada' }
+
+// Acha um item do cronograma (serviço → subetapa → etapa) por nome. Dentro de
+// cada nível, nunca escolhe sozinha entre duas correspondências reais — uma
+// escrita (avanço físico) na entidade errada é justamente o risco que este
+// pacote de correções elimina.
+async function acharItem(db: DB, obraId: string, nome: string): Promise<AcharItemResultado> {
   const alvo = nome.toLowerCase()
   const { data: etapas } = await db.from('etapas').select('id,nome').eq('obra_id', obraId)
   const etapaIds = (etapas || []).map((e: any) => e.id)
-  if (etapaIds.length === 0) return null
+  if (etapaIds.length === 0) return { tipo: 'nao_encontrada' }
   const { data: subs } = await db.from('subetapas_cronograma').select('id,nome,etapa_id').in('etapa_id', etapaIds)
   const subIds = (subs || []).map((s: any) => s.id)
   const { data: svcs } = subIds.length ? await db.from('servicos_cronograma').select('id,nome,subetapa_id').in('subetapa_id', subIds) : { data: [] }
-  // prioridade: serviço > subetapa > etapa
-  const svc = (svcs || []).find((s: any) => s.nome.toLowerCase().includes(alvo))
-  if (svc) return { tipo: 'servico', id: svc.id, nome: svc.nome }
-  const sub = (subs || []).find((s: any) => s.nome.toLowerCase().includes(alvo))
-  if (sub) return { tipo: 'subetapa', id: sub.id, nome: sub.nome }
-  const eta = (etapas || []).find((e: any) => e.nome.toLowerCase().includes(alvo))
-  if (eta) return { tipo: 'etapa', id: eta.id, nome: eta.nome }
-  return null
+
+  // prioridade: serviço > subetapa > etapa — só cai pro próximo nível se não
+  // houver NENHUMA correspondência no nível atual (ambiguidade não cai, pede
+  // desambiguação em vez de tentar o nível de baixo).
+  const svcsMatch = (svcs || []).filter((s: any) => s.nome.toLowerCase().includes(alvo))
+  if (svcsMatch.length) {
+    const r = resolverComSeguranca(nome, svcsMatch, (s: any) => s.nome)
+    if (r.tipo === 'unica') return { tipo: 'unica', item: { tipo: 'servico', id: r.item.id, nome: r.item.nome } }
+    if (r.tipo === 'ambigua') return { tipo: 'ambigua', candidatos: r.candidatos.map((s: any) => ({ tipo: 'servico' as const, id: s.id, nome: s.nome })) }
+  }
+  const subsMatch = (subs || []).filter((s: any) => s.nome.toLowerCase().includes(alvo))
+  if (subsMatch.length) {
+    const r = resolverComSeguranca(nome, subsMatch, (s: any) => s.nome)
+    if (r.tipo === 'unica') return { tipo: 'unica', item: { tipo: 'subetapa', id: r.item.id, nome: r.item.nome } }
+    if (r.tipo === 'ambigua') return { tipo: 'ambigua', candidatos: r.candidatos.map((s: any) => ({ tipo: 'subetapa' as const, id: s.id, nome: s.nome })) }
+  }
+  const etapasMatch = (etapas || []).filter((e: any) => e.nome.toLowerCase().includes(alvo))
+  if (etapasMatch.length) {
+    const r = resolverComSeguranca(nome, etapasMatch, (e: any) => e.nome)
+    if (r.tipo === 'unica') return { tipo: 'unica', item: { tipo: 'etapa', id: r.item.id, nome: r.item.nome } }
+    if (r.tipo === 'ambigua') return { tipo: 'ambigua', candidatos: r.candidatos.map((e: any) => ({ tipo: 'etapa' as const, id: e.id, nome: e.nome })) }
+  }
+  return { tipo: 'nao_encontrada' }
 }
 
 // Aplica avanço em qualquer nível, com propagação (mesma regra do app)
@@ -196,23 +228,32 @@ async function aplicarAvanco(db: DB, obraId: string, item: { tipo: string; id: s
 export async function execObraAiTool(db: DB, name: string, args: Args, fixedObraId?: string): Promise<string | null> {
   if (!OBRA_AI_TOOL_NAMES.includes(name)) return null
   try {
-    const obra = await resolveObraId(db, args, fixedObraId)
-    if (!obra) return `Obra "${args.nome_obra || ''}" não encontrada. Diga o nome da obra.`
+    const obraResolvida = await resolveObraId(db, args, fixedObraId)
+    if (!obraResolvida) return `Obra "${args.nome_obra || ''}" não encontrada. Diga o nome da obra.`
+    if ('ambigua' in obraResolvida) return formatarAmbiguidade('obras', args.nome_obra, obraResolvida.ambigua.map(o => o.nome))
+    const obra = obraResolvida
 
     switch (name) {
       case 'registrar_rdo': {
         // Resolve atividades → serviços do cronograma
         const atividades: any[] = []
         const avancos: { servicoId: string; percentual: number }[] = []
+        const ambiguas: string[] = []
         for (const a of (args.atividades || []) as Args[]) {
           const item = await acharItem(db, obra.id, String(a.servico || ''))
-          if (item && item.tipo === 'servico') {
-            atividades.push({ item_tipo: 'servico', item_id: item.id, nome: item.nome, percentual: a.percentual })
-            if (typeof a.percentual === 'number') avancos.push({ servicoId: item.id, percentual: a.percentual })
-          } else {
+          if (item.tipo === 'unica' && item.item.tipo === 'servico') {
+            atividades.push({ item_tipo: 'servico', item_id: item.item.id, nome: item.item.nome, percentual: a.percentual })
+            if (typeof a.percentual === 'number') avancos.push({ servicoId: item.item.id, percentual: a.percentual })
+          } else if (item.tipo === 'unica') {
             atividades.push({ item_tipo: 'servico', item_id: '', nome: String(a.servico || ''), percentual: a.percentual })
-            // se casou em subetapa/etapa, ainda aplica avanço
-            if (item && typeof a.percentual === 'number') await aplicarAvanco(db, obra.id, item, a.percentual)
+            // casou em subetapa/etapa (não em serviço) — ainda aplica avanço, é uma correspondência única
+            if (typeof a.percentual === 'number') await aplicarAvanco(db, obra.id, item.item, a.percentual)
+          } else {
+            // ambígua ou não encontrada: registra a atividade no texto do RDO,
+            // mas NÃO aplica avanço em nenhum item — evitaria adivinhar entre
+            // duas correspondências reais no cronograma.
+            atividades.push({ item_tipo: 'servico', item_id: '', nome: String(a.servico || ''), percentual: a.percentual })
+            if (item.tipo === 'ambigua') ambiguas.push(String(a.servico || ''))
           }
         }
 
@@ -244,14 +285,16 @@ export async function execObraAiTool(db: DB, name: string, args: Args, fixedObra
         if (totalEfetivo > 0) partes.push(`Efetivo: ${totalEfetivo}.`)
         if (atividades.length > 0) partes.push(`${atividades.length} atividade(s).`)
         if (avancos.length > 0) partes.push(`Avanço do cronograma atualizado em ${avancos.length} serviço(s).`)
+        if (ambiguas.length > 0) partes.push(`Não atualizei o avanço de: ${ambiguas.join(', ')} (nome bate em mais de um item do cronograma — diga qual exatamente com atualizar_avanco).`)
         return partes.join(' ')
       }
 
       case 'atualizar_avanco': {
         const item = await acharItem(db, obra.id, String(args.item || ''))
-        if (!item) return `Item "${args.item}" não encontrado no cronograma de "${obra.nome}".`
-        await aplicarAvanco(db, obra.id, item, Number(args.percentual))
-        return `Avanço de "${item.nome}" (${item.tipo}) atualizado para ${clampPct(Number(args.percentual))}% na obra "${obra.nome}".`
+        if (item.tipo === 'nao_encontrada') return `Item "${args.item}" não encontrado no cronograma de "${obra.nome}".`
+        if (item.tipo === 'ambigua') return formatarAmbiguidade('itens do cronograma', String(args.item || ''), item.candidatos.map(c => c.nome))
+        await aplicarAvanco(db, obra.id, item.item, Number(args.percentual))
+        return `Avanço de "${item.item.nome}" (${item.item.tipo}) atualizado para ${clampPct(Number(args.percentual))}% na obra "${obra.nome}".`
       }
 
       case 'criar_boletim': {

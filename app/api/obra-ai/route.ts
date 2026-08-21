@@ -261,8 +261,11 @@ async function executeTool(db: DB, obraId: string, name: string, args: Record<st
     const shared = await execObraAiTool(db, name, args, obraId)
     if (shared !== null) return shared
 
-    // Ferramentas de Tarefas — escopadas a esta obra (não confundir com etapas do cronograma)
-    const tarefaResult = await execTarefasAiTool(db, name, args, { actor: 'BuildAssistente (in-app)', origem: 'obra_ai', fixedObraId: obraId })
+    // Ferramentas de Tarefas — escopadas a esta obra (não confundir com etapas do cronograma).
+    // conversationKey por obra: o widget in-app não tem identidade de usuário
+    // persistente entre chamadas (cada POST reenvia o histórico completo do
+    // browser), então uma proposta pendente aqui é por obra, não por pessoa.
+    const tarefaResult = await execTarefasAiTool(db, name, args, { actor: 'BuildAssistente (in-app)', origem: 'obra_ai', fixedObraId: obraId, conversationKey: `obra_ai:${obraId}` })
     if (tarefaResult !== null) return tarefaResult
 
     switch (name) {
@@ -600,7 +603,8 @@ CAPACIDADES:
 - Use as funcoes disponiveis para executar acoes. Nao invente dados.
 
 REGRAS:
-- Escrita em TAREFAS: se o usuario pedir explicitamente (ex: "muda essa tarefa para sexta", "marca como concluida"), a ordem ja autoriza executar direto. Se a mudanca for uma sugestao SUA, descreva a sugestao e peca confirmacao antes de chamar a funcao — so execute na proxima mensagem, se o usuario confirmar.
+- Escrita em TAREFAS: se o usuario pedir explicitamente nesta mensagem (ex: "muda essa tarefa para sexta", "marca como concluida"), a ordem ja autoriza chamar update_task/complete_task/reopen_task/cancel_task direto. Se a mudanca for uma sugestao SUA, chame suggest_task_change em vez de escrever direto — ela grava a proposta e devolve o texto para voce repassar terminando com uma pergunta; so execute com confirm_pending_action depois que o usuario confirmar numa mensagem seguinte ("sim", "pode"). Se ele recusar, use reject_pending_action. Se a resposta dele mudar algum parametro ("sim, mas na quinta"), trate como ordem nova (update_task direto), nao como confirmacao.
+- Se list_tasks/get_task/update_task etc. disserem que um nome (obra, projeto, responsavel ou titulo da tarefa) bateu em mais de uma opcao, pergunte qual delas antes de agir — nunca escolha sozinho.
 - Responda sempre em portugues brasileiro.
 - Seja pratica e objetiva. Maximo 4 blocos curtos.
 - Ao criar itens, confirme o que foi criado com um resumo.
