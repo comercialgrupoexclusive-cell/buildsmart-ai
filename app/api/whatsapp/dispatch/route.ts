@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@supabase/supabase-js'
 import { sendZApiText } from '@/lib/zapi'
+import {
+  calcNextRun, resolveResponsavelDispatch, gerarResumoTarefas, type Dispatch,
+} from '@/lib/luizia-dispatch'
 
 export const maxDuration = 60
 
@@ -14,45 +17,11 @@ function supabase() {
 }
 type DB = NonNullable<ReturnType<typeof supabase>>
 
-type Dispatch = {
-  id: string
-  nome: string
-  tipo: 'resumo_obra' | 'personalizada' | 'resumo_tarefas'
-  obra_id: string | null
-  destino_phone: string
-  destino_nome: string | null
-  mensagem: string | null
-  dias_semana: string        // "0,1,2..." 0=domingo
-  horario: string            // "HH:MM:SS"
-  recorrente: boolean
-  ativo: boolean
-}
-
-// ─── Cálculo do próximo envio (fuso America/Sao_Paulo = UTC-3 fixo) ──────────
-// Inclui jitter aleatório de 0 a 120 segundos para humanizar o horário
-function calcNextRun(diasSemana: string, horario: string, after: Date = new Date()): Date | null {
-  const dias = diasSemana.split(',').map(d => parseInt(d.trim())).filter(d => !isNaN(d) && d >= 0 && d <= 6)
-  if (dias.length === 0) return null
-  const hhmm = horario.slice(0, 5) // "HH:MM"
-
-  for (let i = 0; i < 8; i++) {
-    // Data corrente no fuso de SP
-    const spNow = new Date(after.getTime() - 3 * 3600 * 1000)
-    const candidate = new Date(spNow)
-    candidate.setUTCDate(candidate.getUTCDate() + i)
-    const dow = candidate.getUTCDay()
-    if (!dias.includes(dow)) continue
-
-    const dateStr = candidate.toISOString().split('T')[0]
-    // Constrói o timestamp no fuso -03:00
-    const runAt = new Date(`${dateStr}T${hhmm}:00-03:00`)
-    if (runAt.getTime() > after.getTime()) {
-      const jitterMs = Math.floor(Math.random() * 120 * 1000) // 0–2 min
-      return new Date(runAt.getTime() + jitterMs)
-    }
-  }
-  return null
-}
+// calcNextRun/resolveResponsavelDispatch/gerarResumoTarefas/Dispatch agora
+// vivem em lib/luizia-dispatch.ts (compartilhado com as tools de Avisos do
+// chat flutuante e com o painel admin) — reexportados aqui só para não
+// quebrar o import existente em __tests__/dispatch.test.ts.
+export { resolveResponsavelDispatch, gerarResumoTarefas }
 
 // ─── Gera resumo da obra via IA ───────────────────────────────────────────────
 async function gerarResumoObra(db: DB, obraId: string, instrucaoExtra: string | null, botName: string): Promise<string> {
@@ -107,81 +76,6 @@ async function gerarResumoObra(db: DB, obraId: string, instrucaoExtra: string | 
     max_tokens: 500,
   })
   return res.choices[0]?.message?.content?.trim() || ''
-}
-
-// ─── Resumo diário de Tarefas (determinístico, sem IA) ───────────────────────
-// Junta atrasadas + vencem hoje + próximas relevantes (urgente/alta nos
-// próximos 3 dias) + aguardando há mais de 2 dias. Mensagem curta, sem
-// markdown. Retorna '' quando não há nada relevante — nesse caso o disparo
-// não envia mensagem (silêncio proposital, não é erro), evitando ruído
-// diário sem nada a dizer.
-//
-// Resolução do responsável para resumo PESSOAL: sempre pelo vínculo
-// estrutural destino_phone -> luizia_wa_phone_rules.profile_id, nunca por
-// semelhança de nome (mesmo risco de vincular a pessoa errada que motivou a
-// correção em lib/tarefas-ai-tools.ts). Um resumo por OBRA não precisa de
-// responsável — filtra só por obra_id.
-type ResolucaoResponsavelDispatch =
-  | { tipo: 'nenhum' }               // resumo por obra, sem filtro pessoal
-  | { tipo: 'resolvido'; id: string; nome: string }
-  | { tipo: 'nao_vinculado' }        // resumo pessoal, mas telefone sem profile_id — não adivinha
-
-export async function resolveResponsavelDispatch(db: DB, destinoPhone: string, exigeResponsavel: boolean): Promise<ResolucaoResponsavelDispatch> {
-  if (!exigeResponsavel) return { tipo: 'nenhum' }
-  const { data } = await db.from('luizia_wa_phone_rules').select('profile_id').eq('phone', destinoPhone).maybeSingle()
-  const profileId = (data as any)?.profile_id as string | null
-  if (!profileId) return { tipo: 'nao_vinculado' }
-  const { data: profile } = await db.from('profiles').select('id,name').eq('id', profileId).maybeSingle()
-  if (!profile) return { tipo: 'nao_vinculado' }
-  return { tipo: 'resolvido', id: (profile as any).id, nome: (profile as any).name }
-}
-
-export type ResumoTarefasResultado = { conteudo: string; erro?: string }
-
-export async function gerarResumoTarefas(db: DB, destinoPhone: string, obraIdFiltro: string | null): Promise<ResumoTarefasResultado> {
-  // Resumo por obra (obraIdFiltro setado) não exige responsável vinculado;
-  // resumo "geral"/pessoal exige, para não escolher a pessoa por adivinhação.
-  const resolucao = await resolveResponsavelDispatch(db, destinoPhone, !obraIdFiltro)
-  if (resolucao.tipo === 'nao_vinculado') {
-    return { conteudo: '', erro: 'Telefone de destino nao esta vinculado a um perfil do BuildSmart (configure em Conversas, no admin da Luiza) — resumo pessoal de tarefas nao enviado para nao arriscar mostrar tarefas de outra pessoa.' }
-  }
-  const resp = resolucao.tipo === 'resolvido' ? resolucao : null
-  let query = db.from('tarefas').select('*').in('status', ['pendente', 'em_andamento', 'aguardando'])
-  if (resp) query = query.eq('responsavel_id', resp.id)
-  if (obraIdFiltro) query = query.eq('obra_id', obraIdFiltro)
-  const { data } = await query
-  const tarefas = (data || []) as any[]
-  if (tarefas.length === 0) return { conteudo: '' }
-
-  const hoje = new Date().toISOString().slice(0, 10)
-  const em3dias = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10)
-  const doisDiasAtras = new Date(Date.now() - 2 * 86400000).toISOString()
-
-  const atrasadas = tarefas.filter(t => t.data_prazo && t.data_prazo < hoje)
-  const vencemHoje = tarefas.filter(t => t.data_prazo === hoje)
-  const proximasRelevantes = tarefas.filter(t => t.data_prazo && t.data_prazo > hoje && t.data_prazo <= em3dias && ['urgente', 'alta'].includes(t.prioridade))
-  const aguardandoRelevante = tarefas.filter(t => t.status === 'aguardando' && t.updated_at && t.updated_at < doisDiasAtras)
-
-  if (!atrasadas.length && !vencemHoje.length && !proximasRelevantes.length && !aguardandoRelevante.length) return { conteudo: '' }
-
-  const obraIds = [...new Set(tarefas.map(t => t.obra_id).filter(Boolean))]
-  const projetoIds = [...new Set(tarefas.map(t => t.projeto_id).filter(Boolean))]
-  const [obrasRes, projetosRes] = await Promise.all([
-    obraIds.length ? db.from('obras').select('id,nome').in('id', obraIds) : Promise.resolve({ data: [] as any[] }),
-    projetoIds.length ? db.from('projetos').select('id,nome').in('id', projetoIds) : Promise.resolve({ data: [] as any[] }),
-  ])
-  const obraNomeMap: Record<string, string> = Object.fromEntries((obrasRes.data || []).map((o: any) => [o.id, o.nome]))
-  const projetoNomeMap: Record<string, string> = Object.fromEntries((projetosRes.data || []).map((p: any) => [p.id, p.nome]))
-  const ctxDe = (t: any) => t.obra_id ? (obraNomeMap[t.obra_id] || null) : t.projeto_id ? (projetoNomeMap[t.projeto_id] || null) : null
-
-  const linhas: string[] = []
-  for (const t of atrasadas) linhas.push(`🔴 ${t.titulo}${ctxDe(t) ? ` — ${ctxDe(t)}` : ''} — vencida`)
-  for (const t of vencemHoje) linhas.push(`${t.titulo}${ctxDe(t) ? ` — ${ctxDe(t)}` : ''} — hoje`)
-  for (const t of proximasRelevantes) linhas.push(`${t.titulo}${ctxDe(t) ? ` — ${ctxDe(t)}` : ''} — ${new Date(t.data_prazo + 'T12:00').toLocaleDateString('pt-BR')}`)
-  for (const t of aguardandoRelevante) linhas.push(`${t.titulo}${ctxDe(t) ? ` — ${ctxDe(t)}` : ''}`)
-
-  const titulo = resp ? `Tarefas de hoje — ${resp.nome}:` : 'Tarefas de hoje:'
-  return { conteudo: titulo + '\n' + linhas.slice(0, 10).map(l => `• ${l}`).join('\n') }
 }
 
 // ─── Processa um disparo ──────────────────────────────────────────────────────

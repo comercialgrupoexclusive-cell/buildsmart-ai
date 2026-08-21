@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowLeftRight, BotMessageSquare, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Plus, Send, Trash2 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { logLuizia } from '@/lib/luizia-monitor'
@@ -10,16 +10,14 @@ import { createClient } from '@/lib/supabase/client'
 import { useObraOrcamento, TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 import { detectSkill, type LuiziaDraft, type LuiziaPageContext } from '@/lib/luizia-work'
 import type { LuiziaModo } from '@/lib/luizia-core'
+import {
+  readLuizaMessages, writeLuizaMessages, readLuizaModo, writeLuizaModo, readLuizaDraft, writeLuizaDraft,
+  type LuizaChatMessage,
+} from '@/lib/luizia-chat-storage'
 
-type Message = {
-  role: 'user' | 'assistant'
-  content: string
-}
+type Message = LuizaChatMessage
 
-const CHAT_KEY = 'buildsmart-luizia-floating-chat-session'
 const ASSIST_ON_ENTRY_KEY = 'buildsmart-open-luizia-on-entry'
-const MODE_KEY = 'buildsmart-luizia-modo'
-const DRAFT_KEY = 'buildsmart-luizia-draft'
 
 function greeting(name?: string) {
   return `Oi${name ? `, ${name}` : ''}! Eu sou a Luiza.
@@ -77,24 +75,37 @@ export function LuiziaFloatingChat() {
   const [draft, setDraft] = useState<LuiziaDraft | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Qual profile_id o estado React ATUAL pertence a — os efeitos de
+  // salvamento abaixo gravam usando esta ref (não currentProfile?.id direto)
+  // para nunca escrever o conteúdo de um perfil na chave de outro durante a
+  // troca (ver o efeito de troca de perfil logo abaixo).
+  const activeProfileIdRef = useRef<string | null | undefined>(undefined)
+  const entradaTratadaRef = useRef(false)
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const stored = sessionStorage.getItem(CHAT_KEY)
-    const initial = stored ? JSON.parse(stored) as Message[] : []
-    setMessages(initial)
+  // Troca de perfil (ou carga inicial): limpa o estado React IMEDIATAMENTE
+  // (useLayoutEffect — antes do navegador pintar, nunca um frame com
+  // conteúdo do perfil anterior) e carrega chat/modo/draft do novo perfil a
+  // partir da chave namespaced dele. Nunca restaura histórico de outro
+  // usuário; sem currentProfile, só o bucket "anon" (nunca contém conversa
+  // real) é usado.
+  useLayoutEffect(() => {
+    const novoId = currentProfile?.id ?? null
+    if (activeProfileIdRef.current === novoId) return
+    activeProfileIdRef.current = novoId
 
-    const storedModo = sessionStorage.getItem(MODE_KEY)
-    if (storedModo === 'work' || storedModo === 'chat') setModo(storedModo)
+    if (typeof window === 'undefined') { setLoaded(true); return }
 
-    const storedDraft = sessionStorage.getItem(DRAFT_KEY)
-    if (storedDraft) {
-      try { setDraft(JSON.parse(storedDraft)) } catch { /* rascunho corrompido, ignora */ }
-    }
+    setMessages(readLuizaMessages(sessionStorage, novoId))
+    setModo(readLuizaModo(sessionStorage, novoId))
+    setDraft(readLuizaDraft<LuiziaDraft>(sessionStorage, novoId))
 
     setLoaded(true)
 
-    if (sessionStorage.getItem(ASSIST_ON_ENTRY_KEY) === '1') {
+    // O "abrir com saudação ao entrar" é por navegação de página, não por
+    // perfil — só dispara uma vez por montagem do componente, nunca de novo
+    // a cada troca de perfil.
+    if (!entradaTratadaRef.current && sessionStorage.getItem(ASSIST_ON_ENTRY_KEY) === '1') {
+      entradaTratadaRef.current = true
       sessionStorage.removeItem(ASSIST_ON_ENTRY_KEY)
       setHistoryOpen(true)
       setMessages(current => current.length > 0
@@ -102,8 +113,11 @@ export function LuiziaFloatingChat() {
         : [{ role: 'assistant', content: greeting(currentProfile?.apelido || currentProfile?.name) }]
       )
     }
+    // apelido/name só entram na saudação; deliberadamente não disparam este
+    // efeito de novo sozinhos — só uma troca real de profile_id deve limpar
+    // e recarregar o estado.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [currentProfile?.id])
 
   useEffect(() => {
     function openFromGuide() {
@@ -120,18 +134,17 @@ export function LuiziaFloatingChat() {
 
   useEffect(() => {
     if (!loaded || typeof window === 'undefined') return
-    sessionStorage.setItem(CHAT_KEY, JSON.stringify(messages.slice(-40)))
+    writeLuizaMessages(sessionStorage, activeProfileIdRef.current, messages)
   }, [messages, loaded])
 
   useEffect(() => {
     if (!loaded || typeof window === 'undefined') return
-    sessionStorage.setItem(MODE_KEY, modo)
+    writeLuizaModo(sessionStorage, activeProfileIdRef.current, modo)
   }, [modo, loaded])
 
   useEffect(() => {
     if (!loaded || typeof window === 'undefined') return
-    if (draft) sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
-    else sessionStorage.removeItem(DRAFT_KEY)
+    writeLuizaDraft(sessionStorage, activeProfileIdRef.current, draft)
   }, [draft, loaded])
 
   useEffect(() => {
@@ -178,11 +191,12 @@ export function LuiziaFloatingChat() {
         tipo: currentProfile.tipo,
       } : null
 
-      // Tarefas tem tools/consulta próprias no servidor (lib/luizia-tarefas-
-      // runtime.ts, reaproveitando lib/tarefas-ai-tools.ts) — contexto sob
-      // demanda: nem pergunta o banco inteiro (obras/orçamentos/etapas/
-      // materiais/medições/fornecedores/composições/insumos) pra uma
-      // pergunta de tarefa, o servidor busca só o que a tool precisar.
+      // Tarefas e Avisos têm tools/consulta próprias no servidor
+      // (lib/luizia-tarefas-runtime.ts / lib/luizia-avisos-runtime.ts) —
+      // contexto sob demanda: nem pergunta o banco inteiro (obras/
+      // orçamentos/etapas/materiais/medições/fornecedores/composições/
+      // insumos) pra uma pergunta de tarefa ou aviso, o servidor busca só o
+      // que a tool precisar.
       const skill = detectSkill(pagina, userMsg.content)
       const contextoBase = {
         modo: 'atalho-luizia',
@@ -193,7 +207,7 @@ export function LuiziaFloatingChat() {
         usuario,
       }
 
-      const body = skill === 'tarefas'
+      const body = (skill === 'tarefas' || skill === 'avisos')
         ? { messages: next, complex: false, context: contextoBase }
         : await (async () => {
             const [
@@ -266,11 +280,13 @@ export function LuiziaFloatingChat() {
         content: data.message || 'Nao consegui responder agora. Abra o BuildAssistente IA para tentar de novo.',
       }])
       if ('draft' in data) setDraft(data.draft || null)
-      // Luiza escreveu em `tarefas` fora da página /tarefas (ou dela mesma,
-      // se estava aberta em outra aba) — avisa quem estiver ouvindo para
-      // recarregar sem precisar de F5 (ver app/(app)/tarefas/page.tsx).
-      if (data.mutated && typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('buildsmart:tarefas-changed'))
+      // Luiza escreveu em `tarefas` ou em `luizia_wa_dispatches` fora da
+      // página que os mostra (ou dela mesma, se estava aberta em outra aba)
+      // — avisa quem estiver ouvindo para recarregar sem precisar de F5.
+      // Ver app/(app)/tarefas/page.tsx e app/(app)/admin-luiza/page.tsx.
+      if (typeof window !== 'undefined') {
+        if (data.mutatedDomain === 'tarefas') window.dispatchEvent(new Event('buildsmart:tarefas-changed'))
+        else if (data.mutatedDomain === 'avisos') window.dispatchEvent(new Event('buildsmart:luiza-dispatches-changed'))
       }
     } catch {
       setMessages(prev => [...prev, {

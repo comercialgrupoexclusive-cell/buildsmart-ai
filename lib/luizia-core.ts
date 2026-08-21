@@ -5,6 +5,7 @@ import {
 } from './luizia-work'
 import { processLuiziaWork } from './luizia-tools'
 import { runTarefasSkill, temPropostaPendenteAtiva } from './luizia-tarefas-runtime'
+import { runAvisosSkill, temPropostaPendenteAtivaAvisos } from './luizia-avisos-runtime'
 
 type Row = Record<string, unknown>
 
@@ -45,10 +46,12 @@ export type LuiziaResult = {
   skill: LuiziaSkillId
   draft: LuiziaDraft | null
   blocked: boolean
-  // true quando esta resposta escreveu de fato em `tarefas` (criação/edição/
-  // conclusão confirmada) — o cliente usa isso para avisar /tarefas e
-  // ContextoTarefas de que precisam recarregar sem esperar F5.
-  mutated?: boolean
+  // Quando esta resposta escreveu de fato em `tarefas` ou em
+  // `luizia_wa_dispatches` (criação/edição confirmada), diz qual domínio —
+  // o cliente usa isso para disparar o evento certo (buildsmart:tarefas-
+  // changed / buildsmart:luiza-dispatches-changed) e quem estiver ouvindo
+  // (/tarefas, ContextoTarefas, o painel admin) recarrega sem F5.
+  mutatedDomain?: 'tarefas' | 'avisos' | null
 }
 
 export function hasOpenAiKey() {
@@ -271,15 +274,20 @@ export async function askLuizia({
 
   let skill = detectSkill(context.pagina, ultimaMensagem)
 
-  // Uma proposta pendente da Luiza (criação ou edição de tarefa aguardando
-  // "sim"/"amanhã"/"não") força de volta para a skill tarefas mesmo que a
-  // mensagem seguinte não tenha nenhuma palavra-chave — sem isso, "amanhã"
-  // ou "sim" se perderiam no roteamento genérico por texto e a proposta
-  // nunca seria refinada/confirmada. Só verificamos em Work (só lá existe
-  // proposta pendente — Chat bloqueia qualquer intenção de escrita antes).
-  if (skill !== 'tarefas' && context.modoLuiza === 'work') {
-    const pendente = await temPropostaPendenteAtiva(usuario?.id || null)
-    if (pendente) skill = 'tarefas'
+  // Uma proposta pendente da Luiza (criação/edição de tarefa OU de aviso
+  // aguardando "sim"/"amanhã"/"não") força de volta para a skill certa
+  // mesmo que a mensagem seguinte não tenha nenhuma palavra-chave — sem
+  // isso, "amanhã" ou "sim" se perderiam no roteamento genérico por texto e
+  // a proposta nunca seria refinada/confirmada. Só verificamos em Work (só
+  // lá existe proposta pendente — Chat bloqueia qualquer intenção de
+  // escrita antes de chegar aqui).
+  if (skill !== 'tarefas' && skill !== 'avisos' && context.modoLuiza === 'work') {
+    const [pendenteTarefa, pendenteAviso] = await Promise.all([
+      temPropostaPendenteAtiva(usuario?.id || null),
+      temPropostaPendenteAtivaAvisos(usuario?.id || null),
+    ])
+    if (pendenteTarefa) skill = 'tarefas'
+    else if (pendenteAviso) skill = 'avisos'
   }
 
   // Tarefas tem runtime próprio (lib/luizia-tarefas-runtime.ts): reaproveita
@@ -305,7 +313,27 @@ export async function askLuizia({
       skill,
       draft: draftAtual,
       blocked: resultado.blocked,
-      mutated: resultado.mutated,
+      mutatedDomain: resultado.mutated ? 'tarefas' : null,
+    }
+  }
+
+  // Avisos (lib/luizia-avisos-runtime.ts) — mesmo padrão de Tarefas, reusa o
+  // motor de disparos existente (luizia_wa_dispatches) sem duplicar regra.
+  if (skill === 'avisos') {
+    const resultado = await runAvisosSkill({
+      prompt: ultimaMensagem,
+      history: messages.slice(0, -1),
+      modo: context.modoLuiza === 'work' ? 'work' : 'chat',
+      profileId: usuario?.id || null,
+      actor: usuario?.name || 'Usuário do painel',
+    })
+    return {
+      message: comSkillTag(resultado.message, skill),
+      mode: resultado.blocked ? 'blocked' : 'tool',
+      skill,
+      draft: draftAtual,
+      blocked: resultado.blocked,
+      mutatedDomain: resultado.mutated ? 'avisos' : null,
     }
   }
 

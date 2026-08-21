@@ -22,7 +22,7 @@ export type PendingAction = {
   profile_id: string | null
   actor: string | null
   origem: string
-  tool: 'create_task' | 'update_task' | 'complete_task' | 'reopen_task' | 'cancel_task'
+  tool: 'create_task' | 'update_task' | 'complete_task' | 'reopen_task' | 'cancel_task' | 'create_alert' | 'update_alert'
   argumentos: Record<string, unknown>
   descricao: string
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'executed'

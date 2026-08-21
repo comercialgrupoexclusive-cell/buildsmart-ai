@@ -389,17 +389,22 @@ async function executeTool(db: DB, name: string, args: Record<string, unknown>, 
 }
 
 // ─── Contexto BuildSmart do usuário ──────────────────────────────────────────
-async function buildUserContext(db: DB, phone: string) {
+// Identidade do remetente: SEMPRE via luizia_wa_phone_rules (telefone) ->
+// profiles (nome real), a mesma fonte estrutural usada por "minhas tarefas"
+// (lib/tarefas-ai-tools.ts) e pelos disparos (resolveResponsavelDispatch em
+// app/api/whatsapp/dispatch/route.ts). A tabela legada `luizia_wa_users`
+// (cadastro paralelo, nunca sincronizado com profiles) não existe mais no
+// banco — removida daqui para não haver duas fontes de verdade.
+async function buildUserContext(db: DB, phoneRule: { nome: string | null; profile_id: string | null } | null) {
   try {
-    const { data: waUser } = await db
-      .from('luizia_wa_users')
-      .select('nome,user_id,contexto')
-      .eq('phone', phone)
-      .maybeSingle()
-    if (!waUser) return { ctx: '', waUser: null }
+    let nomeIdentificado: string | null = phoneRule?.nome || null
+    if (phoneRule?.profile_id) {
+      const { data: profile } = await db.from('profiles').select('name').eq('id', phoneRule.profile_id).maybeSingle()
+      if ((profile as any)?.name) nomeIdentificado = (profile as any).name
+    }
+    if (!nomeIdentificado) return { ctx: '' }
 
-    let ctx = `Usuario identificado: ${(waUser as any).nome || phone}`
-    if ((waUser as any).contexto) ctx += `\n${(waUser as any).contexto}`
+    let ctx = `Usuario identificado: ${nomeIdentificado}`
 
     // Obras resumidas
     const { data: obras } = await db.from('obras').select('nome,status').order('created_at', { ascending: false }).limit(8)
@@ -412,8 +417,8 @@ async function buildUserContext(db: DB, phone: string) {
       ctx += `\n\nProjetos no sistema:\n${(projetos as any[]).map(p => `- ${p.nome} (${p.status})${p.cliente ? ' - ' + p.cliente : ''}`).join('\n')}`
     }
 
-    return { ctx, waUser }
-  } catch { return { ctx: '', waUser: null } }
+    return { ctx }
+  } catch { return { ctx: '' } }
 }
 
 // ─── Log ─────────────────────────────────────────────────────────────────────
@@ -548,14 +553,16 @@ export async function POST(req: NextRequest) {
     if (!openaiKey.startsWith('sk-')) return NextResponse.json({ ok: false, error: 'OpenAI nao configurado' })
     const openai = new OpenAI({ apiKey: openaiKey })
 
-    // ── Config + regras + histórico + contexto ────────────────────────────────
-    const [configArr, phoneRule, historyRows, { ctx: userCtx }] = await Promise.all([
+    // ── Config + regras + histórico ───────────────────────────────────────────
+    const [configArr, phoneRule, historyRows] = await Promise.all([
       db ? db.from('luizia_wa_config').select('key,value').then(r => r.data || []) : Promise.resolve([]),
       db ? db.from('luizia_wa_phone_rules').select('*').eq('phone', lookupPhone).maybeSingle().then(r => r.data) : Promise.resolve(null),
       db ? db.from('luizia_wa_messages').select('role,content').eq('phone', isGroup ? phone : lookupPhone)
         .order('created_at', { ascending: false }).limit(16).then(r => [...(r.data || [])].reverse()) : Promise.resolve([]),
-      db ? buildUserContext(db, lookupPhone) : Promise.resolve({ ctx: '', waUser: null }),
     ])
+    // Contexto do usuário depende do phoneRule já resolvido acima (fonte
+    // única telefone->profile) — não faz sentido rodar em paralelo com ele.
+    const { ctx: userCtx } = db ? await buildUserContext(db, phoneRule as { nome: string | null; profile_id: string | null } | null) : { ctx: '' }
 
     const config: Record<string, string> = Object.fromEntries((configArr as any[]).map(r => [r.key, r.value]))
 

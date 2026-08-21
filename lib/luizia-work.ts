@@ -8,7 +8,7 @@
 // ─── Skills internas ──────────────────────────────────────────────────────
 export type LuiziaSkillId =
   | 'geral' | 'orcamento' | 'planejamento' | 'execucao'
-  | 'rdo' | 'suprimentos' | 'compras' | 'financeiro' | 'tarefas'
+  | 'rdo' | 'suprimentos' | 'compras' | 'financeiro' | 'tarefas' | 'avisos'
 
 export const SKILL_LABELS: Record<LuiziaSkillId, string> = {
   geral: 'Geral',
@@ -20,6 +20,7 @@ export const SKILL_LABELS: Record<LuiziaSkillId, string> = {
   compras: 'Compras',
   financeiro: 'Financeiro',
   tarefas: 'Tarefas',
+  avisos: 'Avisos',
 }
 
 // ─── Contexto de página (detectado no cliente a partir da URL/estado atual) ─
@@ -129,6 +130,10 @@ const PATH_PARA_SKILL: { padrao: RegExp; skill: LuiziaSkillId }[] = [
 // Tarefas de Obra/Projeto) é o sinal primário; isto é o reforço por texto,
 // utilizável de qualquer página.
 const PALAVRAS_CHAVE_SKILL: { padrao: RegExp; skill: LuiziaSkillId }[] = [
+  // Avisos ANTES de tarefas de propósito: "me avise das minhas tarefas..."
+  // menciona "tarefas", mas a intenção é configurar um aviso recorrente —
+  // se o regex de tarefas viesse primeiro, "avise" nunca seria alcançado.
+  { padrao: /\bavis[eo]s?\b|\blembrete\b|\bnotifica(r|ç[ãa]o)?\b|\bresumo\b[^.?!]*\b(segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|todo dia|todos os dias)\b/i, skill: 'avisos' },
   { padrao: /\btarefas?\b|\bpend[êe]ncias?\b|\bagenda\b|\baguardando\b/i, skill: 'tarefas' },
   { padrao: /\borcamento|orçamento|composi[çc][ãa]o|insumo|bdi\b/i, skill: 'orcamento' },
   { padrao: /\bavan[çc]o f[íi]sico|planejamento|cronograma\b/i, skill: 'planejamento' },
@@ -155,7 +160,7 @@ export function detectSkill(pageContext: LuiziaPageContext | null | undefined, p
 }
 
 // ─── Intenção de alteração (heurística — não é a ferramenta CRUD real) ─────
-const VERBOS_ALTERACAO = /\b(coloque|coloca|mude|muda|mudar|altere|alterar|atualize|atualizar|marque|marcar|defina|definir|troque|trocar|exclua|excluir|delete|deletar|remova|remover|crie|criar|adicione|adicionar|cadastre|cadastrar|registre|registrar|lance|lan[çc]ar|pague|pagar|edite|editar|passa|passe)\b/i
+const VERBOS_ALTERACAO = /\b(coloque|coloca|mude|muda|mudar|altere|alterar|atualize|atualizar|marque|marcar|defina|definir|troque|trocar|exclua|excluir|delete|deletar|remova|remover|crie|criar|adicione|adicionar|cadastre|cadastrar|registre|registrar|lance|lan[çc]ar|pague|pagar|edite|editar|passa|passe|avise|avisar|notifique|notificar|pausa|pausar|reativ[ae])\b/i
 
 const REGEX_CONFIRMACAO = /\b(confirmar|confirmo|confirma(do)?|pode confirmar|pode salvar)\b/i
 

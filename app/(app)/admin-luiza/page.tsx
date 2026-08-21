@@ -17,7 +17,6 @@ function supabase() {
 
 type WaMessage = { id: string; phone: string; sender_name: string | null; role: 'user' | 'assistant'; content: string; created_at: string }
 type PhoneRule = { phone: string; nome: string | null; persona: string | null; bloqueado: boolean; profile_id: string | null }
-type WaUser = { phone: string; nome: string | null; user_id: string | null; contexto: string | null }
 type Profile = { id: string; name: string }
 type Conversa = { phone: string; nome: string; msgs: WaMessage[]; isGroup: boolean }
 type Tab = 'conversas' | 'usuarios' | 'disparos' | 'configuracao'
@@ -82,6 +81,37 @@ function fmt(dt: string) {
   return new Date(dt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+// Mascara o telefone/grupo para exibição na aba Usuários (não é dado
+// sensível de terceiros fora do painel admin, mas evita expor o número
+// completo à primeira vista na listagem).
+function maskPhone(phone: string): string {
+  if (phone.endsWith('-group')) return `Grupo •••${phone.slice(-10, -6)}`
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length <= 4) return phone
+  return `${digits.slice(0, 4)}•••••${digits.slice(-2)}`
+}
+
+// Projeção ÚNICA "vínculo" para a aba Usuários: profiles ↔
+// luizia_wa_phone_rules.profile_id — nunca um segundo cadastro. Cada
+// profile aparece uma vez (vinculado ou não); telefones de phone_rules sem
+// profile_id nenhum aparecem à parte como "sem perfil".
+type Vinculo =
+  | { tipo: 'vinculado'; profile: Profile; rule: PhoneRule }
+  | { tipo: 'sem_whatsapp'; profile: Profile }
+  | { tipo: 'sem_perfil'; rule: PhoneRule }
+
+function montarVinculos(profiles: Profile[], rules: PhoneRule[]): Vinculo[] {
+  const porProfileId = new Map(rules.filter(r => r.profile_id).map(r => [r.profile_id as string, r]))
+  const vinculos: Vinculo[] = profiles.map(p => {
+    const rule = porProfileId.get(p.id)
+    return rule ? { tipo: 'vinculado', profile: p, rule } : { tipo: 'sem_whatsapp', profile: p }
+  })
+  for (const r of rules) {
+    if (!r.profile_id) vinculos.push({ tipo: 'sem_perfil', rule: r })
+  }
+  return vinculos
+}
+
 function MsgContent({ content }: { content: string }) {
   if (content.startsWith('[foto]')) return <><ImageIcon size={11} className="inline mr-1" />{content.slice(6).trim()}</>
   if (content.startsWith('[audio]')) return <><Mic size={11} className="inline mr-1" />{content.slice(7).trim()}</>
@@ -119,12 +149,12 @@ export default function AdminLuizaPage() {
   const [savingPhone, setSavingPhone] = useState(false)
   const [profiles, setProfiles] = useState<Profile[]>([])
 
-  // ── Estado usuários ─────────────────────────────────────────────────────────
-  const [waUsers, setWaUsers] = useState<WaUser[]>([])
-  const [newUserPhone, setNewUserPhone] = useState('')
-  const [newUserNome, setNewUserNome] = useState('')
-  const [newUserCtx, setNewUserCtx] = useState('')
-  const [savingUser, setSavingUser] = useState(false)
+  // ── Estado usuários (projeção profiles ↔ luizia_wa_phone_rules.profile_id,
+  // nunca um cadastro paralelo) ────────────────────────────────────────────────
+  const [vinculando, setVinculando] = useState<string | null>(null) // profile.id sendo vinculado, ou null
+  const [vincularTelefoneExistente, setVincularTelefoneExistente] = useState('')
+  const [vincularTelefoneNovo, setVincularTelefoneNovo] = useState('')
+  const [savingVinculo, setSavingVinculo] = useState(false)
 
   // ── Estado configuração ─────────────────────────────────────────────────────
   const [config, setConfig] = useState<Config>({
@@ -160,11 +190,10 @@ export default function AdminLuizaPage() {
 
   // ── Load ─────────────────────────────────────────────────────────────────────
   async function load() {
-    const [cfgRes, msgsRes, rulesRes, usersRes, dispRes, logsRes, obrasRes, profilesRes] = await Promise.all([
+    const [cfgRes, msgsRes, rulesRes, dispRes, logsRes, obrasRes, profilesRes] = await Promise.all([
       db.from('luizia_wa_config').select('key,value'),
       db.from('luizia_wa_messages').select('*').order('created_at', { ascending: false }).limit(300),
       db.from('luizia_wa_phone_rules').select('*'),
-      db.from('luizia_wa_users').select('*').order('nome'),
       db.from('luizia_wa_dispatches').select('*').order('created_at', { ascending: false }),
       db.from('luizia_wa_dispatch_log').select('*').order('sent_at', { ascending: false }).limit(50),
       db.from('obras').select('id,nome,status').order('created_at', { ascending: false }),
@@ -197,11 +226,27 @@ export default function AdminLuizaPage() {
       isGroup: phone.length > 20 || /^120363/.test(phone),
     })))
     setRules(rulesRes.data || [])
-    setWaUsers(usersRes.data || [])
   }
 
   useEffect(() => { void load() }, [])
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [testHistory])
+
+  // Sinal cross-componente para o caso do admin ter esta página aberta
+  // enquanto usa o chat flutuante (que fica visível em qualquer página) —
+  // ver components/layout/LuiziaFloatingChat.tsx / lib/luizia-avisos-ai-
+  // tools.ts. Dentro desta própria página, Conversas e Usuários já
+  // compartilham o mesmo estado (rules/profiles) — não precisam do evento
+  // entre si, só o load() já reaproveitado por toda ação de escrita.
+  useEffect(() => {
+    function onChanged() { void load() }
+    window.addEventListener('buildsmart:luiza-dispatches-changed', onChanged)
+    window.addEventListener('buildsmart:luiza-users-changed', onChanged)
+    return () => {
+      window.removeEventListener('buildsmart:luiza-dispatches-changed', onChanged)
+      window.removeEventListener('buildsmart:luiza-users-changed', onChanged)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 3000) }
 
@@ -250,6 +295,7 @@ export default function AdminLuizaPage() {
       updated_at: new Date().toISOString(),
     })
     await load()
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('buildsmart:luiza-users-changed'))
     setSavingPhone(false)
     flash('Regra salva!')
   }
@@ -261,26 +307,44 @@ export default function AdminLuizaPage() {
     if (selectedPhone === phone) setSelectedPhone(null)
   }
 
-  // ── Usuários vinculados ──────────────────────────────────────────────────────
-  async function saveWaUser() {
-    if (!newUserPhone.trim()) return
-    setSavingUser(true)
-    await db.from('luizia_wa_users').upsert({
-      phone: newUserPhone.trim().replace(/\D/g, ''),
-      nome: newUserNome.trim() || null,
-      contexto: newUserCtx.trim() || null,
-      user_id: null,
-    })
-    setNewUserPhone(''); setNewUserNome(''); setNewUserCtx('')
-    await load()
-    setSavingUser(false)
-    flash('Vinculo salvo!')
+  // ── Usuários (projeção profiles ↔ phone_rules — mesma fonte da aba
+  // Conversas, nunca um segundo cadastro) ───────────────────────────────────────
+  function abrirVincular(profileId: string) {
+    setVinculando(profileId)
+    setVincularTelefoneExistente('')
+    setVincularTelefoneNovo('')
   }
 
-  async function deleteWaUser(phone: string) {
-    if (!confirm(`Remover vinculo de ${phone}?`)) return
-    await db.from('luizia_wa_users').delete().eq('phone', phone)
+  async function vincularProfile(profileId: string) {
+    const phoneExistente = vincularTelefoneExistente
+    const phoneNovo = vincularTelefoneNovo.trim().replace(/\D/g, '')
+    const phone = phoneExistente || phoneNovo
+    if (!phone) return
+    setSavingVinculo(true)
+    const ruleAtual = rules.find(r => r.phone === phone)
+    await db.from('luizia_wa_phone_rules').upsert({
+      phone,
+      profile_id: profileId,
+      nome: ruleAtual?.nome || null,
+      persona: ruleAtual?.persona || null,
+      bloqueado: ruleAtual?.bloqueado || false,
+      updated_at: new Date().toISOString(),
+    })
+    setVinculando(null)
+    setVincularTelefoneExistente('')
+    setVincularTelefoneNovo('')
     await load()
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('buildsmart:luiza-users-changed'))
+    setSavingVinculo(false)
+    flash('WhatsApp vinculado!')
+  }
+
+  async function desvincularProfile(phone: string) {
+    if (!confirm('Desvincular este WhatsApp do perfil?')) return
+    await db.from('luizia_wa_phone_rules').update({ profile_id: null, updated_at: new Date().toISOString() }).eq('phone', phone)
+    await load()
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('buildsmart:luiza-users-changed'))
+    flash('WhatsApp desvinculado.')
   }
 
   // ── Disparos ─────────────────────────────────────────────────────────────────
@@ -414,7 +478,7 @@ export default function AdminLuizaPage() {
             Painel — Luiza WhatsApp
           </h1>
           <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-            {conversas.length} conversa(s) · {waUsers.length} vinculado(s)
+            {conversas.length} conversa(s) · {rules.filter(r => r.profile_id).length} vinculado(s)
             {config.modo_pausado && <span className="ml-2 px-1.5 py-0.5 rounded text-white text-xs" style={{ background: '#f59e0b' }}>PAUSADA</span>}
           </p>
         </div>
@@ -459,7 +523,7 @@ export default function AdminLuizaPage() {
               ? <p className="text-sm p-2" style={{ color: 'var(--text-secondary)' }}>Nenhuma ainda.</p>
               : conversas.map(c => {
                   const rule = rules.find(r => r.phone === c.phone)
-                  const waUser = waUsers.find(u => u.phone === c.phone)
+                  const vinculado = !!rule?.profile_id
                   const last = c.msgs[c.msgs.length - 1]
                   return (
                     <button key={c.phone} onClick={() => selectPhone(c.phone)}
@@ -467,9 +531,9 @@ export default function AdminLuizaPage() {
                       style={{ background: selectedPhone === c.phone ? 'var(--accent)' : 'var(--bg-secondary)', color: selectedPhone === c.phone ? 'white' : 'var(--text-primary)', opacity: rule?.bloqueado ? 0.5 : 1 }}>
                       <div className="flex items-center gap-1.5">
                         {c.isGroup ? <UsersRound size={12} /> : <Phone size={12} />}
-                        <span className="font-medium text-sm truncate">{rule?.nome || waUser?.nome || c.nome}</span>
+                        <span className="font-medium text-sm truncate">{rule?.nome || c.nome}</span>
                         {rule?.bloqueado && <ShieldOff size={10} />}
-                        {waUser && <Link2 size={10} />}
+                        {vinculado && <Link2 size={10} aria-label="Vinculado a um perfil do BuildSmart" />}
                       </div>
                       <p className="text-xs opacity-65 truncate">{c.msgs.length} msgs {last && `· ${last.content.slice(0, 28)}…`}</p>
                     </button>
@@ -550,57 +614,101 @@ export default function AdminLuizaPage() {
       )}
 
       {/* ── USUARIOS ──────────────────────────────────────────────────────── */}
+      {/* Projeção de profiles ↔ luizia_wa_phone_rules.profile_id — a MESMA
+          fonte da aba Conversas, nunca um cadastro paralelo (luizia_wa_users
+          foi removida: não existe mais no banco). Vincular/desvincular aqui
+          e na aba Conversas mexem exatamente na mesma linha, então os dois
+          lugares já mostram sempre o mesmo estado (mesmo array `rules`). */}
       {tab === 'usuarios' && (
         <div className="flex flex-col gap-5">
-          <div className="card p-5 flex flex-col gap-4">
-            <h2 className="font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-              <Plus size={15} style={{ color: 'var(--accent)' }} />
-              Vincular numero ao BuildSmart
-            </h2>
-            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Quando a Luiza receber mensagem deste numero, ela tera acesso as obras e materiais do sistema e podra criar/editar registros por WhatsApp.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Numero (DDI sem +)</label>
-                <input value={newUserPhone} onChange={e => setNewUserPhone(e.target.value)} className="input-base text-sm" placeholder="5551995076895" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Nome</label>
-                <input value={newUserNome} onChange={e => setNewUserNome(e.target.value)} className="input-base text-sm" placeholder="Ex: Carlos Engenheiro" />
-              </div>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Contexto customizado (opcional)</label>
-              <textarea value={newUserCtx} onChange={e => setNewUserCtx(e.target.value)} rows={2} className="input-base resize-y text-sm"
-                placeholder="Ex: Responsavel pela obra Residencial Alfa. Pode criar materiais e etapas." />
-            </div>
-            <button onClick={() => void saveWaUser()} disabled={savingUser || !newUserPhone.trim()}
-              className="self-start flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium"
-              style={{ background: 'var(--accent)', color: 'white', opacity: !newUserPhone.trim() ? 0.5 : 1 }}>
-              <Save size={13} />{savingUser ? 'Salvando...' : 'Salvar vinculo'}
-            </button>
-          </div>
-
           <div className="card p-5 flex flex-col gap-3">
             <h2 className="font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-              <Link2 size={15} style={{ color: 'var(--accent)' }} />
-              Vinculados ({waUsers.length})
+              <UsersRound size={15} style={{ color: 'var(--accent)' }} />
+              Usuários — vínculo com WhatsApp
             </h2>
-            {waUsers.length === 0
-              ? <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum vinculo ainda.</p>
-              : waUsers.map(u => (
-                <div key={u.phone} className="flex items-start justify-between gap-3 rounded-xl p-3" style={{ background: 'var(--bg-secondary)' }}>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{u.nome || u.phone}</p>
-                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{u.phone}</p>
-                    {u.contexto && <p className="text-xs italic mt-0.5" style={{ color: 'var(--text-secondary)' }}>{u.contexto}</p>}
+            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Cada perfil do BuildSmart pode estar vinculado a um número/grupo de WhatsApp — necessário para a Luiza responder &quot;minhas tarefas&quot;/&quot;me avise&quot; com segurança, sem adivinhar quem é a pessoa.
+            </p>
+
+            <div className="flex flex-col gap-2">
+              {profiles.length === 0 && rules.length === 0 && (
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum perfil nem conversa ainda.</p>
+              )}
+              {montarVinculos(profiles, rules).map(v => {
+                if (v.tipo === 'vinculado') {
+                  return (
+                    <div key={`p-${v.profile.id}`} className="flex items-center justify-between gap-3 rounded-xl p-3" style={{ background: 'var(--bg-secondary)' }}>
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                          {v.profile.name}
+                          <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(34,197,94,0.15)', color: '#22c55e' }}>Vinculado</span>
+                        </p>
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          WhatsApp: {maskPhone(v.rule.phone)}{v.rule.nome ? ` · ${v.rule.nome}` : ''}
+                        </p>
+                      </div>
+                      <button onClick={() => void desvincularProfile(v.rule.phone)}
+                        className="text-xs px-2.5 py-1.5 rounded-lg flex-shrink-0" style={{ color: '#ef4444', background: 'rgba(239,68,68,0.1)' }}>
+                        Desvincular
+                      </button>
+                    </div>
+                  )
+                }
+                if (v.tipo === 'sem_whatsapp') {
+                  const aberto = vinculando === v.profile.id
+                  const naoVinculadas = rules.filter(r => !r.profile_id)
+                  return (
+                    <div key={`p-${v.profile.id}`} className="flex flex-col gap-2 rounded-xl p-3" style={{ background: 'var(--bg-secondary)' }}>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium text-sm flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                          {v.profile.name}
+                          <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>Sem WhatsApp</span>
+                        </p>
+                        <button onClick={() => aberto ? setVinculando(null) : abrirVincular(v.profile.id)}
+                          className="text-xs px-2.5 py-1.5 rounded-lg flex-shrink-0 flex items-center gap-1"
+                          style={{ background: 'var(--accent)', color: 'white' }}>
+                          <Link2 size={11} /> {aberto ? 'Cancelar' : 'Vincular WhatsApp'}
+                        </button>
+                      </div>
+                      {aberto && (
+                        <div className="flex flex-col gap-2 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+                          {naoVinculadas.length > 0 && (
+                            <div className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Telefone/grupo já em Conversas</label>
+                              <select value={vincularTelefoneExistente} onChange={e => setVincularTelefoneExistente(e.target.value)} className="input-base text-sm">
+                                <option value="">Selecione...</option>
+                                {naoVinculadas.map(r => <option key={r.phone} value={r.phone}>{r.nome || maskPhone(r.phone)}</option>)}
+                              </select>
+                            </div>
+                          )}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>Ou um número novo (DDI sem +)</label>
+                            <input value={vincularTelefoneNovo} onChange={e => setVincularTelefoneNovo(e.target.value)}
+                              className="input-base text-sm" placeholder="5551995076895" disabled={!!vincularTelefoneExistente} />
+                          </div>
+                          <button onClick={() => void vincularProfile(v.profile.id)}
+                            disabled={savingVinculo || (!vincularTelefoneExistente && !vincularTelefoneNovo.trim())}
+                            className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium"
+                            style={{ background: 'var(--accent)', color: 'white' }}>
+                            <Save size={11} />{savingVinculo ? 'Salvando...' : 'Salvar vínculo'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+                return (
+                  <div key={`r-${v.rule.phone}`} className="flex items-center justify-between gap-3 rounded-xl p-3" style={{ background: 'var(--bg-secondary)', opacity: 0.85 }}>
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{v.rule.nome || maskPhone(v.rule.phone)}</p>
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                        {maskPhone(v.rule.phone)} · <span style={{ color: '#f59e0b' }}>Telefone sem perfil</span>
+                      </p>
+                    </div>
                   </div>
-                  <button onClick={() => void deleteWaUser(u.phone)} className="p-1.5 rounded-lg flex-shrink-0" style={{ color: '#ef4444', background: 'rgba(239,68,68,0.1)' }}>
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))}
+                )
+              })}
+            </div>
           </div>
         </div>
       )}
