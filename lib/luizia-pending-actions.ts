@@ -31,6 +31,16 @@ export type PendingAction = {
   resolved_at: string | null
 }
 
+/**
+ * `alvoChave`, quando informado, identifica qual é o "rascunho" que esta
+ * proposta refina (ex.: `create_task` para uma criação em andamento, ou
+ * `update_task:{tarefaId}` para uma edição numa tarefa específica). Antes de
+ * inserir, qualquer proposta pendente ANTERIOR com a mesma chave nesta
+ * conversa é marcada expirada — "sim, mas prioridade alta" deve substituir o
+ * rascunho, não criar um segundo pendente ambíguo. Propostas com chaves
+ * diferentes (ex.: duas tarefas distintas) continuam coexistindo — é esse o
+ * caso legítimo de ambiguidade que confirm_pending_action já trata.
+ */
 export async function criarPropostaPendente(db: DB, params: {
   conversationKey: string
   profileId?: string | null
@@ -39,7 +49,22 @@ export async function criarPropostaPendente(db: DB, params: {
   tool: PendingAction['tool']
   argumentos: Record<string, unknown>
   descricao: string
+  alvoChave?: string
 }): Promise<PendingAction | null> {
+  if (params.alvoChave) {
+    const { data: existentes } = await db.from('luizia_pending_task_actions')
+      .select('id,argumentos')
+      .eq('conversation_key', params.conversationKey)
+      .eq('status', 'pending')
+    const paraExpirar = ((existentes || []) as { id: string; argumentos: Record<string, unknown> }[])
+      .filter(p => p.argumentos?.__alvoChave === params.alvoChave)
+      .map(p => p.id)
+    if (paraExpirar.length) {
+      await db.from('luizia_pending_task_actions').update({ status: 'expired', resolved_at: new Date().toISOString() }).in('id', paraExpirar)
+    }
+  }
+
+  const argumentosComChave = params.alvoChave ? { ...params.argumentos, __alvoChave: params.alvoChave } : params.argumentos
   const expiresAt = new Date(Date.now() + PENDING_TTL_MINUTOS * 60000).toISOString()
   const { data } = await db.from('luizia_pending_task_actions').insert({
     conversation_key: params.conversationKey,
@@ -47,7 +72,7 @@ export async function criarPropostaPendente(db: DB, params: {
     actor: params.actor,
     origem: params.origem,
     tool: params.tool,
-    argumentos: params.argumentos,
+    argumentos: argumentosComChave,
     descricao: params.descricao,
     status: 'pending',
     expires_at: expiresAt,

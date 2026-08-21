@@ -41,6 +41,17 @@ export default function TarefasPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editando, setEditando] = useState<Tarefa | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Luiza (chat flutuante) escreve em `tarefas` fora desta página — sem isso
+  // a lista só atualizaria num F5 manual depois de uma criação/edição feita
+  // por ela. Ver components/layout/LuiziaFloatingChat.tsx (dispara o evento
+  // quando a resposta da API indica que algo foi realmente escrito).
+  useEffect(() => {
+    function onTarefasChanged() { setRefreshKey(k => k + 1) }
+    window.addEventListener('buildsmart:tarefas-changed', onTarefasChanged)
+    return () => window.removeEventListener('buildsmart:tarefas-changed', onTarefasChanged)
+  }, [])
 
   useEffect(() => {
     if (!currentProfile) return
@@ -64,7 +75,7 @@ export default function TarefasPage() {
       setLoading(false)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, currentProfile?.id])
+  }, [tab, currentProfile?.id, refreshKey])
 
   function selecionar(t: TabId) {
     setTab(t)

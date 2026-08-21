@@ -33,6 +33,15 @@ export function ContextoTarefas({ obraId, projetoId }: { obraId?: string; projet
   const [visualizacao, setVisualizacao] = useState<Visualizacao>('lista')
   const [showModal, setShowModal] = useState(false)
   const [editando, setEditando] = useState<Tarefa | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  // Ver app/(app)/tarefas/page.tsx: mesmo evento, para a aba Tarefas dentro
+  // de Obra/Projeto também refletir uma escrita feita pela Luiza sem F5.
+  useEffect(() => {
+    function onTarefasChanged() { setRefreshKey(k => k + 1) }
+    window.addEventListener('buildsmart:tarefas-changed', onTarefasChanged)
+    return () => window.removeEventListener('buildsmart:tarefas-changed', onTarefasChanged)
+  }, [])
 
   useEffect(() => {
     let query = supabase.from('tarefas').select('*').order('data_prazo', { ascending: true, nullsFirst: false })
@@ -42,7 +51,7 @@ export function ContextoTarefas({ obraId, projetoId }: { obraId?: string; projet
       setLoading(false)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [obraId, projetoId])
+  }, [obraId, projetoId, refreshKey])
 
   function openNew() {
     setEditando(null)

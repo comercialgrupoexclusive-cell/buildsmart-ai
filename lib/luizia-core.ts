@@ -4,7 +4,7 @@ import {
   type LuiziaDraft, type LuiziaPageContext, type LuiziaSkillId,
 } from './luizia-work'
 import { processLuiziaWork } from './luizia-tools'
-import { runTarefasSkill } from './luizia-tarefas-runtime'
+import { runTarefasSkill, temPropostaPendenteAtiva } from './luizia-tarefas-runtime'
 
 type Row = Record<string, unknown>
 
@@ -45,6 +45,10 @@ export type LuiziaResult = {
   skill: LuiziaSkillId
   draft: LuiziaDraft | null
   blocked: boolean
+  // true quando esta resposta escreveu de fato em `tarefas` (criação/edição/
+  // conclusão confirmada) — o cliente usa isso para avisar /tarefas e
+  // ContextoTarefas de que precisam recarregar sem esperar F5.
+  mutated?: boolean
 }
 
 export function hasOpenAiKey() {
@@ -240,8 +244,43 @@ export async function askLuizia({
   }
 
   const ultimaMensagem = firstUserQuestion(messages)
-  const skill = detectSkill(context.pagina, ultimaMensagem)
   const draftAtual = context.draftAtual || null
+  const usuario = context.usuario as { id?: string; name?: string } | null | undefined
+
+  // Bug real de produção: o usuário digitou "modo work" esperando que isso
+  // mudasse a interface — Luiza sugeriu "mude para Work" mesmo já estando
+  // lá. A mensagem em si NUNCA muda o modo real (isso é estado do cliente,
+  // context.modoLuiza) — só avisa honestamente o estado atual, sem chamar
+  // IA nem rotear para nenhuma skill.
+  const pedidoDeModo = /\bmodo\s+(work|chat)\b/i.exec(ultimaMensagem)
+  if (pedidoDeModo && (context.modoLuiza === 'work' || context.modoLuiza === 'chat')) {
+    const desejado = pedidoDeModo[1].toLowerCase() === 'work' ? 'Work' : 'Chat'
+    const atualLabel = context.modoLuiza === 'work' ? 'Work' : 'Chat'
+    const skillModo = detectSkill(context.pagina, ultimaMensagem)
+    if (atualLabel === desejado) {
+      return {
+        message: comSkillTag(`Você já está em ${atualLabel}.`, skillModo),
+        mode: 'blocked', skill: skillModo, draft: draftAtual, blocked: false,
+      }
+    }
+    return {
+      message: comSkillTag(`Você ainda está em ${atualLabel}. Use o botão de alternância ao lado do campo de mensagem para mudar para ${desejado}.`, skillModo),
+      mode: 'blocked', skill: skillModo, draft: draftAtual, blocked: true,
+    }
+  }
+
+  let skill = detectSkill(context.pagina, ultimaMensagem)
+
+  // Uma proposta pendente da Luiza (criação ou edição de tarefa aguardando
+  // "sim"/"amanhã"/"não") força de volta para a skill tarefas mesmo que a
+  // mensagem seguinte não tenha nenhuma palavra-chave — sem isso, "amanhã"
+  // ou "sim" se perderiam no roteamento genérico por texto e a proposta
+  // nunca seria refinada/confirmada. Só verificamos em Work (só lá existe
+  // proposta pendente — Chat bloqueia qualquer intenção de escrita antes).
+  if (skill !== 'tarefas' && context.modoLuiza === 'work') {
+    const pendente = await temPropostaPendenteAtiva(usuario?.id || null)
+    if (pendente) skill = 'tarefas'
+  }
 
   // Tarefas tem runtime próprio (lib/luizia-tarefas-runtime.ts): reaproveita
   // as MESMAS tools/regras de autorização do WhatsApp e obra-ai, nunca o
@@ -249,7 +288,6 @@ export async function askLuizia({
   // passa pelo sistema de rascunho de Orçamento/Planejamento/RDO/Compras
   // (lib/luizia-tools.ts), que não sabe nada sobre tarefas.
   if (skill === 'tarefas') {
-    const usuario = context.usuario as { id?: string; name?: string } | null | undefined
     const pagina = context.pagina
     const escopadoATarefas = pagina?.aba === 'tarefas'
     const resultado = await runTarefasSkill({
@@ -267,6 +305,7 @@ export async function askLuizia({
       skill,
       draft: draftAtual,
       blocked: resultado.blocked,
+      mutated: resultado.mutated,
     }
   }
 

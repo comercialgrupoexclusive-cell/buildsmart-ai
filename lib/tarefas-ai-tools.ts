@@ -41,7 +41,7 @@ export type TarefasAiCtx = {
 
 export const TAREFAS_AI_TOOL_NAMES = [
   'list_tasks', 'get_task', 'create_task', 'update_task', 'complete_task', 'reopen_task', 'cancel_task',
-  'suggest_task_change', 'confirm_pending_action', 'reject_pending_action',
+  'suggest_task_change', 'propose_create_task', 'confirm_pending_action', 'reject_pending_action',
 ]
 
 type AcaoStatus = 'concluir' | 'reabrir' | 'cancelar'
@@ -61,7 +61,7 @@ export function tarefasAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletionTo
       type: 'function',
       function: {
         name: 'list_tasks',
-        description: 'Lista tarefas do motor de Tarefas do BuildSmart. Tarefa é uma ação que uma PESSOA precisa fazer (ex.: "confirmar pontos de ar-condicionado") — não confunda com etapa/serviço do cronograma da obra (isso é Planejamento, outra coisa). Use para responder perguntas como "o que tenho hoje", "minhas tarefas", "o que está atrasado", "o que tenho essa semana", "o que estou aguardando", "quais tarefas são da obra/projeto X", "o que o Fulano precisa fazer". Se a pergunta for pessoal ("tenho", "minhas", "pra mim") e você NÃO souber de quem é (não informe responsavel_nome/obra_nome/projeto_nome nesse caso) — a função resolve automaticamente pelo remetente. Sempre baseie a resposta no resultado desta função — nunca invente tarefa.',
+        description: 'Lista tarefas do motor de Tarefas do BuildSmart. Tarefa é uma ação que uma PESSOA precisa fazer (ex.: "confirmar pontos de ar-condicionado") — não confunda com etapa/serviço do cronograma da obra (isso é Planejamento, outra coisa). Use para responder perguntas como "o que tenho hoje", "minhas tarefas", "o que está atrasado", "o que tenho essa semana", "o que estou aguardando", "quais tarefas são da obra/projeto X", "o que o Fulano precisa fazer". Se a pergunta for pessoal ("tenho", "minhas", "pra mim", "o que eu tenho") e você NÃO souber de quem é (não informe responsavel_nome/obra_nome/projeto_nome nesse caso) — a função resolve automaticamente pelo remetente. Se a pergunta for GERAL ("no geral", "todas", "o que temos", "visão geral", "como estão as tarefas") — envie escopo_geral=true para NÃO filtrar por responsável nenhum, mesmo que a pergunta pareça pessoal à primeira vista. Na dúvida entre pessoal e geral, prefira geral e deixe a resposta explicitar o recorte (ex.: "no geral há 19 abertas, sendo 9 suas"). Sempre baseie a resposta no resultado desta função — nunca invente tarefa.',
         parameters: {
           type: 'object',
           properties: {
@@ -71,6 +71,7 @@ export function tarefasAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletionTo
               description: 'hoje = vence hoje ou atrasada; amanha = prazo EXATAMENTE amanhã (não confundir com hoje); atrasadas = só vencidas; semana = prazo nos próximos 7 dias; proximas = qualquer prazo futuro; aguardando = status aguardando; todas = sem filtro de prazo/status (ainda exclui concluída/cancelada por padrão)',
             },
             responsavel_nome: { type: 'string', description: 'Nome ou parte do nome do responsável — só informe quando o usuário pedir tarefas de OUTRA pessoa explicitamente (ex.: "o que o Gabriel tem?"). Não informe para perguntas pessoais ("minhas tarefas").' },
+            escopo_geral: { type: 'boolean', description: 'true = pergunta é sobre o todo ("no geral", "todas", "o que temos"), nunca filtrar por responsável mesmo sem outro escopo informado. Não combine com responsavel_nome.' },
             incluir_concluidas: { type: 'boolean', description: 'Se true, inclui tarefas concluídas/canceladas (padrão false)' },
             ...ctxProps,
           },
@@ -94,15 +95,36 @@ export function tarefasAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletionTo
       type: 'function',
       function: {
         name: 'create_task',
-        description: 'Cria uma nova tarefa (ação de uma pessoa) — diferente de criar uma etapa do cronograma da obra. Use quando o usuário pedir para criar, anotar ou lembrar uma tarefa/pendência. Isto é sempre uma ordem explícita (criar é um ato único, não uma sugestão) — pode chamar direto.',
+        description: 'Cria uma nova tarefa (ação de uma pessoa) — diferente de criar uma etapa do cronograma da obra. Use quando o usuário pedir para criar, anotar ou lembrar uma tarefa/pendência. Isto é sempre uma ordem explícita (criar é um ato único, não uma sugestão) — pode chamar direto. Se esta ferramenta não estiver disponível para você nesta conversa, use propose_create_task em vez desta.',
         parameters: {
           type: 'object',
           properties: {
             titulo: { type: 'string', description: 'Título da tarefa (obrigatório)' },
             descricao: { type: 'string', description: 'Detalhes opcionais' },
             responsavel_nome: { type: 'string', description: 'Nome do responsável (opcional, busca por semelhança nos perfis cadastrados)' },
+            para_mim: { type: 'boolean', description: 'true quando o usuário disse "pra mim"/"minha tarefa"/"anota pra mim" — responsável é o próprio remetente. Não combine com responsavel_nome.' },
             prioridade: { type: 'string', enum: ['baixa', 'normal', 'alta', 'urgente'], description: 'Padrão: normal' },
             data_prazo: { type: 'string', description: 'Prazo YYYY-MM-DD (opcional)' },
+            ...ctxProps,
+          },
+          required: ['titulo'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'propose_create_task',
+        description: 'Prepara (SEM CRIAR) uma proposta de nova tarefa para o usuário revisar e confirmar — use esta função em vez de create_task sempre que a superfície exigir confirmação explícita antes de qualquer escrita (ex.: chat flutuante). Devolve um rascunho com Tarefa/Responsável/Prazo/Prioridade/Contexto para você repassar ao usuário terminando com uma pergunta de confirmação (ou pedindo o dado que faltar, ex. prazo). Chamar de novo com argumentos atualizados SUBSTITUI o rascunho anterior desta conversa (não cria um segundo). NUNCA escreve em tarefas — só confirm_pending_action escreve, depois que o usuário confirmar explicitamente.',
+        parameters: {
+          type: 'object',
+          properties: {
+            titulo: { type: 'string', description: 'Título da tarefa (obrigatório)' },
+            descricao: { type: 'string', description: 'Detalhes opcionais' },
+            responsavel_nome: { type: 'string', description: 'Nome do responsável (opcional, busca por semelhança nos perfis cadastrados)' },
+            para_mim: { type: 'boolean', description: 'true quando o usuário disse "pra mim"/"minha tarefa"/"anota pra mim" — responsável é o próprio remetente. Não combine com responsavel_nome.' },
+            prioridade: { type: 'string', enum: ['baixa', 'normal', 'alta', 'urgente'], description: 'Padrão: normal' },
+            data_prazo: { type: 'string', description: 'Prazo YYYY-MM-DD (opcional, deixe de fora se o usuário ainda não disse)' },
             ...ctxProps,
           },
           required: ['titulo'],
@@ -359,6 +381,90 @@ async function aplicarPatchTarefa(db: DB, t: Tarefa, patch: Record<string, unkno
   return mensagemSucesso
 }
 
+// ─── Resolução de criação (compartilhada entre create_task direto e
+// propose_create_task) — nunca escreve, só resolve nomes e monta o payload
+// pronto para INSERT, mais o rótulo de contexto (obra/projeto/geral) para
+// mostrar na proposta antes de confirmar. ─────────────────────────────────
+async function nomeDe(db: DB, tabela: 'obras' | 'projetos', id: string): Promise<string | null> {
+  const { data } = await db.from(tabela).select('nome').eq('id', id).maybeSingle()
+  return (data as any)?.nome || null
+}
+
+type CriacaoPayload = {
+  titulo: string
+  descricao: string | null
+  obra_id: string | null
+  projeto_id: string | null
+  responsavel_id: string | null
+  responsavel_nome: string | null
+  prioridade: Tarefa['prioridade']
+  data_prazo: string | null
+  status: 'pendente'
+  concluida: false
+}
+type CriacaoResultado = { payload: CriacaoPayload; contextoLabel: string } | { erro: string }
+
+async function resolverCriacao(db: DB, args: Args, ctx: TarefasAiCtx): Promise<CriacaoResultado> {
+  if (!args.titulo || !String(args.titulo).trim()) return { erro: 'Preciso de um título para criar a tarefa.' }
+
+  let obraId: string | null = ctx.fixedObraId || null
+  if (!ctx.fixedObraId && !ctx.fixedProjetoId && args.obra_nome) {
+    const obra = await resolveObraPorNome(db, args.obra_nome)
+    if (!obra || obra.tipo === 'nao_encontrada') return { erro: `Não encontrei obra "${args.obra_nome}". A tarefa não foi criada — confirme o nome da obra.` }
+    if (obra.tipo === 'ambigua') return { erro: formatarAmbiguidade('obras', args.obra_nome, obra.candidatos.map(o => o.nome)) + ' A tarefa não foi criada.' }
+    obraId = obra.item.id
+  }
+  let projetoId: string | null = ctx.fixedProjetoId || null
+  if (!ctx.fixedObraId && !ctx.fixedProjetoId && args.projeto_nome) {
+    const projeto = await resolveProjetoPorNome(db, args.projeto_nome)
+    if (!projeto || projeto.tipo === 'nao_encontrada') return { erro: `Não encontrei projeto "${args.projeto_nome}". A tarefa não foi criada — confirme o nome do projeto.` }
+    if (projeto.tipo === 'ambigua') return { erro: formatarAmbiguidade('projetos', args.projeto_nome, projeto.candidatos.map(p => p.nome)) + ' A tarefa não foi criada.' }
+    projetoId = projeto.item.id
+  }
+
+  // "pra mim"/"minha tarefa": responsável é SEMPRE ctx.profileId (identidade
+  // estrutural do remetente) — nunca resolvido por nome, nunca deixado NULL
+  // em silêncio. Sem profileId, recusa em vez de criar sem responsável.
+  let responsavelId: string | null = null
+  let responsavelNome: string | null = null
+  if (args.para_mim) {
+    if (!ctx.profileId) return { erro: 'Não consegui identificar seu perfil para criar essa tarefa "pra você" com segurança — a tarefa não foi criada. Me diga o nome do responsável, ou peça para um administrador vincular seu perfil.' }
+    const { data } = await db.from('profiles').select('id,name').eq('id', ctx.profileId).maybeSingle()
+    responsavelId = ctx.profileId
+    responsavelNome = (data as { name?: string } | null)?.name || ctx.actor
+  } else if (args.responsavel_nome) {
+    const resp = await resolveResponsavelPorNome(db, args.responsavel_nome)
+    if (!resp || resp.tipo === 'nao_encontrada') return { erro: `Não encontrei ninguém chamado "${args.responsavel_nome}" nos perfis. A tarefa não foi criada — confirme o nome do responsável.` }
+    if (resp.tipo === 'ambigua') return { erro: formatarAmbiguidade('responsáveis', args.responsavel_nome, resp.candidatos.map(r => r.name)) + ' A tarefa não foi criada.' }
+    responsavelId = resp.item.id
+    responsavelNome = resp.item.name
+  }
+
+  const payload: CriacaoPayload = {
+    titulo: String(args.titulo).trim(),
+    descricao: args.descricao || null,
+    obra_id: obraId,
+    projeto_id: projetoId,
+    responsavel_id: responsavelId,
+    responsavel_nome: responsavelNome,
+    prioridade: ['baixa', 'normal', 'alta', 'urgente'].includes(args.prioridade) ? args.prioridade : 'normal',
+    data_prazo: args.data_prazo || null,
+    status: 'pendente',
+    concluida: false,
+  }
+
+  let contextoLabel = 'Geral / sem Projeto ou Obra'
+  if (obraId) {
+    const nome = await nomeDe(db, 'obras', obraId)
+    contextoLabel = nome ? `Obra ${nome}` : 'Obra'
+  } else if (projetoId) {
+    const nome = await nomeDe(db, 'projetos', projetoId)
+    contextoLabel = nome ? `Projeto ${nome}` : 'Projeto'
+  }
+
+  return { payload, contextoLabel }
+}
+
 // ─── Executor ────────────────────────────────────────────────────────────────
 // Retorna string com o resultado, ou null se `name` não for uma tool deste módulo.
 export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: TarefasAiCtx): Promise<string | null> {
@@ -377,7 +483,9 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
         // (WhatsApp via telefone vinculado, floating via currentProfile.id),
         // e só quando o usuário não deu nenhum outro escopo explícito — nunca
         // adivinha por semelhança de nome, exige a identidade estrutural.
-        if (temIdentidadePessoal && semEscopoExplicito) {
+        // escopo_geral=true ("no geral", "todas") sempre vence — GERAL != MINHAS,
+        // não deve virar escopo pessoal só por faltar um obra/projeto/responsável.
+        if (temIdentidadePessoal && semEscopoExplicito && !args.escopo_geral) {
           if (!ctx.profileId) {
             return ctx.origem === 'whatsapp'
               ? 'Seu WhatsApp ainda não está vinculado a um perfil do BuildSmart, então não consigo saber quais são "suas" tarefas com segurança. Peça para um administrador vincular seu número em Configurações > Luiza > Conversas, ou me diga o nome do responsável que você quer consultar (ex.: "o que o Gabriel tem?").'
@@ -438,51 +546,46 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
       }
 
       case 'create_task': {
-        if (!args.titulo || !String(args.titulo).trim()) return 'Preciso de um título para criar a tarefa.'
+        const resolvido = await resolverCriacao(db, args, ctx)
+        if ('erro' in resolvido) return resolvido.erro
+        const { payload } = resolvido
 
-        let obraId: string | null = ctx.fixedObraId || null
-        if (!ctx.fixedObraId && !ctx.fixedProjetoId && args.obra_nome) {
-          const obra = await resolveObraPorNome(db, args.obra_nome)
-          if (!obra || obra.tipo === 'nao_encontrada') return `Não encontrei obra "${args.obra_nome}". A tarefa não foi criada — confirme o nome da obra.`
-          if (obra.tipo === 'ambigua') return formatarAmbiguidade('obras', args.obra_nome, obra.candidatos.map(o => o.nome)) + ' A tarefa não foi criada.'
-          obraId = obra.item.id
-        }
-        let projetoId: string | null = ctx.fixedProjetoId || null
-        if (!ctx.fixedObraId && !ctx.fixedProjetoId && args.projeto_nome) {
-          const projeto = await resolveProjetoPorNome(db, args.projeto_nome)
-          if (!projeto || projeto.tipo === 'nao_encontrada') return `Não encontrei projeto "${args.projeto_nome}". A tarefa não foi criada — confirme o nome do projeto.`
-          if (projeto.tipo === 'ambigua') return formatarAmbiguidade('projetos', args.projeto_nome, projeto.candidatos.map(p => p.nome)) + ' A tarefa não foi criada.'
-          projetoId = projeto.item.id
-        }
-        let responsavelId: string | null = null
-        let responsavelNome: string | null = null
-        if (args.responsavel_nome) {
-          const resp = await resolveResponsavelPorNome(db, args.responsavel_nome)
-          if (!resp || resp.tipo === 'nao_encontrada') return `Não encontrei ninguém chamado "${args.responsavel_nome}" nos perfis. A tarefa não foi criada — confirme o nome do responsável.`
-          if (resp.tipo === 'ambigua') return formatarAmbiguidade('responsáveis', args.responsavel_nome, resp.candidatos.map(r => r.name)) + ' A tarefa não foi criada.'
-          responsavelId = resp.item.id
-          responsavelNome = resp.item.name
-        }
-
-        const payload = {
-          titulo: String(args.titulo).trim(),
-          descricao: args.descricao || null,
-          obra_id: obraId,
-          projeto_id: projetoId,
-          responsavel_id: responsavelId,
-          responsavel_nome: responsavelNome,
-          prioridade: ['baixa', 'normal', 'alta', 'urgente'].includes(args.prioridade) ? args.prioridade : 'normal',
-          data_prazo: args.data_prazo || null,
-          status: 'pendente',
-          concluida: false,
-        }
         const { data, error } = await db.from('tarefas').insert(payload).select('*').single()
         if (error) {
           await logAcao(db, { tarefaId: null, acao: 'criar', ctx, valorNovo: payload, resultado: 'erro', erro: error.message })
           return `Erro ao criar tarefa: ${error.message}`
         }
-        await logAcao(db, { tarefaId: (data as any).id, acao: 'criar', ctx, valorNovo: payload, resultado: 'ok' })
-        return `Tarefa "${payload.titulo}" criada${responsavelNome ? ` para ${responsavelNome}` : ''}${payload.data_prazo ? `, prazo ${formatData(payload.data_prazo)}` : ''}.`
+        await logAcao(db, { tarefaId: (data as { id: string }).id, acao: 'criar', ctx, valorNovo: payload, resultado: 'ok' })
+        return `Tarefa "${payload.titulo}" criada${payload.responsavel_nome ? ` para ${payload.responsavel_nome}` : ''}${payload.data_prazo ? `, prazo ${formatData(payload.data_prazo)}` : ''}.`
+      }
+
+      case 'propose_create_task': {
+        const resolvido = await resolverCriacao(db, args, ctx)
+        if ('erro' in resolvido) return resolvido.erro
+        const { payload, contextoLabel } = resolvido
+
+        const descricao = [
+          `Tarefa: ${payload.titulo}`,
+          `Responsável: ${payload.responsavel_nome || 'ainda não definido'}`,
+          `Prazo: ${payload.data_prazo ? formatData(payload.data_prazo) : 'ainda não definido'}`,
+          `Prioridade: ${PRIORIDADE_LABEL[payload.prioridade]}`,
+          `Contexto: ${contextoLabel}`,
+          '',
+          'Confirmar criação?',
+        ].join('\n')
+
+        const proposta = await criarPropostaPendente(db, {
+          conversationKey: ctx.conversationKey,
+          profileId: ctx.profileId,
+          actor: ctx.actor,
+          origem: ctx.origem,
+          tool: 'create_task',
+          argumentos: payload,
+          descricao,
+          alvoChave: 'create_task',
+        })
+        if (!proposta) return 'Não consegui preparar a proposta agora. Tente novamente.'
+        return descricao
       }
 
       case 'update_task': {
@@ -536,6 +639,7 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
           tool: TOOL_POR_ACAO[acao],
           argumentos: { tarefaId: t.id, patch, acaoLog: ACAO_LOG[acao], mensagemSucesso: `Tarefa "${t.titulo}" ${VERBO_ACAO[acao]} (conforme sugerido).` },
           descricao,
+          alvoChave: `${TOOL_POR_ACAO[acao]}:${t.id}`,
         })
         if (!proposta) return 'Não consegui registrar a sugestão agora. Tente novamente.'
         return descricao
@@ -553,6 +657,22 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
         if (name === 'reject_pending_action') {
           await marcarRejeitada(db, acao.id)
           return 'Certo, não vou alterar nada.'
+        }
+
+        // Proposta de CRIAÇÃO: argumentos já é o payload pronto para INSERT
+        // (montado por resolverCriacao em propose_create_task) — diferente do
+        // formato {tarefaId, patch, ...} das propostas de edição/status.
+        if (acao.tool === 'create_task') {
+          const { __alvoChave, ...payload } = acao.argumentos as CriacaoPayload & { __alvoChave?: string }
+          void __alvoChave // só existia para supersessão da proposta — não é coluna de `tarefas`
+          const { data, error } = await db.from('tarefas').insert(payload).select('*').single()
+          if (error) {
+            await logAcao(db, { tarefaId: null, acao: 'criar', ctx, valorNovo: payload, resultado: 'erro', erro: error.message })
+            return `Erro ao criar tarefa: ${error.message}`
+          }
+          await logAcao(db, { tarefaId: (data as { id: string }).id, acao: 'criar', ctx, valorNovo: payload, resultado: 'ok' })
+          await marcarExecutada(db, acao.id)
+          return `Tarefa "${payload.titulo}" criada${payload.responsavel_nome ? ` para ${payload.responsavel_nome}` : ''}${payload.data_prazo ? `, prazo ${formatData(payload.data_prazo)}` : ''}.`
         }
 
         const { tarefaId, patch, acaoLog, mensagemSucesso } = acao.argumentos as { tarefaId: string; patch: Record<string, unknown>; acaoLog: 'editar' | 'concluir' | 'reabrir' | 'cancelar'; mensagemSucesso: string }

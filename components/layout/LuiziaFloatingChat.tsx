@@ -266,6 +266,12 @@ export function LuiziaFloatingChat() {
         content: data.message || 'Nao consegui responder agora. Abra o BuildAssistente IA para tentar de novo.',
       }])
       if ('draft' in data) setDraft(data.draft || null)
+      // Luiza escreveu em `tarefas` fora da página /tarefas (ou dela mesma,
+      // se estava aberta em outra aba) — avisa quem estiver ouvindo para
+      // recarregar sem precisar de F5 (ver app/(app)/tarefas/page.tsx).
+      if (data.mutated && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('buildsmart:tarefas-changed'))
+      }
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
