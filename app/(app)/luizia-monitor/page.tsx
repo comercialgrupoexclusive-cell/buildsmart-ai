@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { BotMessageSquare, Copy, RefreshCw, Search } from 'lucide-react'
+import { BotMessageSquare, Copy, RefreshCw, Search, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { LuiziaLogEntry, getLocalLuiziaLogs } from '@/lib/luizia-monitor'
+import { useProfile } from '@/lib/profile-context'
 
 function when(value?: string) {
   if (!value) return '-'
@@ -16,6 +17,8 @@ function when(value?: string) {
 }
 
 export default function LuiziaMonitorPage() {
+  const { currentProfile } = useProfile()
+  const souAdmin = currentProfile?.tipo === 'admin'
   const [logs, setLogs] = useState<LuiziaLogEntry[]>([])
   const [remote, setRemote] = useState<boolean | null>(null)
   const [error, setError] = useState('')
@@ -24,7 +27,7 @@ export default function LuiziaMonitorPage() {
   async function refresh() {
     setError('')
     try {
-      const res = await fetch('/api/luizia-monitor', { cache: 'no-store' })
+      const res = await fetch(`/api/luizia-monitor?profileId=${encodeURIComponent(currentProfile?.id || '')}`, { cache: 'no-store' })
       const data = await res.json()
       if (data.remote && Array.isArray(data.logs)) {
         setLogs(data.logs)
@@ -41,7 +44,11 @@ export default function LuiziaMonitorPage() {
     }
   }
 
-  useEffect(() => { void refresh() }, [])
+  // Gate client-side: só busca (e só pinta) o histórico — que pode conter
+  // conversas de qualquer usuário — quando o perfil atual é admin. Ver
+  // lib/luizia-admin-guard.ts para o limite real desta trava.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (souAdmin) void refresh() }, [souAdmin])
 
   const filtrados = useMemo(() => {
     const term = busca.trim().toLowerCase()
@@ -65,6 +72,18 @@ export default function LuiziaMonitorPage() {
       '',
       `Resposta:\n${log.resposta}`,
     ].join('\n'))
+  }
+
+  if (!souAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+        <ShieldAlert size={32} style={{ color: 'var(--text-secondary)' }} />
+        <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Acesso restrito</h1>
+        <p className="text-sm max-w-sm" style={{ color: 'var(--text-secondary)' }}>
+          O Monitor da Luiza (histórico de conversas) é só para administradores. Troque para um perfil administrador para acessar.
+        </p>
+      </div>
+    )
   }
 
   return (

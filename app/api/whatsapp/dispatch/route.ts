@@ -5,6 +5,7 @@ import { sendZApiText } from '@/lib/zapi'
 import {
   calcNextRun, resolveResponsavelDispatch, gerarResumoTarefas, type Dispatch,
 } from '@/lib/luizia-dispatch'
+import { isProfileAdmin } from '@/lib/luizia-admin-guard'
 
 export const maxDuration = 60
 
@@ -159,7 +160,13 @@ export async function POST(req: NextRequest) {
     const botName = cfg['bot_name'] || 'Luiza'
 
     // ── Modo teste: "Enviar agora" do painel (dispara 1 específico) ───────────
+    // Sem gate isto era uma escrita administrativa sensível (dispara um
+    // WhatsApp real) alcançável por qualquer chamador que soubesse/
+    // descobrisse um dispatch_id — ver lib/luizia-admin-guard.ts.
     if (body?.dispatch_id) {
+      if (!(await isProfileAdmin(db, body.profile_id))) {
+        return NextResponse.json({ error: 'Acesso restrito a administradores.' }, { status: 403 })
+      }
       const { data: d } = await db.from('luizia_wa_dispatches').select('*').eq('id', body.dispatch_id).single()
       if (!d) return NextResponse.json({ error: 'Disparo nao encontrado' }, { status: 404 })
       // Envio manual não desativa nem reagenda — só envia e loga

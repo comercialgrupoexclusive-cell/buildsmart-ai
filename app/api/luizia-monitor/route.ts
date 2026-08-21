@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
+import { isProfileAdmin } from '@/lib/luizia-admin-guard'
 
 type LogPayload = {
   origem?: 'buildassist' | 'floating' | 'whatsapp'
@@ -33,10 +34,18 @@ function clean(payload: LogPayload) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabase()
     if (!supabase) return NextResponse.json({ remote: false, logs: [], error: 'Supabase nao configurado.' })
+
+    // Este histórico pode conter conversas do WhatsApp/BuildAssist de
+    // qualquer usuário — GET sem gate expunha isso a qualquer chamador. Ver
+    // lib/luizia-admin-guard.ts para o limite real dessa trava.
+    const profileId = req.nextUrl.searchParams.get('profileId')
+    if (!(await isProfileAdmin(supabase, profileId))) {
+      return NextResponse.json({ remote: false, logs: [], error: 'Acesso restrito a administradores.' }, { status: 403 })
+    }
 
     const { data, error } = await supabase
       .from('luizia_logs')

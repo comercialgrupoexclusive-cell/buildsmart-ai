@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { FakeDB } from './fake-supabase'
 import { execAvisosAiTool, type AvisosAiCtx } from '../luizia-avisos-ai-tools'
-import { calcNextRun, formatarDiasSemana } from '../luizia-dispatch'
+import { calcNextRun, formatarDiasSemana, resolverTelefoneDoProfile } from '../luizia-dispatch'
 
 const LUIZ_ID = 'profile-luiz'
 const PHONE = '5551999999999'
@@ -44,7 +44,7 @@ describe('formatarDiasSemana', () => {
 describe('GOLDEN — aviso pela Luiza (item 18 do pedido)', () => {
   it('propose_create_alert nunca escreve; confirm cria exatamente 1 dispatch com dados reais', async () => {
     const dbRaw = novoDb()
-    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false }])
+    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false, is_group: false }])
     const db = dbRaw as unknown as SupabaseClient
     const c = ctx()
 
@@ -83,25 +83,25 @@ describe('propose_create_alert — testes adicionais', () => {
     const dbRaw = novoDb()
     const db = dbRaw as unknown as SupabaseClient
     const r = await execAvisosAiTool(db, 'propose_create_alert', { dias: ['seg'], horario: '08:00' }, ctx())
-    expect(r).toMatch(/ainda não possui whatsapp vinculado/i)
+    expect(r).toMatch(/ainda não possui um whatsapp pessoal vinculado/i)
     expect(dbRaw.tables['luizia_pending_task_actions']).toHaveLength(0)
   })
 
   it('dois telefones vinculados ao mesmo perfil — pergunta qual, não escolhe sozinha', async () => {
     const dbRaw = novoDb()
     dbRaw.seed('luizia_wa_phone_rules', [
-      { phone: PHONE, nome: 'Pessoal', profile_id: LUIZ_ID, bloqueado: false },
-      { phone: '5551988888888', nome: 'Trabalho', profile_id: LUIZ_ID, bloqueado: false },
+      { phone: PHONE, nome: 'Pessoal', profile_id: LUIZ_ID, bloqueado: false, is_group: false },
+      { phone: '5551988888888', nome: 'Trabalho', profile_id: LUIZ_ID, bloqueado: false, is_group: false },
     ])
     const db = dbRaw as unknown as SupabaseClient
     const r = await execAvisosAiTool(db, 'propose_create_alert', { dias: ['seg'], horario: '08:00' }, ctx())
-    expect(r).toMatch(/mais de um whatsapp vinculado/i)
+    expect(r).toMatch(/mais de um whatsapp pessoal vinculado/i)
     expect(dbRaw.tables['luizia_pending_task_actions']).toHaveLength(0)
   })
 
   it('refinar antes de confirmar substitui a proposta (não acumula)', async () => {
     const dbRaw = novoDb()
-    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false }])
+    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false, is_group: false }])
     const db = dbRaw as unknown as SupabaseClient
     const c = ctx()
     await execAvisosAiTool(db, 'propose_create_alert', { dias: ['seg', 'ter', 'qua', 'qui', 'sex'], horario: '08:00' }, c)
@@ -117,7 +117,7 @@ describe('propose_create_alert — testes adicionais', () => {
 
   it('"não" (reject_pending_alert) descarta sem criar', async () => {
     const dbRaw = novoDb()
-    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false }])
+    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false, is_group: false }])
     const db = dbRaw as unknown as SupabaseClient
     const c = ctx()
     await execAvisosAiTool(db, 'propose_create_alert', { dias: ['seg'], horario: '08:00' }, c)
@@ -129,11 +129,53 @@ describe('propose_create_alert — testes adicionais', () => {
 
   it('obra inexistente recusa e não cria proposta', async () => {
     const dbRaw = novoDb()
-    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false }])
+    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false, is_group: false }])
     const db = dbRaw as unknown as SupabaseClient
     const r = await execAvisosAiTool(db, 'propose_create_alert', { dias: ['seg'], horario: '08:00', obra_nome: 'Obra que não existe' }, ctx())
     expect(r).toMatch(/não encontrei obra/i)
     expect(dbRaw.tables['luizia_pending_task_actions']).toHaveLength(0)
+  })
+})
+
+describe('resolverTelefoneDoProfile — hotfix grupo x individual (item 1)', () => {
+  const GRUPO = '120363426123042547-group'
+
+  it('profile vinculado só a grupo -> aviso pessoal recusado (nenhum contato individual)', async () => {
+    const dbRaw = novoDb()
+    dbRaw.seed('luizia_wa_phone_rules', [{ phone: GRUPO, nome: 'Grupo Obra', profile_id: LUIZ_ID, bloqueado: false, is_group: true }])
+    const db = dbRaw as unknown as SupabaseClient
+    const r = await resolverTelefoneDoProfile(db, LUIZ_ID)
+    expect(r.tipo).toBe('nenhum')
+
+    const preview = await execAvisosAiTool(db, 'propose_create_alert', { dias: ['seg'], horario: '08:00' }, ctx())
+    expect(preview).toMatch(/não possui um whatsapp pessoal vinculado/i)
+    expect(dbRaw.tables['luizia_pending_task_actions']).toHaveLength(0)
+  })
+
+  it('profile com 1 contato individual -> resolve corretamente', async () => {
+    const dbRaw = novoDb()
+    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: 'Luiz pessoal', profile_id: LUIZ_ID, bloqueado: false, is_group: false }])
+    const db = dbRaw as unknown as SupabaseClient
+    const r = await resolverTelefoneDoProfile(db, LUIZ_ID)
+    expect(r.tipo).toBe('unico')
+    if (r.tipo === 'unico') expect(r.phone).toBe(PHONE)
+  })
+
+  it('profile com grupo + individual -> usa só o individual, nunca o grupo', async () => {
+    const dbRaw = novoDb()
+    dbRaw.seed('luizia_wa_phone_rules', [
+      { phone: GRUPO, nome: 'Grupo Obra', profile_id: LUIZ_ID, bloqueado: false, is_group: true },
+      { phone: PHONE, nome: 'Luiz pessoal', profile_id: LUIZ_ID, bloqueado: false, is_group: false },
+    ])
+    const db = dbRaw as unknown as SupabaseClient
+    const r = await resolverTelefoneDoProfile(db, LUIZ_ID)
+    expect(r.tipo).toBe('unico')
+    if (r.tipo === 'unico') expect(r.phone).toBe(PHONE) // nunca o grupo
+
+    const preview = await execAvisosAiTool(db, 'propose_create_alert', { dias: ['seg'], horario: '08:00' }, ctx())
+    const pendente = dbRaw.tables['luizia_pending_task_actions'][0]
+    expect(pendente.argumentos.destino_phone).toBe(PHONE)
+    expect(preview).not.toContain(GRUPO)
   })
 })
 
@@ -146,7 +188,7 @@ describe('propose_update_alert — pausar/reativar/reprogramar', () => {
 
   it('"pausa meu aviso" -> ativo:false, sem next_run_at, exige confirmação', async () => {
     const dbRaw = novoDb()
-    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false }])
+    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false, is_group: false }])
     const db = dbRaw as unknown as SupabaseClient
     const c = ctx()
     await criarAvisoConfirmado(dbRaw, db, c)
@@ -163,7 +205,7 @@ describe('propose_update_alert — pausar/reativar/reprogramar', () => {
 
   it('"muda meu aviso para 7h30" reprograma o next_run_at', async () => {
     const dbRaw = novoDb()
-    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false }])
+    dbRaw.seed('luizia_wa_phone_rules', [{ phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false, is_group: false }])
     const db = dbRaw as unknown as SupabaseClient
     const c = ctx()
     await criarAvisoConfirmado(dbRaw, db, c)
@@ -187,7 +229,7 @@ describe('list_alerts', () => {
     const dbRaw = novoDb()
     dbRaw.seed('profiles', [{ id: LUIZ_ID, name: 'Luiz' }, { id: 'profile-gabriel', name: 'Gabriel' }])
     dbRaw.seed('luizia_wa_phone_rules', [
-      { phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false },
+      { phone: PHONE, nome: null, profile_id: LUIZ_ID, bloqueado: false, is_group: false },
       { phone: '5551977777777', nome: null, profile_id: 'profile-gabriel', bloqueado: false },
     ])
     dbRaw.seed('luizia_wa_dispatches', [

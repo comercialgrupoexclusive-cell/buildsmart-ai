@@ -76,11 +76,19 @@ export async function resolveResponsavelDispatch(db: DB, destinoPhone: string, e
 }
 
 /**
- * Telefone WhatsApp vinculado a um profile — "meu WhatsApp" no chat
- * flutuante resolve por aqui, nunca perguntando o número quando dá pra
- * resolver pelo Painel. `nenhum` = profile sem nenhum vínculo;
- * `multiplos` = mais de um telefone vinculado ao mesmo profile — não
- * escolhe sozinho, precisa perguntar qual.
+ * Telefone WhatsApp PESSOAL vinculado a um profile — "meu WhatsApp"/avisos
+ * pessoais resolvem por aqui, nunca perguntando o número quando dá pra
+ * resolver pelo Painel. SÓ considera contatos individuais (is_group=false)
+ * — um grupo nunca pode representar "meu WhatsApp": um aviso pessoal
+ * ("me avise das minhas tarefas") indo parar num grupo de obra/equipe seria
+ * um vazamento de informação pessoal para todo mundo do grupo. `is_group` é
+ * populado a partir de evidência real do provider (body.isGroup no webhook
+ * — ver app/api/whatsapp/webhook/route.ts), nunca inferido só pelo nome do
+ * contato. `nenhum` = profile sem nenhum contato INDIVIDUAL vinculado
+ * (mesmo que tenha grupos); `multiplos` = mais de um contato individual —
+ * não escolhe sozinho, precisa perguntar qual. Grupo continua existindo
+ * normalmente para contexto de obra/equipe (resumo_obra/resumo_tarefas por
+ * obra) — só fica de fora deste resolvedor específico.
  */
 export type TelefoneDoProfile =
   | { tipo: 'nenhum' }
@@ -88,7 +96,7 @@ export type TelefoneDoProfile =
   | { tipo: 'multiplos'; candidatos: { phone: string; nome: string | null }[] }
 
 export async function resolverTelefoneDoProfile(db: DB, profileId: string): Promise<TelefoneDoProfile> {
-  const { data } = await db.from('luizia_wa_phone_rules').select('phone,nome').eq('profile_id', profileId)
+  const { data } = await db.from('luizia_wa_phone_rules').select('phone,nome').eq('profile_id', profileId).eq('is_group', false)
   const rows = (data || []) as { phone: string; nome: string | null }[]
   if (rows.length === 0) return { tipo: 'nenhum' }
   if (rows.length === 1) return { tipo: 'unico', phone: rows[0].phone, nome: rows[0].nome }

@@ -5,8 +5,9 @@ import { createClient } from '@supabase/supabase-js'
 import {
   BotMessageSquare, MessageSquare, Phone, Power, Save, ShieldOff,
   Trash2, Users, Plus, Link2, Image as ImageIcon, Mic, UsersRound,
-  Settings2, ToggleLeft, ToggleRight, Send, RefreshCw, Wrench,
+  Settings2, ToggleLeft, ToggleRight, Send, RefreshCw, Wrench, ShieldAlert,
 } from 'lucide-react'
+import { useProfile } from '@/lib/profile-context'
 
 function supabase() {
   return createClient(
@@ -135,6 +136,8 @@ function Toggle({ on, onToggle, label, desc }: { on: boolean; onToggle: () => vo
 }
 
 export default function AdminLuizaPage() {
+  const { currentProfile } = useProfile()
+  const souAdmin = currentProfile?.tipo === 'admin'
   const db = supabase()
   const [tab, setTab] = useState<Tab>('conversas')
   const [msg, setMsg] = useState('')
@@ -228,7 +231,10 @@ export default function AdminLuizaPage() {
     setRules(rulesRes.data || [])
   }
 
-  useEffect(() => { void load() }, [])
+  // Gate client-side: só busca (e só pinta) os dados administrativos —
+  // inclusive histórico de WhatsApp de todo mundo — quando o perfil atual
+  // é admin. Ver lib/luizia-admin-guard.ts para o limite real desta trava.
+  useEffect(() => { if (souAdmin) void load() }, [souAdmin])
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [testHistory])
 
   // Sinal cross-componente para o caso do admin ter esta página aberta
@@ -423,7 +429,7 @@ export default function AdminLuizaPage() {
       const res = await fetch('/api/whatsapp/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dispatch_id: id }),
+        body: JSON.stringify({ dispatch_id: id, profile_id: currentProfile?.id || null }),
       })
       const data = await res.json()
       if (data.reason === 'sem_tarefas_relevantes') flash('Nenhuma tarefa relevante para enviar — nada foi mandado pelo WhatsApp.')
@@ -467,6 +473,18 @@ export default function AdminLuizaPage() {
     { key: 'disparos', label: 'Disparos', icon: <Send size={13} /> },
     { key: 'configuracao', label: 'Configuracao', icon: <Settings2 size={13} /> },
   ]
+
+  if (!souAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+        <ShieldAlert size={32} style={{ color: 'var(--text-secondary)' }} />
+        <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Acesso restrito</h1>
+        <p className="text-sm max-w-sm" style={{ color: 'var(--text-secondary)' }}>
+          O Painel Luiza (conversas, vínculos e avisos por WhatsApp) é só para administradores. Troque para um perfil administrador para acessar.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-5">

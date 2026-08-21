@@ -210,8 +210,8 @@ export async function execAvisosAiTool(db: DB, name: string, args: Args, ctx: Av
       case 'propose_create_alert': {
         if (!ctx.profileId) return 'Não consegui identificar seu perfil para criar esse aviso.'
         const telefone = await resolverTelefoneDoProfile(db, ctx.profileId)
-        if (telefone.tipo === 'nenhum') return 'Seu perfil ainda não possui WhatsApp vinculado no Painel Luiza. Peça para um administrador vincular seu número em Configurações > Luiza > Usuários — depois disso eu consigo criar o aviso.'
-        if (telefone.tipo === 'multiplos') return `Você tem mais de um WhatsApp vinculado (${telefone.candidatos.map(c => c.nome || c.phone).join(', ')}). Qual deles deve receber o aviso?`
+        if (telefone.tipo === 'nenhum') return 'Seu perfil ainda não possui um WhatsApp pessoal vinculado no Painel Luiza (um grupo não conta — aviso pessoal nunca vai para um grupo). Peça para um administrador vincular seu número em Configurações > Luiza > Usuários — depois disso eu consigo criar o aviso.'
+        if (telefone.tipo === 'multiplos') return `Você tem mais de um WhatsApp pessoal vinculado (${telefone.candidatos.map(c => c.nome || c.phone).join(', ')}). Qual deles deve receber o aviso?`
 
         const diasStr = diasParaTexto(Array.isArray(args.dias) ? args.dias : [])
         if (typeof diasStr !== 'string') return diasStr.erro

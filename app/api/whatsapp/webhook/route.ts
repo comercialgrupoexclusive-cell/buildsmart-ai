@@ -564,6 +564,15 @@ export async function POST(req: NextRequest) {
     // única telefone->profile) — não faz sentido rodar em paralelo com ele.
     const { ctx: userCtx } = db ? await buildUserContext(db, phoneRule as { nome: string | null; profile_id: string | null } | null) : { ctx: '' }
 
+    // Marca estrutural individual/grupo (item 1 do hotfix "Luiza/WhatsApp/
+    // privacidade"): body.isGroup é evidência real do provider (Z-API), não
+    // uma inferência por nome — sem isso resolverTelefoneDoProfile (avisos
+    // pessoais) não tem como saber que um "vínculo" é na verdade um grupo.
+    // Nunca deve derrubar o processamento da mensagem em si.
+    if (db) {
+      try { await db.from('luizia_wa_phone_rules').upsert({ phone: lookupPhone, is_group: isGroup }, { onConflict: 'phone' }) } catch { /* ignore */ }
+    }
+
     const config: Record<string, string> = Object.fromEntries((configArr as any[]).map(r => [r.key, r.value]))
 
     if (config['modo_pausado'] === 'true') return NextResponse.json({ ok: true, skip: 'paused' })
