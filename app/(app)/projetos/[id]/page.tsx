@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, KeyRound } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, KeyRound, ClipboardList } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemDependencia, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
@@ -12,6 +12,7 @@ import { ProjetoAssistenteIA } from '@/components/projeto/ProjetoAssistenteIA'
 import { TourManager } from '@/components/tour/TourManager'
 import { ProjetoOrcamentosPanel } from '@/components/projeto/ProjetoOrcamentosPanel'
 import { IniciarObraButton } from '@/components/projeto/IniciarObraButton'
+import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
 import { entregarObra, type ProjectPhase } from '@/lib/project-cycle'
 import dynamic from 'next/dynamic'
 
@@ -60,8 +61,8 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
   const [dependencias, setDependencias] = useState<ProjetoItemDependencia[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia'>(
-    (searchParams.get('tab') as 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia') ?? 'estrutura'
+  const [tab, setTab] = useState<'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas'>(
+    (searchParams.get('tab') as 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas') ?? 'estrutura'
   )
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
@@ -363,6 +364,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           { key: 'tour',       label: 'Tour 360°',    icon: ImagePlus },
           { key: 'dados',      label: 'Dados Gerais', icon: Info },
           { key: 'ia',         label: 'Assistente IA', icon: Sparkles },
+          { key: 'tarefas',    label: 'Tarefas',       icon: ClipboardList },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -461,6 +463,8 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       {tab === 'ia' && (
         <ProjetoAssistenteIA projeto={projeto} itens={itens} onReload={loadData} />
       )}
+
+      {tab === 'tarefas' && <ContextoTarefas projetoId={projeto.id} />}
 
       {tab === 'dados' && (
         <div className="space-y-4">

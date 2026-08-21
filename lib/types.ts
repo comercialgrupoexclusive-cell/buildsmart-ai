@@ -490,7 +490,7 @@ export type Tarefa = {
   projeto_id: string | null
   responsavel_id: string | null
   responsavel_nome: string | null
-  status: 'pendente' | 'em_andamento' | 'concluida' | 'cancelada'
+  status: 'pendente' | 'em_andamento' | 'aguardando' | 'concluida' | 'cancelada'
   prioridade: 'baixa' | 'normal' | 'alta' | 'urgente'
   data_prazo: string | null
   concluida: boolean
@@ -498,6 +498,7 @@ export type Tarefa = {
   created_at: string
   updated_at: string
   obra?: { nome: string } | null
+  projeto?: { nome: string } | null
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────

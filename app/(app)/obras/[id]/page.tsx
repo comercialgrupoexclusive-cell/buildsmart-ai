@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Obra, SINAPI_UFS } from '@/lib/types'
 import { formatDate, STATUS_OBRA_COLOR } from '@/lib/utils'
-import { HardHat, MapPin, Calendar, CalendarRange, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, Truck, Camera, X, Loader2, FileText, FolderOpen, Banknote, LayoutDashboard, Sparkles } from 'lucide-react'
+import { HardHat, MapPin, Calendar, CalendarRange, User, ChevronLeft, MoreVertical, Pencil, Copy, Trash2, Truck, Camera, X, Loader2, FileText, FolderOpen, Banknote, LayoutDashboard, Sparkles, ClipboardList } from 'lucide-react'
 import Link from 'next/link'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -21,6 +21,7 @@ import { ObraProjetoTab } from '@/components/obra/ObraProjetoTab'
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
 import { ObraAssistenteDock } from '@/components/obra/ObraAssistenteDock'
 import { OrcamentoEtapasIniciaisModal } from '@/components/obra/OrcamentoEtapasIniciaisModal'
+import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
 import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 
 // Regra 1: "Cronograma" e "Planejamento 2.0" eram duas árvores concorrentes
@@ -29,7 +30,7 @@ import { useObraOrcamento } from '@/lib/obra-orcamento-context'
 // cronograma (ObraCronograma.tsx, com etapas soltas por cronograma_id)
 // continua no banco por compatibilidade (regra 9), só não tem mais entrada
 // própria aqui.
-type Tab = 'projeto' | 'orcamento' | 'planejamento' | 'suprimentos' | 'medicoes' | 'financeiro'
+type Tab = 'projeto' | 'orcamento' | 'planejamento' | 'suprimentos' | 'medicoes' | 'financeiro' | 'tarefas'
 
 const TABS: { id: Tab; label: string; icon?: typeof LayoutDashboard }[] = [
   { id: 'projeto', label: 'Projeto', icon: FolderOpen },
@@ -38,6 +39,7 @@ const TABS: { id: Tab; label: string; icon?: typeof LayoutDashboard }[] = [
   { id: 'suprimentos', label: 'Suprimentos', icon: Truck },
   { id: 'medicoes', label: 'Medições' },
   { id: 'financeiro', label: 'Financeiro', icon: Banknote },
+  { id: 'tarefas', label: 'Tarefas', icon: ClipboardList },
 ]
 
 export default function ObraPage({ params }: { params: Promise<{ id: string }> }) {
@@ -418,6 +420,7 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
         {tab === 'suprimentos' && <ObraMateriais obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'medicoes' && <ObraMedicoes obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
         {tab === 'financeiro' && <ObraFinanceiroTab obraId={id} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+        {tab === 'tarefas' && <ContextoTarefas obraId={id} />}
       </div>
 
       {/* Modal editar obra */}

@@ -24,8 +24,7 @@ export function MinhasTarefasWidget() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!currentProfile) { setLoading(false); return }
-    setLoading(true)
+    if (!currentProfile) return
     supabase
       .from('tarefas')
       .select('*, obra:obras(nome)')
@@ -36,6 +35,7 @@ export function MinhasTarefasWidget() {
         setTarefas(data || [])
         setLoading(false)
       })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProfile?.id])
 
   async function alternarConcluida(t: Tarefa) {
@@ -56,9 +56,14 @@ export function MinhasTarefasWidget() {
 
   return (
     <div className="card p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <ClipboardList size={18} style={{ color: 'var(--accent)' }} />
-        <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Minhas tarefas</h2>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <div className="flex items-center gap-2">
+          <ClipboardList size={18} style={{ color: 'var(--accent)' }} />
+          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Minhas tarefas</h2>
+        </div>
+        <Link href="/tarefas" className="text-xs font-medium hover:underline" style={{ color: 'var(--accent)' }}>
+          Ver todas
+        </Link>
       </div>
 
       {loading ? (

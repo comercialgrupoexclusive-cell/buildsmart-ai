@@ -1,27 +1,19 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { CheckSquare, Square, Plus, Pencil, Trash2, ClipboardList, AlertTriangle, List, LayoutGrid } from 'lucide-react'
+import { Pencil, Trash2, ClipboardList, AlertTriangle, List, LayoutGrid, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Tarefa } from '@/lib/types'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
-import { Modal } from '@/components/ui/Modal'
-import { Input, Select, Textarea } from '@/components/ui/Input'
-
-const PRIORIDADE_LABEL: Record<Tarefa['prioridade'], string> = {
-  baixa: 'Baixa', normal: 'Normal', alta: 'Alta', urgente: 'Urgente',
-}
-
-const PRIORIDADE_COLOR: Record<Tarefa['prioridade'], string> = {
-  baixa: 'var(--text-secondary)', normal: 'var(--accent)', alta: 'var(--warning)', urgente: 'var(--danger)',
-}
-
-const PRIORIDADE_ORDEM: Record<Tarefa['prioridade'], number> = { urgente: 0, alta: 1, normal: 2, baixa: 3 }
+import { PRIORIDADE_COLOR, PRIORIDADE_LABEL, isAtrasada, ordenarTarefas } from '@/lib/tarefas'
+import { LinhaTarefa } from '@/components/tarefas/LinhaTarefa'
+import { TarefaModal } from '@/components/tarefas/TarefaModal'
 
 const STATUS_COLUNAS: { id: Tarefa['status']; label: string }[] = [
   { id: 'pendente', label: 'Pendente' },
   { id: 'em_andamento', label: 'Em andamento' },
+  { id: 'aguardando', label: 'Aguardando' },
   { id: 'concluida', label: 'Concluída' },
   { id: 'cancelada', label: 'Cancelada' },
 ]
@@ -29,86 +21,41 @@ const STATUS_COLUNAS: { id: Tarefa['status']; label: string }[] = [
 type Filtro = 'pendentes' | 'concluidas'
 type Visualizacao = 'lista' | 'kanban'
 
-export function ObraTarefas({ obraId }: { obraId: string }) {
+// Painel de tarefas de um contexto (Obra ou Projeto — exatamente um dos dois
+// ids é passado). Tarefas criadas aqui herdam automaticamente esse contexto;
+// as mesmas linhas também aparecem em Tarefas > Minhas/Hoje/Próximas/etc,
+// sem nenhuma duplicação — é a mesma tabela `tarefas`, só outra consulta.
+export function ContextoTarefas({ obraId, projetoId }: { obraId?: string; projetoId?: string }) {
   const supabase = createClient()
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
-  const [usuarios, setUsuarios] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<Filtro>('pendentes')
   const [visualizacao, setVisualizacao] = useState<Visualizacao>('lista')
-
   const [showModal, setShowModal] = useState(false)
   const [editando, setEditando] = useState<Tarefa | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
-    titulo: '', descricao: '', responsavel_id: '', responsavel_nome: '',
-    prioridade: 'normal' as Tarefa['prioridade'], data_prazo: '',
-  })
 
   useEffect(() => {
-    loadDados()
-  }, [obraId])
-
-  async function loadDados() {
-    setLoading(true)
-    const [tarefasRes, usuariosRes] = await Promise.all([
-      supabase.from('tarefas').select('*').eq('obra_id', obraId).order('data_prazo', { ascending: true, nullsFirst: false }),
-      supabase.from('profiles').select('id, name').order('name'),
-    ])
-    setTarefas((tarefasRes.data || []) as Tarefa[])
-    setUsuarios(usuariosRes.data || [])
-    setLoading(false)
-  }
-
-  function resetForm() {
-    setForm({ titulo: '', descricao: '', responsavel_id: '', responsavel_nome: '', prioridade: 'normal', data_prazo: '' })
-  }
+    let query = supabase.from('tarefas').select('*').order('data_prazo', { ascending: true, nullsFirst: false })
+    query = obraId ? query.eq('obra_id', obraId) : query.eq('projeto_id', projetoId as string)
+    query.then(({ data }: { data: Tarefa[] | null }) => {
+      setTarefas(data || [])
+      setLoading(false)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obraId, projetoId])
 
   function openNew() {
     setEditando(null)
-    resetForm()
     setShowModal(true)
   }
 
   function openEdit(t: Tarefa) {
     setEditando(t)
-    setForm({
-      titulo: t.titulo,
-      descricao: t.descricao || '',
-      responsavel_id: t.responsavel_id || '',
-      responsavel_nome: t.responsavel_nome || '',
-      prioridade: t.prioridade,
-      data_prazo: t.data_prazo || '',
-    })
     setShowModal(true)
   }
 
-  async function handleSave() {
-    if (!form.titulo.trim()) return
-    setSaving(true)
-    const responsavelNome = usuarios.find(u => u.id === form.responsavel_id)?.name || form.responsavel_nome || null
-    const payload = {
-      titulo: form.titulo.trim(),
-      descricao: form.descricao.trim() || null,
-      obra_id: obraId,
-      responsavel_id: form.responsavel_id || null,
-      responsavel_nome: responsavelNome,
-      prioridade: form.prioridade,
-      data_prazo: form.data_prazo || null,
-      updated_at: new Date().toISOString(),
-    }
-    const { data, error } = editando
-      ? await supabase.from('tarefas').update(payload).eq('id', editando.id).select().single()
-      : await supabase.from('tarefas').insert({ ...payload, status: 'pendente', concluida: false }).select().single()
-    setSaving(false)
-    if (error) {
-      alert(`Não foi possível salvar a tarefa.\n\nErro: ${error.message}`)
-      return
-    }
-    if (data) setTarefas(prev => editando ? prev.map(t => t.id === data.id ? data as Tarefa : t) : [data as Tarefa, ...prev])
-    setShowModal(false)
-    setEditando(null)
-    resetForm()
+  function onSaved(t: Tarefa) {
+    setTarefas(prev => prev.some(x => x.id === t.id) ? prev.map(x => x.id === t.id ? t : x) : [t, ...prev])
   }
 
   async function handleDelete(id: string) {
@@ -139,15 +86,7 @@ export function ObraTarefas({ obraId }: { obraId: string }) {
   }
 
   const tarefasFiltradas = useMemo(() => {
-    return tarefas
-      .filter(t => filtro === 'pendentes' ? !t.concluida : t.concluida)
-      .sort((a, b) => {
-        const pri = PRIORIDADE_ORDEM[a.prioridade] - PRIORIDADE_ORDEM[b.prioridade]
-        if (pri !== 0) return pri
-        if (!a.data_prazo) return 1
-        if (!b.data_prazo) return -1
-        return a.data_prazo.localeCompare(b.data_prazo)
-      })
+    return ordenarTarefas(tarefas.filter(t => filtro === 'pendentes' ? !t.concluida : t.concluida))
   }, [tarefas, filtro])
 
   if (loading) {
@@ -208,7 +147,7 @@ export function ObraTarefas({ obraId }: { obraId: string }) {
           <EmptyState
             icon={ClipboardList}
             title="Nenhuma tarefa"
-            description="Cadastre tarefas para acompanhar pendências desta obra, com responsável, prazo e prioridade."
+            description="Cadastre tarefas para acompanhar pendências, com responsável, prazo e prioridade."
             action={<Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Nova tarefa</Button>}
           />
         ) : (
@@ -218,7 +157,7 @@ export function ObraTarefas({ obraId }: { obraId: string }) {
         <EmptyState
           icon={ClipboardList}
           title="Nenhuma tarefa"
-          description="Cadastre tarefas para acompanhar pendências desta obra, com responsável, prazo e prioridade."
+          description="Cadastre tarefas para acompanhar pendências, com responsável, prazo e prioridade."
           action={<Button size="sm" icon={<Plus size={14} />} onClick={openNew}>Nova tarefa</Button>}
         />
       ) : (
@@ -229,62 +168,14 @@ export function ObraTarefas({ obraId }: { obraId: string }) {
         </div>
       )}
 
-      <Modal
+      <TarefaModal
         open={showModal}
-        onClose={() => { setShowModal(false); setEditando(null); resetForm() }}
-        title={editando ? 'Editar tarefa' : 'Nova tarefa'}
-        size="md"
-      >
-        <div className="flex flex-col gap-4">
-          <Input
-            label="Título *"
-            value={form.titulo}
-            onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))}
-            placeholder="Ex: Solicitar orçamento de elétrica"
-            autoFocus={!editando}
-          />
-          <Textarea
-            label="Descrição"
-            value={form.descricao}
-            onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))}
-            placeholder="Detalhes opcionais"
-            rows={3}
-          />
-          <Select
-            label="Responsável"
-            value={form.responsavel_id}
-            onChange={e => setForm(f => ({ ...f, responsavel_id: e.target.value }))}
-          >
-            <option value="">Sem responsável definido</option>
-            {usuarios.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </Select>
-          <div className="grid grid-cols-2 gap-3">
-            <Select
-              label="Prioridade"
-              value={form.prioridade}
-              onChange={e => setForm(f => ({ ...f, prioridade: e.target.value as Tarefa['prioridade'] }))}
-            >
-              {(['baixa', 'normal', 'alta', 'urgente'] as const).map(p => (
-                <option key={p} value={p}>{PRIORIDADE_LABEL[p]}</option>
-              ))}
-            </Select>
-            <Input
-              label="Prazo"
-              type="date"
-              value={form.data_prazo}
-              onChange={e => setForm(f => ({ ...f, data_prazo: e.target.value }))}
-            />
-          </div>
-          <div className="flex gap-3 pt-2">
-            <Button variant="secondary" className="flex-1" onClick={() => { setShowModal(false); setEditando(null); resetForm() }}>
-              Cancelar
-            </Button>
-            <Button className="flex-1" loading={saving} disabled={!form.titulo.trim()} onClick={handleSave}>
-              {editando ? 'Salvar' : 'Adicionar'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        onClose={() => { setShowModal(false); setEditando(null) }}
+        editando={editando}
+        obraId={obraId}
+        projetoId={projetoId}
+        onSaved={onSaved}
+      />
     </div>
   )
 }
@@ -301,7 +192,7 @@ function KanbanTarefas({
   const [dragOver, setDragOver] = useState<Tarefa['status'] | null>(null)
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
       {STATUS_COLUNAS.map(col => {
         const itens = tarefas.filter(t => t.status === col.id)
         return (
@@ -329,7 +220,7 @@ function KanbanTarefas({
             </div>
 
             {itens.map(t => {
-              const atrasada = !t.concluida && t.data_prazo && new Date(t.data_prazo + 'T23:59:59') < new Date()
+              const atrasada = isAtrasada(t)
               return (
                 <div
                   key={t.id}
@@ -374,61 +265,6 @@ function KanbanTarefas({
           </div>
         )
       })}
-    </div>
-  )
-}
-
-function LinhaTarefa({
-  tarefa: t, onToggle, onEdit, onDelete,
-}: {
-  tarefa: Tarefa
-  onToggle: (t: Tarefa) => void
-  onEdit: (t: Tarefa) => void
-  onDelete: (id: string) => void
-}) {
-  const atrasada = !t.concluida && t.data_prazo && new Date(t.data_prazo + 'T23:59:59') < new Date()
-
-  return (
-    <div className="flex items-start gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-      <button onClick={() => onToggle(t)} className="flex-shrink-0 pt-0.5" title={t.concluida ? 'Marcar como pendente' : 'Marcar como concluída'}>
-        {t.concluida
-          ? <CheckSquare size={18} style={{ color: 'var(--success)' }} />
-          : <Square size={18} style={{ color: 'var(--text-secondary)' }} />}
-      </button>
-
-      <div className="min-w-0 flex-1">
-        <p
-          className="text-sm font-medium truncate"
-          style={{ color: t.concluida ? 'var(--text-secondary)' : 'var(--text-primary)', textDecoration: t.concluida ? 'line-through' : 'none' }}
-        >
-          {t.titulo}
-        </p>
-        <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {t.responsavel_nome && <span>{t.responsavel_nome}</span>}
-          {t.data_prazo && (
-            <span className="inline-flex items-center gap-1" style={{ color: atrasada ? 'var(--danger)' : 'var(--text-secondary)' }}>
-              {atrasada && <AlertTriangle size={11} />}
-              {new Date(t.data_prazo + 'T12:00').toLocaleDateString('pt-BR')}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <span
-        className="hidden sm:inline text-xs font-semibold px-2 py-1 rounded-full flex-shrink-0"
-        style={{ color: PRIORIDADE_COLOR[t.prioridade], background: 'var(--bg-card)' }}
-      >
-        {PRIORIDADE_LABEL[t.prioridade]}
-      </span>
-
-      <div className="flex items-center gap-1 flex-shrink-0">
-        <button onClick={() => onEdit(t)} title="Editar" className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
-          <Pencil size={14} style={{ color: 'var(--text-secondary)' }} />
-        </button>
-        <button onClick={() => onDelete(t.id)} title="Remover" className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors">
-          <Trash2 size={14} style={{ color: 'var(--danger)' }} />
-        </button>
-      </div>
     </div>
   )
 }
