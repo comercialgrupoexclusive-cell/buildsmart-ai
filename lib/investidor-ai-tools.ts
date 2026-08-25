@@ -64,6 +64,11 @@ export const INVESTIDOR_AI_TOOL_NAMES = [
 const FASES: ProspeccaoFase[] = ['nova', 'em_analise', 'aprovada', 'em_disputa', 'adquirida', 'descartada', 'nao_adquirida']
 const MODALIDADES: ProspeccaoCenario['modalidade'][] = ['vista', 'sac', 'price']
 const MODALIDADE_LABEL: Record<ProspeccaoCenario['modalidade'], string> = { vista: 'À vista', sac: 'Financiado (SAC)', price: 'Financiado (PRICE)' }
+// Hotfix pré-reunião: dimensão independente de `modalidade` — leilão
+// (padrão) ou compra direta (sem leiloeiro, comissão não se aplica — ver
+// lib/investidor-calculadora.ts).
+const TIPOS_AQUISICAO: ProspeccaoCenario['tipo_aquisicao'][] = ['leilao', 'compra_direta']
+const TIPO_AQUISICAO_LABEL: Record<ProspeccaoCenario['tipo_aquisicao'], string> = { leilao: 'Leilão', compra_direta: 'Compra direta' }
 const NATUREZAS: ProspeccaoEvidencia['natureza'][] = ['observado', 'inferido', 'estimado']
 const NATUREZA_LABEL: Record<ProspeccaoEvidencia['natureza'], string> = { observado: 'Observado', inferido: 'Inferido', estimado: 'Estimado' }
 
@@ -219,6 +224,7 @@ export function investidorAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletio
             ...ctxProps(scoped),
             nome_cenario: { type: 'string', description: 'Nome do cenário (ex.: "Financiado SAC 20%")' },
             modalidade: { type: 'string', enum: MODALIDADES, description: 'vista, sac ou price' },
+            tipo_aquisicao: { type: 'string', enum: TIPOS_AQUISICAO, description: 'leilao (padrão) ou compra_direta — compra direta não tem leiloeiro, não informe comissao_leiloeiro nesse caso' },
             ...CENARIO_PROPS,
           },
           required: ['nome_cenario', 'modalidade'],
@@ -235,6 +241,7 @@ export function investidorAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletio
           properties: {
             ...ctxProps(scoped),
             nome_cenario: { type: 'string', description: 'Nome (ou parte) do cenário a alterar' },
+            tipo_aquisicao: { type: 'string', enum: TIPOS_AQUISICAO, description: 'leilao ou compra_direta, só se estiver mudando isso' },
             ...CENARIO_PROPS,
           },
           required: ['nome_cenario'],
@@ -371,7 +378,7 @@ function resumoProspeccao(p: Prospeccao, principal?: ProspeccaoCenario | null): 
 }
 
 function resumoCenario(c: ProspeccaoCenario): string {
-  const partes = [`"${c.nome}"`, MODALIDADE_LABEL[c.modalidade], c.principal ? 'PRINCIPAL' : null]
+  const partes = [`"${c.nome}"`, TIPO_AQUISICAO_LABEL[c.tipo_aquisicao], MODALIDADE_LABEL[c.modalidade], c.principal ? 'PRINCIPAL' : null]
   if (c.investimento_total != null) partes.push(`investimento ${formatCurrency(c.investimento_total)}`)
   if (c.lucro != null && c.rentabilidade != null) partes.push(`lucro ${formatCurrency(c.lucro)} (${c.rentabilidade.toFixed(1)}%)`)
   else partes.push('resultado ainda não calculado')
@@ -399,7 +406,10 @@ function montarPremissas(args: Args, modalidade: ProspeccaoCenario['modalidade']
     if (args[campo] !== undefined) return args[campo] == null ? null : Number(args[campo])
     return doBase(campo)
   }
-  const premissas = { modalidade } as unknown as Record<string, unknown>
+  const tipoAquisicao: ProspeccaoCenario['tipo_aquisicao'] = TIPOS_AQUISICAO.includes(args.tipo_aquisicao)
+    ? args.tipo_aquisicao
+    : base?.tipo_aquisicao ?? 'leilao'
+  const premissas = { modalidade, tipo_aquisicao: tipoAquisicao } as unknown as Record<string, unknown>
   for (const c of CAMPOS_PERCENTUAL) premissas[c] = pct(c)
   for (const c of CAMPOS_MONETARIOS) premissas[c] = num(c)
   for (const c of CAMPOS_INTEIROS) premissas[c] = num(c)

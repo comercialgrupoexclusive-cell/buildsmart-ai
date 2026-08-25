@@ -24,12 +24,23 @@ export const MODALIDADE_LABEL: Record<ProspeccaoCenario['modalidade'], string> =
   price: 'Financiado (PRICE)',
 }
 
+// Hotfix pré-reunião: dimensão independente de `modalidade` (forma de
+// pagamento) — evita que a Análise fique "excessivamente orientada a
+// leilão". Compra direta não tem leiloeiro: o campo de comissão do
+// leiloeiro some do formulário e o motor (lib/investidor-calculadora.ts)
+// já ignora esse custo para esse tipo, mesmo que venha preenchido.
+export const TIPO_AQUISICAO_LABEL: Record<ProspeccaoCenario['tipo_aquisicao'], string> = {
+  leilao: 'Leilão',
+  compra_direta: 'Compra direta',
+}
+
 // Campos de premissa como string controlada (permite input vazio) — %
 // exibido/editado como número "5" para 5%, convertido para fração (0.05)
 // só na hora de calcular/salvar.
 type FormState = {
   nome: string
   modalidade: ProspeccaoCenario['modalidade']
+  tipo_aquisicao: ProspeccaoCenario['tipo_aquisicao']
   valor_arrematacao: string
   valor_venda_estimado: string
   comissao_leiloeiro: string
@@ -49,7 +60,7 @@ type FormState = {
 }
 
 const FORM_VAZIO: FormState = {
-  nome: 'Novo cenário', modalidade: 'vista',
+  nome: 'Novo cenário', modalidade: 'vista', tipo_aquisicao: 'leilao',
   valor_arrematacao: '', valor_venda_estimado: '',
   comissao_leiloeiro: '5', itbi: '3', registro: '', advogado_desocupacao: '',
   reforma: '', outros_custos: '',
@@ -62,7 +73,7 @@ function cenarioParaForm(c: ProspeccaoCenario): FormState {
   const pct = (v: number | null) => v == null ? '' : String(v * 100)
   const num = (v: number | null) => v == null ? '' : String(v)
   return {
-    nome: c.nome, modalidade: c.modalidade,
+    nome: c.nome, modalidade: c.modalidade, tipo_aquisicao: c.tipo_aquisicao,
     valor_arrematacao: num(c.valor_arrematacao), valor_venda_estimado: num(c.valor_venda_estimado),
     comissao_leiloeiro: pct(c.comissao_leiloeiro), itbi: pct(c.itbi),
     registro: num(c.registro), advogado_desocupacao: num(c.advogado_desocupacao),
@@ -78,7 +89,7 @@ function formParaPremissas(f: FormState): PremissasCenario {
   const num = (s: string): number | null => s.trim() === '' ? null : Number(s)
   const frac = (s: string): number | null => s.trim() === '' ? null : Number(s) / 100
   return {
-    modalidade: f.modalidade,
+    modalidade: f.modalidade, tipo_aquisicao: f.tipo_aquisicao,
     valor_arrematacao: num(f.valor_arrematacao), valor_venda_estimado: num(f.valor_venda_estimado),
     comissao_leiloeiro: frac(f.comissao_leiloeiro), itbi: frac(f.itbi),
     registro: num(f.registro), advogado_desocupacao: num(f.advogado_desocupacao),
@@ -176,7 +187,7 @@ function ListaCenarios({
                       {c.principal && <Star size={13} fill="var(--accent)" style={{ color: 'var(--accent)' }} />}
                       <p className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{c.nome}</p>
                     </div>
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{MODALIDADE_LABEL[c.modalidade]}</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{TIPO_AQUISICAO_LABEL[c.tipo_aquisicao]} · {MODALIDADE_LABEL[c.modalidade]}</p>
                   </div>
                   {!c.principal && (
                     <button
@@ -245,6 +256,7 @@ function EditorCenario({
   const premissas = formParaPremissas(form)
   const resultado = calcularCenario(premissas)
   const financiado = form.modalidade !== 'vista'
+  const compraDireta = form.tipo_aquisicao === 'compra_direta'
   const positivo = resultado.lucro >= 0
 
   function campo(k: keyof FormState, label: string, opts?: { hint?: string; type?: string }) {
@@ -281,6 +293,14 @@ function EditorCenario({
 
       <div className="card p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Input label="Nome do cenário" value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
+        <Select
+          label="Tipo de aquisição"
+          value={form.tipo_aquisicao}
+          onChange={e => setForm(f => ({ ...f, tipo_aquisicao: e.target.value as ProspeccaoCenario['tipo_aquisicao'] }))}
+        >
+          <option value="leilao">Leilão</option>
+          <option value="compra_direta">Compra direta</option>
+        </Select>
         <Select label="Modalidade" value={form.modalidade} onChange={e => setForm(f => ({ ...f, modalidade: e.target.value as ProspeccaoCenario['modalidade'] }))}>
           <option value="vista">À vista</option>
           <option value="sac">Financiado — SAC</option>
@@ -311,8 +331,8 @@ function EditorCenario({
         </Secao>
       )}
 
-      <Secao titulo="Custos da arrematação">
-        {campo('comissao_leiloeiro', 'Comissão do leiloeiro', { hint: '%' })}
+      <Secao titulo={compraDireta ? 'Custos da compra' : 'Custos da arrematação'}>
+        {!compraDireta && campo('comissao_leiloeiro', 'Comissão do leiloeiro', { hint: '%' })}
         {campo('itbi', 'ITBI', { hint: '%' })}
         {campo('registro', 'Registro', { hint: 'R$' })}
         {campo('advogado_desocupacao', 'Advogado / desocupação', { hint: 'R$' })}

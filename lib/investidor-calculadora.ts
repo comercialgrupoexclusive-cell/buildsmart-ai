@@ -29,6 +29,7 @@ export type ModalidadeCenario = ProspeccaoCenario['modalidade']
 export type PremissasCenario = Pick<
   ProspeccaoCenario,
   | 'modalidade'
+  | 'tipo_aquisicao'
   | 'valor_arrematacao'
   | 'valor_venda_estimado'
   | 'comissao_leiloeiro'
@@ -58,6 +59,13 @@ export type ResultadoCenario = {
 
 function n(v: number | null | undefined): number {
   return v == null || Number.isNaN(v) ? 0 : v
+}
+
+// Compra direta não tem leiloeiro — comissão de leiloeiro nunca se aplica,
+// independente do que estiver preenchido no campo (defesa central única,
+// em vez de repetir essa regra em cada tela/tool que monta as premissas).
+function calcComissaoLeiloeiro(p: PremissasCenario, arrematacao: number): number {
+  return p.tipo_aquisicao === 'compra_direta' ? 0 : n(p.comissao_leiloeiro) * arrematacao
 }
 
 // Tabela SAC/PRICE mês a mês (colunas D/E/F/G das abas SAC e PRICE da
@@ -107,7 +115,7 @@ function tabelaAmortizacao(
 function calcularVista(p: PremissasCenario): ResultadoCenario {
   const arrematacao = n(p.valor_arrematacao)
   const venda = n(p.valor_venda_estimado)
-  const comissaoLeiloeiro = n(p.comissao_leiloeiro) * arrematacao
+  const comissaoLeiloeiro = calcComissaoLeiloeiro(p, arrematacao)
   const itbi = n(p.itbi) * arrematacao
   const registro = n(p.registro)
   const advogado = n(p.advogado_desocupacao)
@@ -143,7 +151,7 @@ function calcularFinanciado(modalidade: 'sac' | 'price', p: PremissasCenario): R
   const valorEntrada = percentualEntrada * arrematacao
   const valorFinanciado = percentualFinanciado * arrematacao
 
-  const comissaoLeiloeiro = n(p.comissao_leiloeiro) * arrematacao
+  const comissaoLeiloeiro = calcComissaoLeiloeiro(p, arrematacao)
   const itbi = n(p.itbi) * arrematacao
   const registro = n(p.registro)
   const advogado = n(p.advogado_desocupacao)

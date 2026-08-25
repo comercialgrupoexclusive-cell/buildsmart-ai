@@ -70,8 +70,11 @@ export type OrcamentoItem = {
   sinapi_composicao_id: string | null
   data_inicio: string | null
   data_fim: string | null
-  quantidade: number
-  preco_unitario_snapshot: number
+  // Hotfix pré-reunião (orçamento preliminar): null = "a conferir" —
+  // quantidade/preço genuinamente indefinidos, nunca forçados a 0. A
+  // coluna Postgres já era nullable; o tipo aqui só passou a refletir isso.
+  quantidade: number | null
+  preco_unitario_snapshot: number | null
   descricao_snapshot: string | null
   codigo_snapshot: string | null
   unidade_snapshot: string | null
@@ -675,6 +678,12 @@ export type ProspeccaoCenario = {
   prospeccao_id: string
   nome: string
   modalidade: 'vista' | 'sac' | 'price'
+  // Hotfix pré-reunião: dimensão independente de `modalidade` (que é sobre
+  // a forma de pagamento — à vista/financiado). 'leilao' preserva o
+  // comportamento anterior (padrão); 'compra_direta' significa que não há
+  // leiloeiro — comissão de leiloeiro não se aplica (ver
+  // lib/investidor-calculadora.ts).
+  tipo_aquisicao: 'leilao' | 'compra_direta'
   principal: boolean
   valor_arrematacao: number | null
   valor_venda_estimado: number | null

@@ -225,8 +225,11 @@ type ItemEnriquecido = {
   subetapa: string | null
   composicao_id: string | null
   sinapi_composicao_id: string | null
-  quantidade: number
-  preco_unitario_snapshot: number
+  // Hotfix pré-reunião (orçamento preliminar): null = "a conferir" —
+  // genuinamente indefinido, nunca forçado a 0 (ver handleAddItem/
+  // handleEditItemSave). getItemTotal já trata null como 0 na soma.
+  quantidade: number | null
+  preco_unitario_snapshot: number | null
   descricao_snapshot: string | null
   codigo_snapshot: string | null
   unidade_snapshot: string | null
@@ -491,8 +494,8 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     setEditItem(item)
     setEditDescricao(item.descricao)
     setEditUnidade(item.unidade)
-    setEditPreco(item.preco_unitario_snapshot.toString())
-    setEditQuantidade(item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 }))
+    setEditPreco(item.preco_unitario_snapshot != null ? item.preco_unitario_snapshot.toString() : '')
+    setEditQuantidade(item.quantidade != null ? item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : '')
     setEditSubetapa(item.subetapa ?? '')
     setEditEtapaId(item.etapa_id ?? '')
   }
@@ -812,13 +815,16 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     if (item.tipo_linha === 'subetapa') return item.subetapa_valor_manual_ativo ? Number(item.subetapa_valor_manual || 0) : 0
     if (item.valor_total_manual_ativo && item.valor_total_informado_snapshot != null) return Number(item.valor_total_informado_snapshot)
     const itensComp = item.composicao_itens || []
-    if (itensComp.length === 0) return item.preco_unitario_snapshot * item.quantidade
+    // "A conferir" (quantidade/preço null) entra como 0 só na SOMA — o
+    // valor do item em si nunca é reescrito como 0 (ver handleAddItem/
+    // handleEditItemSave e o badge "A conferir" na listagem).
+    if (itensComp.length === 0) return (item.preco_unitario_snapshot ?? 0) * (item.quantidade ?? 0)
     const temPreco = itensComp.some(ins => infoDoItem(ins, obraUf).preco > 0)
-    if (!temPreco) return item.preco_unitario_snapshot * item.quantidade
+    if (!temPreco) return (item.preco_unitario_snapshot ?? 0) * (item.quantidade ?? 0)
     return itensComp.reduce((total, ins) => {
       const info = infoDoItem(ins, obraUf)
       const key = overrideKey(item.id, info.codigo !== '—' ? info.codigo : ins.id)
-      const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+      const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : (item.quantidade ?? 0) * ins.coeficiente
       const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
       return total + qtdAdotada * info.preco
     }, 0)
@@ -882,7 +888,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       for (const ins of itensComp) {
         const info = infoDoItem(ins, obraUf)
         const key = overrideKey(item.id, info.codigo !== '—' ? info.codigo : ins.id)
-        const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+        const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : (item.quantidade ?? 0) * ins.coeficiente
         const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
         const valor = qtdAdotada * info.preco
         distribuido += valor
@@ -1195,17 +1201,21 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
 
   // ─── Adicionar item ───────────────────────────────────────────────────────
   async function handleAddItem(fecharDepois = false) {
-    if (!orcamento || !quantidade) return
+    // Hotfix pré-reunião (orçamento preliminar): quantidade em branco não
+    // bloqueia mais o cadastro — vira "a conferir" (null), nunca 0.
+    if (!orcamento) return
     if (fonte !== 'livre' && !selectedItem) return
     if (fonte === 'livre' && !livreDescricao.trim()) return
     setSaving(true)
     try {
       const isSinapi = fonte === 'sinapi'
-      const qtd = parseFloat(quantidade)
+      const qtd = quantidade.trim() ? parseFloat(quantidade) : null
       const codigoLivre = `LIV-${Date.now().toString(36).toUpperCase()}`
       const descricaoFinal = fonte === 'livre' ? livreDescricao.trim() : selectedItem!.descricao
       const unidadeFinal = fonte === 'livre' ? (livreUnidade.trim() || 'UN') : selectedItem!.unidade
-      const custoUnitario = fonte === 'livre' ? (parseFloat(livrePreco.replace(',', '.')) || 0) : getItemCost(selectedItem!)
+      const custoUnitario = fonte === 'livre'
+        ? (livrePreco.trim() ? parseFloat(livrePreco.replace(',', '.')) : null)
+        : getItemCost(selectedItem!)
       const etapaId = await ensureEtapaSelecionada()
       const subetapaFinal = subetapaLivre.trim() || null
 
@@ -1307,16 +1317,21 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     if (!editItem || !orcamento) return
     setSaving(true)
     try {
-      const novaQtd = Number(editQuantidade.replace(',', '.'))
-      const novoPreco = Number(editPreco.replace(',', '.'))
+      // Hotfix pré-reunião (orçamento preliminar): campo deliberadamente
+      // limpo pelo usuário grava null ("a conferir"), nunca 0 nem o valor
+      // antigo por engano — distingue "vazio" de "0 digitado de fato".
+      const qtdLimpa = editQuantidade.trim() === ''
+      const precoLimpo = editPreco.trim() === ''
+      const novaQtd = qtdLimpa ? null : Number(editQuantidade.replace(',', '.'))
+      const novoPreco = precoLimpo ? null : Number(editPreco.replace(',', '.'))
       const novaSubetapa = editSubetapa.trim() || null
       const novaEtapaId = editEtapaId || null
 
       const updates: Record<string, unknown> = {
         descricao_snapshot: editDescricao.trim(),
         unidade_snapshot: editUnidade.trim(),
-        preco_unitario_snapshot: Number.isFinite(novoPreco) ? novoPreco : editItem.preco_unitario_snapshot,
-        quantidade: Number.isFinite(novaQtd) && novaQtd > 0 ? novaQtd : editItem.quantidade,
+        preco_unitario_snapshot: (precoLimpo || Number.isFinite(novoPreco)) ? novoPreco : editItem.preco_unitario_snapshot,
+        quantidade: (qtdLimpa || (Number.isFinite(novaQtd) && (novaQtd as number) > 0)) ? novaQtd : editItem.quantidade,
         subetapa: novaSubetapa,
         etapa_id: novaEtapaId,
       }
@@ -1606,14 +1621,16 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         codigo: item.codigo,
         descricao: item.descricao,
         unidade: item.unidade,
-        quantidade: item.quantidade,
-        precoUnitario: item.preco_unitario_snapshot,
+        // "A conferir" (null) exporta como 0 na planilha — export não tem
+        // como representar "indefinido", mesma solução usada nos totais.
+        quantidade: item.quantidade ?? 0,
+        precoUnitario: item.preco_unitario_snapshot ?? 0,
         totalItem: getItemTotal(item),
         insumos: itensComp.map(ins => {
           const info = infoDoItem(ins, obraUf)
           const insumoKey = info.codigo !== '—' ? info.codigo : ins.id
           const key = overrideKey(item.id, insumoKey)
-          const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+          const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : (item.quantidade ?? 0) * ins.coeficiente
           const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
           return {
             codigo: info.codigo !== '—' ? info.codigo : '',
@@ -2258,15 +2275,15 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         composicaoDescricao: item.descricao,
         composicaoGrupo: item.grupo_snapshot || '',
         composicaoUnidade: item.unidade,
-        composicaoQuantidade: item.quantidade,
-        composicaoValorUnitario: item.preco_unitario_snapshot,
+        composicaoQuantidade: item.quantidade ?? undefined,
+        composicaoValorUnitario: item.preco_unitario_snapshot ?? undefined,
         composicaoValorTotal: getItemTotal(item),
       }
       const insumos = item.composicao_itens || []
       if (!insumos.length) return [comum]
       return insumos.map(insumo => {
         const info = infoDoItem(insumo, obraUf)
-        const quantidadeCalculada = insumo.quantidade_calculada != null ? Number(insumo.quantidade_calculada) : item.quantidade * insumo.coeficiente
+        const quantidadeCalculada = insumo.quantidade_calculada != null ? Number(insumo.quantidade_calculada) : (item.quantidade ?? 0) * insumo.coeficiente
         const quantidadeAdotada = insumo.quantidade_adotada != null ? Number(insumo.quantidade_adotada) : quantidadeCalculada
         return {
           ...comum,
@@ -3193,7 +3210,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       <SalvarTemplateOrcamentoModal
         open={showSalvarTemplate}
         onClose={() => setShowSalvarTemplate(false)}
-        itens={itens}
+        itens={itens.map(item => ({ ...item, quantidade: item.quantidade ?? 0 }))}
         etapas={etapas}
       />
 
@@ -3708,15 +3725,16 @@ function GrupoEtapa({
                                   <input
                                     type="text"
                                     inputMode="decimal"
-                                    defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                    placeholder="A conferir"
+                                    defaultValue={item.quantidade != null ? item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : ''}
                                     className="input-base input-compact text-center tabular-nums"
-                                    style={{ width: 64, color: 'var(--text-primary)' }}
+                                    style={{ width: 64, color: item.quantidade != null ? 'var(--text-primary)' : 'var(--warning)' }}
                                     disabled={isReadonly}
                                     onFocus={e => e.currentTarget.select()}
                                     onBlur={e => {
                                       const next = parseQuantidadeInput(e.currentTarget.value)
                                       if (next === null) {
-                                        e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                        e.currentTarget.value = item.quantidade != null ? item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : ''
                                         return
                                       }
                                       e.currentTarget.value = next.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
@@ -3725,13 +3743,13 @@ function GrupoEtapa({
                                     onKeyDown={e => {
                                       if (e.key === 'Enter') e.currentTarget.blur()
                                       if (e.key === 'Escape') {
-                                        e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                        e.currentTarget.value = item.quantidade != null ? item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : ''
                                         e.currentTarget.blur()
                                       }
                                     }}
                                   />
                                 </td>
-                                <td className="px-3 py-2 align-top text-right tabular-nums" style={{ color: 'var(--text-secondary)' }}>{formatCurrency(item.preco_unitario_snapshot)}</td>
+                                <td className="px-3 py-2 align-top text-right tabular-nums" style={{ color: item.preco_unitario_snapshot != null ? 'var(--text-secondary)' : 'var(--warning)' }}>{item.preco_unitario_snapshot != null ? formatCurrency(item.preco_unitario_snapshot) : 'A conferir'}</td>
                                 <td className="px-3 py-2 align-top text-right font-semibold tabular-nums" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
                                   <div className="flex items-center justify-end gap-1">
                                     <span title={hasValueMismatch ? item.importacao_alertas?.join(' ') : undefined}>{formatCurrency(itemTotal)}</span>
@@ -3822,7 +3840,7 @@ function GrupoEtapa({
                                             const info = infoDoItem(ins, obraUf)
                                             const insumoKey = info.codigo !== '\u2014' ? info.codigo : ins.id
                                             const key = overrideKey(item.id, insumoKey)
-                                            const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+                                            const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : (item.quantidade ?? 0) * ins.coeficiente
                                             const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
                                             const preco = info.preco
                                             const totalIns = qtdAdotada * preco
@@ -4092,15 +4110,16 @@ function GrupoEtapa({
                                       <input
                                         type="text"
                                         inputMode="decimal"
-                                        defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                        placeholder="A conferir"
+                                        defaultValue={item.quantidade != null ? item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : ''}
                                         className="input-base input-compact text-center tabular-nums"
-                                        style={{ width: 46, color: 'var(--text-primary)' }}
+                                        style={{ width: 46, color: item.quantidade != null ? 'var(--text-primary)' : 'var(--warning)' }}
                                         disabled={isReadonly}
                                         onFocus={e => e.currentTarget.select()}
                                         onBlur={e => {
                                           const next = parseQuantidadeInput(e.currentTarget.value)
                                           if (next === null) {
-                                            e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                            e.currentTarget.value = item.quantidade != null ? item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : ''
                                             return
                                           }
                                           e.currentTarget.value = next.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
@@ -4109,14 +4128,14 @@ function GrupoEtapa({
                                         onKeyDown={e => {
                                           if (e.key === 'Enter') e.currentTarget.blur()
                                           if (e.key === 'Escape') {
-                                            e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                            e.currentTarget.value = item.quantidade != null ? item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 }) : ''
                                             e.currentTarget.blur()
                                           }
                                         }}
                                       />
                                       <span className="flex-shrink-0">{item.unidade}</span>
                                       <span style={{ opacity: 0.5 }}>·</span>
-                                      <span className="tabular-nums">{formatCurrency(item.preco_unitario_snapshot)}</span>
+                                      <span className="tabular-nums" style={{ color: item.preco_unitario_snapshot != null ? undefined : 'var(--warning)' }}>{item.preco_unitario_snapshot != null ? formatCurrency(item.preco_unitario_snapshot) : 'A conferir'}</span>
                                       {hasInsumos && <span className="flex-shrink-0" style={{ opacity: 0.6 }}>· {item.composicao_itens?.length} insumos</span>}
                                     </div>
                                     <span className="flex items-center gap-1 text-sm font-semibold tabular-nums flex-shrink-0" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
@@ -4186,7 +4205,7 @@ function GrupoEtapa({
                                       const info = infoDoItem(ins, obraUf)
                                       const insumoKey = info.codigo !== '\u2014' ? info.codigo : ins.id
                                       const key = overrideKey(item.id, insumoKey)
-                                      const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : item.quantidade * ins.coeficiente
+                                      const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : (item.quantidade ?? 0) * ins.coeficiente
                                       const qtdAdotada = insumoOverrides[key] ?? (ins.quantidade_adotada != null ? Number(ins.quantidade_adotada) : qtdCalculada)
                                       const preco = info.preco
                                       const totalIns = qtdAdotada * preco

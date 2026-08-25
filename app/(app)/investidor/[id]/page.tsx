@@ -11,13 +11,14 @@ import { useEffect, useState, use } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus, Building2, ArrowUpRight } from 'lucide-react'
+import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus, Building2, ArrowUpRight, Trash2, FileSearch } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ProspeccaoArquivos } from '@/components/investidor/ProspeccaoArquivos'
+import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidencias'
 import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
 import { formatCurrency } from '@/lib/utils'
 import type { Prospeccao, ProspeccaoFase, ProspeccaoCenario } from '@/lib/types'
@@ -41,7 +42,7 @@ const FASE_OPTIONS: { value: ProspeccaoFase; label: string }[] = [
   { value: 'nao_adquirida', label: 'Não adquirida' },
 ]
 
-type Tab = 'resumo' | 'analise' | 'arquivos' | 'board'
+type Tab = 'resumo' | 'evidencias' | 'analise' | 'arquivos' | 'board'
 
 export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -122,6 +123,7 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
       <div className="flex gap-1 p-1 rounded-lg w-fit overflow-x-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
         {[
           { id: 'resumo' as const, label: 'Resumo', icon: LayoutDashboard },
+          { id: 'evidencias' as const, label: 'Evidências', icon: FileSearch },
           { id: 'analise' as const, label: 'Análise', icon: LineChart },
           { id: 'arquivos' as const, label: 'Arquivos', icon: FileTextIcon },
           { id: 'board' as const, label: 'Board', icon: Pencil },
@@ -140,6 +142,8 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
       {tab === 'resumo' && (
         <ResumoTab prospeccao={prospeccao} principal={principal} onSaved={loadData} />
       )}
+
+      {tab === 'evidencias' && <ProspeccaoEvidencias prospeccaoId={id} />}
 
       {tab === 'analise' && (
         <ProspeccaoCenarios prospeccaoId={id} cenarios={cenarios} onChanged={loadData} />
@@ -163,6 +167,7 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
   const [form, setForm] = useState(prospeccao)
   const [saving, setSaving] = useState(false)
   const [convertendo, setConvertendo] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
 
   // Marco 4 — conversão Prospecção adquirida → Ativo (Project com
   // contexto=investimento). Reaproveita a mesma tabela `projetos` e todas
@@ -195,6 +200,31 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
     }
     onSaved()
     router.push(`/projetos/${novoProjeto.id}`)
+  }
+
+  // Exclusão (Hotfix pré-reunião) — a própria tabela já cascateia cenários/
+  // evidências/arquivos ao apagar a prospecção (ver migrations do Marco 1/2:
+  // prospeccao_cenarios/prospeccao_evidencias/prospeccao_arquivos/board_files
+  // referenciam prospeccao_id com ON DELETE CASCADE). O único vínculo que
+  // NÃO deve ser apagado em cascata é o Ativo (Project) já convertido — por
+  // isso a exclusão é bloqueada quando `project_id` está preenchido, em vez
+  // de arriscar apagar o histórico de uma prospecção que já virou um imóvel
+  // real com Orçamento/Cronograma próprios.
+  async function handleExcluir() {
+    if (prospeccao.project_id) {
+      alert('Esta prospecção já foi convertida em Ativo e não pode ser excluída — o histórico fica vinculado ao Ativo. Exclua o Ativo (Projeto) se realmente não precisar mais dele.')
+      return
+    }
+    if (!confirm(`Excluir "${prospeccao.nome}"? Isso apaga também os cenários, evidências e arquivos dela. Essa ação não pode ser desfeita.`)) return
+    setExcluindo(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('prospeccoes').delete().eq('id', prospeccao.id)
+    setExcluindo(false)
+    if (error) {
+      alert(`Não foi possível excluir: ${error.message}`)
+      return
+    }
+    router.push('/investidor')
   }
 
   async function handleSave() {
@@ -243,6 +273,9 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
               )
             )}
             <Button variant="secondary" size="sm" icon={<Pencil size={13} />} onClick={() => { setForm(prospeccao); setEditing(true) }}>Editar</Button>
+            {!isCliente && (
+              <Button variant="danger" size="sm" icon={<Trash2 size={13} />} onClick={handleExcluir} loading={excluindo}>Excluir</Button>
+            )}
           </div>
         </div>
 

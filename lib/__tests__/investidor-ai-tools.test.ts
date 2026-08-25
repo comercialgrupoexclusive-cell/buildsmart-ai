@@ -152,6 +152,31 @@ describe('execInvestidorAiTool — propor → confirmar/rejeitar (nunca escreve 
     expect(criado.lucro).toBeCloseTo(75900, 2)
   })
 
+  it('propose_create_cenario com tipo_aquisicao=compra_direta não cobra comissão de leiloeiro (Hotfix pré-reunião)', async () => {
+    const proposta = await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_cenario', {
+      prospeccao_nome: 'Vila Nova', nome_cenario: 'Compra direta teste', modalidade: 'vista', tipo_aquisicao: 'compra_direta',
+      valor_arrematacao: 225000, valor_venda_estimado: 400000, comissao_leiloeiro: 5, itbi: 3,
+      registro: 5000, reforma: 10000, outros_custos: 22000, prazo_venda_meses: 6, condominio: 400,
+      corretagem: 6, imposto_ganho_capital: 15,
+    }, ctx())
+    // 282400 (leilão) - 11250 (5% de comissão sobre 225000, que não se aplica em compra direta)
+    expect(proposta).toContain('Investimento total: R$ 271.150,00')
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
+    const criado = db.tables.prospeccao_cenarios.find(c => c.nome === 'Compra direta teste')!
+    expect(criado.tipo_aquisicao).toBe('compra_direta')
+    expect(criado.investimento_total).toBeCloseTo(271150, 2)
+  })
+
+  it('propose_create_cenario sem tipo_aquisicao usa "leilao" por padrão (compatibilidade)', async () => {
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_cenario', {
+      prospeccao_nome: 'Vila Nova', nome_cenario: 'Padrão teste', modalidade: 'vista',
+      valor_arrematacao: 100000, valor_venda_estimado: 200000,
+    }, ctx())
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
+    const criado = db.tables.prospeccao_cenarios.find(c => c.nome === 'Padrão teste')!
+    expect(criado.tipo_aquisicao).toBe('leilao')
+  })
+
   it('propose_update_cenario recalcula ao mudar uma premissa', async () => {
     db.seed('prospeccao_cenarios', [{
       id: 'c1', prospeccao_id: 'p1', nome: 'Original', modalidade: 'vista',

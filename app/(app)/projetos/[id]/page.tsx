@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect, useRef, use } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, KeyRound, ClipboardList, Landmark } from 'lucide-react'
@@ -83,13 +83,18 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [fotoFile, setFotoFile] = useState<File | null>(null)
   const [fotoPreview, setFotoPreview] = useState<string | null>(null)
   const [transitioning, setTransitioning] = useState(false)
+  // Só decide a aba inicial de um Ativo (Visão Geral primeiro) uma vez, no
+  // primeiro carregamento — sem isso, todo refresh de dados (loadData()
+  // roda depois de qualquer salvamento) chutaria o usuário de volta para
+  // Visão Geral mesmo depois de ele navegar manualmente para outra aba.
+  const abaInicialDecididaRef = useRef(false)
 
   const allFlat = itens
   const totalItens = allFlat.length
   const concluidosCount = allFlat.filter(i => i.concluido).length
   const progresso = totalItens > 0 ? Math.round((concluidosCount / totalItens) * 100) : 0
 
-  useEffect(() => { loadData() }, [id])
+  useEffect(() => { abaInicialDecididaRef.current = false; loadData() }, [id])
 
   async function loadData() {
     setLoading(true)
@@ -105,6 +110,18 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     if (p) {
       setProjeto(p)
       setDadosForm(p)
+      // Hotfix pré-reunião: ao abrir um Imóvel (Ativo), Visão Geral
+      // (aba 'investimento', ver ProjetoResumoInvestimento) deve ser a
+      // primeira tela — só na primeira carga e só quando o usuário não
+      // pediu explicitamente outra aba pela URL. Projects comuns
+      // (contexto='projeto') continuam abrindo em Estrutura, sem nenhuma
+      // mudança.
+      if (!abaInicialDecididaRef.current) {
+        abaInicialDecididaRef.current = true
+        if (!searchParams.get('tab') && p.contexto === 'investimento') {
+          setTab('investimento')
+        }
+      }
     }
     const flat = (its ?? []) as ProjetoItemNode[]
     setItens(flat)
@@ -369,22 +386,32 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
         )}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — Ativos (contexto='investimento') abrem em Visão Geral e têm
+          uma ordem própria (Hotfix pré-reunião: Visão Geral primeiro,
+          depois EAP/Orçamento/Planejamento/Tarefas, ferramentas auxiliares
+          por último). Projects comuns mantêm a ordem de sempre, intocada. */}
       <div className="max-w-full overflow-x-auto pb-1">
         <div className="flex items-center gap-1 p-1 rounded-lg w-max" style={{ background: 'var(--bg-secondary)' }}>
-        {([
-          { key: 'estrutura',  label: 'Estrutura',    icon: LayoutList },
-          { key: 'orcamento',  label: 'Orçamento',    icon: Calculator },
-          { key: 'cronograma', label: 'Cronograma',   icon: CalendarDays },
-          { key: 'board',      label: 'Board',        icon: LayoutDashboard },
-          { key: 'tour',       label: 'Tour 360°',    icon: ImagePlus },
-          { key: 'dados',      label: 'Dados Gerais', icon: Info },
-          ...(projeto.contexto === 'investimento'
-            ? [{ key: 'investimento' as const, label: 'Investimento', icon: Landmark }]
-            : []),
-          { key: 'ia',         label: 'Assistente IA', icon: Sparkles },
-          { key: 'tarefas',    label: 'Tarefas',       icon: ClipboardList },
-        ] as const).map(({ key, label, icon: Icon }) => (
+        {(projeto.contexto === 'investimento' ? [
+          { key: 'investimento' as const, label: 'Visão Geral',  icon: Landmark },
+          { key: 'estrutura' as const,    label: 'Estrutura',    icon: LayoutList },
+          { key: 'orcamento' as const,    label: 'Orçamento',    icon: Calculator },
+          { key: 'cronograma' as const,   label: 'Cronograma',   icon: CalendarDays },
+          { key: 'tarefas' as const,      label: 'Tarefas',      icon: ClipboardList },
+          { key: 'board' as const,        label: 'Board',        icon: LayoutDashboard },
+          { key: 'tour' as const,         label: 'Tour 360°',    icon: ImagePlus },
+          { key: 'dados' as const,        label: 'Dados Gerais', icon: Info },
+          { key: 'ia' as const,           label: 'Assistente IA', icon: Sparkles },
+        ] : [
+          { key: 'estrutura' as const,  label: 'Estrutura',    icon: LayoutList },
+          { key: 'orcamento' as const,  label: 'Orçamento',    icon: Calculator },
+          { key: 'cronograma' as const, label: 'Cronograma',   icon: CalendarDays },
+          { key: 'board' as const,      label: 'Board',        icon: LayoutDashboard },
+          { key: 'tour' as const,       label: 'Tour 360°',    icon: ImagePlus },
+          { key: 'dados' as const,      label: 'Dados Gerais', icon: Info },
+          { key: 'ia' as const,         label: 'Assistente IA', icon: Sparkles },
+          { key: 'tarefas' as const,    label: 'Tarefas',      icon: ClipboardList },
+        ]).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}

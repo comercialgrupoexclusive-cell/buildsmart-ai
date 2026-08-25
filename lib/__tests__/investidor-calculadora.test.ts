@@ -14,6 +14,7 @@ import { calcularCenario, type PremissasCenario } from '../investidor-calculador
 describe('calcularCenario — à vista (valores nativos da planilha)', () => {
   const premissas: PremissasCenario = {
     modalidade: 'vista',
+    tipo_aquisicao: 'leilao',
     valor_arrematacao: 225000,
     valor_venda_estimado: 400000,
     comissao_leiloeiro: 0.05,
@@ -52,6 +53,7 @@ describe('calcularCenario — à vista (valores nativos da planilha)', () => {
 describe('calcularCenario — SAC (derivado das fórmulas literais da planilha)', () => {
   const premissas: PremissasCenario = {
     modalidade: 'sac',
+    tipo_aquisicao: 'leilao',
     valor_arrematacao: 100000,
     valor_venda_estimado: 200000,
     entrada: 0.2,
@@ -96,6 +98,7 @@ describe('calcularCenario — SAC (derivado das fórmulas literais da planilha)'
 describe('calcularCenario — PRICE (derivado das fórmulas literais da planilha)', () => {
   const premissas: PremissasCenario = {
     modalidade: 'price',
+    tipo_aquisicao: 'leilao',
     valor_arrematacao: 100000,
     valor_venda_estimado: 200000,
     entrada: 0.2,
@@ -141,6 +144,7 @@ describe('calcularCenario — casos de borda', () => {
   it('financiamento quitado antes da venda: saldo devedor tratado como 0, não "-"', () => {
     const r = calcularCenario({
       modalidade: 'sac',
+      tipo_aquisicao: 'leilao',
       valor_arrematacao: 100000,
       valor_venda_estimado: 200000,
       entrada: 0.5,
@@ -165,6 +169,7 @@ describe('calcularCenario — casos de borda', () => {
   it('cenário 100% vazio não gera NaN/Infinity (guarda contra divisão por zero)', () => {
     const r = calcularCenario({
       modalidade: 'vista',
+      tipo_aquisicao: 'leilao',
       valor_arrematacao: null,
       valor_venda_estimado: null,
       comissao_leiloeiro: null,
@@ -185,5 +190,62 @@ describe('calcularCenario — casos de borda', () => {
     expect(r.investimento_total).toBe(0)
     expect(r.rentabilidade).toBe(0)
     expect(Number.isFinite(r.lucro)).toBe(true)
+  })
+})
+
+// Hotfix pré-reunião: `tipo_aquisicao` é uma dimensão independente de
+// `modalidade` — compra direta não tem leiloeiro, então comissão de
+// leiloeiro nunca entra na conta, mesmo que o campo venha preenchido por
+// engano. Mesmo motor, nenhuma fórmula nova.
+describe('calcularCenario — compra_direta não aplica comissão de leiloeiro', () => {
+  const base: PremissasCenario = {
+    modalidade: 'vista',
+    tipo_aquisicao: 'leilao',
+    valor_arrematacao: 225000,
+    valor_venda_estimado: 400000,
+    comissao_leiloeiro: 0.05,
+    itbi: 0.03,
+    registro: 5000,
+    advogado_desocupacao: 0,
+    reforma: 10000,
+    outros_custos: 22000,
+    prazo_venda_meses: 6,
+    iptu: 0,
+    condominio: 400,
+    corretagem: 0.06,
+    imposto_ganho_capital: 0.15,
+    entrada: null,
+    taxa_juros: null,
+    prazo_financiamento_meses: null,
+  }
+
+  it('leilao (padrão) cobra a comissão do leiloeiro normalmente', () => {
+    expect(calcularCenario(base).investimento_total).toBeCloseTo(282400, 2)
+  })
+
+  it('compra_direta ignora a comissão de leiloeiro mesmo com o campo preenchido', () => {
+    const r = calcularCenario({ ...base, tipo_aquisicao: 'compra_direta' })
+    // 282400 (leilão) menos a comissão de 5% sobre 225000 = 11250
+    expect(r.investimento_total).toBeCloseTo(282400 - 11250, 2)
+  })
+
+  it('compra_direta com comissao_leiloeiro null/undefined também não quebra (já era 0)', () => {
+    const r = calcularCenario({ ...base, tipo_aquisicao: 'compra_direta', comissao_leiloeiro: null })
+    expect(r.investimento_total).toBeCloseTo(282400 - 11250, 2)
+  })
+
+  it('funciona igual em modalidade financiada (sac)', () => {
+    const financiado: PremissasCenario = {
+      modalidade: 'sac', tipo_aquisicao: 'leilao',
+      valor_arrematacao: 100000, valor_venda_estimado: 200000,
+      entrada: 0.2, taxa_juros: 0.06, prazo_financiamento_meses: 12,
+      comissao_leiloeiro: 0.05, itbi: 0.03, registro: 1800, advogado_desocupacao: 0,
+      reforma: 1000, outros_custos: 0, prazo_venda_meses: 12, iptu: 100, condominio: 400,
+      corretagem: 0.06, imposto_ganho_capital: 0.15,
+    }
+    const comDireta = calcularCenario({ ...financiado, tipo_aquisicao: 'compra_direta' })
+    const comLeilao = calcularCenario(financiado)
+    // Sem a comissão de 5% sobre 100000 = 5000 a menos de investimento
+    expect(comLeilao.investimento_total - comDireta.investimento_total).toBeCloseTo(5000, 2)
   })
 })
