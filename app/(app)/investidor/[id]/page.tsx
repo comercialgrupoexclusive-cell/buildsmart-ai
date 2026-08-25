@@ -1,21 +1,23 @@
 'use client'
 
-// Laboratório Investidor — Rodada 2: tela interna da Prospecção. Resumo é
-// funcional (exibe + edita); Análise é só a estrutura preparada para o
-// Marco 3 (sem CRUD de cenários, como pedido); Arquivos reaproveita o
-// mesmo padrão de ObraArquivos (tabela própria, ver
-// RELATORIO_INVESTIDOR_RODADA_02.md); Board reaproveita ExcalidrawBoard
-// (mesmo componente do Board de Project, com prop prospeccaoId nova).
+// Laboratório Investidor — tela interna da Prospecção. Resumo é funcional
+// (exibe + edita); Análise é o CRUD completo de Cenários financeiros do
+// Marco 3 (components/investidor/ProspeccaoCenarios.tsx, ver
+// RELATORIO_INVESTIDOR_RODADA_03.md); Arquivos reaproveita o mesmo padrão
+// de ObraArquivos (tabela própria, ver RELATORIO_INVESTIDOR_RODADA_02.md);
+// Board reaproveita ExcalidrawBoard (mesmo componente do Board de Project,
+// com prop prospeccaoId).
 import { useEffect, useState, use } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus, Calculator } from 'lucide-react'
+import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ProspeccaoArquivos } from '@/components/investidor/ProspeccaoArquivos'
+import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
 import { formatCurrency } from '@/lib/utils'
 import type { Prospeccao, ProspeccaoFase, ProspeccaoCenario } from '@/lib/types'
 
@@ -131,11 +133,7 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
       )}
 
       {tab === 'analise' && (
-        <EmptyState
-          icon={Calculator}
-          title="Calculadora e cenários"
-          description="A calculadora do leilão (À vista/SAC/PRICE), múltiplos cenários e resultados automáticos chegam no Marco 3. A fundação de banco já existe (prospeccao_cenarios)."
-        />
+        <ProspeccaoCenarios prospeccaoId={id} cenarios={cenarios} onChanged={loadData} />
       )}
 
       {tab === 'arquivos' && <ProspeccaoArquivos prospeccaoId={id} />}
