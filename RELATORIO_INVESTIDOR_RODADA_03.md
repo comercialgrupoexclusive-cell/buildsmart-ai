@@ -250,5 +250,6 @@ planilha, apenas a aba efetivamente "ligada" foi escolhida como referência.
 
 Branch de trabalho: `previsoes/prazo-fornecimento-material`.
 HEAD antes desta rodada: `40eadd7c2504bdef97cbe404ed375fd555d7ccfc`.
-SHA desta rodada preenchido após o commit (ver mensagem de commit no
-histórico do git — `git log --oneline -5`).
+Commit desta rodada: `6592677` (branch de trabalho) / `6c51dd7` (merge
+`--no-ff` em `main`). Ambos os branches foram reconstruídos (`tsc` + build)
+e enviados para o `origin`.
