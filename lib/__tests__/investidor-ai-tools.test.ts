@@ -207,4 +207,80 @@ describe('execInvestidorAiTool — propor → confirmar/rejeitar (nunca escreve 
     const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_convert_to_ativo', { prospeccao_nome: 'Vila Nova' }, ctx())
     expect(r).toMatch(/já foi convertida/i)
   })
+
+  // A proposta pendente carrega um `__alvoChave` interno (ver
+  // lib/luizia-pending-actions.ts) para saber qual rascunho substituir na
+  // mesma conversa. As tools que gravam o objeto inteiro (não um `patch`
+  // explícito) precisam descartar essa chave antes do insert — senão o
+  // Supabase real rejeita a escrita por coluna desconhecida (a FakeDB não
+  // valida colunas, então só o teste de conteúdo pega essa regressão).
+  it('confirm_pending_action nunca grava a chave interna __alvoChave (create_prospeccao)', async () => {
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_prospeccao', { nome: 'Sem Chave Interna' }, ctx())
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
+    const criada = db.tables.prospeccoes.find(p => p.nome === 'Sem Chave Interna')
+    expect(criada).toBeDefined()
+    expect(criada).not.toHaveProperty('__alvoChave')
+  })
+
+  it('confirm_pending_action nunca grava a chave interna __alvoChave (create_cenario)', async () => {
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_cenario', {
+      prospeccao_nome: 'Vila Nova', nome_cenario: 'Sem Chave', modalidade: 'vista',
+      valor_arrematacao: 225000, valor_venda_estimado: 400000,
+    }, ctx())
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
+    expect(db.tables.prospeccao_cenarios[0]).not.toHaveProperty('__alvoChave')
+  })
+})
+
+describe('execInvestidorAiTool — Evidências (Marco 7)', () => {
+  let db: FakeDB
+  beforeEach(() => {
+    db = new FakeDB()
+    db.seed('prospeccoes', [
+      { id: 'p1', nome: 'Apto Vila Nova', endereco: 'Rua A', fase: 'nova', link_leilao: null, data_leilao: null, responsavel: null, proxima_acao: null, observacao: null, project_id: null },
+    ])
+  })
+
+  it('list_evidencias diz que não há nenhuma ainda', async () => {
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'list_evidencias', { prospeccao_nome: 'Vila Nova' }, ctx())
+    expect(r).toMatch(/ainda não tem evidências/i)
+  })
+
+  it('propose_create_evidencia exige a informação', async () => {
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_evidencia', { prospeccao_nome: 'Vila Nova' }, ctx())
+    expect(r).toMatch(/preciso da informação/i)
+  })
+
+  it('propose_create_evidencia não grava nada até confirmar, e default de natureza é "observado"', async () => {
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_evidencia', {
+      prospeccao_nome: 'Vila Nova', informacao: 'Edital cita dívida de IPTU de R$ 8.000',
+    }, ctx())
+    expect(r).toMatch(/observado/i)
+    expect(db.tables.prospeccao_evidencias).toBeUndefined()
+
+    const confirm = await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
+    expect(confirm).toMatch(/registrada/i)
+    const criada = db.tables.prospeccao_evidencias[0]
+    expect(criada.informacao).toBe('Edital cita dívida de IPTU de R$ 8.000')
+    expect(criada.natureza).toBe('observado')
+    expect(criada).not.toHaveProperty('__alvoChave')
+  })
+
+  it('propose_create_evidencia aceita natureza "estimado" (nunca confunde anúncio com valor observado)', async () => {
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_evidencia', {
+      prospeccao_nome: 'Vila Nova', informacao: 'Valor de mercado estimado em R$ 420.000 por comparáveis',
+      natureza: 'estimado', tipo: 'valor de mercado',
+    }, ctx())
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
+    expect(db.tables.prospeccao_evidencias[0].natureza).toBe('estimado')
+  })
+
+  it('get_prospeccao lista as evidências registradas junto dos cenários', async () => {
+    db.seed('prospeccao_evidencias', [
+      { id: 'e1', prospeccao_id: 'p1', informacao: 'Matrícula sem ônus aparente', tipo: 'matrícula', fonte: null, url: null, data_evidencia: null, natureza: 'observado' },
+    ])
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'get_prospeccao', { prospeccao_nome: 'Vila Nova' }, ctx())
+    expect(r).toContain('Evidências (1)')
+    expect(r).toContain('Matrícula sem ônus aparente')
+  })
 })

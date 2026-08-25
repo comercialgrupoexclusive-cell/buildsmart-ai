@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // Ferramentas de IA (function-calling) do Laboratório Investidor (Marco 6 —
-// Luiza com CRUD total). Mesmo padrão de lib/tarefas-ai-tools.ts e
-// lib/luizia-avisos-ai-tools.ts:
+// CRUD total; Marco 7 — Evidências + extração multimodal). Mesmo padrão de
+// lib/tarefas-ai-tools.ts e lib/luizia-avisos-ai-tools.ts:
 //
 // - Resolução de Prospecção/Cenário por nome nunca escolhe sozinha entre
 //   duas correspondências reais (lib/ai-resolve.ts).
@@ -12,11 +12,12 @@
 //   — nenhuma fórmula reimplementada aqui, conforme o princípio "não
 //   duplicar lógica entre frontend e Luiza" da especificação.
 //
-// Fora de escopo desta rodada, documentado em RELATORIO_INVESTIDOR_RODADA_06.md:
-// excluir Prospecção (a própria UI não oferece essa ação — nenhuma regra
-// deve existir só dentro da Luiza), operar Board/Arquivos/Comercialização
-// via chat (nenhum precedente no app faz isso hoje) e duplicar cenário via
-// chat (a UI tem, mas não é essencial ao "operar Cenários").
+// Fora de escopo, documentado em RELATORIO_INVESTIDOR_RODADA_06.md e
+// RELATORIO_INVESTIDOR_RODADA_07.md: excluir Prospecção (a própria UI não
+// oferece essa ação), operar Board/Arquivos/Comercialização via chat
+// (nenhum precedente no app faz isso hoje), duplicar cenário via chat, e
+// Web Search (nenhuma integração de busca web existe no app — decisão do
+// usuário na Rodada 7 de adiar essa parte específica do Marco 7).
 // ═══════════════════════════════════════════════════════════════════════════
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type OpenAI from 'openai'
@@ -24,7 +25,7 @@ import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from '
 import { criarPropostaPendente, acharPendenteParaResolver, marcarRejeitada, marcarExecutada, formatarListaPendentes } from './luizia-pending-actions'
 import { calcularCenario, type PremissasCenario } from './investidor-calculadora'
 import { formatCurrency } from './utils'
-import type { Prospeccao, ProspeccaoCenario, ProspeccaoFase } from './types'
+import type { Prospeccao, ProspeccaoCenario, ProspeccaoEvidencia, ProspeccaoFase } from './types'
 
 type DB = SupabaseClient
 // `any` aqui é deliberado, não uma sobra — mesma convenção de
@@ -47,16 +48,18 @@ export type InvestidorAiCtx = {
 }
 
 export const INVESTIDOR_AI_TOOL_NAMES = [
-  'list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes',
+  'list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes', 'list_evidencias',
   'propose_create_prospeccao', 'propose_update_prospeccao',
   'propose_create_cenario', 'propose_update_cenario', 'propose_delete_cenario', 'propose_set_cenario_principal',
-  'propose_convert_to_ativo',
+  'propose_convert_to_ativo', 'propose_create_evidencia',
   'confirm_pending_action', 'reject_pending_action',
 ]
 
 const FASES: ProspeccaoFase[] = ['nova', 'em_analise', 'aprovada', 'em_disputa', 'adquirida', 'descartada', 'nao_adquirida']
 const MODALIDADES: ProspeccaoCenario['modalidade'][] = ['vista', 'sac', 'price']
 const MODALIDADE_LABEL: Record<ProspeccaoCenario['modalidade'], string> = { vista: 'À vista', sac: 'Financiado (SAC)', price: 'Financiado (PRICE)' }
+const NATUREZAS: ProspeccaoEvidencia['natureza'][] = ['observado', 'inferido', 'estimado']
+const NATUREZA_LABEL: Record<ProspeccaoEvidencia['natureza'], string> = { observado: 'Observado', inferido: 'Inferido', estimado: 'Estimado' }
 
 // Campos de premissa de cenário aceitos pelas tools — mesmos nomes de
 // lib/investidor-calculadora.ts, com percentuais como número inteiro (5 =
@@ -135,6 +138,14 @@ export function investidorAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletio
           },
           required: ['nomes'],
         },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_evidencias',
+        description: 'Lista as evidências já registradas de uma Prospecção (informação, tipo, fonte, URL, data, natureza observado/inferido/estimado). Use antes de registrar uma nova para não duplicar, ou quando o usuário perguntar o que já se sabe sobre a oportunidade.',
+        parameters: { type: 'object', properties: ctxProps(scoped), required: [] },
       },
     },
     {
@@ -247,6 +258,26 @@ export function investidorAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletio
     {
       type: 'function',
       function: {
+        name: 'propose_create_evidencia',
+        description: 'Prepara (SEM GRAVAR) uma nova evidência para a Prospecção — informação encontrada em um documento (edital, matrícula), print, link ou observação. Sempre classifique a natureza: "observado" quando a informação está literalmente no documento/fonte anexada; "inferido" quando você concluiu algo a partir do que leu, sem estar escrito explicitamente; "estimado" para uma suposição sua (ex.: valor de mercado calculado, nunca um preço anunciado tratado como valor real de venda). Só confirm_pending_action grava.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...ctxProps(scoped),
+            informacao: { type: 'string', description: 'A informação encontrada, em texto claro (obrigatório)' },
+            tipo: { type: 'string', description: 'Classificação livre, ex.: "edital", "matrícula", "anúncio", "valor de mercado" (opcional)' },
+            fonte: { type: 'string', description: 'De onde veio (ex.: "Edital do leilão", "Print enviado pelo usuário", "Link do anúncio") (opcional)' },
+            url: { type: 'string', description: 'URL de origem, se houver (opcional)' },
+            data_evidencia: { type: 'string', description: 'YYYY-MM-DD — data do documento/pesquisa, se souber (opcional)' },
+            natureza: { type: 'string', enum: NATUREZAS, description: 'observado (padrão) | inferido | estimado' },
+          },
+          required: ['informacao'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'confirm_pending_action',
         description: 'Executa a proposta pendente que o usuário acabou de confirmar (ex.: "sim", "pode confirmar", "cria"). Não use para uma ordem nova — isso é uma das tools propose_*.',
         parameters: {
@@ -329,6 +360,14 @@ function resumoCenario(c: ProspeccaoCenario): string {
   return '- ' + partes.filter(Boolean).join(', ')
 }
 
+function resumoEvidencia(e: ProspeccaoEvidencia): string {
+  const partes = [`[${NATUREZA_LABEL[e.natureza]}] ${e.informacao}`]
+  if (e.tipo) partes.push(`tipo: ${e.tipo}`)
+  if (e.fonte) partes.push(`fonte: ${e.fonte}`)
+  if (e.data_evidencia) partes.push(`data: ${fmtData(e.data_evidencia)}`)
+  return '- ' + partes.join(' — ')
+}
+
 // ─── Premissas: monta PremissasCenario a partir dos args da tool (percentual
 // número inteiro -> fração), preenchendo com o cenário existente quando é
 // uma edição parcial. ────────────────────────────────────────────────────
@@ -358,6 +397,19 @@ function descricaoResultado(r: ReturnType<typeof calcularCenario>): string {
   ].join('\n')
 }
 
+// `criarPropostaPendente` grava um `__alvoChave` interno dentro de
+// `argumentos` (ver lib/luizia-pending-actions.ts) para saber qual rascunho
+// substituir numa mesma conversa — nunca deve ir para uma tabela de domínio.
+// As tools que gravam com um `patch`/campos explícitos (update_*, delete_*,
+// convert_to_ativo) já não repassam `argumentos` inteiro, mas as que
+// inserem o objeto completo (create_prospeccao, create_cenario,
+// create_evidencia) precisam descartá-lo antes do insert.
+function semChaveInterna(argumentos: Record<string, unknown>): Record<string, unknown> {
+  const { __alvoChave, ...resto } = argumentos
+  void __alvoChave
+  return resto
+}
+
 // ─── Executor ────────────────────────────────────────────────────────────────
 export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx: InvestidorAiCtx): Promise<string | null> {
   if (!INVESTIDOR_AI_TOOL_NAMES.includes(name)) return null
@@ -380,7 +432,10 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         const resolvido = await resolveProspeccao(db, ctx, args.prospeccao_nome)
         if (resolvido.tipo !== 'unica') return mensagemProspeccaoNaoResolvida(resolvido, args.prospeccao_nome)
         const p = resolvido.item
-        const { data: cenarios } = await db.from('prospeccao_cenarios').select('*').eq('prospeccao_id', p.id).order('created_at')
+        const [{ data: cenarios }, { data: evidencias }] = await Promise.all([
+          db.from('prospeccao_cenarios').select('*').eq('prospeccao_id', p.id).order('created_at'),
+          db.from('prospeccao_evidencias').select('*').eq('prospeccao_id', p.id).order('created_at'),
+        ])
         const linhas = [
           resumoProspeccao(p),
           p.observacao ? `Observação: ${p.observacao}` : null,
@@ -388,8 +443,22 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
           '',
           cenarios?.length ? `Cenários (${cenarios.length}):` : 'Nenhum cenário financeiro ainda.',
           ...(cenarios || []).map((c: ProspeccaoCenario) => resumoCenario(c)),
+          '',
+          evidencias?.length ? `Evidências (${evidencias.length}):` : 'Nenhuma evidência registrada ainda.',
+          ...(evidencias || []).map((e: ProspeccaoEvidencia) => resumoEvidencia(e)),
         ].filter((l): l is string => l !== null)
         return linhas.join('\n')
+      }
+
+      case 'list_evidencias': {
+        const resolvido = await resolveProspeccao(db, ctx, args.prospeccao_nome)
+        if (resolvido.tipo !== 'unica') return mensagemProspeccaoNaoResolvida(resolvido, args.prospeccao_nome)
+        const p = resolvido.item
+        const { data: evidencias, error } = await db.from('prospeccao_evidencias').select('*').eq('prospeccao_id', p.id).order('created_at')
+        if (error) return `Erro ao consultar evidências: ${error.message}`
+        const lista = (evidencias || []) as ProspeccaoEvidencia[]
+        if (lista.length === 0) return `"${p.nome}" ainda não tem evidências registradas.`
+        return `${lista.length} evidência(s) de "${p.nome}":\n` + lista.map(resumoEvidencia).join('\n')
       }
 
       case 'list_ativos': {
@@ -580,6 +649,36 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         return descricao
       }
 
+      case 'propose_create_evidencia': {
+        const resolvido = await resolveProspeccao(db, ctx, args.prospeccao_nome)
+        if (resolvido.tipo !== 'unica') return mensagemProspeccaoNaoResolvida(resolvido, args.prospeccao_nome)
+        if (!args.informacao || !String(args.informacao).trim()) return 'Preciso da informação encontrada para registrar a evidência.'
+        const p = resolvido.item
+        const natureza: ProspeccaoEvidencia['natureza'] = NATUREZAS.includes(args.natureza) ? args.natureza : 'observado'
+        const payload = {
+          prospeccao_id: p.id,
+          informacao: String(args.informacao).trim(),
+          tipo: args.tipo || null,
+          fonte: args.fonte || null,
+          url: args.url || null,
+          data_evidencia: args.data_evidencia || null,
+          natureza,
+        }
+        const descricao = [
+          `Nova evidência em "${p.nome}" [${NATUREZA_LABEL[natureza]}]:`,
+          `"${payload.informacao}"`,
+          payload.fonte ? `Fonte: ${payload.fonte}` : null,
+          payload.data_evidencia ? `Data: ${fmtData(payload.data_evidencia)}` : null,
+          '', 'Confirmar registro?',
+        ].filter((l): l is string => l !== null).join('\n')
+        const proposta = await criarPropostaPendente(db, {
+          conversationKey: ctx.conversationKey, profileId: ctx.profileId, actor: ctx.actor, origem: ctx.origem,
+          tool: 'create_evidencia', argumentos: payload, descricao, alvoChave: `create_evidencia:${p.id}:${Date.now()}`,
+        })
+        if (!proposta) return 'Não consegui preparar a proposta agora. Tente novamente.'
+        return descricao
+      }
+
       case 'confirm_pending_action':
       case 'reject_pending_action': {
         const resolvido = await acharPendenteParaResolver(db, ctx.conversationKey, { pendingId: args.pending_id, titulo: args.titulo })
@@ -596,7 +695,7 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
 
         switch (acao.tool) {
           case 'create_prospeccao': {
-            const payload = acao.argumentos as Record<string, unknown>
+            const payload = semChaveInterna(acao.argumentos as Record<string, unknown>)
             const { data, error } = await db.from('prospeccoes').insert(payload).select('id,nome').single()
             if (error) return `Erro ao criar prospecção: ${error.message}`
             await marcarExecutada(db, acao.id)
@@ -610,7 +709,7 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
             return `Prospecção "${nome}" atualizada.`
           }
           case 'create_cenario': {
-            const payload = acao.argumentos as Record<string, unknown>
+            const payload = semChaveInterna(acao.argumentos as Record<string, unknown>)
             const { error } = await db.from('prospeccao_cenarios').insert(payload)
             if (error) return `Erro ao criar cenário: ${error.message}`
             await marcarExecutada(db, acao.id)
@@ -647,6 +746,13 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
             if (linkError) return `Ativo criado, mas não consegui vincular à prospecção: ${linkError.message}.`
             await marcarExecutada(db, acao.id)
             return `"${nome}" convertida em Ativo.`
+          }
+          case 'create_evidencia': {
+            const payload = semChaveInterna(acao.argumentos as Record<string, unknown>)
+            const { error } = await db.from('prospeccao_evidencias').insert(payload)
+            if (error) return `Erro ao registrar evidência: ${error.message}`
+            await marcarExecutada(db, acao.id)
+            return 'Evidência registrada.'
           }
           default:
             return 'Essa proposta pendente não é do Investidor — não consigo confirmar por aqui.'
