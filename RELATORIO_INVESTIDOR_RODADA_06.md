@@ -244,5 +244,6 @@ já oferece (nem mais, nem menos capacidade para a Luiza).
 
 Branch de trabalho: `previsoes/prazo-fornecimento-material`.
 HEAD antes desta rodada: `32cd2cb` (fecho da Rodada 5).
-Commit e push preenchidos após concluir o commit desta rodada (ver
-`git log --oneline -5`).
+Commit desta rodada: `2588f22` (branch de trabalho) / `8eb3760` (merge
+`--no-ff` em `main`). Ambos os branches foram reconstruídos (`tsc` + testes
++ build) e enviados para o `origin`.
