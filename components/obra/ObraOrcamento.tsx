@@ -3406,10 +3406,9 @@ function GrupoEtapa({
           </span>
         )}
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{nome}</p>
+          <p className="font-bold text-base leading-snug truncate sm:text-sm sm:font-semibold" style={{ color: 'var(--text-primary)' }}>{nome}</p>
           <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
             {itens.length} {itens.length === 1 ? 'composição' : 'composições'}
-            <span className="sm:hidden font-semibold" style={{ color: 'var(--accent)' }}> · {formatCurrency(totalGrupo)}</span>
           </p>
         </div>
         {pctDoDireto !== null && (
@@ -3417,8 +3416,10 @@ function GrupoEtapa({
             {pctDoDireto.toFixed(1)}% do direto
           </span>
         )}
-        <span className="hidden sm:inline text-sm font-semibold ml-1 flex-shrink-0" style={{ color: 'var(--accent)' }}>
-          {formatCurrency(totalGrupo)}
+        <span className="flex-shrink-0 text-right ml-1">
+          <span className="block text-base font-extrabold tabular-nums sm:text-sm sm:font-semibold" style={{ color: 'var(--accent)' }}>
+            {formatCurrency(totalGrupo)}
+          </span>
         </span>
         {modoConferencia && etapaId != null && (
           <VerificacaoCheck
@@ -4061,47 +4062,49 @@ function GrupoEtapa({
                                 })()}
 
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium leading-snug truncate" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
-                                  <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--text-secondary)' }} onClick={e => e.stopPropagation()}>
-                                    <input
-                                      type="text"
-                                      inputMode="decimal"
-                                      defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
-                                      className="input-base input-compact text-center tabular-nums"
-                                      style={{ width: 46, color: 'var(--text-primary)' }}
-                                      disabled={isReadonly}
-                                      onFocus={e => e.currentTarget.select()}
-                                      onBlur={e => {
-                                        const next = parseQuantidadeInput(e.currentTarget.value)
-                                        if (next === null) {
-                                          e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
-                                          return
-                                        }
-                                        e.currentTarget.value = next.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
-                                        onUpdateQuantidade(item.id, next)
-                                      }}
-                                      onKeyDown={e => {
-                                        if (e.key === 'Enter') e.currentTarget.blur()
-                                        if (e.key === 'Escape') {
-                                          e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
-                                          e.currentTarget.blur()
-                                        }
-                                      }}
-                                    />
-                                    <span className="flex-shrink-0">{item.unidade}</span>
-                                    <span style={{ opacity: 0.5 }}>·</span>
-                                    <span className="tabular-nums truncate">{formatCurrency(item.preco_unitario_snapshot)}</span>
-                                    {hasInsumos && <span className="flex-shrink-0" style={{ opacity: 0.6 }}>· {item.composicao_itens?.length} insumos</span>}
+                                  <p className="text-sm font-medium leading-snug whitespace-normal break-words" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
+                                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] min-w-0" style={{ color: 'var(--text-secondary)' }} onClick={e => e.stopPropagation()}>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        defaultValue={item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}
+                                        className="input-base input-compact text-center tabular-nums"
+                                        style={{ width: 46, color: 'var(--text-primary)' }}
+                                        disabled={isReadonly}
+                                        onFocus={e => e.currentTarget.select()}
+                                        onBlur={e => {
+                                          const next = parseQuantidadeInput(e.currentTarget.value)
+                                          if (next === null) {
+                                            e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                            return
+                                          }
+                                          e.currentTarget.value = next.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                          onUpdateQuantidade(item.id, next)
+                                        }}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') e.currentTarget.blur()
+                                          if (e.key === 'Escape') {
+                                            e.currentTarget.value = item.quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+                                            e.currentTarget.blur()
+                                          }
+                                        }}
+                                      />
+                                      <span className="flex-shrink-0">{item.unidade}</span>
+                                      <span style={{ opacity: 0.5 }}>·</span>
+                                      <span className="tabular-nums">{formatCurrency(item.preco_unitario_snapshot)}</span>
+                                      {hasInsumos && <span className="flex-shrink-0" style={{ opacity: 0.6 }}>· {item.composicao_itens?.length} insumos</span>}
+                                    </div>
+                                    <span className="flex items-center gap-1 text-sm font-semibold tabular-nums flex-shrink-0" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
+                                      {formatCurrency(itemTotal)}
+                                      {hasValueMismatch && !isReadonly && onRestoreItemValor && (
+                                        <button type="button" onClick={e => { e.stopPropagation(); onRestoreItemValor(item.id) }} className="p-0.5 rounded-full" title="Usar soma calculada dos insumos"><RotateCcw size={11} /></button>
+                                      )}
+                                    </span>
                                   </div>
                                 </div>
 
                                 <div className="flex-shrink-0 flex items-center gap-1">
-                                  <span className="flex items-center gap-1 text-sm font-semibold tabular-nums" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
-                                    {formatCurrency(itemTotal)}
-                                    {hasValueMismatch && !isReadonly && onRestoreItemValor && (
-                                      <button type="button" onClick={e => { e.stopPropagation(); onRestoreItemValor(item.id) }} className="p-0.5 rounded-full" title="Usar soma calculada dos insumos"><RotateCcw size={11} /></button>
-                                    )}
-                                  </span>
                                   {!isReadonly && (
                                     <span className="relative inline-flex flex-shrink-0" data-itemmenu-container onClick={e => e.stopPropagation()}>
                                       <button

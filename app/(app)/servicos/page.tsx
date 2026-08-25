@@ -1074,6 +1074,10 @@ function InsumosTab() {
     grupo: '',
     preco_unitario: '',
     ativo: true,
+    comprimento: '',
+    largura: '',
+    espessura: '',
+    diametro: '',
   })
 
   async function loadInsumos() {
@@ -1110,6 +1114,10 @@ function InsumosTab() {
       grupo: '',
       preco_unitario: '',
       ativo: true,
+      comprimento: '',
+      largura: '',
+      espessura: '',
+      diametro: '',
     })
     setShowNovoInsumo(true)
   }
@@ -1118,6 +1126,10 @@ function InsumosTab() {
     if (!novoInsumo.codigo.trim() || !novoInsumo.descricao.trim() || !novoInsumo.unidade.trim()) return
     setCreating(true)
     const preco = Number(novoInsumo.preco_unitario.replace(',', '.')) || 0
+    const numOrNull = (v: string) => {
+      const n = Number(v.replace(',', '.'))
+      return v.trim() && !isNaN(n) ? n : null
+    }
     const { data, error } = await supabase
       .from('insumos_proprios')
       .insert({
@@ -1129,6 +1141,10 @@ function InsumosTab() {
         grupo: novoInsumo.grupo.trim() || null,
         preco_unitario: preco,
         ativo: novoInsumo.ativo,
+        comprimento: numOrNull(novoInsumo.comprimento),
+        largura: numOrNull(novoInsumo.largura),
+        espessura: numOrNull(novoInsumo.espessura),
+        diametro: numOrNull(novoInsumo.diametro),
       })
       .select()
       .single()
@@ -1329,6 +1345,48 @@ function InsumosTab() {
             onChange={e => setNovoInsumo(prev => ({ ...prev, grupo: e.target.value }))}
             placeholder="Ex: Alvenaria, Elétrica, Fretes..."
           />
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-[var(--text-secondary)]">Dimensões (opcional, em metros)</label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Input
+                label="Comprimento"
+                type="number"
+                step="0.001"
+                min="0"
+                value={novoInsumo.comprimento}
+                onChange={e => setNovoInsumo(prev => ({ ...prev, comprimento: e.target.value }))}
+                placeholder="Ex: 2,70"
+              />
+              <Input
+                label="Largura"
+                type="number"
+                step="0.001"
+                min="0"
+                value={novoInsumo.largura}
+                onChange={e => setNovoInsumo(prev => ({ ...prev, largura: e.target.value }))}
+                placeholder="Ex: 0,30"
+              />
+              <Input
+                label="Espessura"
+                type="number"
+                step="0.001"
+                min="0"
+                value={novoInsumo.espessura}
+                onChange={e => setNovoInsumo(prev => ({ ...prev, espessura: e.target.value }))}
+                placeholder="Ex: 0,025"
+              />
+              <Input
+                label="Diâmetro"
+                type="number"
+                step="0.001"
+                min="0"
+                value={novoInsumo.diametro}
+                onChange={e => setNovoInsumo(prev => ({ ...prev, diametro: e.target.value }))}
+                placeholder="Ex: 0,010"
+              />
+            </div>
+          </div>
 
           <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
             <input
