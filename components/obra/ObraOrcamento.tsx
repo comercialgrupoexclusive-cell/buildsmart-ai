@@ -7,7 +7,7 @@ import {
   Boxes, Users, FileText, Percent, Wallet, ArrowLeftRight,
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
   Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
-  Pencil, GripVertical, Move, MoreVertical, type LucideIcon,
+  Pencil, GripVertical, Move, MoreVertical, Copy, type LucideIcon,
   Sparkles, LayoutTemplate, Save, Wand2, ClipboardCheck, Check, Minus,
 } from 'lucide-react'
 import {
@@ -409,7 +409,6 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   const [modoConferencia, setModoConferencia] = useState(false)
   const [filtroConferencia, setFiltroConferencia] = useState<'todos' | 'pendentes'>('todos')
   const [verificandoId, setVerificandoId] = useState<string | null>(null)
-  const [confirmarEtapa, setConfirmarEtapa] = useState<{ id: string; nome: string; acao: 'verificar' | 'reabrir' } | null>(null)
   const [profileNomes, setProfileNomes] = useState<Record<string, string>>({})
   useEffect(() => {
     supabase.from('profiles').select('id,name').then(({ data }: { data: { id: string; name: string }[] | null }) => {
@@ -670,10 +669,23 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     setEtapas(data || [])
   }
 
-  // Conferência do orçamento (QA/revisão) — marca/reabre uma etapa, subetapa,
-  // item ou insumo, com cascata opcional para os filhos. Não mexe em status
-  // de execução, medição, financeiro nem Portal — só nas 3 colunas verificado*.
-  async function handleVerificar(entidadeTipo: 'etapa' | 'subetapa' | 'item' | 'insumo', entidadeId: string, acao: 'verificar' | 'reabrir', incluirFilhos = false) {
+  // Conferência do orçamento (QA/revisão) — é só um booleano por registro
+  // (etapa, subetapa, item ou insumo), independente entre níveis: marcar/
+  // desmarcar um nível NUNCA propaga para pais ou filhos, não valida
+  // conteúdo, não bloqueia edição. Não mexe em status de execução, medição,
+  // financeiro nem Portal — só nas 3 colunas verificado*.
+  //
+  // `orcamentoItemId`/`insumoSnapshot` só se aplicam a entidadeTipo='insumo':
+  // a maioria dos insumos exibidos ainda não tem uma linha própria em
+  // orcamento_item_insumos (só existe quando veio de importação XLSX ou já
+  // foi conferida antes) — nesse caso a UI mostra o insumo direto da
+  // definição da composição (composicao_insumos) e não há onde a RPC gravar
+  // o "conferido". `insumoSnapshot` carrega os mesmos valores JÁ exibidos
+  // (código/descrição/unidade/classificação/coeficiente/quantidade
+  // calculada/preço unitário) para a RPC materializar essa linha só na
+  // primeira conferência — nunca altera preço/coeficiente da composição.
+  type InsumoSnapshot = { codigo: string; descricao: string; unidade: string; classificacao: string; coeficiente: number; quantidade_calculada: number; preco_unitario: number }
+  async function handleVerificar(entidadeTipo: 'etapa' | 'subetapa' | 'item' | 'insumo', entidadeId: string, acao: 'verificar' | 'reabrir', orcamentoItemId?: string, insumoSnapshot?: InsumoSnapshot) {
     if (!orcamento || !currentProfile) return
     setVerificandoId(entidadeId)
     const { error } = await supabase.rpc('orcamento_verificacao_marcar', {
@@ -682,17 +694,12 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       p_entidade_id: entidadeId,
       p_acao: acao,
       p_profile_id: currentProfile.id,
-      p_incluir_filhos: incluirFilhos,
+      p_orcamento_item_id: orcamentoItemId ?? null,
+      p_insumo_snapshot: insumoSnapshot ?? null,
     })
     if (error) { alert(`Não foi possível atualizar a conferência.\n\n${error.message}`); setVerificandoId(null); return }
     await Promise.all([loadItens(orcamento.id), loadEtapas()])
     setVerificandoId(null)
-  }
-
-  // Etapa é o único nível que pede confirmação antes de cascatear (regra
-  // explícita: subetapa e item cascateiam direto, sem perguntar).
-  function onClickEtapaCheckbox(etapa: Etapa, state: VerifState) {
-    setConfirmarEtapa({ id: etapa.id, nome: etapa.nome, acao: state === 'full' ? 'reabrir' : 'verificar' })
   }
 
   // Todo update de conteúdo em etapas/orcamento_itens/orcamento_item_insumos
@@ -1239,6 +1246,41 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     })
     await supabase.from('orcamento_itens').delete().eq('id', itemId)
     setItens(prev => prev.filter(i => i.id !== itemId))
+  }
+
+  // Duplica uma composição/item do orçamento: mesma linha de orcamento_itens
+  // (etapa, subetapa, composição vinculada, quantidade, snapshots, valores
+  // manuais) e, se existirem, as linhas próprias de orcamento_item_insumos
+  // (overrides/conferência por insumo) — nada de motor de composição é
+  // recalculado aqui, é uma cópia fiel. A cópia nasce não conferida.
+  async function handleDuplicateItem(itemId: string) {
+    if (!orcamento) return
+    const { data: original, error: erroOriginal } = await supabase
+      .from('orcamento_itens').select('*').eq('id', itemId).single()
+    if (erroOriginal || !original) {
+      alert(`Não foi possível duplicar: ${erroOriginal?.message || 'composição não encontrada.'}`)
+      return
+    }
+    const { id: _id, created_at: _createdAt, updated_at: _updatedAt, verificado: _verificado, verificado_por: _verificadoPor, verificado_em: _verificadoEm, ...campos } = original as Record<string, unknown>
+    const { data: copia, error: erroCopia } = await supabase
+      .from('orcamento_itens').insert(campos).select('id').single()
+    if (erroCopia || !copia) {
+      alert(`Não foi possível duplicar: ${erroCopia?.message || 'erro desconhecido.'}`)
+      return
+    }
+
+    const { data: insumosOriginais } = await supabase
+      .from('orcamento_item_insumos').select('*').eq('orcamento_item_id', itemId)
+    if (insumosOriginais && insumosOriginais.length > 0) {
+      const payload = insumosOriginais.map((ins: Record<string, unknown>) => {
+        const { id: _insId, verificado: _insVerificado, verificado_por: _insVerificadoPor, verificado_em: _insVerificadoEm, ...insCampos } = ins
+        return { ...insCampos, orcamento_item_id: copia.id }
+      })
+      const { error: erroInsumos } = await supabase.from('orcamento_item_insumos').insert(payload)
+      if (erroInsumos) console.error('Composição duplicada, mas insumos próprios do item não foram copiados:', erroInsumos)
+    }
+
+    await loadItens(orcamento.id)
   }
 
   async function handleUpdateItemQuantidade(itemId: string, novaQuantidade: number) {
@@ -2536,6 +2578,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                 subtotalDireto={subtotal}
                 onAddItemToSubetapa={(nomeSub) => openItemModal(null, nomeSub)}
                 onAddInsumoToItem={(item) => openItemModal(item.etapa_id, item.subetapa, true)}
+                onDuplicateItem={handleDuplicateItem}
                 onRenameSubetapa={(nomeSub) => handleRenameSubetapa(null, nomeSub)}
                 onDeleteSubetapa={(nomeSub) => handleRemoveSubetapa(null, nomeSub)}
                 onEditSubetapaValor={(nomeSub, valorAtual) => handleEditSubetapaValor(null, nomeSub, valorAtual)}
@@ -2551,9 +2594,9 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                 filtroConferencia={filtroConferencia}
                 verificandoId={verificandoId}
                 profileNomes={profileNomes}
-                onVerificarSubetapa={(id, acao) => handleVerificar('subetapa', id, acao, true)}
-                onVerificarItem={(id, acao) => handleVerificar('item', id, acao, true)}
-                onVerificarInsumo={(id, acao) => handleVerificar('insumo', id, acao, false)}
+                onVerificarSubetapa={(id, acao) => handleVerificar('subetapa', id, acao)}
+                onVerificarItem={(id, acao) => handleVerificar('item', id, acao)}
+                onVerificarInsumo={(id, itemId, acao, snapshot) => handleVerificar('insumo', id, acao, itemId, snapshot)}
               />
             )}
             <SortableList
@@ -2590,6 +2633,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                       subtotalDireto={subtotal}
                       onAddItemToSubetapa={(nomeSub) => openItemModal(etapa.id, nomeSub)}
                       onAddInsumoToItem={(item) => openItemModal(item.etapa_id, item.subetapa, true)}
+                onDuplicateItem={handleDuplicateItem}
                       onDeleteEtapa={!isReadonly ? () => handleRemoveEtapa(etapa.id, etapa.nome) : undefined}
                       onRenameEtapa={!isReadonly ? () => handleRenameEtapa(etapa.id, etapa.nome) : undefined}
                       onRenameSubetapa={!isReadonly ? (nomeSub) => handleRenameSubetapa(etapa.id, nomeSub) : undefined}
@@ -2611,10 +2655,10 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                       filtroConferencia={filtroConferencia}
                       verificandoId={verificandoId}
                       profileNomes={profileNomes}
-                      onVerificarEtapa={(state) => onClickEtapaCheckbox(etapa, state)}
-                      onVerificarSubetapa={(id, acao) => handleVerificar('subetapa', id, acao, true)}
-                      onVerificarItem={(id, acao) => handleVerificar('item', id, acao, true)}
-                      onVerificarInsumo={(id, acao) => handleVerificar('insumo', id, acao, false)}
+                      onVerificarEtapa={(state) => handleVerificar('etapa', etapa.id, state === 'full' ? 'reabrir' : 'verificar')}
+                      onVerificarSubetapa={(id, acao) => handleVerificar('subetapa', id, acao)}
+                      onVerificarItem={(id, acao) => handleVerificar('item', id, acao)}
+                      onVerificarInsumo={(id, itemId, acao, snapshot) => handleVerificar('insumo', id, acao, itemId, snapshot)}
                     />
                   </div>
                 )
@@ -3009,34 +3053,6 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         )}
       </Modal>
 
-      {/* Conferência do orçamento — cascata opcional ao marcar/reabrir uma
-          etapa inteira. Subetapa e item cascateiam sem perguntar (regra fixa). */}
-      <Modal open={!!confirmarEtapa} onClose={() => setConfirmarEtapa(null)} title={confirmarEtapa?.acao === 'verificar' ? 'Conferir etapa' : 'Reabrir etapa'} size="sm">
-        {confirmarEtapa && (
-          <div className="flex flex-col gap-4">
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              {confirmarEtapa.acao === 'verificar'
-                ? <>Marcar a etapa &quot;{confirmarEtapa.nome}&quot; e todos os seus itens como conferidos?</>
-                : <>Reabrir a etapa &quot;{confirmarEtapa.nome}&quot; e todos os seus itens conferidos?</>}
-            </p>
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <Button
-                variant="secondary"
-                loading={verificandoId === confirmarEtapa.id}
-                onClick={async () => { const alvo = confirmarEtapa; setConfirmarEtapa(null); if (alvo) await handleVerificar('etapa', alvo.id, alvo.acao, false) }}
-              >
-                {confirmarEtapa.acao === 'verificar' ? 'Só a etapa' : 'Só a etapa'}
-              </Button>
-              <Button
-                loading={verificandoId === confirmarEtapa.id}
-                onClick={async () => { const alvo = confirmarEtapa; setConfirmarEtapa(null); if (alvo) await handleVerificar('etapa', alvo.id, alvo.acao, true) }}
-              >
-                {confirmarEtapa.acao === 'verificar' ? 'Etapa + todos os itens' : 'Etapa + todos os itens'}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
 
       <Modal
         open={showFinalizarModal}
@@ -3261,7 +3277,7 @@ function GrupoEtapa({
   nome, dragHandle, itens, subetapasMeta = [], isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
   onUpdateQuantidade, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
   obraUf, icon: Icon, iconCor, subtotalDireto,
-  onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditSubetapaValor, onRestoreSubetapaValor, onRestoreItemValor, onRestoreInsumoValor, onEditItem, menuAberto, onToggleMenu, menuRef,
+  onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditSubetapaValor, onRestoreSubetapaValor, onRestoreItemValor, onRestoreInsumoValor, onEditItem, onDuplicateItem, menuAberto, onToggleMenu, menuRef,
   onReorderSubetapas, onReorderItens, mobileDragLocked,
   etapaId, etapaVerificado, modoConferencia, filtroConferencia, verificandoId, profileNomes,
   onVerificarEtapa, onVerificarSubetapa, onVerificarItem, onVerificarInsumo,
@@ -3297,6 +3313,7 @@ function GrupoEtapa({
   onRestoreItemValor?: (itemId: string) => void
   onRestoreInsumoValor?: (insumoId: string) => void
   onEditItem?: (item: ItemEnriquecido) => void
+  onDuplicateItem?: (itemId: string) => void
   menuAberto?: boolean
   onToggleMenu?: () => void
   menuRef?: React.RefObject<HTMLDivElement | null>
@@ -3312,7 +3329,7 @@ function GrupoEtapa({
   onVerificarEtapa?: (state: VerifState) => void
   onVerificarSubetapa?: (subetapaId: string, acao: 'verificar' | 'reabrir') => void
   onVerificarItem?: (itemId: string, acao: 'verificar' | 'reabrir') => void
-  onVerificarInsumo?: (insumoId: string, acao: 'verificar' | 'reabrir') => void
+  onVerificarInsumo?: (insumoId: string, itemId: string, acao: 'verificar' | 'reabrir', snapshot?: { codigo: string; descricao: string; unidade: string; classificacao: string; coeficiente: number; quantidade_calculada: number; preco_unitario: number }) => void
 }) {
   const [subetapasFechadas, setSubetapasFechadas] = useState<Record<string, boolean>>({})
   const [subMenuAberto, setSubMenuAberto] = useState<string | null>(null)
@@ -3450,7 +3467,7 @@ function GrupoEtapa({
               <MoreVertical size={15} />
             </button>
             {menuAberto && (
-              <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-44"
+              <div className="fixed inset-x-4 bottom-4 z-[150] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-44"
                 style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                 {onRenameEtapa && (
                   <button onClick={() => { onToggleMenu?.(); onRenameEtapa() }}
@@ -3591,7 +3608,7 @@ function GrupoEtapa({
                                   <MoreHorizontal size={14} />
                                 </button>
                                 {subMenuAberto === grupo.key && (
-                                  <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52"
+                                  <div className="fixed inset-x-4 bottom-4 z-[150] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52"
                                     style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                     {onAddItemToSubetapa && (
                                       <button onClick={() => { setSubMenuAberto(null); onAddItemToSubetapa(grupo.nome) }}
@@ -3749,7 +3766,7 @@ function GrupoEtapa({
                                         <MoreHorizontal size={14} style={{ color: 'var(--text-secondary)' }} />
                                       </button>
                                       {itemMenuAberto === item.id && (
-                                        <div className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52"
+                                        <div className="fixed inset-x-4 bottom-4 z-[150] rounded-xl py-1.5 shadow-lg animate-enter sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52"
                                           style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                           {onEditItem && (
                                             <button onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
@@ -3763,6 +3780,13 @@ function GrupoEtapa({
                                               className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                                               style={{ color: 'var(--text-primary)' }}>
                                               <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar insumo
+                                            </button>
+                                          )}
+                                          {onDuplicateItem && (
+                                            <button onClick={() => { setItemMenuAberto(null); onDuplicateItem(item.id) }}
+                                              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                              style={{ color: 'var(--text-primary)' }}>
+                                              <Copy size={13} /> Duplicar composição
                                             </button>
                                           )}
                                           <button onClick={() => { setItemMenuAberto(null); onRemove(item.id) }}
@@ -3814,7 +3838,7 @@ function GrupoEtapa({
                                                       <VerificacaoCheck
                                                         state={ins.verificado ? 'full' : 'none'}
                                                         loading={verificandoId === ins.id}
-                                                        onClick={() => onVerificarInsumo?.(ins.id, ins.verificado ? 'reabrir' : 'verificar')}
+                                                        onClick={() => onVerificarInsumo?.(ins.id, item.id, ins.verificado ? 'reabrir' : 'verificar', { codigo: info.codigo, descricao: info.descricao, unidade: info.unidade, classificacao: info.classificacao, coeficiente: ins.coeficiente, quantidade_calculada: qtdCalculada, preco_unitario: info.preco })}
                                                         title={verifTitle(ins.verificado, ins.verificado_por, ins.verificado_em, profileNomes || {})}
                                                       />
                                                     )}
@@ -3964,7 +3988,7 @@ function GrupoEtapa({
                             <MoreVertical size={14} style={{ color: 'var(--text-secondary)' }} />
                           </span>
                           {subMenuAberto === grupo.key && (
-                            <span className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter text-left"
+                            <span className="fixed inset-x-4 bottom-4 z-[150] rounded-xl py-1.5 shadow-lg animate-enter text-left"
                               style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                               {onAddItemToSubetapa && (
                                 <span role="button" tabIndex={0} onClick={() => { setSubMenuAberto(null); onAddItemToSubetapa(grupo.nome) }}
@@ -4117,7 +4141,7 @@ function GrupoEtapa({
                                         <MoreVertical size={14} style={{ color: 'var(--text-secondary)' }} />
                                       </button>
                                       {itemMenuAberto === item.id && (
-                                        <span className="fixed inset-x-4 bottom-4 z-[120] rounded-xl py-1.5 shadow-lg animate-enter text-left"
+                                        <span className="fixed inset-x-4 bottom-4 z-[150] rounded-xl py-1.5 shadow-lg animate-enter text-left"
                                           style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
                                           {onEditItem && (
                                             <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onEditItem(item) }}
@@ -4131,6 +4155,13 @@ function GrupoEtapa({
                                               className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
                                               style={{ color: 'var(--text-primary)' }}>
                                               <Plus size={13} style={{ color: 'var(--accent)' }} /> Adicionar insumo
+                                            </span>
+                                          )}
+                                          {onDuplicateItem && (
+                                            <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onDuplicateItem(item.id) }}
+                                              className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+                                              style={{ color: 'var(--text-primary)' }}>
+                                              <Copy size={13} /> Duplicar composição
                                             </span>
                                           )}
                                           <span role="button" tabIndex={0} onClick={() => { setItemMenuAberto(null); onRemove(item.id) }}
@@ -4170,7 +4201,7 @@ function GrupoEtapa({
                                               <VerificacaoCheck
                                                 state={ins.verificado ? 'full' : 'none'}
                                                 loading={verificandoId === ins.id}
-                                                onClick={() => onVerificarInsumo?.(ins.id, ins.verificado ? 'reabrir' : 'verificar')}
+                                                onClick={() => onVerificarInsumo?.(ins.id, item.id, ins.verificado ? 'reabrir' : 'verificar', { codigo: info.codigo, descricao: info.descricao, unidade: info.unidade, classificacao: info.classificacao, coeficiente: ins.coeficiente, quantidade_calculada: qtdCalculada, preco_unitario: info.preco })}
                                                 title={verifTitle(ins.verificado, ins.verificado_por, ins.verificado_em, profileNomes || {})}
                                               />
                                             )}
