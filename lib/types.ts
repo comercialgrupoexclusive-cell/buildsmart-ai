@@ -627,3 +627,75 @@ export type Responsavel = {
   name: string
   drive_folder_url: string | null
 }
+
+// ─── Laboratório Investidor (Marco 1 — só fundação de banco/domínio) ─────────
+// Ver RELATORIO_INVESTIDOR_RODADA_01.md. Nenhum frontend/Luiza usa estes
+// tipos ainda nesta rodada.
+export type ProspeccaoFase =
+  | 'nova' | 'em_analise' | 'aprovada' | 'em_disputa' | 'adquirida' | 'descartada' | 'nao_adquirida'
+
+export type Prospeccao = {
+  id: string
+  nome: string
+  endereco: string | null
+  foto_url: string | null
+  link_leilao: string | null
+  data_leilao: string | null
+  fase: ProspeccaoFase
+  responsavel: string | null
+  proxima_acao: string | null
+  observacao: string | null
+  // Vínculo futuro com o Ativo (Project contexto='investimento') — a ação de
+  // conversão não existe ainda, só a possibilidade estrutural do vínculo.
+  project_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+// Cenário financeiro de uma Prospecção. Premissas e resultados são a
+// fundação para o motor de cálculo do Marco 3 — nenhuma fórmula existe
+// ainda, então os campos de resultado sempre chegam null nesta rodada.
+export type ProspeccaoCenario = {
+  id: string
+  prospeccao_id: string
+  nome: string
+  modalidade: 'vista' | 'sac' | 'price'
+  principal: boolean
+  valor_arrematacao: number | null
+  valor_venda_estimado: number | null
+  comissao_leiloeiro: number | null
+  itbi: number | null
+  registro: number | null
+  advogado_desocupacao: number | null
+  reforma: number | null
+  outros_custos: number | null
+  prazo_venda_meses: number | null
+  iptu: number | null
+  condominio: number | null
+  corretagem: number | null
+  imposto_ganho_capital: number | null
+  entrada: number | null
+  percentual_financiado: number | null
+  valor_financiado: number | null
+  taxa_juros: number | null
+  prazo_financiamento_meses: number | null
+  investimento_total: number | null
+  valor_liquido_venda: number | null
+  lucro: number | null
+  rentabilidade: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type ProspeccaoEvidencia = {
+  id: string
+  prospeccao_id: string
+  informacao: string
+  tipo: string | null
+  fonte: string | null
+  url: string | null
+  data_evidencia: string | null
+  natureza: 'observado' | 'inferido' | 'estimado'
+  created_at: string
+  updated_at: string
+}
