@@ -1,13 +1,13 @@
 'use client'
 
-// Laboratório Investidor — Rodada 2: hub com as 3 abas (Prospecções | Ativos
-// | Comparador). Só Prospecções tem funcionalidade real nesta rodada; Ativos
-// e Comparador são navegação/placeholder coerente (Marcos 4 e 5, não
-// antecipados). Ver RELATORIO_INVESTIDOR_RODADA_02.md.
+// Laboratório Investidor — hub com as 3 abas (Prospecções | Ativos |
+// Comparador). Prospecções (Marco 2) e Ativos (Marco 4) têm funcionalidade
+// real; Comparador segue navegação/placeholder (Marco 5, não antecipado).
+// Ver RELATORIO_INVESTIDOR_RODADA_02.md e RELATORIO_INVESTIDOR_RODADA_04.md.
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Search, Landmark, Boxes, Columns3, Calendar, MapPin, ImagePlus } from 'lucide-react'
+import { Plus, Search, Landmark, Columns3, Calendar, MapPin, ImagePlus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -18,6 +18,23 @@ import { formatCurrency } from '@/lib/utils'
 import type { Prospeccao, ProspeccaoFase, ProspeccaoCenario } from '@/lib/types'
 
 type ProspeccaoComPrincipal = Prospeccao & { prospeccao_cenarios?: ProspeccaoCenario[] }
+
+// Ativo = Project com contexto='investimento' (Marco 4). Tipo mínimo local
+// — a tela real de detalhe é a própria /projetos/[id], não uma tela nova.
+type AtivoProjeto = {
+  id: string
+  nome: string
+  endereco: string | null
+  foto_url: string | null
+  fase_ciclo: 'projeto' | 'em_obra' | 'entregue'
+  created_at: string
+}
+
+const FASE_ATIVO_LABEL: Record<AtivoProjeto['fase_ciclo'], { label: string; color: string }> = {
+  projeto: { label: 'Adquirido', color: '#8b5cf6' },
+  em_obra: { label: 'Em reforma', color: 'var(--accent)' },
+  entregue: { label: 'Pronto', color: '#10b981' },
+}
 
 const FASE_META: Record<ProspeccaoFase, { label: string; color: string }> = {
   nova: { label: 'Nova', color: '#64748b' },
@@ -73,13 +90,7 @@ export default function InvestidorPage() {
       </div>
 
       {tab === 'prospeccoes' && <ProspeccoesTab />}
-      {tab === 'ativos' && (
-        <EmptyState
-          icon={Boxes}
-          title="Ativos"
-          description="Quando uma Prospecção for adquirida, ela vira um Ativo aqui — reaproveitando Estrutura, Orçamento, Cronograma, Board e Arquivos da obra. Chega no Marco 4."
-        />
-      )}
+      {tab === 'ativos' && <AtivosTab />}
       {tab === 'comparador' && (
         <EmptyState
           icon={Columns3}
@@ -265,6 +276,96 @@ function ProspeccaoCard({ prospeccao: p, index }: { prospeccao: ProspeccaoComPri
             Próxima ação: {p.proxima_acao}
           </p>
         )}
+      </div>
+    </Link>
+  )
+}
+
+function AtivosTab() {
+  const [ativos, setAtivos] = useState<AtivoProjeto[]>([])
+  const [loading, setLoading] = useState(true)
+
+  async function load() {
+    setLoading(true)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('projetos')
+      .select('id, nome, endereco, foto_url, fase_ciclo, created_at')
+      .eq('contexto', 'investimento')
+      .order('created_at', { ascending: false })
+    setAtivos((data ?? []) as AtivoProjeto[])
+    setLoading(false)
+  }
+
+  useEffect(() => { void load() }, [])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+      </div>
+    )
+  }
+
+  if (ativos.length === 0) {
+    return (
+      <EmptyState
+        icon={Landmark}
+        title="Nenhum ativo ainda"
+        description="Quando uma Prospecção for adquirida e convertida, ela aparece aqui — reaproveitando Estrutura, Orçamento, Cronograma, Board e Arquivos do Projeto."
+      />
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+      {ativos.map((a, i) => <AtivoCard key={a.id} ativo={a} index={i} />)}
+    </div>
+  )
+}
+
+function AtivoCard({ ativo: a, index }: { ativo: AtivoProjeto; index: number }) {
+  const meta = FASE_ATIVO_LABEL[a.fase_ciclo]
+  return (
+    <Link
+      href={`/projetos/${a.id}`}
+      className="group block overflow-hidden rounded-2xl transition-transform hover:scale-[1.015] animate-enter"
+      style={{
+        animationDelay: `${index * 60}ms`,
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+      }}
+    >
+      <div className="relative h-44 overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+        {a.foto_url ? (
+          <img src={a.foto_url} alt={a.nome} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+            <Landmark size={40} style={{ color: 'var(--border)' }} />
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Sem foto</span>
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+        <div className="absolute top-3 right-3">
+          <span
+            className="text-xs font-semibold px-2.5 py-1 rounded-full"
+            style={{ background: `${meta.color}22`, color: meta.color, border: `1px solid ${meta.color}55`, backdropFilter: 'blur(8px)' }}
+          >
+            {meta.label}
+          </span>
+        </div>
+        <div className="absolute bottom-0 left-0 right-0 p-4">
+          <h3 className="font-semibold text-base leading-tight truncate text-white">{a.nome}</h3>
+          {a.endereco && (
+            <p className="text-xs truncate mt-1 text-white/70 flex items-center gap-1">
+              <MapPin size={11} /> {a.endereco}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="px-4 py-3">
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Abrir Projeto do Ativo →</p>
       </div>
     </Link>
   )

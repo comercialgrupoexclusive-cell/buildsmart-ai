@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, KeyRound, ClipboardList } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, KeyRound, ClipboardList, Landmark } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemDependencia, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
@@ -13,6 +13,7 @@ import { TourManager } from '@/components/tour/TourManager'
 import { ProjetoOrcamentosPanel } from '@/components/projeto/ProjetoOrcamentosPanel'
 import { IniciarObraButton } from '@/components/projeto/IniciarObraButton'
 import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
+import { ProjetoResumoInvestimento } from '@/components/investidor/ProjetoResumoInvestimento'
 import { entregarObra, type ProjectPhase } from '@/lib/project-cycle'
 import dynamic from 'next/dynamic'
 
@@ -34,6 +35,7 @@ type Projeto = {
   data_previsao: string | null
   status: 'aguardando' | 'em_andamento' | 'concluido' | 'suspenso'
   fase_ciclo: ProjectPhase
+  contexto: 'projeto' | 'investimento'
   obra_id: string | null
   responsavel: string | null
   foto_url: string | null
@@ -53,6 +55,15 @@ const FASE_LABEL: Record<ProjectPhase, string> = {
   entregue: 'Entregue',
 }
 
+// "Fase operacional específica do ativo" (Marco 4) — mesmo campo
+// fase_ciclo do Project comum, só com rótulo mais adequado a um imóvel de
+// investimento. Nenhum campo novo de schema; puramente de apresentação.
+const FASE_LABEL_ATIVO: Record<ProjectPhase, string> = {
+  projeto: 'Adquirido',
+  em_obra: 'Em reforma',
+  entregue: 'Pronto',
+}
+
 export default function ProjetoDetalhe({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { isCliente } = usePermission()
@@ -61,8 +72,8 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
   const [dependencias, setDependencias] = useState<ProjetoItemDependencia[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas'>(
-    (searchParams.get('tab') as 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas') ?? 'estrutura'
+  const [tab, setTab] = useState<'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas' | 'investimento'>(
+    (searchParams.get('tab') as 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas' | 'investimento') ?? 'estrutura'
   )
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
@@ -324,8 +335,13 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
             {projeto.cliente && <p className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{projeto.cliente}</p>}
             <span className="text-[10px] px-2 py-0.5 rounded-full border flex-shrink-0"
               style={{ borderColor: 'var(--border)', color: projeto.fase_ciclo === 'em_obra' ? 'var(--accent)' : projeto.fase_ciclo === 'entregue' ? 'var(--success)' : 'var(--text-secondary)' }}>
-              Fase: {FASE_LABEL[projeto.fase_ciclo]}
+              Fase: {projeto.contexto === 'investimento' ? FASE_LABEL_ATIVO[projeto.fase_ciclo] : FASE_LABEL[projeto.fase_ciclo]}
             </span>
+            {projeto.contexto === 'investimento' && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6' }}>
+                <Landmark size={10} /> Ativo
+              </span>
+            )}
           </div>
         </div>
         {!isCliente && projeto.fase_ciclo === 'projeto' && (
@@ -363,6 +379,9 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           { key: 'board',      label: 'Board',        icon: LayoutDashboard },
           { key: 'tour',       label: 'Tour 360°',    icon: ImagePlus },
           { key: 'dados',      label: 'Dados Gerais', icon: Info },
+          ...(projeto.contexto === 'investimento'
+            ? [{ key: 'investimento' as const, label: 'Investimento', icon: Landmark }]
+            : []),
           { key: 'ia',         label: 'Assistente IA', icon: Sparkles },
           { key: 'tarefas',    label: 'Tarefas',       icon: ClipboardList },
         ] as const).map(({ key, label, icon: Icon }) => (
@@ -465,6 +484,8 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       )}
 
       {tab === 'tarefas' && <ContextoTarefas projetoId={projeto.id} />}
+
+      {tab === 'investimento' && <ProjetoResumoInvestimento projetoId={projeto.id} />}
 
       {tab === 'dados' && (
         <div className="space-y-4">

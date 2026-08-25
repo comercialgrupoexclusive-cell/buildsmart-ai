@@ -11,8 +11,9 @@ import { useEffect, useState, use } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus } from 'lucide-react'
+import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus, Building2, ArrowUpRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { usePermission } from '@/lib/permissions'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -148,9 +149,45 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
 }
 
 function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao; principal?: ProspeccaoCenario; onSaved: () => void }) {
+  const router = useRouter()
+  const { isCliente } = usePermission()
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState(prospeccao)
   const [saving, setSaving] = useState(false)
+  const [convertendo, setConvertendo] = useState(false)
+
+  // Marco 4 — conversão Prospecção adquirida → Ativo (Project com
+  // contexto=investimento). Reaproveita a mesma tabela `projetos` e todas
+  // as suas telas (Estrutura/Orçamento/Cronograma/Board/Arquivos/Tarefas) —
+  // nenhuma tela nova de "obra do investidor" é criada. A Prospecção nunca
+  // é apagada; o vínculo fica em prospeccoes.project_id (histórico
+  // previsto × realizado para marcos futuros).
+  async function handleConverterEmAtivo() {
+    if (!confirm(
+      `Converter "${prospeccao.nome}" em Ativo?\n\nIsso cria um Projeto (contexto de investimento) reaproveitando Estrutura, Orçamento, Cronograma, Board e Arquivos. A prospecção continua existindo, vinculada ao novo Ativo.`
+    )) return
+    setConvertendo(true)
+    const supabase = createClient()
+    const { data: novoProjeto, error } = await supabase.from('projetos').insert({
+      nome: prospeccao.nome,
+      endereco: prospeccao.endereco,
+      foto_url: prospeccao.foto_url,
+      contexto: 'investimento',
+      status: 'em_andamento',
+    }).select('id').single()
+    if (error || !novoProjeto) {
+      setConvertendo(false)
+      alert(`Não foi possível converter em Ativo: ${error?.message}`)
+      return
+    }
+    const { error: linkError } = await supabase.from('prospeccoes').update({ project_id: novoProjeto.id }).eq('id', prospeccao.id)
+    setConvertendo(false)
+    if (linkError) {
+      alert(`O Ativo foi criado, mas não foi possível vincular à prospecção automaticamente: ${linkError.message}`)
+    }
+    onSaved()
+    router.push(`/projetos/${novoProjeto.id}`)
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -179,9 +216,26 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
   if (!editing) {
     return (
       <div className="card p-5 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Resumo</h2>
-          <Button variant="secondary" size="sm" icon={<Pencil size={13} />} onClick={() => { setForm(prospeccao); setEditing(true) }}>Editar</Button>
+          <div className="flex items-center gap-2">
+            {!isCliente && prospeccao.fase === 'adquirida' && (
+              prospeccao.project_id ? (
+                <Link
+                  href={`/projetos/${prospeccao.project_id}`}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  Ver Ativo <ArrowUpRight size={14} />
+                </Link>
+              ) : (
+                <Button variant="secondary" size="sm" icon={<Building2 size={13} />} onClick={handleConverterEmAtivo} loading={convertendo}>
+                  Converter em Ativo
+                </Button>
+              )
+            )}
+            <Button variant="secondary" size="sm" icon={<Pencil size={13} />} onClick={() => { setForm(prospeccao); setEditing(true) }}>Editar</Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
