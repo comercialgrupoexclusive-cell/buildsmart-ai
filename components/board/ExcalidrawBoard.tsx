@@ -18,6 +18,10 @@ interface Props {
   projectId?: string
   obraId?: string
   portalToken?: string
+  // Laboratório Investidor (Rodada 2) — reaproveita o mesmo mecanismo de
+  // persistência do Board de Project (board_data em vez da tabela `boards`,
+  // que é exclusiva de obra/portal). Ver RELATORIO_INVESTIDOR_RODADA_02.md.
+  prospeccaoId?: string
 }
 
 interface ViewState {
@@ -37,7 +41,7 @@ function zoomValue(appStateZoom: Any): number {
   return typeof appStateZoom === 'number' ? appStateZoom : 1
 }
 
-export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
+export function ExcalidrawBoard({ projectId, obraId, portalToken, prospeccaoId }: Props) {
   const { currentProfile } = useProfile()
   const supportsNC = Boolean(projectId || obraId)
 
@@ -102,6 +106,13 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
           fileRows = (payload.files ?? []).map((file: Any) => ({
             id: file.id, mime_type: file.mimeType, data_url: file.dataURL, created: file.created,
           }))
+        } else if (prospeccaoId) {
+          const [{ data: prospec }, { data: rows }] = await Promise.all([
+            supabase.from('prospeccoes').select('board_data').eq('id', prospeccaoId).single(),
+            supabase.from('board_files').select('id, mime_type, data_url, created').eq('prospeccao_id', prospeccaoId),
+          ])
+          document = prospec?.board_data
+          fileRows = rows ?? []
         } else if (obraId) {
           let { data: board } = await supabase.from('boards').select('id,document_data')
             .eq('obra_id', obraId).eq('scope', 'portal').order('created_at').limit(1).maybeSingle()
@@ -147,14 +158,14 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
       }
     }
     load()
-  }, [projectId, obraId, portalToken])
+  }, [projectId, obraId, portalToken, prospeccaoId])
 
   // ── Supabase Realtime — Broadcast + Presence ──────────────────────────────
 
   useEffect(() => {
     if (!currentProfile) return
 
-    const channelKey = boardId || projectId
+    const channelKey = boardId || projectId || prospeccaoId
     if (!channelKey) return
     const supabase = createClient()
     const channel  = supabase.channel(`board:${channelKey}`)
@@ -189,7 +200,7 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
       supabase.removeChannel(channel)
       channelRef.current = null
     }
-  }, [boardId, projectId, currentProfile])
+  }, [boardId, projectId, prospeccaoId, currentProfile])
 
   // ── Scroll = zoom (intercepta wheel sem Ctrl e re-despacha com Ctrl) ──────
 
@@ -233,22 +244,25 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken }: Props) {
       if (projectId) {
         const { error } = await supabase.from('projetos').update({ board_data: document }).eq('id', projectId)
         if (error) throw error
+      } else if (prospeccaoId) {
+        const { error } = await supabase.from('prospeccoes').update({ board_data: document }).eq('id', prospeccaoId)
+        if (error) throw error
       } else if (boardId) {
         const { error } = await supabase.from('boards').update({ document_data: document }).eq('id', boardId)
         if (error) throw error
       }
       if (newEntries.length > 0) {
         const rows = newEntries.map(([id, file]) => ({
-          id, projeto_id: projectId || null, board_id: boardId,
+          id, projeto_id: projectId || null, prospeccao_id: prospeccaoId || null, board_id: boardId,
           mime_type: file.mimeType ?? 'image/png', data_url: file.dataURL, created: file.created ?? Date.now(),
         }))
         const { error } = await supabase.from('board_files')
-          .upsert(rows, { onConflict: projectId ? 'projeto_id,id' : 'board_id,id' })
+          .upsert(rows, { onConflict: projectId ? 'projeto_id,id' : prospeccaoId ? 'prospeccao_id,id' : 'board_id,id' })
         if (error) throw error
       }
     }
     newEntries.forEach(([id]) => persistedFilesRef.current.add(id))
-  }, [boardId, portalToken, projectId])
+  }, [boardId, portalToken, projectId, prospeccaoId])
 
   const handleChange = useCallback(
     (elements: Any, appState: Any, files: Any) => {

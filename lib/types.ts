@@ -628,9 +628,8 @@ export type Responsavel = {
   drive_folder_url: string | null
 }
 
-// ─── Laboratório Investidor (Marco 1 — só fundação de banco/domínio) ─────────
-// Ver RELATORIO_INVESTIDOR_RODADA_01.md. Nenhum frontend/Luiza usa estes
-// tipos ainda nesta rodada.
+// ─── Laboratório Investidor (Marco 1 fundação + Marco 2 Prospecções) ────────
+// Ver RELATORIO_INVESTIDOR_RODADA_01.md e RELATORIO_INVESTIDOR_RODADA_02.md.
 export type ProspeccaoFase =
   | 'nova' | 'em_analise' | 'aprovada' | 'em_disputa' | 'adquirida' | 'descartada' | 'nao_adquirida'
 
@@ -648,8 +647,24 @@ export type Prospeccao = {
   // Vínculo futuro com o Ativo (Project contexto='investimento') — a ação de
   // conversão não existe ainda, só a possibilidade estrutural do vínculo.
   project_id: string | null
+  // Board (Excalidraw) da prospecção — mesmo mecanismo de projetos.board_data.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  board_data?: any
   created_at: string
   updated_at: string
+}
+
+// Arquivo anexado a uma Prospecção (Marco 2) — equivalente reduzido de
+// obra_files, sem os campos específicos de obra/portal.
+export type ProspeccaoArquivo = {
+  id: string
+  prospeccao_id: string
+  nome: string
+  tipo: string
+  tamanho: number
+  categoria: string
+  url: string | null
+  criado_em: string
 }
 
 // Cenário financeiro de uma Prospecção. Premissas e resultados são a
