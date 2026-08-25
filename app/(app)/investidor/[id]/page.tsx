@@ -164,7 +164,7 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
   const [saving, setSaving] = useState(false)
   const [convertendo, setConvertendo] = useState(false)
 
-  // Marco 4 — conversão Prospecção adquirida → Ativo (Project com
+  // Marco 4 — conversão Prospecção adquirida → Imóvel (Project com
   // contexto=investimento). Reaproveita a mesma tabela `projetos` e todas
   // as suas telas (Estrutura/Orçamento/Cronograma/Board/Arquivos/Tarefas) —
   // nenhuma tela nova de "obra do investidor" é criada. A Prospecção nunca
@@ -172,26 +172,38 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
   // previsto × realizado para marcos futuros).
   async function handleConverterEmAtivo() {
     if (!confirm(
-      `Converter "${prospeccao.nome}" em Ativo?\n\nIsso cria um Projeto (contexto de investimento) reaproveitando Estrutura, Orçamento, Cronograma, Board e Arquivos. A prospecção continua existindo, vinculada ao novo Ativo.`
+      `Criar imóvel para "${prospeccao.nome}"?\n\nIsso cria um Project de investimento reaproveitando Estrutura, Orçamento, Cronograma, Board e Arquivos. A prospecção continua existindo e fica vinculada ao imóvel.`
     )) return
     setConvertendo(true)
     const supabase = createClient()
+    const { data: atual, error: atualError } = await supabase.from('prospeccoes').select('project_id').eq('id', prospeccao.id).single()
+    if (atualError) {
+      setConvertendo(false)
+      alert(`Não foi possível conferir a prospecção: ${atualError.message}`)
+      return
+    }
+    if (atual?.project_id) {
+      setConvertendo(false)
+      router.push(`/projetos/${atual.project_id}`)
+      return
+    }
     const { data: novoProjeto, error } = await supabase.from('projetos').insert({
       nome: prospeccao.nome,
       endereco: prospeccao.endereco,
       foto_url: prospeccao.foto_url,
       contexto: 'investimento',
-      status: 'em_andamento',
+      status: 'aguardando',
+      fase_ciclo: 'projeto',
     }).select('id').single()
     if (error || !novoProjeto) {
       setConvertendo(false)
-      alert(`Não foi possível converter em Ativo: ${error?.message}`)
+      alert(`Não foi possível criar o imóvel: ${error?.message}`)
       return
     }
-    const { error: linkError } = await supabase.from('prospeccoes').update({ project_id: novoProjeto.id }).eq('id', prospeccao.id)
+    const { error: linkError } = await supabase.from('prospeccoes').update({ project_id: novoProjeto.id }).eq('id', prospeccao.id).is('project_id', null)
     setConvertendo(false)
     if (linkError) {
-      alert(`O Ativo foi criado, mas não foi possível vincular à prospecção automaticamente: ${linkError.message}`)
+      alert(`O imóvel foi criado, mas não foi possível vincular à prospecção automaticamente: ${linkError.message}`)
     }
     onSaved()
     router.push(`/projetos/${novoProjeto.id}`)
@@ -234,11 +246,11 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
                   className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg"
                   style={{ color: 'var(--accent)' }}
                 >
-                  Ver Ativo <ArrowUpRight size={14} />
+                  Imóvel criado — Abrir imóvel <ArrowUpRight size={14} />
                 </Link>
               ) : (
-                <Button variant="secondary" size="sm" icon={<Building2 size={13} />} onClick={handleConverterEmAtivo} loading={convertendo}>
-                  Converter em Ativo
+                <Button size="sm" icon={<Building2 size={13} />} onClick={handleConverterEmAtivo} loading={convertendo}>
+                  Criar imóvel
                 </Button>
               )
             )}
