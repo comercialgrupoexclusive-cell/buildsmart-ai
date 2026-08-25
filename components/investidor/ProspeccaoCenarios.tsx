@@ -18,7 +18,7 @@ import { formatCurrency } from '@/lib/utils'
 import { calcularCenario, type PremissasCenario } from '@/lib/investidor-calculadora'
 import type { ProspeccaoCenario } from '@/lib/types'
 
-const MODALIDADE_LABEL: Record<ProspeccaoCenario['modalidade'], string> = {
+export const MODALIDADE_LABEL: Record<ProspeccaoCenario['modalidade'], string> = {
   vista: 'À vista',
   sac: 'Financiado (SAC)',
   price: 'Financiado (PRICE)',
