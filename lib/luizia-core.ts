@@ -76,12 +76,45 @@ function limitJson(value: unknown, maxLength = 60000) {
   return `${text.slice(0, maxLength)}\n... contexto reduzido para caber na chamada ...`
 }
 
+function promptContext(context: LuiziaContext) {
+  const sanitizeFile = (file: Row) => {
+    const { dataUrl: _dataUrl, url: _url, ...safe } = file
+    if (typeof _dataUrl === 'string' || typeof _url === 'string') {
+      return { ...safe, anexo_visual: 'imagem enviada junto à mensagem' }
+    }
+    return safe
+  }
+
+  return {
+    ...context,
+    uploadedFiles: (context.uploadedFiles || []).map(sanitizeFile),
+  }
+}
+
 function isWhatsappContext(context: LuiziaContext) {
   return context.modo === 'whatsapp' || context.origem === 'whatsapp'
 }
 
 function firstUserQuestion(messages: LuiziaMessage[]) {
   return [...messages].reverse().find(m => m.role === 'user')?.content || ''
+}
+
+function imageAttachments(context: LuiziaContext) {
+  return (context.uploadedFiles || [])
+    .filter(file => typeof file.dataUrl === 'string' && String(file.tipo || file.type || '').startsWith('image/'))
+    .slice(0, 4)
+}
+
+function buildUserContent(question: string, context: LuiziaContext) {
+  const images = imageAttachments(context)
+  if (images.length === 0) return question
+  return [
+    ...images.map(file => ({
+      type: 'image_url' as const,
+      image_url: { url: String(file.dataUrl), detail: 'auto' as const },
+    })),
+    { type: 'text' as const, text: question },
+  ]
 }
 
 function summarizeList<T>(items: T[] | undefined, limit = 5) {
@@ -168,7 +201,8 @@ async function gerarRespostaNormal(
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const hoje = new Date().toLocaleDateString('pt-BR')
   const isWhatsapp = isWhatsappContext(context)
-  const model = modelFor(isWhatsapp ? false : complex)
+  const hasImages = imageAttachments(context).length > 0
+  const model = modelFor(isWhatsapp ? false : (complex || hasImages))
   const contextLimit = isWhatsapp ? 12000 : 60000
   const maxTokens = isWhatsapp ? 420 : complex ? 1800 : 900
 
@@ -193,6 +227,7 @@ REGRAS:
 - Ao falar de compras, considere fornecedores e listas de compra.
 - Ao falar de avanco, considere diario, medicoes e progresso.
 - Nao prometa leitura real de arquivos se o conteudo do arquivo nao foi enviado.
+- Quando imagens forem enviadas junto da mensagem, descreva apenas o que conseguir observar com segurança.
 - Quando sugerir criacao/alteracao no sistema, deixe claro que o usuario deve revisar antes de salvar.
 - Voce ainda nao executa acoes no banco nem cria registros diretamente.
 - O contexto e somente leitura. Nao invente que alterou dados.
@@ -201,17 +236,21 @@ REGRAS:
 ${isWhatsapp ? '- Pelo WhatsApp, responda ainda mais curto: no maximo 2 blocos pequenos. Priorize resposta direta e proximo passo.' : ''}
 
 CONTEXTO LOCAL/SISTEMA:
-${limitJson(context, contextLimit)}`
+${limitJson(promptContext(context), contextLimit)}`
+
+  const lastUserIndex = messages.map(m => m.role).lastIndexOf('user')
 
   const response = await openai.chat.completions.create({
     model,
     messages: [
       { role: 'system', content: systemPrompt },
-      ...messages.map(message => ({
+      ...messages.map((message, index) => ({
         role: message.role as 'user' | 'assistant',
-        content: message.content,
+        content: index === lastUserIndex && message.role === 'user'
+          ? buildUserContent(message.content, context)
+          : message.content,
       })),
-    ],
+    ] as OpenAI.Chat.ChatCompletionMessageParam[],
     max_tokens: maxTokens,
   })
 

@@ -70,7 +70,21 @@ function ehPedidoDeListarTudo(promptNorm: string): boolean {
   return REGEX_LISTAR_TUDO.test(promptNorm)
 }
 
-const TOOLS_LEITURA = new Set(['list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes', 'list_evidencias', 'extrair_link'])
+function isCapabilitiesQuestion(prompt: string): boolean {
+  return /\b(habilidades|o que voc[êe] consegue|o que voce consegue|o que pode fazer|fun[çc][õo]es da luiz)/i.test(prompt)
+}
+
+function capabilitiesMessage() {
+  return [
+    'No Laboratório Investidor, minhas habilidades principais são:',
+    '- Chat: consultar e comparar prospecções, cenários e ativos sem gravar nada.',
+    '- Work: preparar rascunhos de alteração e executar apenas após confirmação explícita.',
+    '- Web Search: pesquisar evidências externas somente quando fizer sentido, sem executar CRUD por esse caminho.',
+    '- Multimodal: usar anexos transcritos/extraídos quando a interface enviar esse contexto.',
+  ].join('\n')
+}
+
+const TOOLS_LEITURA = new Set(['list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes', 'list_evidencias', 'extrair_link', 'list_agentes_investidor', 'list_rotinas_investidor'])
 const TOOLS_QUE_PODEM_ESCREVER = new Set(['confirm_pending_action'])
 function pareceFalhaOuRecusa(msg: string): boolean {
   return /^(Erro ao|Não encontrei|Não consegui|Encontrei \d+|Essa proposta|Preciso |Certo, não vou alterar nada|"[^"]+" já)/.test(msg)
@@ -160,15 +174,15 @@ async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: Inve
   const persona = [
     `Você é a Luiza, assistente do BuildSmart AI. DATA ATUAL: ${hoje}.`,
     'Responda em português brasileiro, breve (até 4 blocos curtos), sem markdown pesado.',
-    'Aqui você lida com o Laboratório Investidor: Prospecções (oportunidades de leilão), seus Cenários financeiros (À vista/SAC/PRICE, com investimento total/venda líquida/lucro/rentabilidade já calculados pelo mesmo motor da tela) e Ativos (Prospecções já convertidas em Projeto). Nunca confunda Cenário financeiro com o cronograma/planejamento da obra — são coisas diferentes.',
+    'Aqui você lida com o Laboratório Investidor: Prospecções (oportunidades de leilão), seus Cenários financeiros (À vista/SAC/PRICE, com investimento total/venda líquida/lucro/rentabilidade já calculados pelo mesmo motor da tela), Ativos (Prospecções já convertidas em Projeto), Rotinas e Agentes assistidos. Nunca confunda Cenário financeiro com o cronograma/planejamento da obra — são coisas diferentes.',
     'Use SEMPRE as funções para consultar — nunca invente um número ou dado que não veio do resultado de uma função. Se o resultado disser que um nome bateu em mais de uma prospecção/cenário, pergunte qual antes de agir — nunca escolha sozinho.',
     'Você também tem uma ferramenta de pesquisa na internet (web_search) — use-a só quando fizer sentido (ex.: o usuário pede para pesquisar algo externo, verificar um valor de mercado, ou confirmar uma informação que não está nos seus dados). Nunca use pesquisa web para inventar dado de prospecção/cenário que deveria vir das funções do sistema. Ao usar a pesquisa, sempre cite as fontes retornadas.',
     'Se o usuário colar um link específico (não uma pesquisa) e pedir para ler/analisar, use a tool extrair_link com essa URL exata — não confunda com web_search.',
     'Se a mensagem trouxer uma foto ou o texto de um PDF anexado, ou o resultado de extrair_link, extraia as informações relevantes sobre a oportunidade (valores, datas, condições, restrições, estado do imóvel). Para CADA informação extraída, classifique explicitamente a natureza antes de sugerir registrar: "observado" (está literalmente escrito/visível na foto, PDF ou página), "inferido" (você concluiu a partir do que viu, sem estar explícito) ou "estimado" (é uma suposição/cálculo seu — nunca trate um preço anunciado como o valor real de venda). Depois de extrair, ofereça registrar como evidência com propose_create_evidencia, citando a fonte (nome do arquivo, "foto enviada pelo usuário" ou a URL) e a data de hoje como data_evidencia (a menos que o documento tenha outra data explícita escrita nele).',
     'Ao propor um cenário novo ou alterado, sempre mostre o resultado calculado (investimento total, venda líquida, lucro, rentabilidade) e pergunte se pode confirmar antes de chamar confirm_pending_action.',
     permitirEscrita
-      ? 'REGRA DE ESCRITA (obrigatória, sem exceção): você NUNCA cria, altera, exclui ou converte nada diretamente, mesmo com ordem explícita. Todo pedido de criar/editar prospecção, criar/editar/excluir cenário, marcar cenário principal, converter em Ativo ou registrar evidência passa SEMPRE por uma tool propose_* primeiro, mostrando o rascunho e perguntando se pode confirmar. SÓ chame confirm_pending_action depois que o usuário confirmar EXPLICITAMENTE nesta mensagem (ex.: "sim", "confirmo", "pode criar"). Uma mensagem que só ajusta um dado é refinamento — chame de novo a mesma tool propose_* com os dados atualizados. Se o usuário recusar, chame reject_pending_action.'
-      : 'Você está em modo consulta (Chat) — só pode listar, buscar, comparar e pesquisar, nunca alterar. Se o usuário pedir para criar, editar, excluir, marcar principal, converter ou registrar evidência, diga que ele precisa mudar para o modo Work (botão de alternância ao lado do campo de mensagem).',
+      ? 'REGRA DE ESCRITA (obrigatória, sem exceção): você NUNCA cria, altera, exclui, converte ou executa rotina diretamente, mesmo com ordem explícita. Todo pedido de criar/editar prospecção, criar/editar/excluir cenário, marcar cenário principal, converter em Ativo, registrar evidência, criar/editar rotina ou executar rotina passa SEMPRE por uma tool propose_* primeiro, mostrando o rascunho e perguntando se pode confirmar. SÓ chame confirm_pending_action depois que o usuário confirmar EXPLICITAMENTE nesta mensagem (ex.: "sim", "confirmo", "pode criar"). Uma mensagem que só ajusta um dado é refinamento — chame de novo a mesma tool propose_* com os dados atualizados. Se o usuário recusar, chame reject_pending_action.'
+      : 'Você está em modo consulta (Chat) — só pode listar, buscar, comparar e pesquisar, nunca alterar nem executar rotina. Se o usuário pedir para criar, editar, excluir, marcar principal, converter algo, registrar evidência ou executar rotina, diga que ele precisa mudar para o modo Work (botão de alternância ao lado do campo de mensagem).',
   ].join('\n')
 
   let input: OpenAI.Responses.ResponseInputItem[] = [
@@ -238,12 +252,21 @@ export async function temPropostaPendenteAtivaInvestidor(profileId: string | nul
   const db = supabase()
   if (!db) return false
   const ativas = await listarPendentesAtivas(db, conversationKeyFloating(profileId))
-  return ativas.some(p => ['create_prospeccao', 'update_prospeccao', 'create_cenario', 'update_cenario', 'delete_cenario', 'set_cenario_principal', 'convert_to_ativo', 'create_evidencia'].includes(p.tool))
+  return ativas.some(p => [
+    'create_prospeccao', 'update_prospeccao',
+    'create_cenario', 'update_cenario', 'delete_cenario', 'set_cenario_principal',
+    'convert_to_ativo', 'create_evidencia',
+    'create_investidor_rotina', 'update_investidor_rotina', 'run_investidor_rotina',
+  ].includes(p.tool))
 }
 
 export async function runInvestidorSkill(input: InvestidorSkillInput): Promise<InvestidorSkillResult> {
   if (input.modo === 'chat' && isChangeIntent(input.prompt)) {
     return { message: MENSAGEM_BLOQUEIO_CHAT, usedLLM: false, blocked: true, mutated: false }
+  }
+
+  if (isCapabilitiesQuestion(input.prompt)) {
+    return { message: capabilitiesMessage(), usedLLM: false, blocked: false, mutated: false }
   }
 
   const db = supabase()

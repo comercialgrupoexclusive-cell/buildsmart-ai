@@ -356,7 +356,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
             </span>
             {projeto.contexto === 'investimento' && (
               <span className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1" style={{ background: 'rgba(139,92,246,0.15)', color: '#8b5cf6' }}>
-                <Landmark size={10} /> Ativo
+                <Landmark size={10} /> Imóvel
               </span>
             )}
           </div>

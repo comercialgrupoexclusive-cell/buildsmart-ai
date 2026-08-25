@@ -28,6 +28,8 @@ export type PendingAction = {
     | 'create_prospeccao' | 'update_prospeccao'
     | 'create_cenario' | 'update_cenario' | 'delete_cenario' | 'set_cenario_principal'
     | 'convert_to_ativo' | 'create_evidencia'
+    // Laboratório Investidor (Rodada 8) — Rotinas + Agentes.
+    | 'create_investidor_rotina' | 'update_investidor_rotina' | 'run_investidor_rotina'
   argumentos: Record<string, unknown>
   descricao: string
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'executed'

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente Supabase falso, em memória, só com o subconjunto de operações que
 // lib/tarefas-ai-tools.ts e lib/luizia-pending-actions.ts realmente usam.
 // Objetivo: testar a lógica de autorização/resolução sem rede (o sandbox
@@ -104,13 +105,35 @@ export class FakeDB {
   // Suporte mínimo a RPC — só o suficiente para simular
   // prospeccao_cenario_definir_principal (lib/investidor-ai-tools.ts) em
   // teste, sem rede. Ver RELATORIO_INVESTIDOR_RODADA_06.md.
-  rpc(fnName: string, params: Record<string, any>): PromiseLike<{ data: null; error: null | { message: string } }> {
+  rpc(fnName: string, params: Record<string, any>): PromiseLike<{ data: any; error: null | { message: string } }> {
     if (fnName === 'prospeccao_cenario_definir_principal') {
       const cenarios = this.tables['prospeccao_cenarios'] || []
       for (const c of cenarios) {
         if (c.prospeccao_id === params.p_prospeccao_id) c.principal = c.id === params.p_cenario_id
       }
       return Promise.resolve({ data: null, error: null })
+    }
+    if (fnName === 'investidor_executar_rotina') {
+      const rotinas = this.tables['investidor_rotinas'] || []
+      const rotina = rotinas.find(r => r.id === params.p_rotina_id)
+      if (!rotina) return Promise.resolve({ data: null, error: { message: 'rotina_nao_encontrada' } })
+      const prospeccoes = this.tables['prospeccoes'] || []
+      const cenarios = this.tables['prospeccao_cenarios'] || []
+      const semCenario = prospeccoes.filter(p => !cenarios.some(c => c.prospeccao_id === p.id)).length
+      const resumo = `Rotina "${rotina.nome}" executada: ${prospeccoes.length} prospecção(ões), ${semCenario} sem cenário financeiro.`
+      const run = {
+        id: this.nextId(),
+        rotina_id: rotina.id,
+        agente_id: rotina.agente_id || null,
+        status: 'concluida',
+        started_at: new Date().toISOString(),
+        finished_at: new Date().toISOString(),
+        resumo,
+        resultado: { indicadores: { total_prospeccoes: prospeccoes.length, sem_cenario: semCenario }, resumo },
+      }
+      this.tables['investidor_rotina_runs'] = [...(this.tables['investidor_rotina_runs'] || []), run]
+      rotina.ultima_execucao = run.finished_at
+      return Promise.resolve({ data: { run_id: run.id, resumo }, error: null })
     }
     return Promise.resolve({ data: null, error: { message: `rpc ${fnName} não simulada no fake` } })
   }

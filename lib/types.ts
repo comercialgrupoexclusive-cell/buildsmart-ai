@@ -723,3 +723,49 @@ export type ProspeccaoEvidencia = {
   created_at: string
   updated_at: string
 }
+
+export type InvestidorAgente = {
+  id: string
+  nome: string
+  tipo: 'prospeccao' | 'cenario' | 'mercado' | 'carteira'
+  descricao: string | null
+  ativo: boolean
+  skill: 'investidor'
+  permissoes: string[]
+  config: Record<string, unknown>
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type InvestidorRotina = {
+  id: string
+  agente_id: string | null
+  nome: string
+  descricao: string | null
+  tipo: 'triagem_prospeccoes' | 'revisao_cenarios' | 'monitoramento_leilao' | 'pesquisa_mercado'
+  frequencia: 'manual' | 'diaria' | 'semanal'
+  horario: string | null
+  dias_semana: number[]
+  ativo: boolean
+  parametros: Record<string, unknown>
+  proxima_execucao: string | null
+  ultima_execucao: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  agente?: InvestidorAgente | null
+}
+
+export type InvestidorRotinaRun = {
+  id: string
+  rotina_id: string
+  agente_id: string | null
+  status: 'rodando' | 'concluida' | 'erro' | 'cancelada'
+  started_at: string
+  finished_at: string | null
+  resumo: string | null
+  resultado: Record<string, unknown>
+  erro: string | null
+  created_by: string | null
+}

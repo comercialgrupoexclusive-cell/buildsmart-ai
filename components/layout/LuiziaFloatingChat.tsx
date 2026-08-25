@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowLeftRight, BotMessageSquare, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
+import { ArrowLeftRight, BotMessageSquare, CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { logLuizia } from '@/lib/luizia-monitor'
 import { createClient } from '@/lib/supabase/client'
@@ -29,6 +29,14 @@ type Message = LuizaChatMessage
 const MAX_IMAGEM_BYTES = 3 * 1024 * 1024 // 3MB — folga sob o limite prático de payload de Serverless Functions (imagem vira base64 no corpo da requisição)
 const MAX_PDF_BYTES = 15 * 1024 * 1024 // 15MB — o texto extraído no servidor já vem truncado (app/api/extract-pdf/route.ts)
 
+type UploadedFile = {
+  nome: string
+  tipo: string
+  tamanho: number
+  conteudo?: string
+  dataUrl?: string
+}
+
 const ASSIST_ON_ENTRY_KEY = 'buildsmart-open-luizia-on-entry'
 
 function greeting(name?: string) {
@@ -49,6 +57,21 @@ function formatMessage(text: string) {
 
 function safeRows(result: any) {
   return Array.isArray(result?.data) ? result.data : []
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function readAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Não foi possível ler o arquivo.'))
+    reader.readAsDataURL(file)
+  })
 }
 
 // Deriva projetoId/obraId/orcamentoId/aba da URL atual + da obra/orçamento
@@ -90,8 +113,11 @@ export function LuiziaFloatingChat() {
   const [anexo, setAnexo] = useState<InvestidorAnexo | null>(null)
   const [anexoCarregando, setAnexoCarregando] = useState(false)
   const [anexoErro, setAnexoErro] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const anexoInputRef = useRef<HTMLInputElement>(null)
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const audioInputRef = useRef<HTMLInputElement>(null)
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Anexar foto/PDF (Marco 7) só existe dentro do Laboratório Investidor —
   // Tarefas, Avisos e o Chat geral continuam com o botão desabilitado
@@ -180,6 +206,7 @@ export function LuiziaFloatingChat() {
   function limparConversa() {
     setMessages([])
     setDraft(null)
+    setUploadedFiles([])
   }
 
   function alternarModo() {
@@ -192,7 +219,7 @@ export function LuiziaFloatingChat() {
 
   function abrirSeletorArquivo() {
     if (!emContextoInvestidor || anexoCarregando || loading) return
-    fileInputRef.current?.click()
+    anexoInputRef.current?.click()
   }
 
   function removerAnexo() {
@@ -249,6 +276,59 @@ export function LuiziaFloatingChat() {
     setAnexoErro('Envie uma imagem (foto) ou um PDF.')
   }
 
+  async function handleFiles(files: FileList | null) {
+    if (!files?.length || loading) return
+    const parsed: UploadedFile[] = []
+
+    for (const file of Array.from(files)) {
+      const tipo = file.type || 'arquivo'
+      const item: UploadedFile = { nome: file.name, tipo, tamanho: file.size }
+      const isText = tipo.startsWith('text/') || /\.(txt|md|csv|json)$/i.test(file.name)
+      const isPdf = tipo === 'application/pdf' || /\.pdf$/i.test(file.name)
+      const isImage = tipo.startsWith('image/')
+      const isAudio = tipo.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|webm)$/i.test(file.name)
+
+      if (isImage) {
+        item.dataUrl = await readAsDataUrl(file)
+      } else if (isText) {
+        item.conteudo = (await file.text()).slice(0, 12000)
+      } else if (isPdf) {
+        try {
+          const fd = new FormData()
+          fd.append('file', file)
+          const res = await fetch('/api/extract-pdf', { method: 'POST', body: fd })
+          const data = await res.json()
+          item.conteudo = data?.texto
+            ? `[PDF ${data.paginas || '?'} pág.] ${String(data.texto).slice(0, 12000)}`
+            : 'PDF recebido, mas não foi possível extrair texto automaticamente.'
+        } catch {
+          item.conteudo = 'PDF recebido, mas não foi possível extrair texto automaticamente.'
+        }
+      } else if (isAudio) {
+        try {
+          const fd = new FormData()
+          fd.append('file', file)
+          const res = await fetch('/api/luizia-transcribe', { method: 'POST', body: fd })
+          const data = await res.json()
+          item.conteudo = data?.texto
+            ? `[áudio transcrito] ${String(data.texto).slice(0, 12000)}`
+            : 'Áudio recebido, mas não foi possível transcrever automaticamente.'
+        } catch {
+          item.conteudo = 'Áudio recebido, mas não foi possível transcrever automaticamente.'
+        }
+      }
+
+      parsed.push(item)
+    }
+
+    setUploadedFiles(prev => [...prev, ...parsed])
+    if (!input.trim()) setInput('Analise os anexos enviados e relacione com a obra atual.')
+  }
+
+  function removeUploadedFile(index: number) {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index))
+  }
+
   async function sendMessage() {
     if ((!input.trim() && !anexo) || loading) return
     const anexoAtual = anexo
@@ -294,6 +374,7 @@ export function LuiziaFloatingChat() {
         // Só a skill 'investidor' lê este campo (lib/luizia-core.ts) — em
         // qualquer outra skill fica de fora do payload (nunca null à toa).
         ...(skill === 'investidor' && anexoAtual ? { investidorAnexo: anexoAtual } : {}),
+        uploadedFiles,
       }
 
       const body = (skill === 'tarefas' || skill === 'avisos')
@@ -369,6 +450,7 @@ export function LuiziaFloatingChat() {
         content: data.message || 'Nao consegui responder agora. Abra o BuildAssistente IA para tentar de novo.',
       }])
       if ('draft' in data) setDraft(data.draft || null)
+      setUploadedFiles([])
       // Luiza escreveu em `tarefas` ou em `luizia_wa_dispatches` fora da
       // página que os mostra (ou dela mesma, se estava aberta em outra aba)
       // — avisa quem estiver ouvindo para recarregar sem precisar de F5.
@@ -483,22 +565,49 @@ export function LuiziaFloatingChat() {
           style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
         >
           <input
-            ref={fileInputRef}
+            ref={anexoInputRef}
             type="file"
             accept="image/*,application/pdf"
             className="hidden"
             onChange={onArquivoSelecionado}
           />
-          <button
-            type="button"
-            onClick={abrirSeletorArquivo}
-            disabled={!emContextoInvestidor || anexoCarregando || loading}
-            title={emContextoInvestidor ? 'Anexar foto ou PDF' : 'Anexar (em breve)'}
-            className="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center disabled:opacity-50"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            {anexoCarregando ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
-          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,.pdf,application/pdf,text/*,.txt,.md,.csv,.json"
+            className="hidden"
+            onChange={event => void handleFiles(event.target.files)}
+          />
+          <input
+            ref={audioInputRef}
+            type="file"
+            accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm"
+            className="hidden"
+            onChange={event => void handleFiles(event.target.files)}
+          />
+          {emContextoInvestidor ? (
+            <button
+              type="button"
+              onClick={abrirSeletorArquivo}
+              disabled={anexoCarregando || loading}
+              title="Anexar foto ou PDF"
+              className="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center disabled:opacity-50"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {anexoCarregando ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              title="Anexar imagem, PDF ou texto"
+              className="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center hover:bg-[var(--bg-secondary)]"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <Plus size={18} />
+            </button>
+          )}
 
           <div className="relative shrink-0">
             <button
@@ -545,9 +654,9 @@ export function LuiziaFloatingChat() {
 
           <button
             type="button"
-            disabled
-            title="Microfone (em breve)"
-            className="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center disabled:opacity-50"
+            onClick={() => audioInputRef.current?.click()}
+            title="Enviar áudio para transcrever"
+            className="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center hover:bg-[var(--bg-secondary)]"
             style={{ color: 'var(--text-secondary)' }}
           >
             <Mic size={18} />
@@ -563,6 +672,20 @@ export function LuiziaFloatingChat() {
             {loading ? <Loader2 size={16} className="animate-spin text-white" /> : <Send size={15} className="text-white" />}
           </button>
         </div>
+        {uploadedFiles.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5 rounded-xl px-2 py-2 text-xs pointer-events-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            {uploadedFiles.map((file, index) => (
+              <span key={`${file.nome}-${file.tamanho}-${index}`} className="inline-flex max-w-full items-center gap-1.5 rounded-lg px-2 py-1" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                <CheckCircle2 size={12} style={{ color: 'var(--success)' }} />
+                <span className="truncate">{file.nome}</span>
+                <span className="shrink-0 opacity-70">{formatBytes(file.tamanho)}</span>
+                <button type="button" onClick={() => removeUploadedFile(index)} className="shrink-0 rounded p-0.5 hover:bg-black/10" title="Remover anexo">
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

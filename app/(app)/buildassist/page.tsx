@@ -19,6 +19,7 @@ type UploadedFile = {
   tipo: string
   tamanho: number
   conteudo?: string
+  dataUrl?: string
 }
 
 type BuildContext = {
@@ -116,6 +117,15 @@ function compactSinapiComposicao(row: any, uf = 'SP') {
 
 function compactProfile(profile: any) {
   return pick(profile, ['id', 'name', 'apelido', 'descricao', 'cidade', 'estado', 'tipo'])
+}
+
+function readAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Não foi possível ler o arquivo.'))
+    reader.readAsDataURL(file)
+  })
 }
 
 export default function BuildAssistPage() {
@@ -334,13 +344,17 @@ export default function BuildAssistPage() {
     for (const file of Array.from(files)) {
       const isText = file.type.startsWith('text/') || /\.(txt|md|csv|json)$/i.test(file.name)
       const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+      const isImage = file.type.startsWith('image/')
+      const isAudio = file.type.startsWith('audio/') || /\.(mp3|wav|m4a|ogg|webm)$/i.test(file.name)
       const item: UploadedFile = {
         nome: file.name,
         tipo: file.type || 'arquivo',
         tamanho: file.size,
       }
 
-      if (isText) {
+      if (isImage) {
+        item.dataUrl = await readAsDataUrl(file)
+      } else if (isText) {
         const text = await file.text()
         item.conteudo = text.slice(0, 12000)
       } else if (isPdf) {
@@ -354,6 +368,14 @@ export default function BuildAssistPage() {
             item.conteudo = `[PDF ${data.paginas} pág.] ${data.texto}`.slice(0, 12000)
           }
         } catch { /* PDF fica só como metadata se a extração falhar */ }
+      } else if (isAudio) {
+        try {
+          const fd = new FormData()
+          fd.append('file', file)
+          const res = await fetch('/api/luizia-transcribe', { method: 'POST', body: fd })
+          const data = await res.json()
+          if (data?.texto) item.conteudo = `[áudio transcrito] ${String(data.texto).slice(0, 12000)}`
+        } catch { /* áudio fica só como metadata se a transcrição falhar */ }
       }
 
       parsed.push(item)
@@ -482,6 +504,7 @@ export default function BuildAssistPage() {
             ref={fileInputRef}
             type="file"
             multiple
+            accept="image/*,.pdf,application/pdf,text/*,.txt,.md,.csv,.json,audio/*,.mp3,.wav,.m4a,.ogg,.webm"
             className="hidden"
             onChange={event => handleFiles(event.target.files)}
           />
