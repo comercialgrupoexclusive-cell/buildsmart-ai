@@ -100,4 +100,18 @@ export class FakeDB {
   nextId() { return `fake-${this.idCounter++}` }
   from(table: string) { return new FakeQuery(this, table) }
   seed(table: string, rows: Row[]) { this.tables[table] = rows.map(r => ({ ...r })) }
+
+  // Suporte mínimo a RPC — só o suficiente para simular
+  // prospeccao_cenario_definir_principal (lib/investidor-ai-tools.ts) em
+  // teste, sem rede. Ver RELATORIO_INVESTIDOR_RODADA_06.md.
+  rpc(fnName: string, params: Record<string, any>): PromiseLike<{ data: null; error: null | { message: string } }> {
+    if (fnName === 'prospeccao_cenario_definir_principal') {
+      const cenarios = this.tables['prospeccao_cenarios'] || []
+      for (const c of cenarios) {
+        if (c.prospeccao_id === params.p_prospeccao_id) c.principal = c.id === params.p_cenario_id
+      }
+      return Promise.resolve({ data: null, error: null })
+    }
+    return Promise.resolve({ data: null, error: { message: `rpc ${fnName} não simulada no fake` } })
+  }
 }

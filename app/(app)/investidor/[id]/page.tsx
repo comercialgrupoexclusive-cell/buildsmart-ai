@@ -55,6 +55,14 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
 
   useEffect(() => { void loadData() }, [id])
 
+  // A Luiza (Marco 6) pode alterar esta prospecção ou seus cenários fora
+  // desta tela — recarrega sem precisar de F5.
+  useEffect(() => {
+    function onChanged() { void loadData() }
+    window.addEventListener('buildsmart:investidor-changed', onChanged)
+    return () => window.removeEventListener('buildsmart:investidor-changed', onChanged)
+  }, [])
+
   async function loadData() {
     setLoading(true)
     const supabase = createClient()

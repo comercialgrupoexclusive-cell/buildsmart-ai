@@ -6,6 +6,7 @@ import {
 import { processLuiziaWork } from './luizia-tools'
 import { runTarefasSkill, temPropostaPendenteAtiva } from './luizia-tarefas-runtime'
 import { runAvisosSkill, temPropostaPendenteAtivaAvisos } from './luizia-avisos-runtime'
+import { runInvestidorSkill, temPropostaPendenteAtivaInvestidor } from './luizia-investidor-runtime'
 
 type Row = Record<string, unknown>
 
@@ -51,7 +52,7 @@ export type LuiziaResult = {
   // o cliente usa isso para disparar o evento certo (buildsmart:tarefas-
   // changed / buildsmart:luiza-dispatches-changed) e quem estiver ouvindo
   // (/tarefas, ContextoTarefas, o painel admin) recarrega sem F5.
-  mutatedDomain?: 'tarefas' | 'avisos' | null
+  mutatedDomain?: 'tarefas' | 'avisos' | 'investidor' | null
 }
 
 export function hasOpenAiKey() {
@@ -281,13 +282,15 @@ export async function askLuizia({
   // a proposta nunca seria refinada/confirmada. Só verificamos em Work (só
   // lá existe proposta pendente — Chat bloqueia qualquer intenção de
   // escrita antes de chegar aqui).
-  if (skill !== 'tarefas' && skill !== 'avisos' && context.modoLuiza === 'work') {
-    const [pendenteTarefa, pendenteAviso] = await Promise.all([
+  if (skill !== 'tarefas' && skill !== 'avisos' && skill !== 'investidor' && context.modoLuiza === 'work') {
+    const [pendenteTarefa, pendenteAviso, pendenteInvestidor] = await Promise.all([
       temPropostaPendenteAtiva(usuario?.id || null),
       temPropostaPendenteAtivaAvisos(usuario?.id || null),
+      temPropostaPendenteAtivaInvestidor(usuario?.id || null),
     ])
     if (pendenteTarefa) skill = 'tarefas'
     else if (pendenteAviso) skill = 'avisos'
+    else if (pendenteInvestidor) skill = 'investidor'
   }
 
   // Tarefas tem runtime próprio (lib/luizia-tarefas-runtime.ts): reaproveita
@@ -334,6 +337,29 @@ export async function askLuizia({
       draft: draftAtual,
       blocked: resultado.blocked,
       mutatedDomain: resultado.mutated ? 'avisos' : null,
+    }
+  }
+
+  // Laboratório Investidor (lib/luizia-investidor-runtime.ts, Marco 6) —
+  // mesmo padrão de Tarefas/Avisos: runtime próprio, escopado às tools de
+  // Prospecções/Cenários/Ativos, nunca o dump de obra/orçamento deste
+  // arquivo (que não sabe nada sobre o domínio Investidor).
+  if (skill === 'investidor') {
+    const resultado = await runInvestidorSkill({
+      prompt: ultimaMensagem,
+      history: messages.slice(0, -1),
+      modo: context.modoLuiza === 'work' ? 'work' : 'chat',
+      profileId: usuario?.id || null,
+      actor: usuario?.name || 'Usuário do painel',
+      fixedProspeccaoId: context.pagina?.prospeccaoId || undefined,
+    })
+    return {
+      message: comSkillTag(resultado.message, skill),
+      mode: resultado.blocked ? 'blocked' : 'tool',
+      skill,
+      draft: draftAtual,
+      blocked: resultado.blocked,
+      mutatedDomain: resultado.mutated ? 'investidor' : null,
     }
   }
 

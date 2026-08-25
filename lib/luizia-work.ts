@@ -8,7 +8,7 @@
 // ─── Skills internas ──────────────────────────────────────────────────────
 export type LuiziaSkillId =
   | 'geral' | 'orcamento' | 'planejamento' | 'execucao'
-  | 'rdo' | 'suprimentos' | 'compras' | 'financeiro' | 'tarefas' | 'avisos'
+  | 'rdo' | 'suprimentos' | 'compras' | 'financeiro' | 'tarefas' | 'avisos' | 'investidor'
 
 export const SKILL_LABELS: Record<LuiziaSkillId, string> = {
   geral: 'Geral',
@@ -21,6 +21,7 @@ export const SKILL_LABELS: Record<LuiziaSkillId, string> = {
   financeiro: 'Financeiro',
   tarefas: 'Tarefas',
   avisos: 'Avisos',
+  investidor: 'Investidor',
 }
 
 // ─── Contexto de página (detectado no cliente a partir da URL/estado atual) ─
@@ -30,6 +31,10 @@ export type LuiziaPageContext = {
   obraId?: string | null
   orcamentoId?: string | null
   aba?: string | null   // ex.: 'orcamento' | 'planejamento' | 'suprimentos' | 'medicoes' | 'financeiro' | 'projeto'
+  // Laboratório Investidor (Marco 6) — preenchido quando a rota é
+  // /investidor/[id], mesmo papel de obraId/projetoId para escopar tools
+  // sem exigir que o usuário repita o nome da prospecção.
+  prospeccaoId?: string | null
 }
 
 // ─── Rascunho (Work) — nunca é gravado no banco nesta etapa ────────────────
@@ -117,6 +122,7 @@ const ABA_PARA_SKILL: Record<string, LuiziaSkillId> = {
 
 const PATH_PARA_SKILL: { padrao: RegExp; skill: LuiziaSkillId }[] = [
   { padrao: /^\/tarefas/, skill: 'tarefas' },
+  { padrao: /^\/investidor/, skill: 'investidor' },
   { padrao: /\/orcamentos/, skill: 'orcamento' },
   { padrao: /\/materiais/, skill: 'suprimentos' },
   { padrao: /\/cronograma/, skill: 'planejamento' },
@@ -135,6 +141,10 @@ const PALAVRAS_CHAVE_SKILL: { padrao: RegExp; skill: LuiziaSkillId }[] = [
   // se o regex de tarefas viesse primeiro, "avise" nunca seria alcançado.
   { padrao: /\bavis[eo]s?\b|\blembrete\b|\bnotifica(r|ç[ãa]o)?\b|\bresumo\b[^.?!]*\b(segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|todo dia|todos os dias)\b/i, skill: 'avisos' },
   { padrao: /\btarefas?\b|\bpend[êe]ncias?\b|\bagenda\b|\baguardando\b/i, skill: 'tarefas' },
+  // Termos específicos do Laboratório Investidor (Marco 6) — de propósito
+  // não uso "ativo" nem "cenário" sozinhos aqui (colidiriam com perguntas
+  // genéricas de obra/projeto, ex. "essa etapa está ativa?").
+  { padrao: /\bprospec[çc][ãa]o\b|\bprospec[çc][õo]es\b|\bleil[ãa]o\b|\bcen[áa]rio (financeiro|de investimento)\b|\blaborat[óo]rio investidor\b/i, skill: 'investidor' },
   { padrao: /\borcamento|orçamento|composi[çc][ãa]o|insumo|bdi\b/i, skill: 'orcamento' },
   { padrao: /\bavan[çc]o f[íi]sico|planejamento|cronograma\b/i, skill: 'planejamento' },
   { padrao: /\brdo\b|di[áa]rio de obra|boletim/i, skill: 'rdo' },

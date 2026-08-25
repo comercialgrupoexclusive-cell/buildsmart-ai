@@ -46,8 +46,10 @@ function safeRows(result: any) {
 function derivarContextoPagina(pathname: string | null, tabParam: string | null, obraIdGlobal: string, orcamentoIdGlobal: string): LuiziaPageContext {
   const obraMatch = pathname?.match(/^\/obras\/([^/?#]+)/)
   const projetoMatch = pathname?.match(/^\/projetos\/([^/?#]+)/)
+  const prospeccaoMatch = pathname?.match(/^\/investidor\/([^/?#]+)/)
   const obraIdDaRota = obraMatch && obraMatch[1] !== 'novo' ? obraMatch[1] : null
   const projetoId = projetoMatch && projetoMatch[1] !== 'novo' ? projetoMatch[1] : null
+  const prospeccaoId = prospeccaoMatch ? prospeccaoMatch[1] : null
   const obraId = obraIdDaRota || obraIdGlobal || null
   const orcamentoId = orcamentoIdGlobal && orcamentoIdGlobal !== TODOS_ORCAMENTOS ? orcamentoIdGlobal : null
   // `aba` também precisa existir para rotas de Projeto (não só Obra) — é o
@@ -55,7 +57,7 @@ function derivarContextoPagina(pathname: string | null, tabParam: string | null,
   // herdar obra_id/projeto_id nas consultas de Tarefas (Luiza unificada).
   const aba = obraIdDaRota ? (tabParam || 'projeto') : projetoId ? (tabParam || null) : null
 
-  return { pathname: pathname || null, projetoId, obraId, orcamentoId, aba }
+  return { pathname: pathname || null, projetoId, obraId, orcamentoId, aba, prospeccaoId }
 }
 
 export function LuiziaFloatingChat() {
@@ -287,6 +289,7 @@ export function LuiziaFloatingChat() {
       if (typeof window !== 'undefined') {
         if (data.mutatedDomain === 'tarefas') window.dispatchEvent(new Event('buildsmart:tarefas-changed'))
         else if (data.mutatedDomain === 'avisos') window.dispatchEvent(new Event('buildsmart:luiza-dispatches-changed'))
+        else if (data.mutatedDomain === 'investidor') window.dispatchEvent(new Event('buildsmart:investidor-changed'))
       }
     } catch {
       setMessages(prev => [...prev, {
