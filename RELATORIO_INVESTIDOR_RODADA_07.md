@@ -96,5 +96,5 @@ Isso reaproveita 100% o mecanismo de Evidências já existente — nenhuma tool 
 ## 10. Commit
 
 Branch de trabalho: `previsoes/prazo-fornecimento-material`.
-Parte 1 já commitada e enviada: `4d7e388`.
-Esta Parte 2 será commitada e enviada a seguir, mantendo o branch de trabalho (sem merge em `main` até nova aprovação, seguindo o mesmo ritmo de pausa-para-revisão das rodadas anteriores).
+Parte 1: `4d7e388`. Parte 2 (este relatório): `b112779`.
+Ambas enviadas ao `origin`, sem merge em `main` até nova aprovação — seguindo o mesmo ritmo de pausa-para-revisão das rodadas anteriores.
