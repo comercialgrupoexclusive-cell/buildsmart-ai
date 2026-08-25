@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, HardHat, FileText,
-  BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, MessageCircle, X, ClipboardList,
+  BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, MessageCircle, X, ClipboardList, Landmark,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/obras', label: 'Obras', icon: HardHat },
   { href: '/orcamentos', label: 'Orçamentos', icon: FileText },
   { href: '/canteiro', label: 'Canteiro', icon: Hammer },
+  { href: '/investidor', label: 'Investidor', icon: Landmark },
   { href: '/buildassist', label: 'BuildAssistente IA', icon: BotMessageSquare, featured: true },
 ]
 
