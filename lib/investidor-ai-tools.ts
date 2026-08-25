@@ -24,7 +24,7 @@ import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from '
 import { criarPropostaPendente, acharPendenteParaResolver, marcarRejeitada, marcarExecutada, formatarListaPendentes } from './luizia-pending-actions'
 import { calcularCenario, type PremissasCenario } from './investidor-calculadora'
 import { formatCurrency } from './utils'
-import type { Prospeccao, ProspeccaoCenario, ProspeccaoFase } from './types'
+import type { InvestidorAgente, InvestidorRotina, Prospeccao, ProspeccaoCenario, ProspeccaoFase } from './types'
 
 type DB = SupabaseClient
 // `any` aqui é deliberado, não uma sobra — mesma convenção de
@@ -48,15 +48,30 @@ export type InvestidorAiCtx = {
 
 export const INVESTIDOR_AI_TOOL_NAMES = [
   'list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes',
+  'list_agentes_investidor', 'list_rotinas_investidor',
   'propose_create_prospeccao', 'propose_update_prospeccao',
   'propose_create_cenario', 'propose_update_cenario', 'propose_delete_cenario', 'propose_set_cenario_principal',
   'propose_convert_to_ativo',
+  'propose_create_rotina_investidor', 'propose_update_rotina_investidor', 'propose_run_rotina_investidor',
   'confirm_pending_action', 'reject_pending_action',
 ]
 
 const FASES: ProspeccaoFase[] = ['nova', 'em_analise', 'aprovada', 'em_disputa', 'adquirida', 'descartada', 'nao_adquirida']
 const MODALIDADES: ProspeccaoCenario['modalidade'][] = ['vista', 'sac', 'price']
 const MODALIDADE_LABEL: Record<ProspeccaoCenario['modalidade'], string> = { vista: 'À vista', sac: 'Financiado (SAC)', price: 'Financiado (PRICE)' }
+const ROTINA_TIPOS: InvestidorRotina['tipo'][] = ['triagem_prospeccoes', 'revisao_cenarios', 'monitoramento_leilao', 'pesquisa_mercado']
+const ROTINA_FREQUENCIAS: InvestidorRotina['frequencia'][] = ['manual', 'diaria', 'semanal']
+const ROTINA_TIPO_LABEL: Record<InvestidorRotina['tipo'], string> = {
+  triagem_prospeccoes: 'Triagem de prospecções',
+  revisao_cenarios: 'Revisão de cenários',
+  monitoramento_leilao: 'Monitoramento de leilão',
+  pesquisa_mercado: 'Pesquisa de mercado',
+}
+const ROTINA_FREQ_LABEL: Record<InvestidorRotina['frequencia'], string> = {
+  manual: 'Manual',
+  diaria: 'Diária',
+  semanal: 'Semanal',
+}
 
 // Campos de premissa de cenário aceitos pelas tools — mesmos nomes de
 // lib/investidor-calculadora.ts, com percentuais como número inteiro (5 =
@@ -140,6 +155,28 @@ export function investidorAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletio
     {
       type: 'function',
       function: {
+        name: 'list_agentes_investidor',
+        description: 'Lista os agentes disponíveis no Laboratório Investidor e suas permissões. Use para perguntar quais agentes existem ou quem acompanha prospecções.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_rotinas_investidor',
+        description: 'Lista rotinas do Laboratório Investidor, com agente, frequência, status e última execução. Use para ver o que está programado/ativo.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ativo: { type: 'boolean', description: 'Filtra rotinas ativas/inativas (opcional)' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'propose_create_prospeccao',
         description: 'Prepara (SEM CRIAR) uma nova Prospecção para o usuário confirmar. Só o nome é obrigatório — os outros campos podem ficar de fora se o usuário não informou (cadastro rápido). NUNCA cria sozinha — só confirm_pending_action grava, depois de confirmação explícita.',
         parameters: {
@@ -155,6 +192,57 @@ export function investidorAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletio
             observacao: { type: 'string' },
           },
           required: ['nome'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'propose_create_rotina_investidor',
+        description: 'Prepara (SEM CRIAR) uma rotina assistida do Laboratório Investidor. Só confirm_pending_action grava. Nenhuma rotina executa sozinha nesta rodada.',
+        parameters: {
+          type: 'object',
+          properties: {
+            nome: { type: 'string' },
+            descricao: { type: 'string' },
+            tipo: { type: 'string', enum: ROTINA_TIPOS },
+            frequencia: { type: 'string', enum: ROTINA_FREQUENCIAS },
+            agente_nome: { type: 'string', description: 'Nome do agente. Padrão: Agente de Prospecção' },
+          },
+          required: ['nome'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'propose_update_rotina_investidor',
+        description: 'Prepara (SEM SALVAR) alteração simples numa rotina: nome, descrição, tipo, frequência ou ativo. Só confirm_pending_action grava.',
+        parameters: {
+          type: 'object',
+          properties: {
+            rotina_nome: { type: 'string' },
+            nome: { type: 'string' },
+            descricao: { type: 'string' },
+            tipo: { type: 'string', enum: ROTINA_TIPOS },
+            frequencia: { type: 'string', enum: ROTINA_FREQUENCIAS },
+            ativo: { type: 'boolean' },
+          },
+          required: ['rotina_nome'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'propose_run_rotina_investidor',
+        description: 'Prepara (SEM EXECUTAR) execução manual de uma rotina do Investidor. Só confirm_pending_action executa e registra um run auditado.',
+        parameters: {
+          type: 'object',
+          properties: {
+            rotina_nome: { type: 'string' },
+          },
+          required: ['rotina_nome'],
         },
       },
     },
@@ -293,6 +381,20 @@ async function acharCenario(db: DB, prospeccaoId: string, nome: string): Promise
   return resolverComSeguranca(nome, (data || []) as ProspeccaoCenario[], c => c.nome)
 }
 
+async function acharAgente(db: DB, nome?: string): Promise<InvestidorAgente | null> {
+  if (nome) {
+    const { data } = await db.from('investidor_agentes').select('*').ilike('nome', `%${nome}%`).limit(1).maybeSingle()
+    if (data) return data as InvestidorAgente
+  }
+  const { data } = await db.from('investidor_agentes').select('*').eq('nome', 'Agente de Prospecção').maybeSingle()
+  return (data as InvestidorAgente | null) || null
+}
+
+async function acharRotina(db: DB, nome: string): Promise<ResolveOutcome<InvestidorRotina>> {
+  const { data } = await db.from('investidor_rotinas').select('*').ilike('nome', `%${nome}%`).limit(8)
+  return resolverComSeguranca(nome, (data || []) as InvestidorRotina[], r => r.nome)
+}
+
 function mensagemProspeccaoNaoResolvida(resolvido: { tipo: string; candidatos?: Prospeccao[] }, nome?: string): string {
   if (resolvido.tipo === 'sem_referencia') return 'Me diga o nome da prospecção.'
   if (resolvido.tipo === 'nao_encontrada') return `Não encontrei nenhuma prospecção parecida com "${nome}".`
@@ -327,6 +429,13 @@ function resumoCenario(c: ProspeccaoCenario): string {
   if (c.lucro != null && c.rentabilidade != null) partes.push(`lucro ${formatCurrency(c.lucro)} (${c.rentabilidade.toFixed(1)}%)`)
   else partes.push('resultado ainda não calculado')
   return '- ' + partes.filter(Boolean).join(', ')
+}
+
+function resumoRotina(r: InvestidorRotina, agente?: InvestidorAgente | null): string {
+  const agenteNome = agente?.nome || r.agente?.nome || 'sem agente'
+  const status = r.ativo ? 'ativa' : 'inativa'
+  const ultima = r.ultima_execucao ? new Date(r.ultima_execucao).toLocaleString('pt-BR') : 'nunca executada'
+  return `- "${r.nome}" (${ROTINA_TIPO_LABEL[r.tipo] || r.tipo}, ${ROTINA_FREQ_LABEL[r.frequencia] || r.frequencia}, ${status}) — ${agenteNome}; última execução: ${ultima}`
 }
 
 // ─── Premissas: monta PremissasCenario a partir dos args da tool (percentual
@@ -426,6 +535,32 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
           ].join('\n'))
         }
         return linhas.join('\n\n')
+      }
+
+      case 'list_agentes_investidor': {
+        const { data, error } = await db.from('investidor_agentes').select('*').order('created_at', { ascending: true }).limit(30)
+        if (error) return `Erro ao consultar agentes: ${error.message}`
+        const lista = (data || []) as InvestidorAgente[]
+        if (lista.length === 0) return 'Nenhum agente do Investidor cadastrado ainda.'
+        return `${lista.length} agente(s):\n` + lista.map(a => {
+          const status = a.ativo ? 'ativo' : 'inativo'
+          return `- "${a.nome}" (${a.tipo}, ${status}) — permissões: ${(a.permissoes || []).join(', ') || 'não informadas'}${a.descricao ? `. ${a.descricao}` : ''}`
+        }).join('\n')
+      }
+
+      case 'list_rotinas_investidor': {
+        let query = db.from('investidor_rotinas').select('*')
+        if (args.ativo !== undefined) query = query.eq('ativo', Boolean(args.ativo))
+        const { data, error } = await query.order('created_at', { ascending: false }).limit(30)
+        if (error) return `Erro ao consultar rotinas: ${error.message}`
+        const rotinas = (data || []) as InvestidorRotina[]
+        if (rotinas.length === 0) return 'Nenhuma rotina do Investidor encontrada.'
+        const agenteIds = [...new Set(rotinas.map(r => r.agente_id).filter(Boolean))] as string[]
+        const { data: agentesData } = agenteIds.length
+          ? await db.from('investidor_agentes').select('*').in('id', agenteIds)
+          : { data: [] }
+        const agentes = new Map(((agentesData || []) as InvestidorAgente[]).map(a => [a.id, a]))
+        return `${rotinas.length} rotina(s):\n` + rotinas.map(r => resumoRotina(r, r.agente_id ? agentes.get(r.agente_id) : null)).join('\n')
       }
 
       case 'propose_create_prospeccao': {
@@ -580,6 +715,83 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         return descricao
       }
 
+      case 'propose_create_rotina_investidor': {
+        if (!args.nome || !String(args.nome).trim()) return 'Preciso do nome da rotina.'
+        const agente = await acharAgente(db, args.agente_nome ? String(args.agente_nome) : undefined)
+        if (!agente) return 'Não encontrei o Agente de Prospecção. Verifique se a migration da Rodada 8 foi aplicada.'
+        const tipo: InvestidorRotina['tipo'] = ROTINA_TIPOS.includes(args.tipo as InvestidorRotina['tipo'])
+          ? args.tipo as InvestidorRotina['tipo']
+          : 'triagem_prospeccoes'
+        const frequencia: InvestidorRotina['frequencia'] = ROTINA_FREQUENCIAS.includes(args.frequencia as InvestidorRotina['frequencia'])
+          ? args.frequencia as InvestidorRotina['frequencia']
+          : 'manual'
+        const payload = {
+          agente_id: agente.id,
+          nome: String(args.nome).trim(),
+          descricao: args.descricao ? String(args.descricao).trim() : null,
+          tipo,
+          frequencia,
+          ativo: true,
+          parametros: { criado_via: 'luizia' },
+        }
+        const descricao = [
+          `Nova rotina do Investidor: ${payload.nome}`,
+          `Agente: ${agente.nome}`,
+          `Tipo: ${ROTINA_TIPO_LABEL[tipo]}`,
+          `Frequência: ${ROTINA_FREQ_LABEL[frequencia]}`,
+          payload.descricao ? `Descrição: ${payload.descricao}` : null,
+          '',
+          'Confirmar criação?',
+        ].filter((l): l is string => l !== null).join('\n')
+        const proposta = await criarPropostaPendente(db, {
+          conversationKey: ctx.conversationKey, profileId: ctx.profileId, actor: ctx.actor, origem: ctx.origem,
+          tool: 'create_investidor_rotina', argumentos: payload, descricao, alvoChave: 'create_investidor_rotina',
+        })
+        if (!proposta) return 'Não consegui preparar a rotina agora. Tente novamente.'
+        return descricao
+      }
+
+      case 'propose_update_rotina_investidor': {
+        if (!args.rotina_nome) return 'Me diga o nome da rotina a alterar.'
+        const resolvido = await acharRotina(db, String(args.rotina_nome))
+        if (resolvido.tipo === 'nao_encontrada') return `Não encontrei rotina parecida com "${args.rotina_nome}".`
+        if (resolvido.tipo === 'ambigua') return formatarAmbiguidade('rotinas', String(args.rotina_nome), resolvido.candidatos.map(r => r.nome))
+        const rotina = resolvido.item
+        const patch: Record<string, unknown> = {}
+        const mudancas: string[] = []
+        if (args.nome !== undefined && String(args.nome).trim()) { patch.nome = String(args.nome).trim(); mudancas.push('nome') }
+        if (args.descricao !== undefined) { patch.descricao = args.descricao ? String(args.descricao).trim() : null; mudancas.push('descrição') }
+        if (args.tipo && ROTINA_TIPOS.includes(args.tipo)) { patch.tipo = args.tipo; mudancas.push(`tipo para ${ROTINA_TIPO_LABEL[args.tipo as InvestidorRotina['tipo']]}`) }
+        if (args.frequencia && ROTINA_FREQUENCIAS.includes(args.frequencia)) { patch.frequencia = args.frequencia; mudancas.push(`frequência para ${ROTINA_FREQ_LABEL[args.frequencia as InvestidorRotina['frequencia']]}`) }
+        if (args.ativo !== undefined) { patch.ativo = Boolean(args.ativo); mudancas.push(Boolean(args.ativo) ? 'ativar' : 'desativar') }
+        if (Object.keys(patch).length === 0) return 'Não entendi o que alterar na rotina.'
+        patch.updated_at = new Date().toISOString()
+        const descricao = `Alterar rotina "${rotina.nome}": ${mudancas.join(', ')}. Confirmar?`
+        const proposta = await criarPropostaPendente(db, {
+          conversationKey: ctx.conversationKey, profileId: ctx.profileId, actor: ctx.actor, origem: ctx.origem,
+          tool: 'update_investidor_rotina', argumentos: { rotinaId: rotina.id, patch, nome: rotina.nome }, descricao,
+          alvoChave: `update_investidor_rotina:${rotina.id}`,
+        })
+        if (!proposta) return 'Não consegui preparar a alteração da rotina agora. Tente novamente.'
+        return descricao
+      }
+
+      case 'propose_run_rotina_investidor': {
+        if (!args.rotina_nome) return 'Me diga o nome da rotina a executar.'
+        const resolvido = await acharRotina(db, String(args.rotina_nome))
+        if (resolvido.tipo === 'nao_encontrada') return `Não encontrei rotina parecida com "${args.rotina_nome}".`
+        if (resolvido.tipo === 'ambigua') return formatarAmbiguidade('rotinas', String(args.rotina_nome), resolvido.candidatos.map(r => r.nome))
+        const rotina = resolvido.item
+        const descricao = `Executar agora a rotina "${rotina.nome}"? Ela fará uma leitura auditada do Laboratório Investidor e registrará o resultado, sem alterar prospecções, cenários ou ativos.`
+        const proposta = await criarPropostaPendente(db, {
+          conversationKey: ctx.conversationKey, profileId: ctx.profileId, actor: ctx.actor, origem: ctx.origem,
+          tool: 'run_investidor_rotina', argumentos: { rotinaId: rotina.id, nome: rotina.nome }, descricao,
+          alvoChave: `run_investidor_rotina:${rotina.id}`,
+        })
+        if (!proposta) return 'Não consegui preparar a execução da rotina agora. Tente novamente.'
+        return descricao
+      }
+
       case 'confirm_pending_action':
       case 'reject_pending_action': {
         const resolvido = await acharPendenteParaResolver(db, ctx.conversationKey, { pendingId: args.pending_id, titulo: args.titulo })
@@ -647,6 +859,28 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
             if (linkError) return `Ativo criado, mas não consegui vincular à prospecção: ${linkError.message}.`
             await marcarExecutada(db, acao.id)
             return `"${nome}" convertida em Ativo.`
+          }
+          case 'create_investidor_rotina': {
+            const payload = acao.argumentos as Record<string, unknown>
+            const { data, error } = await db.from('investidor_rotinas').insert(payload).select('id,nome').single()
+            if (error) return `Erro ao criar rotina: ${error.message}`
+            await marcarExecutada(db, acao.id)
+            return `Rotina "${(data as { nome: string }).nome}" criada.`
+          }
+          case 'update_investidor_rotina': {
+            const { rotinaId, patch, nome } = acao.argumentos as { rotinaId: string; patch: Record<string, unknown>; nome: string }
+            const { error } = await db.from('investidor_rotinas').update(patch).eq('id', rotinaId)
+            if (error) return `Erro ao alterar rotina: ${error.message}`
+            await marcarExecutada(db, acao.id)
+            return `Rotina "${nome}" atualizada.`
+          }
+          case 'run_investidor_rotina': {
+            const { rotinaId, nome } = acao.argumentos as { rotinaId: string; nome: string }
+            const { data, error } = await db.rpc('investidor_executar_rotina', { p_rotina_id: rotinaId, p_actor: ctx.actor })
+            if (error) return `Erro ao executar rotina: ${error.message}`
+            await marcarExecutada(db, acao.id)
+            const resumo = (data as { resumo?: string } | null)?.resumo
+            return resumo || `Rotina "${nome}" executada.`
           }
           default:
             return 'Essa proposta pendente não é do Investidor — não consigo confirmar por aqui.'

@@ -75,7 +75,7 @@ function capabilitiesMessage() {
   ].join('\n')
 }
 
-const TOOLS_LEITURA = new Set(['list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes'])
+const TOOLS_LEITURA = new Set(['list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes', 'list_agentes_investidor', 'list_rotinas_investidor'])
 const TOOLS_QUE_PODEM_ESCREVER = new Set(['confirm_pending_action'])
 function pareceFalhaOuRecusa(msg: string): boolean {
   return /^(Erro ao|Não encontrei|Não consegui|Encontrei \d+|Essa proposta|Preciso |Certo, não vou alterar nada|"[^"]+" já)/.test(msg)
@@ -127,12 +127,12 @@ async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: Inve
   const persona = [
     `Você é a Luiza, assistente do BuildSmart AI. DATA ATUAL: ${hoje}.`,
     'Responda em português brasileiro, breve (até 4 blocos curtos), sem markdown pesado.',
-    'Aqui você lida com o Laboratório Investidor: Prospecções (oportunidades de leilão), seus Cenários financeiros (À vista/SAC/PRICE, com investimento total/venda líquida/lucro/rentabilidade já calculados pelo mesmo motor da tela) e Ativos (Prospecções já convertidas em Projeto). Nunca confunda Cenário financeiro com o cronograma/planejamento da obra — são coisas diferentes.',
+    'Aqui você lida com o Laboratório Investidor: Prospecções (oportunidades de leilão), seus Cenários financeiros (À vista/SAC/PRICE, com investimento total/venda líquida/lucro/rentabilidade já calculados pelo mesmo motor da tela), Ativos (Prospecções já convertidas em Projeto), Rotinas e Agentes assistidos. Nunca confunda Cenário financeiro com o cronograma/planejamento da obra — são coisas diferentes.',
     'Use SEMPRE as funções para consultar — nunca invente um número ou dado que não veio do resultado de uma função. Se o resultado disser que um nome bateu em mais de uma prospecção/cenário, pergunte qual antes de agir — nunca escolha sozinho.',
     'Ao propor um cenário novo ou alterado, sempre mostre o resultado calculado (investimento total, venda líquida, lucro, rentabilidade) e pergunte se pode confirmar antes de chamar confirm_pending_action.',
     permitirEscrita
-      ? 'REGRA DE ESCRITA (obrigatória, sem exceção): você NUNCA cria, altera, exclui ou converte nada diretamente, mesmo com ordem explícita. Todo pedido de criar/editar prospecção, criar/editar/excluir cenário, marcar cenário principal ou converter em Ativo passa SEMPRE por uma tool propose_* primeiro, mostrando o rascunho e perguntando se pode confirmar. SÓ chame confirm_pending_action depois que o usuário confirmar EXPLICITAMENTE nesta mensagem (ex.: "sim", "confirmo", "pode criar"). Uma mensagem que só ajusta um dado é refinamento — chame de novo a mesma tool propose_* com os dados atualizados. Se o usuário recusar, chame reject_pending_action.'
-      : 'Você está em modo consulta (Chat) — só pode listar, buscar e comparar, nunca alterar. Se o usuário pedir para criar, editar, excluir, marcar principal ou converter algo, diga que ele precisa mudar para o modo Work (botão de alternância ao lado do campo de mensagem).',
+      ? 'REGRA DE ESCRITA (obrigatória, sem exceção): você NUNCA cria, altera, exclui, converte ou executa rotina diretamente, mesmo com ordem explícita. Todo pedido de criar/editar prospecção, criar/editar/excluir cenário, marcar cenário principal, converter em Ativo, criar/editar rotina ou executar rotina passa SEMPRE por uma tool propose_* primeiro, mostrando o rascunho e perguntando se pode confirmar. SÓ chame confirm_pending_action depois que o usuário confirmar EXPLICITAMENTE nesta mensagem (ex.: "sim", "confirmo", "pode criar"). Uma mensagem que só ajusta um dado é refinamento — chame de novo a mesma tool propose_* com os dados atualizados. Se o usuário recusar, chame reject_pending_action.'
+      : 'Você está em modo consulta (Chat) — só pode listar, buscar e comparar, nunca alterar nem executar rotina. Se o usuário pedir para criar, editar, excluir, marcar principal, converter algo ou executar rotina, diga que ele precisa mudar para o modo Work (botão de alternância ao lado do campo de mensagem).',
   ].join('\n')
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -202,7 +202,12 @@ export async function temPropostaPendenteAtivaInvestidor(profileId: string | nul
   const db = supabase()
   if (!db) return false
   const ativas = await listarPendentesAtivas(db, conversationKeyFloating(profileId))
-  return ativas.some(p => ['create_prospeccao', 'update_prospeccao', 'create_cenario', 'update_cenario', 'delete_cenario', 'set_cenario_principal', 'convert_to_ativo'].includes(p.tool))
+  return ativas.some(p => [
+    'create_prospeccao', 'update_prospeccao',
+    'create_cenario', 'update_cenario', 'delete_cenario', 'set_cenario_principal',
+    'convert_to_ativo',
+    'create_investidor_rotina', 'update_investidor_rotina', 'run_investidor_rotina',
+  ].includes(p.tool))
 }
 
 export async function runInvestidorSkill(input: InvestidorSkillInput): Promise<InvestidorSkillResult> {

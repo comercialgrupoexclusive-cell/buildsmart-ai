@@ -207,4 +207,42 @@ describe('execInvestidorAiTool — propor → confirmar/rejeitar (nunca escreve 
     const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_convert_to_ativo', { prospeccao_nome: 'Vila Nova' }, ctx())
     expect(r).toMatch(/já foi convertida/i)
   })
+
+  it('list_agentes_investidor e list_rotinas_investidor são leitura', async () => {
+    db.seed('investidor_agentes', [{ id: 'ag1', nome: 'Agente de Prospecção', tipo: 'prospeccao', ativo: true, permissoes: ['read', 'propose'] }])
+    db.seed('investidor_rotinas', [{ id: 'r1', agente_id: 'ag1', nome: 'Triagem semanal', tipo: 'triagem_prospeccoes', frequencia: 'manual', ativo: true, ultima_execucao: null }])
+
+    const agentes = await execInvestidorAiTool(db as unknown as SupabaseClient, 'list_agentes_investidor', {}, ctx())
+    const rotinas = await execInvestidorAiTool(db as unknown as SupabaseClient, 'list_rotinas_investidor', {}, ctx())
+
+    expect(agentes).toContain('Agente de Prospecção')
+    expect(rotinas).toContain('Triagem semanal')
+    expect(db.tables.investidor_rotina_runs).toBeUndefined()
+  })
+
+  it('propose_create_rotina_investidor não cria rotina até confirmar', async () => {
+    db.seed('investidor_agentes', [{ id: 'ag1', nome: 'Agente de Prospecção', tipo: 'prospeccao', ativo: true, permissoes: ['read', 'propose'] }])
+
+    const proposta = await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_rotina_investidor', { nome: 'Triagem assistida' }, ctx())
+    expect(proposta).toMatch(/confirmar cria/i)
+    expect(db.tables.investidor_rotinas).toBeUndefined()
+
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
+    expect(db.tables.investidor_rotinas[0].nome).toBe('Triagem assistida')
+  })
+
+  it('propose_run_rotina_investidor só executa após confirmar e não altera prospecções', async () => {
+    db.seed('investidor_agentes', [{ id: 'ag1', nome: 'Agente de Prospecção', tipo: 'prospeccao', ativo: true, permissoes: ['read', 'propose'] }])
+    db.seed('investidor_rotinas', [{ id: 'r1', agente_id: 'ag1', nome: 'Triagem semanal', tipo: 'triagem_prospeccoes', frequencia: 'manual', ativo: true, ultima_execucao: null }])
+    const antes = JSON.stringify(db.tables.prospeccoes)
+
+    const proposta = await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_run_rotina_investidor', { rotina_nome: 'Triagem' }, ctx())
+    expect(proposta).toMatch(/executar agora/i)
+    expect(db.tables.investidor_rotina_runs).toBeUndefined()
+
+    const confirm = await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
+    expect(confirm).toMatch(/executada/i)
+    expect(db.tables.investidor_rotina_runs.length).toBe(1)
+    expect(JSON.stringify(db.tables.prospeccoes)).toBe(antes)
+  })
 })
