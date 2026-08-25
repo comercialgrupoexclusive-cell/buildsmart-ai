@@ -12,17 +12,19 @@
 // (mesma regra de Tarefas/Avisos, "confirmação/auditoria conforme política
 // do sistema" da especificação do Investidor).
 //
-// Marco 7 / Web Search: este é o ÚNICO runtime da Luiza migrado para a
-// Responses API da OpenAI (client.responses.create) — Tarefas, Avisos e o
-// Chat geral (lib/luizia-core.ts) continuam em Chat Completions, sem
-// nenhuma alteração. A migração foi feita aqui, e só aqui, para habilitar a
-// tool nativa `web_search` (pesquisa executada pela própria OpenAI, sem
-// provedor externo/segunda chave de API — ver correção do usuário na
-// Rodada 7 e RELATORIO_INVESTIDOR_RODADA_07.md). As tool defs do domínio
-// continuam vivendo em lib/investidor-ai-tools.ts no formato do Chat
-// Completions (nenhuma outra tela depende da Responses API); o adaptador
-// `paraFunctionToolResponses` abaixo só converte o formato na borda deste
-// arquivo — menor mudança possível, sem duplicar a definição das tools.
+// Marco 7 / Web Search + Multimodal: este é o ÚNICO runtime da Luiza
+// migrado para a Responses API da OpenAI (client.responses.create) —
+// Tarefas, Avisos e o Chat geral (lib/luizia-core.ts) continuam em Chat
+// Completions, sem nenhuma alteração. A migração foi feita aqui, e só
+// aqui, para habilitar a tool nativa `web_search` (pesquisa executada pela
+// própria OpenAI, sem provedor externo/segunda chave de API) e o suporte a
+// entrada multimodal (foto/PDF anexados no chat, e link colado pelo
+// usuário via a tool `extrair_link` — ver RELATORIO_INVESTIDOR_RODADA_07.md).
+// As tool defs do domínio continuam vivendo em lib/investidor-ai-tools.ts
+// no formato do Chat Completions (nenhuma outra tela depende da Responses
+// API); o adaptador `paraFunctionToolResponses` abaixo só converte o
+// formato na borda deste arquivo — menor mudança possível, sem duplicar a
+// definição das tools.
 // ═══════════════════════════════════════════════════════════════════════════
 import OpenAI from 'openai'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
@@ -32,6 +34,19 @@ import { listarPendentesAtivas } from './luizia-pending-actions'
 
 type DB = SupabaseClient
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
+
+// Anexo multimodal (Marco 7) — vem do LuiziaFloatingChat só quando o
+// usuário está no contexto /investidor (componente já restringe isso; ver
+// RELATORIO_INVESTIDOR_RODADA_07.md). `dataUrl` é a imagem em base64 (não
+// persistida no histórico — só usada nesta chamada); `textoExtraido` é o
+// texto de um PDF já extraído no cliente via /api/extract-pdf (reaproveitado,
+// não uma segunda implementação de extração de PDF).
+export type InvestidorAnexo = {
+  tipo: 'imagem' | 'pdf'
+  nome: string
+  dataUrl?: string
+  textoExtraido?: string
+}
 
 function supabase(): DB | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -55,7 +70,7 @@ function ehPedidoDeListarTudo(promptNorm: string): boolean {
   return REGEX_LISTAR_TUDO.test(promptNorm)
 }
 
-const TOOLS_LEITURA = new Set(['list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes', 'list_evidencias'])
+const TOOLS_LEITURA = new Set(['list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes', 'list_evidencias', 'extrair_link'])
 const TOOLS_QUE_PODEM_ESCREVER = new Set(['confirm_pending_action'])
 function pareceFalhaOuRecusa(msg: string): boolean {
   return /^(Erro ao|Não encontrei|Não consegui|Encontrei \d+|Essa proposta|Preciso |Certo, não vou alterar nada|"[^"]+" já)/.test(msg)
@@ -67,7 +82,7 @@ function pareceFalhaOuRecusa(msg: string): boolean {
 // preserva o comportamento atual (schemas com campos opcionais); ativar
 // strict exigiria reescrever todo `parameters` para não ter campo opcional,
 // fora do escopo desta migração.
-function paraFunctionToolResponses(t: OpenAI.Chat.ChatCompletionTool): OpenAI.Responses.FunctionTool {
+export function paraFunctionToolResponses(t: OpenAI.Chat.ChatCompletionTool): OpenAI.Responses.FunctionTool {
   if (t.type !== 'function') throw new Error('Tool custom não suportada nesta migração — só as function tools do Investidor.')
   return {
     type: 'function',
@@ -86,7 +101,7 @@ const WEB_SEARCH_TOOL: OpenAI.Responses.WebSearchTool = { type: 'web_search' }
 // Junta os textos de saída + as fontes (url_citation) de possíveis buscas
 // web numa única string — sem isso, a Luiza pesquisaria mas o link nunca
 // chegaria ao usuário.
-function extrairTextoComFontes(output: OpenAI.Responses.Response['output']): string {
+export function extrairTextoComFontes(output: OpenAI.Responses.Response['output']): string {
   const blocosDeTexto: string[] = []
   const fontesVistas = new Set<string>()
   const fontes: string[] = []
@@ -107,7 +122,30 @@ function extrairTextoComFontes(output: OpenAI.Responses.Response['output']): str
   return fontes.length ? `${texto}\n\nFontes:\n${fontes.join('\n')}` : texto
 }
 
-async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: InvestidorAiCtx, db: DB, permitirEscrita: boolean): Promise<{ message: string; mutated: boolean }> {
+// Monta a mensagem do usuário com o anexo (Marco 7): imagem vira parte
+// `input_image` (visão nativa da Responses API, sem upload a nenhum
+// storage — a própria OpenAI recebe o data URL); PDF já chega como texto
+// extraído (cliente já chamou /api/extract-pdf) e entra como texto normal.
+// Sem anexo, mantém o formato simples de sempre (string).
+export function montarMensagemUsuario(prompt: string, anexo: InvestidorAnexo | null | undefined): OpenAI.Responses.EasyInputMessage {
+  if (!anexo) return { role: 'user', content: prompt }
+
+  const partes: OpenAI.Responses.ResponseInputContent[] = []
+  const textoBase = [
+    prompt.trim(),
+    anexo.tipo === 'pdf' && anexo.textoExtraido
+      ? `Conteúdo extraído do PDF anexado ("${anexo.nome}"):\n${anexo.textoExtraido}`
+      : anexo.tipo === 'imagem'
+        ? `[Imagem anexada: "${anexo.nome}"]`
+        : null,
+  ].filter((l): l is string => !!l).join('\n\n')
+  if (textoBase) partes.push({ type: 'input_text', text: textoBase })
+  if (anexo.tipo === 'imagem' && anexo.dataUrl) partes.push({ type: 'input_image', detail: 'auto', image_url: anexo.dataUrl })
+
+  return { role: 'user', content: partes.length ? partes : prompt }
+}
+
+async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: InvestidorAiCtx, db: DB, permitirEscrita: boolean, anexo?: InvestidorAnexo | null): Promise<{ message: string; mutated: boolean }> {
   const apiKey = process.env.OPENAI_API_KEY || ''
   if (!apiKey.startsWith('sk-')) return { message: 'A IA não está configurada agora (sem chave da OpenAI).', mutated: false }
   const openai = new OpenAI({ apiKey })
@@ -125,6 +163,8 @@ async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: Inve
     'Aqui você lida com o Laboratório Investidor: Prospecções (oportunidades de leilão), seus Cenários financeiros (À vista/SAC/PRICE, com investimento total/venda líquida/lucro/rentabilidade já calculados pelo mesmo motor da tela) e Ativos (Prospecções já convertidas em Projeto). Nunca confunda Cenário financeiro com o cronograma/planejamento da obra — são coisas diferentes.',
     'Use SEMPRE as funções para consultar — nunca invente um número ou dado que não veio do resultado de uma função. Se o resultado disser que um nome bateu em mais de uma prospecção/cenário, pergunte qual antes de agir — nunca escolha sozinho.',
     'Você também tem uma ferramenta de pesquisa na internet (web_search) — use-a só quando fizer sentido (ex.: o usuário pede para pesquisar algo externo, verificar um valor de mercado, ou confirmar uma informação que não está nos seus dados). Nunca use pesquisa web para inventar dado de prospecção/cenário que deveria vir das funções do sistema. Ao usar a pesquisa, sempre cite as fontes retornadas.',
+    'Se o usuário colar um link específico (não uma pesquisa) e pedir para ler/analisar, use a tool extrair_link com essa URL exata — não confunda com web_search.',
+    'Se a mensagem trouxer uma foto ou o texto de um PDF anexado, ou o resultado de extrair_link, extraia as informações relevantes sobre a oportunidade (valores, datas, condições, restrições, estado do imóvel). Para CADA informação extraída, classifique explicitamente a natureza antes de sugerir registrar: "observado" (está literalmente escrito/visível na foto, PDF ou página), "inferido" (você concluiu a partir do que viu, sem estar explícito) ou "estimado" (é uma suposição/cálculo seu — nunca trate um preço anunciado como o valor real de venda). Depois de extrair, ofereça registrar como evidência com propose_create_evidencia, citando a fonte (nome do arquivo, "foto enviada pelo usuário" ou a URL) e a data de hoje como data_evidencia (a menos que o documento tenha outra data explícita escrita nele).',
     'Ao propor um cenário novo ou alterado, sempre mostre o resultado calculado (investimento total, venda líquida, lucro, rentabilidade) e pergunte se pode confirmar antes de chamar confirm_pending_action.',
     permitirEscrita
       ? 'REGRA DE ESCRITA (obrigatória, sem exceção): você NUNCA cria, altera, exclui ou converte nada diretamente, mesmo com ordem explícita. Todo pedido de criar/editar prospecção, criar/editar/excluir cenário, marcar cenário principal, converter em Ativo ou registrar evidência passa SEMPRE por uma tool propose_* primeiro, mostrando o rascunho e perguntando se pode confirmar. SÓ chame confirm_pending_action depois que o usuário confirmar EXPLICITAMENTE nesta mensagem (ex.: "sim", "confirmo", "pode criar"). Uma mensagem que só ajusta um dado é refinamento — chame de novo a mesma tool propose_* com os dados atualizados. Se o usuário recusar, chame reject_pending_action.'
@@ -133,7 +173,7 @@ async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: Inve
 
   let input: OpenAI.Responses.ResponseInputItem[] = [
     ...history.map((m): OpenAI.Responses.EasyInputMessage => ({ role: m.role, content: m.content })),
-    { role: 'user', content: prompt },
+    montarMensagemUsuario(prompt, anexo),
   ]
 
   let mutated = false
@@ -173,6 +213,7 @@ export type InvestidorSkillInput = {
   profileId: string | null
   actor: string
   fixedProspeccaoId?: string | null
+  anexo?: InvestidorAnexo | null
 }
 
 export type InvestidorSkillResult = {
@@ -218,14 +259,16 @@ export async function runInvestidorSkill(input: InvestidorSkillInput): Promise<I
   }
 
   // Fast path só para "listar tudo" sem nome nenhum a resolver — qualquer
-  // menção específica (aspas, "esta"/"aquela") vai direto para o loop com IA.
+  // menção específica (aspas, "esta"/"aquela") ou anexo (o usuário quer que
+  // o CONTEÚDO do anexo seja processado, não uma listagem) vai direto para
+  // o loop com IA.
   const norm = input.prompt.toLowerCase()
-  if (!isChangeIntent(input.prompt) && !mencionaEntidadeNomeada(norm) && ehPedidoDeListarTudo(norm)) {
+  if (!input.anexo && !isChangeIntent(input.prompt) && !mencionaEntidadeNomeada(norm) && ehPedidoDeListarTudo(norm)) {
     const resultado = await execInvestidorAiTool(db, 'list_prospeccoes', {}, ctx)
     if (resultado) return { message: resultado, usedLLM: false, blocked: false, mutated: false }
   }
 
   const permitirEscrita = input.modo === 'work'
-  const { message, mutated } = await rodarLoopInvestidor(input.prompt, input.history, ctx, db, permitirEscrita)
+  const { message, mutated } = await rodarLoopInvestidor(input.prompt, input.history, ctx, db, permitirEscrita, input.anexo)
   return { message, usedLLM: true, blocked: false, mutated }
 }

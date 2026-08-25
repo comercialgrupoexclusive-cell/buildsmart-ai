@@ -15,15 +15,21 @@
 // Fora de escopo, documentado em RELATORIO_INVESTIDOR_RODADA_06.md e
 // RELATORIO_INVESTIDOR_RODADA_07.md: excluir Prospecção (a própria UI não
 // oferece essa ação), operar Board/Arquivos/Comercialização via chat
-// (nenhum precedente no app faz isso hoje), duplicar cenário via chat, e
-// Web Search (nenhuma integração de busca web existe no app — decisão do
-// usuário na Rodada 7 de adiar essa parte específica do Marco 7).
+// (nenhum precedente no app faz isso hoje), duplicar cenário via chat.
+//
+// Marco 7: `extrair_link` lê uma URL específica (lib/link-extract.ts, sem
+// provedor externo — só fetch + limpeza de HTML) e `web_search` nativo da
+// OpenAI (adicionado só em lib/luizia-investidor-runtime.ts, fora deste
+// arquivo) cobrem pesquisa/leitura externa; multimodal (foto/PDF anexados)
+// é resolvido no runtime (conteúdo do anexo vira parte da mensagem do
+// usuário na Responses API), sem tool própria.
 // ═══════════════════════════════════════════════════════════════════════════
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type OpenAI from 'openai'
 import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from './ai-resolve'
 import { criarPropostaPendente, acharPendenteParaResolver, marcarRejeitada, marcarExecutada, formatarListaPendentes } from './luizia-pending-actions'
 import { calcularCenario, type PremissasCenario } from './investidor-calculadora'
+import { extrairConteudoDeLink } from './link-extract'
 import { formatCurrency } from './utils'
 import type { Prospeccao, ProspeccaoCenario, ProspeccaoEvidencia, ProspeccaoFase } from './types'
 
@@ -48,7 +54,7 @@ export type InvestidorAiCtx = {
 }
 
 export const INVESTIDOR_AI_TOOL_NAMES = [
-  'list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes', 'list_evidencias',
+  'list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes', 'list_evidencias', 'extrair_link',
   'propose_create_prospeccao', 'propose_update_prospeccao',
   'propose_create_cenario', 'propose_update_cenario', 'propose_delete_cenario', 'propose_set_cenario_principal',
   'propose_convert_to_ativo', 'propose_create_evidencia',
@@ -146,6 +152,18 @@ export function investidorAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletio
         name: 'list_evidencias',
         description: 'Lista as evidências já registradas de uma Prospecção (informação, tipo, fonte, URL, data, natureza observado/inferido/estimado). Use antes de registrar uma nova para não duplicar, ou quando o usuário perguntar o que já se sabe sobre a oportunidade.',
         parameters: { type: 'object', properties: ctxProps(scoped), required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'extrair_link',
+        description: 'Busca uma URL ESPECÍFICA que o usuário já compartilhou (edital, anúncio, matrícula publicada online etc.) e retorna o texto da página. Use quando o usuário colar um link e pedir para ler/analisar/resumir. Diferente da pesquisa (web_search): aqui você já tem a URL exata, não precisa procurar nada — só ler.',
+        parameters: {
+          type: 'object',
+          properties: { url: { type: 'string', description: 'A URL exata informada pelo usuário' } },
+          required: ['url'],
+        },
       },
     },
     {
@@ -459,6 +477,14 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         const lista = (evidencias || []) as ProspeccaoEvidencia[]
         if (lista.length === 0) return `"${p.nome}" ainda não tem evidências registradas.`
         return `${lista.length} evidência(s) de "${p.nome}":\n` + lista.map(resumoEvidencia).join('\n')
+      }
+
+      case 'extrair_link': {
+        const url = String(args.url || '').trim()
+        if (!url) return 'Preciso da URL para extrair o conteúdo.'
+        const resultado = await extrairConteudoDeLink(url)
+        if (!resultado.ok) return `Não consegui acessar esse link: ${resultado.erro}`
+        return `Conteúdo extraído de ${url}:\n${resultado.texto}${resultado.truncado ? '\n\n[conteúdo truncado]' : ''}`
       }
 
       case 'list_ativos': {

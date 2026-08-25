@@ -6,7 +6,7 @@ import {
 import { processLuiziaWork } from './luizia-tools'
 import { runTarefasSkill, temPropostaPendenteAtiva } from './luizia-tarefas-runtime'
 import { runAvisosSkill, temPropostaPendenteAtivaAvisos } from './luizia-avisos-runtime'
-import { runInvestidorSkill, temPropostaPendenteAtivaInvestidor } from './luizia-investidor-runtime'
+import { runInvestidorSkill, temPropostaPendenteAtivaInvestidor, type InvestidorAnexo } from './luizia-investidor-runtime'
 
 type Row = Record<string, unknown>
 
@@ -37,6 +37,9 @@ export type LuiziaContext = {
   listasCompras?: Row[]
   arquivos?: Row[]
   uploadedFiles?: Row[]
+  // Anexo multimodal do Laboratório Investidor (Marco 7) — só a skill
+  // 'investidor' lê este campo; Tarefas, Avisos e o Chat geral o ignoram.
+  investidorAnexo?: InvestidorAnexo | null
   [key: string]: unknown
 }
 
@@ -352,6 +355,7 @@ export async function askLuizia({
       profileId: usuario?.id || null,
       actor: usuario?.name || 'Usuário do painel',
       fixedProspeccaoId: context.pagina?.prospeccaoId || undefined,
+      anexo: context.investidorAnexo || null,
     })
     return {
       message: comSkillTag(resultado.message, skill),

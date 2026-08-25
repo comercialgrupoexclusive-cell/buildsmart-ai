@@ -3,19 +3,31 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowLeftRight, BotMessageSquare, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Plus, Send, Trash2 } from 'lucide-react'
+import { ArrowLeftRight, BotMessageSquare, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { logLuizia } from '@/lib/luizia-monitor'
 import { createClient } from '@/lib/supabase/client'
 import { useObraOrcamento, TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 import { detectSkill, type LuiziaDraft, type LuiziaPageContext } from '@/lib/luizia-work'
 import type { LuiziaModo } from '@/lib/luizia-core'
+import type { InvestidorAnexo } from '@/lib/luizia-investidor-runtime'
 import {
   readLuizaMessages, writeLuizaMessages, readLuizaModo, writeLuizaModo, readLuizaDraft, writeLuizaDraft,
   type LuizaChatMessage,
 } from '@/lib/luizia-chat-storage'
 
 type Message = LuizaChatMessage
+
+// Anexo multimodal (Laboratório Investidor, Marco 7) — o tipo vem de
+// lib/luizia-investidor-runtime.ts (import type — não bundleia nenhum
+// código de servidor no cliente). Só existe quando o botão de anexar está
+// habilitado (contexto /investidor, ver `emContextoInvestidor` abaixo).
+// Nunca persistido em sessionStorage junto das mensagens
+// (lib/luizia-chat-storage.ts só guarda {role, content}) — vale só para a
+// próxima chamada a /api/buildassist.
+
+const MAX_IMAGEM_BYTES = 3 * 1024 * 1024 // 3MB — folga sob o limite prático de payload de Serverless Functions (imagem vira base64 no corpo da requisição)
+const MAX_PDF_BYTES = 15 * 1024 * 1024 // 15MB — o texto extraído no servidor já vem truncado (app/api/extract-pdf/route.ts)
 
 const ASSIST_ON_ENTRY_KEY = 'buildsmart-open-luizia-on-entry'
 
@@ -75,8 +87,16 @@ export function LuiziaFloatingChat() {
   const [modo, setModo] = useState<LuiziaModo>('chat')
   const [modoFeedback, setModoFeedback] = useState<LuiziaModo | null>(null)
   const [draft, setDraft] = useState<LuiziaDraft | null>(null)
+  const [anexo, setAnexo] = useState<InvestidorAnexo | null>(null)
+  const [anexoCarregando, setAnexoCarregando] = useState(false)
+  const [anexoErro, setAnexoErro] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Anexar foto/PDF (Marco 7) só existe dentro do Laboratório Investidor —
+  // Tarefas, Avisos e o Chat geral continuam com o botão desabilitado
+  // ("em breve"), sem nenhuma outra mudança de comportamento.
+  const emContextoInvestidor = (pathname || '').startsWith('/investidor')
   // Qual profile_id o estado React ATUAL pertence a — os efeitos de
   // salvamento abaixo gravam usando esta ref (não currentProfile?.id direto)
   // para nunca escrever o conteúdo de um perfil na chave de outro durante a
@@ -170,12 +190,76 @@ export function LuiziaFloatingChat() {
     feedbackTimerRef.current = setTimeout(() => setModoFeedback(null), 1400)
   }
 
+  function abrirSeletorArquivo() {
+    if (!emContextoInvestidor || anexoCarregando || loading) return
+    fileInputRef.current?.click()
+  }
+
+  function removerAnexo() {
+    setAnexo(null)
+    setAnexoErro(null)
+  }
+
+  async function onArquivoSelecionado(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setAnexoErro(null)
+
+    if (file.type.startsWith('image/')) {
+      if (file.size > MAX_IMAGEM_BYTES) {
+        setAnexoErro('Imagem muito grande (máx. 3MB) — tente uma foto mais leve.')
+        return
+      }
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result))
+          reader.onerror = () => reject(reader.error)
+          reader.readAsDataURL(file)
+        })
+        setAnexo({ tipo: 'imagem', nome: file.name, dataUrl })
+      } catch {
+        setAnexoErro('Não consegui ler essa imagem.')
+      }
+      return
+    }
+
+    if (file.type === 'application/pdf') {
+      if (file.size > MAX_PDF_BYTES) {
+        setAnexoErro('PDF muito grande (máx. 15MB).')
+        return
+      }
+      setAnexoCarregando(true)
+      try {
+        const form = new FormData()
+        form.append('file', file)
+        const res = await fetch('/api/extract-pdf', { method: 'POST', body: form })
+        const data = await res.json()
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Falha ao ler o PDF')
+        setAnexo({ tipo: 'pdf', nome: file.name, textoExtraido: data.texto })
+      } catch (err) {
+        setAnexoErro(err instanceof Error ? err.message : 'Não consegui ler esse PDF.')
+      } finally {
+        setAnexoCarregando(false)
+      }
+      return
+    }
+
+    setAnexoErro('Envie uma imagem (foto) ou um PDF.')
+  }
+
   async function sendMessage() {
-    if (!input.trim() || loading) return
-    const userMsg: Message = { role: 'user', content: input.trim() }
+    if ((!input.trim() && !anexo) || loading) return
+    const anexoAtual = anexo
+    const legenda = anexoAtual ? `\n\n📎 ${anexoAtual.nome}` : ''
+    const conteudo = (input.trim() || (anexoAtual ? (anexoAtual.tipo === 'imagem' ? 'Anexei uma foto.' : 'Anexei um PDF.') : '')) + legenda
+    const userMsg: Message = { role: 'user', content: conteudo }
     const next = [...messages, userMsg]
     setMessages(next)
     setInput('')
+    setAnexo(null)
+    setAnexoErro(null)
     setLoading(true)
     setHistoryOpen(true)
 
@@ -207,6 +291,9 @@ export function LuiziaFloatingChat() {
         draftAtual: draft,
         geradoEm: new Date().toISOString(),
         usuario,
+        // Só a skill 'investidor' lê este campo (lib/luizia-core.ts) — em
+        // qualquer outra skill fica de fora do payload (nunca null à toa).
+        ...(skill === 'investidor' && anexoAtual ? { investidorAnexo: anexoAtual } : {}),
       }
 
       const body = (skill === 'tarefas' || skill === 'avisos')
@@ -373,18 +460,44 @@ export function LuiziaFloatingChat() {
           </div>
         )}
 
+        {(anexo || anexoErro) && (
+          <div
+            className="mb-2 flex items-center gap-2 rounded-xl px-3 py-2 text-xs"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: anexoErro && !anexo ? '#ef4444' : 'var(--text-secondary)' }}
+          >
+            {anexo && (
+              <>
+                <Paperclip size={13} className="shrink-0" />
+                <span className="truncate flex-1" style={{ color: 'var(--text-primary)' }}>{anexo.nome}</span>
+                <button type="button" onClick={removerAnexo} className="shrink-0" title="Remover anexo" style={{ color: 'var(--text-secondary)' }}>
+                  <X size={13} />
+                </button>
+              </>
+            )}
+            {anexoErro && !anexo && <span className="flex-1">{anexoErro}</span>}
+          </div>
+        )}
+
         <div
           className="rounded-2xl shadow-2xl flex items-center gap-1.5 px-2 py-2 sm:gap-2 sm:px-3"
           style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
         >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            className="hidden"
+            onChange={onArquivoSelecionado}
+          />
           <button
             type="button"
-            disabled
-            title="Anexar (em breve)"
+            onClick={abrirSeletorArquivo}
+            disabled={!emContextoInvestidor || anexoCarregando || loading}
+            title={emContextoInvestidor ? 'Anexar foto ou PDF' : 'Anexar (em breve)'}
             className="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center disabled:opacity-50"
             style={{ color: 'var(--text-secondary)' }}
           >
-            <Plus size={18} />
+            {anexoCarregando ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
           </button>
 
           <div className="relative shrink-0">
@@ -424,7 +537,7 @@ export function LuiziaFloatingChat() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && sendMessage()}
             onFocus={() => messages.length > 0 && setHistoryOpen(true)}
-            placeholder={modo === 'work' ? 'Peça uma alteração ou pergunte à Luiza...' : 'Pergunte à Luiza...'}
+            placeholder={anexo ? 'Descreva o que quer saber sobre o anexo (opcional)...' : modo === 'work' ? 'Peça uma alteração ou pergunte à Luiza...' : 'Pergunte à Luiza...'}
             className="flex-1 min-w-0 h-10 text-sm bg-transparent border-0 outline-none placeholder:text-[var(--text-secondary)]"
             style={{ color: 'var(--text-primary)' }}
             disabled={loading}
@@ -442,7 +555,7 @@ export function LuiziaFloatingChat() {
 
           <button
             onClick={sendMessage}
-            disabled={!input.trim() || loading}
+            disabled={(!input.trim() && !anexo) || loading || anexoCarregando}
             className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center disabled:opacity-50"
             style={{ background: 'var(--accent)' }}
             title="Enviar"

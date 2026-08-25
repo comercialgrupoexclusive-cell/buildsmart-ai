@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { FakeDB } from './fake-supabase'
 import { execInvestidorAiTool, type InvestidorAiCtx } from '../investidor-ai-tools'
+import { extrairConteudoDeLink } from '../link-extract'
+
+vi.mock('../link-extract', () => ({ extrairConteudoDeLink: vi.fn() }))
 
 // Testa lib/investidor-ai-tools.ts sem rede (o sandbox bloqueia
 // *.supabase.co), com o mesmo FakeDB em memória já usado por
@@ -282,5 +285,35 @@ describe('execInvestidorAiTool — Evidências (Marco 7)', () => {
     const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'get_prospeccao', { prospeccao_nome: 'Vila Nova' }, ctx())
     expect(r).toContain('Evidências (1)')
     expect(r).toContain('Matrícula sem ônus aparente')
+  })
+})
+
+describe('execInvestidorAiTool — extrair_link (Marco 7)', () => {
+  const db = new FakeDB()
+  const extrairMock = vi.mocked(extrairConteudoDeLink)
+
+  beforeEach(() => {
+    extrairMock.mockReset()
+  })
+
+  it('pede a URL quando não informada', async () => {
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'extrair_link', {}, ctx())
+    expect(r).toMatch(/preciso da url/i)
+    expect(extrairMock).not.toHaveBeenCalled()
+  })
+
+  it('retorna o texto extraído quando a extração funciona', async () => {
+    extrairMock.mockResolvedValue({ ok: true, texto: 'Edital do leilão: lance mínimo R$ 150.000,00', truncado: false })
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'extrair_link', { url: 'https://exemplo.com/edital' }, ctx())
+    expect(extrairMock).toHaveBeenCalledWith('https://exemplo.com/edital')
+    expect(r).toContain('https://exemplo.com/edital')
+    expect(r).toContain('lance mínimo R$ 150.000,00')
+  })
+
+  it('repassa o erro de forma clara quando a extração falha, sem inventar conteúdo', async () => {
+    extrairMock.mockResolvedValue({ ok: false, erro: 'A página respondeu com erro 404.' })
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'extrair_link', { url: 'https://exemplo.com/nao-existe' }, ctx())
+    expect(r).toMatch(/não consegui acessar/i)
+    expect(r).toContain('404')
   })
 })
