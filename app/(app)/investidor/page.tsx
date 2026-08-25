@@ -133,6 +133,14 @@ function ProspeccoesTab() {
 
   useEffect(() => { void load() }, [])
 
+  // A Luiza (Marco 6) pode criar/editar uma Prospecção fora desta tela —
+  // recarrega sem precisar de F5. Ver components/layout/LuiziaFloatingChat.tsx.
+  useEffect(() => {
+    function onChanged() { void load() }
+    window.addEventListener('buildsmart:investidor-changed', onChanged)
+    return () => window.removeEventListener('buildsmart:investidor-changed', onChanged)
+  }, [])
+
   async function load() {
     setLoading(true)
     const supabase = createClient()
@@ -320,6 +328,14 @@ function AtivosTab() {
 
   useEffect(() => { void load() }, [])
 
+  // A Luiza (Marco 6) pode converter uma Prospecção em Ativo fora desta
+  // tela — recarrega sem precisar de F5.
+  useEffect(() => {
+    function onChanged() { void load() }
+    window.addEventListener('buildsmart:investidor-changed', onChanged)
+    return () => window.removeEventListener('buildsmart:investidor-changed', onChanged)
+  }, [])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -413,6 +429,14 @@ function ComparadorTab() {
   }
 
   useEffect(() => { void load() }, [])
+
+  // A Luiza (Marco 6) pode criar/editar um cenário fora desta tela —
+  // recarrega sem precisar de F5.
+  useEffect(() => {
+    function onChanged() { void load() }
+    window.addEventListener('buildsmart:investidor-changed', onChanged)
+    return () => window.removeEventListener('buildsmart:investidor-changed', onChanged)
+  }, [])
 
   function toggleSelecao(p: ProspeccaoComCenarios) {
     setSelecoes(prev => {

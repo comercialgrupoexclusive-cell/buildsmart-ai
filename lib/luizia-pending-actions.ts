@@ -23,6 +23,11 @@ export type PendingAction = {
   actor: string | null
   origem: string
   tool: 'create_task' | 'update_task' | 'complete_task' | 'reopen_task' | 'cancel_task' | 'create_alert' | 'update_alert'
+    // Laboratório Investidor (Marco 6) — mesma tabela genérica, ver
+    // RELATORIO_INVESTIDOR_RODADA_06.md.
+    | 'create_prospeccao' | 'update_prospeccao'
+    | 'create_cenario' | 'update_cenario' | 'delete_cenario' | 'set_cenario_principal'
+    | 'convert_to_ativo'
   argumentos: Record<string, unknown>
   descricao: string
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'executed'
