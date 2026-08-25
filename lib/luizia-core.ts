@@ -10,20 +10,6 @@ import { runInvestidorSkill, temPropostaPendenteAtivaInvestidor } from './luizia
 
 type Row = Record<string, unknown>
 
-type ResponsesClient = OpenAI & {
-  responses: {
-    create(params: {
-      model: string
-      tools: Array<{ type: 'web_search_preview' }>
-      input: Array<{ role: string; content: string }>
-      max_output_tokens: number
-    }): Promise<{
-      output_text?: string
-      output?: Array<{ content?: Array<{ text?: string }> }>
-    }>
-  }
-}
-
 export type LuiziaMessage = {
   role: 'user' | 'assistant'
   content: string
@@ -109,26 +95,6 @@ function isWhatsappContext(context: LuiziaContext) {
 
 function firstUserQuestion(messages: LuiziaMessage[]) {
   return [...messages].reverse().find(m => m.role === 'user')?.content || ''
-}
-
-function shouldUseWebSearch(question: string, context: LuiziaContext) {
-  return Boolean(context.webSearch)
-    || /\b(pesquis(e|a|ar)|busc(a|ar)|procure|internet|web|not[íi]cia|noticias|atualizado|mais recente|últim[ao]s?|pre[çc]o atual|norma atual)\b/i.test(question)
-}
-
-function capabilitiesMessage() {
-  return [
-    'Hoje minhas habilidades principais são:',
-    '- Chat: responder e cruzar dados do BuildSmart sem gravar nada.',
-    '- Work: preparar rascunhos e executar alterações só depois da confirmação explícita.',
-    '- Multimodal: ler texto, PDF extraído, imagem e áudio transcrito quando enviados pela interface.',
-    '- Web Search: pesquisar na internet quando você pedir explicitamente.',
-    '- Skills internas: Orçamento, Planejamento, Execução, RDO, Suprimentos, Compras, Financeiro, Tarefas e Avisos.',
-  ].join('\n')
-}
-
-function isCapabilitiesQuestion(question: string) {
-  return /\b(habilidades|o que voc[êe] consegue|o que voce consegue|o que pode fazer|fun[çc][õo]es da luiz)/i.test(question)
 }
 
 function imageAttachments(context: LuiziaContext) {
@@ -223,7 +189,6 @@ async function gerarRespostaNormal(
   context: LuiziaContext,
   complex: boolean,
 ): Promise<{ message: string; mode: 'local-fallback' | 'openai'; model?: string }> {
-  const question = firstUserQuestion(messages)
   if (!hasOpenAiKey()) {
     return {
       message: localFallback(messages, context),
@@ -235,8 +200,7 @@ async function gerarRespostaNormal(
   const hoje = new Date().toLocaleDateString('pt-BR')
   const isWhatsapp = isWhatsappContext(context)
   const hasImages = imageAttachments(context).length > 0
-  const useWebSearch = shouldUseWebSearch(question, context)
-  const model = modelFor(isWhatsapp ? false : (complex || hasImages || useWebSearch))
+  const model = modelFor(isWhatsapp ? false : (complex || hasImages))
   const contextLimit = isWhatsapp ? 12000 : 60000
   const maxTokens = isWhatsapp ? 420 : complex ? 1800 : 900
 
@@ -262,7 +226,6 @@ REGRAS:
 - Ao falar de avanco, considere diario, medicoes e progresso.
 - Nao prometa leitura real de arquivos se o conteudo do arquivo nao foi enviado.
 - Quando imagens forem enviadas junto da mensagem, descreva apenas o que conseguir observar com segurança.
-- Quando usar busca web, diferencie claramente dado pesquisado de dado interno do BuildSmart.
 - Quando sugerir criacao/alteracao no sistema, deixe claro que o usuario deve revisar antes de salvar.
 - Voce ainda nao executa acoes no banco nem cria registros diretamente.
 - O contexto e somente leitura. Nao invente que alterou dados.
@@ -272,22 +235,6 @@ ${isWhatsapp ? '- Pelo WhatsApp, responda ainda mais curto: no maximo 2 blocos p
 
 CONTEXTO LOCAL/SISTEMA:
 ${limitJson(promptContext(context), contextLimit)}`
-
-  if (useWebSearch && !hasImages) {
-    const response = await (openai as ResponsesClient).responses.create({
-      model,
-      tools: [{ type: 'web_search_preview' }],
-      input: [
-        { role: 'system', content: systemPrompt },
-        ...messages.slice(0, -1).slice(-8).map(message => ({ role: message.role, content: message.content })),
-        { role: 'user', content: question },
-      ],
-      max_output_tokens: maxTokens,
-    })
-    const content = response.output_text || response.output?.flatMap(item => item.content || []).map(part => part.text || '').join('\n').trim()
-    if (!content) throw new Error('Resposta vazia da IA')
-    return { message: content, model, mode: 'openai' }
-  }
 
   const lastUserIndex = messages.map(m => m.role).lastIndexOf('user')
 
@@ -368,10 +315,6 @@ export async function askLuizia({
 
   let skill = detectSkill(context.pagina, ultimaMensagem)
 
-  if (isCapabilitiesQuestion(ultimaMensagem)) {
-    return { message: comSkillTag(capabilitiesMessage(), skill), mode: 'tool', skill, draft: draftAtual, blocked: false }
-  }
-
   // Uma proposta pendente da Luiza (criação/edição de tarefa OU de aviso
   // aguardando "sim"/"amanhã"/"não") força de volta para a skill certa
   // mesmo que a mensagem seguinte não tenha nenhuma palavra-chave — sem
@@ -449,6 +392,7 @@ export async function askLuizia({
       profileId: usuario?.id || null,
       actor: usuario?.name || 'Usuário do painel',
       fixedProspeccaoId: context.pagina?.prospeccaoId || undefined,
+      webSearch: Boolean(context.webSearch),
     })
     return {
       message: comSkillTag(resultado.message, skill),

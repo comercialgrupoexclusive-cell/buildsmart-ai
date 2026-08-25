@@ -20,6 +20,20 @@ import { listarPendentesAtivas } from './luizia-pending-actions'
 type DB = SupabaseClient
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
 
+type ResponsesClient = OpenAI & {
+  responses: {
+    create(params: {
+      model: string
+      tools: Array<{ type: 'web_search_preview' }>
+      input: Array<{ role: string; content: string }>
+      max_output_tokens: number
+    }): Promise<{
+      output_text?: string
+      output?: Array<{ content?: Array<{ text?: string }> }>
+    }>
+  }
+}
+
 function supabase(): DB | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
@@ -42,10 +56,61 @@ function ehPedidoDeListarTudo(promptNorm: string): boolean {
   return REGEX_LISTAR_TUDO.test(promptNorm)
 }
 
+function shouldUseWebSearch(prompt: string, requested?: boolean): boolean {
+  return Boolean(requested)
+    || /\b(pesquis(e|a|ar)|busc(a|ar)|procure|internet|web|not[íi]cia|noticias|atualizado|mais recente|últim[ao]s?|pre[çc]o atual|norma atual)\b/i.test(prompt)
+}
+
+function isCapabilitiesQuestion(prompt: string): boolean {
+  return /\b(habilidades|o que voc[êe] consegue|o que voce consegue|o que pode fazer|fun[çc][õo]es da luiz)/i.test(prompt)
+}
+
+function capabilitiesMessage() {
+  return [
+    'No Laboratório Investidor, minhas habilidades principais são:',
+    '- Chat: consultar e comparar prospecções, cenários e ativos sem gravar nada.',
+    '- Work: preparar rascunhos de alteração e executar apenas após confirmação explícita.',
+    '- Web Search: pesquisar evidências externas somente quando pedido, sem executar CRUD por esse caminho.',
+    '- Multimodal: usar anexos transcritos/extraídos quando a interface enviar esse contexto.',
+  ].join('\n')
+}
+
 const TOOLS_LEITURA = new Set(['list_prospeccoes', 'get_prospeccao', 'list_ativos', 'compare_prospeccoes'])
 const TOOLS_QUE_PODEM_ESCREVER = new Set(['confirm_pending_action'])
 function pareceFalhaOuRecusa(msg: string): boolean {
   return /^(Erro ao|Não encontrei|Não consegui|Encontrei \d+|Essa proposta|Preciso |Certo, não vou alterar nada|"[^"]+" já)/.test(msg)
+}
+
+async function rodarWebSearchInvestidor(prompt: string, history: ChatMsg[], ctx: InvestidorAiCtx): Promise<{ message: string; mutated: false }> {
+  const apiKey = process.env.OPENAI_API_KEY || ''
+  if (!apiKey.startsWith('sk-')) return { message: 'A busca web da IA não está configurada agora (sem chave da OpenAI).', mutated: false }
+
+  const openai = new OpenAI({ apiKey })
+  const hoje = new Date().toLocaleDateString('pt-BR')
+  const systemPrompt = [
+    `Você é a Luiza, assistente do BuildSmart AI no Laboratório Investidor. DATA ATUAL: ${hoje}.`,
+    'Use a busca web apenas como leitura/evidência externa para apoiar análise de prospecções, mercado, imóveis, financiamento, risco e contexto público.',
+    'Este caminho NÃO possui ferramentas CRUD, NÃO consulta SQL e NÃO escreve no banco. Nunca diga que criou, alterou, confirmou, excluiu ou converteu dados.',
+    'Diferencie claramente evidência externa pesquisada de dados internos do BuildSmart.',
+    'Se faltar dado interno de uma prospecção, diga o que falta em vez de inventar.',
+    'Se o pedido envolver alteração, explique que a alteração precisa ser feita pelo modo Work com rascunho e confirmação.',
+    ctx.fixedProspeccaoId ? `Contexto escopado à prospecção atual: ${ctx.fixedProspeccaoId}.` : 'Contexto geral do Laboratório Investidor.',
+  ].join('\n')
+
+  const response = await (openai as ResponsesClient).responses.create({
+    model: 'gpt-4o',
+    tools: [{ type: 'web_search_preview' }],
+    input: [
+      { role: 'system', content: systemPrompt },
+      ...history.slice(-8).map(message => ({ role: message.role, content: message.content })),
+      { role: 'user', content: prompt },
+    ],
+    max_output_tokens: 900,
+  })
+
+  const content = response.output_text || response.output?.flatMap(item => item.content || []).map(part => part.text || '').join('\n').trim()
+  if (!content) throw new Error('Resposta vazia da IA')
+  return { message: content, mutated: false }
 }
 
 async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: InvestidorAiCtx, db: DB, permitirEscrita: boolean): Promise<{ message: string; mutated: boolean }> {
@@ -112,6 +177,7 @@ export type InvestidorSkillInput = {
   profileId: string | null
   actor: string
   fixedProspeccaoId?: string | null
+  webSearch?: boolean
 }
 
 export type InvestidorSkillResult = {
@@ -144,6 +210,10 @@ export async function runInvestidorSkill(input: InvestidorSkillInput): Promise<I
     return { message: MENSAGEM_BLOQUEIO_CHAT, usedLLM: false, blocked: true, mutated: false }
   }
 
+  if (isCapabilitiesQuestion(input.prompt)) {
+    return { message: capabilitiesMessage(), usedLLM: false, blocked: false, mutated: false }
+  }
+
   const db = supabase()
   if (!db) return { message: 'Banco de dados indisponível agora.', usedLLM: false, blocked: false, mutated: false }
 
@@ -154,6 +224,11 @@ export async function runInvestidorSkill(input: InvestidorSkillInput): Promise<I
     profileId: input.profileId,
     conversationKey,
     fixedProspeccaoId: input.fixedProspeccaoId,
+  }
+
+  if (shouldUseWebSearch(input.prompt, input.webSearch) && !isChangeIntent(input.prompt)) {
+    const { message } = await rodarWebSearchInvestidor(input.prompt, input.history, ctx)
+    return { message, usedLLM: true, blocked: false, mutated: false }
   }
 
   // Fast path só para "listar tudo" sem nome nenhum a resolver — qualquer

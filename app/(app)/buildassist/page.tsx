@@ -128,10 +128,6 @@ function readAsDataUrl(file: File) {
   })
 }
 
-function isWebSearchRequest(text: string) {
-  return /\b(pesquis(e|a|ar)|busc(a|ar)|procure|internet|web|not[íi]cia|noticias|atualizado|mais recente|últim[ao]s?|pre[çc]o atual|norma atual)\b/i.test(text)
-}
-
 export default function BuildAssistPage() {
   const { currentProfile } = useProfile()
   const supabase = createClient()
@@ -392,7 +388,6 @@ export default function BuildAssistPage() {
   function shouldUseComplexModel(text: string) {
     const value = text.toLowerCase()
     return uploadedFiles.length > 0
-      || isWebSearchRequest(text)
       || value.includes('arquivo')
       || value.includes('projeto')
       || value.includes('planta')
@@ -422,7 +417,7 @@ export default function BuildAssistPage() {
           messages: newMessages,
           complex: shouldUseComplexModel(userMsg.content),
           profileId: currentProfile?.id,
-          context: context ? { ...context, webSearch: isWebSearchRequest(userMsg.content) } : context,
+          context,
         }),
       })
       const data = await res.json()
@@ -532,7 +527,6 @@ export default function BuildAssistPage() {
                   orcamento: 'Com base na obra atual, sugira um caminho simples para montar ou revisar o orçamento executivo.',
                   compras: 'Analise materiais, listas de compras e fornecedores. Sugira o que comprar primeiro e com quem consultar.',
                   previsoes: 'Gere previsões objetivas de próximas etapas, materiais, compras e pontos de decisão da obra.',
-                  web: 'Pesquise na internet referências atuais úteis para a dúvida e relacione com os dados da obra.',
                 }
                 if (acoes[e.target.value]) aplicarPrompt(acoes[e.target.value])
               }}
@@ -543,7 +537,6 @@ export default function BuildAssistPage() {
               <option value="orcamento">📋 Ajudar orçamento</option>
               <option value="compras">🛒 Planejar compras</option>
               <option value="previsoes">📅 Gerar previsões</option>
-              <option value="web">🌐 Buscar na web</option>
             </select>
           </div>
 
