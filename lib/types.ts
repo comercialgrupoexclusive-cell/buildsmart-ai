@@ -175,6 +175,13 @@ export type InsumoProprio = {
   preco_unitario: number
   ativo: boolean
   created_at: string
+  // Dimensões físicas — opcionais e genéricas (não específicas de material).
+  // Uma futura derivação de área/volume pode usar estes campos, mas isso não
+  // é implementado ainda.
+  comprimento?: number | null
+  largura?: number | null
+  espessura?: number | null
+  diametro?: number | null
 }
 
 // ─── Etapa ────────────────────────────────────────────────────────────────────
