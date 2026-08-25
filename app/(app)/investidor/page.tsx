@@ -1,13 +1,13 @@
 'use client'
 
 // Laboratório Investidor — hub com as 3 abas (Prospecções | Ativos |
-// Comparador). Prospecções (Marco 2) e Ativos (Marco 4) têm funcionalidade
-// real; Comparador segue navegação/placeholder (Marco 5, não antecipado).
-// Ver RELATORIO_INVESTIDOR_RODADA_02.md e RELATORIO_INVESTIDOR_RODADA_04.md.
+// Comparador). As 3 têm funcionalidade real desde o Marco 5 — Comparador
+// não cria tabela própria, só lê Prospecções/Cenários já existentes (ver
+// RELATORIO_INVESTIDOR_RODADA_05.md), sem score/ranking próprio.
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Search, Landmark, Columns3, Calendar, MapPin, ImagePlus } from 'lucide-react'
+import { Plus, Search, Landmark, Columns3, Calendar, MapPin, ImagePlus, ChevronLeft, ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -15,9 +15,36 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { formatCurrency } from '@/lib/utils'
+import { MODALIDADE_LABEL } from '@/components/investidor/ProspeccaoCenarios'
 import type { Prospeccao, ProspeccaoFase, ProspeccaoCenario } from '@/lib/types'
 
 type ProspeccaoComPrincipal = Prospeccao & { prospeccao_cenarios?: ProspeccaoCenario[] }
+type ProspeccaoComCenarios = Prospeccao & { prospeccao_cenarios: ProspeccaoCenario[] }
+
+type IndicadorKey = 'valor_venda_estimado' | 'valor_arrematacao' | 'investimento_total' | 'valor_liquido_venda' | 'lucro' | 'rentabilidade' | 'prazo_venda_meses'
+
+// "Avaliação" e "venda estimada" da especificação (seção 3.3) mapeados aos
+// campos reais do Marco 1: avaliação = premissa valor_venda_estimado (o que
+// se acha que vale); "venda estimada" do Comparador é o resultado líquido
+// já calculado pelo motor do Marco 3 (valor_liquido_venda) — o que
+// efetivamente sobra depois de custos/impostos, não a mesma coisa que a
+// avaliação bruta. Mesma disciplina de interpretação documentada na Rodada 2.
+const INDICADORES: { key: IndicadorKey; label: string; formato: 'moeda' | 'pct' | 'meses'; melhor?: 'maior' | 'menor' }[] = [
+  { key: 'valor_venda_estimado', label: 'Avaliação (venda estimada)', formato: 'moeda' },
+  { key: 'valor_arrematacao', label: 'Aquisição', formato: 'moeda' },
+  { key: 'investimento_total', label: 'Investimento total', formato: 'moeda', melhor: 'menor' },
+  { key: 'valor_liquido_venda', label: 'Venda estimada líquida', formato: 'moeda', melhor: 'maior' },
+  { key: 'lucro', label: 'Lucro', formato: 'moeda', melhor: 'maior' },
+  { key: 'rentabilidade', label: 'Rentabilidade', formato: 'pct', melhor: 'maior' },
+  { key: 'prazo_venda_meses', label: 'Prazo até a venda', formato: 'meses' },
+]
+
+function formatarIndicador(valor: number | null, formato: 'moeda' | 'pct' | 'meses') {
+  if (valor == null) return '—'
+  if (formato === 'moeda') return formatCurrency(valor)
+  if (formato === 'pct') return `${valor.toFixed(1)}%`
+  return `${valor} ${valor === 1 ? 'mês' : 'meses'}`
+}
 
 // Ativo = Project com contexto='investimento' (Marco 4). Tipo mínimo local
 // — a tela real de detalhe é a própria /projetos/[id], não uma tela nova.
@@ -91,13 +118,7 @@ export default function InvestidorPage() {
 
       {tab === 'prospeccoes' && <ProspeccoesTab />}
       {tab === 'ativos' && <AtivosTab />}
-      {tab === 'comparador' && (
-        <EmptyState
-          icon={Columns3}
-          title="Comparador"
-          description="Compare 2 ou mais Prospecções lado a lado (avaliação, investimento, lucro, rentabilidade, prazo). Chega no Marco 5."
-        />
-      )}
+      {tab === 'comparador' && <ComparadorTab />}
     </div>
   )
 }
@@ -368,6 +389,211 @@ function AtivoCard({ ativo: a, index }: { ativo: AtivoProjeto; index: number }) 
         <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Abrir Projeto do Ativo →</p>
       </div>
     </Link>
+  )
+}
+
+type Selecao = { prospeccaoId: string; cenarioId: string }
+
+function ComparadorTab() {
+  const [prospeccoes, setProspeccoes] = useState<ProspeccaoComCenarios[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selecoes, setSelecoes] = useState<Selecao[]>([])
+  const [parIndex, setParIndex] = useState(0)
+
+  async function load() {
+    setLoading(true)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('prospeccoes')
+      .select('*, prospeccao_cenarios(*)')
+      .order('created_at', { ascending: false })
+    const comCenarios = ((data ?? []) as ProspeccaoComCenarios[]).filter(p => p.prospeccao_cenarios?.length > 0)
+    setProspeccoes(comCenarios)
+    setLoading(false)
+  }
+
+  useEffect(() => { void load() }, [])
+
+  function toggleSelecao(p: ProspeccaoComCenarios) {
+    setSelecoes(prev => {
+      if (prev.some(s => s.prospeccaoId === p.id)) return prev.filter(s => s.prospeccaoId !== p.id)
+      const cenario = p.prospeccao_cenarios.find(c => c.principal) ?? p.prospeccao_cenarios[0]
+      return [...prev, { prospeccaoId: p.id, cenarioId: cenario.id }]
+    })
+    setParIndex(0)
+  }
+
+  function trocarCenario(prospeccaoId: string, cenarioId: string) {
+    setSelecoes(prev => prev.map(s => s.prospeccaoId === prospeccaoId ? { ...s, cenarioId } : s))
+  }
+
+  const selecionadas = selecoes
+    .map(s => {
+      const prospeccao = prospeccoes.find(p => p.id === s.prospeccaoId)
+      const cenario = prospeccao?.prospeccao_cenarios.find(c => c.id === s.cenarioId)
+      return prospeccao && cenario ? { prospeccao, cenario } : null
+    })
+    .filter((x): x is { prospeccao: ProspeccaoComCenarios; cenario: ProspeccaoCenario } => x != null)
+
+  function melhorValor(ind: typeof INDICADORES[number]) {
+    if (!ind.melhor) return null
+    const valores = selecionadas.map(s => s.cenario[ind.key]).filter((v): v is number => v != null)
+    if (!valores.length) return null
+    return ind.melhor === 'maior' ? Math.max(...valores) : Math.min(...valores)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+      </div>
+    )
+  }
+
+  if (prospeccoes.length === 0) {
+    return (
+      <EmptyState
+        icon={Columns3}
+        title="Nada para comparar ainda"
+        description="Crie ao menos 2 prospecções com um cenário financeiro (aba Análise) para poder compará-las aqui."
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="card p-4">
+        <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Selecione 2 ou mais prospecções</p>
+        <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>Só aparecem aqui prospecções com pelo menos um cenário financeiro.</p>
+        <div className="flex flex-col gap-1 max-h-64 overflow-y-auto pr-1">
+          {prospeccoes.map(p => {
+            const sel = selecoes.find(s => s.prospeccaoId === p.id)
+            return (
+              <div
+                key={p.id}
+                className="flex items-center gap-3 p-2 rounded-lg"
+                style={{ background: sel ? 'var(--bg-secondary)' : 'transparent' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!sel}
+                  onChange={() => toggleSelecao(p)}
+                  style={{ accentColor: 'var(--accent)' }}
+                  className="w-4 h-4 flex-shrink-0"
+                />
+                <span className="flex-1 min-w-0 text-sm truncate" style={{ color: 'var(--text-primary)' }}>{p.nome}</span>
+                {sel && p.prospeccao_cenarios.length > 1 && (
+                  <select
+                    value={sel.cenarioId}
+                    onChange={e => trocarCenario(p.id, e.target.value)}
+                    className="text-xs rounded-md border px-2 py-1 flex-shrink-0"
+                    style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  >
+                    {p.prospeccao_cenarios.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {selecionadas.length < 2 ? (
+        <EmptyState
+          icon={Columns3}
+          title="Selecione pelo menos 2"
+          description="Marque 2 ou mais prospecções acima para ver a comparação lado a lado."
+        />
+      ) : (
+        <>
+          {/* Desktop — todas as selecionadas lado a lado */}
+          <div className="hidden md:block card p-4 overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr>
+                  <th className="text-left py-2 pr-4 align-bottom" style={{ color: 'var(--text-secondary)' }}>Indicador</th>
+                  {selecionadas.map(s => (
+                    <th key={s.prospeccao.id} className="text-left py-2 px-3 align-bottom" style={{ minWidth: 170 }}>
+                      <p className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{s.prospeccao.nome}</p>
+                      <p className="text-xs font-normal truncate" style={{ color: 'var(--text-secondary)' }}>
+                        {s.cenario.nome} · {MODALIDADE_LABEL[s.cenario.modalidade]}
+                      </p>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {INDICADORES.map(ind => {
+                  const melhor = melhorValor(ind)
+                  return (
+                    <tr key={ind.key} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td className="py-2 pr-4" style={{ color: 'var(--text-secondary)' }}>{ind.label}</td>
+                      {selecionadas.map(s => {
+                        const valor = s.cenario[ind.key]
+                        const destaque = melhor != null && valor === melhor
+                        return (
+                          <td key={s.prospeccao.id} className="py-2 px-3 font-semibold" style={{ color: destaque ? 'var(--success)' : 'var(--text-primary)' }}>
+                            {formatarIndicador(valor, ind.formato)}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile — 2 por vez, com paginação se houver mais selecionadas */}
+          <div className="md:hidden space-y-3">
+            {selecionadas.length > 2 && (
+              <div className="flex items-center justify-between text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
+                <button
+                  onClick={() => setParIndex(i => Math.max(0, i - 2))}
+                  disabled={parIndex === 0}
+                  className="flex items-center gap-1 disabled:opacity-30"
+                >
+                  <ChevronLeft size={14} /> Anterior
+                </button>
+                <span>{parIndex + 1}–{Math.min(parIndex + 2, selecionadas.length)} de {selecionadas.length}</span>
+                <button
+                  onClick={() => setParIndex(i => Math.min(selecionadas.length - 2, i + 2))}
+                  disabled={parIndex + 2 >= selecionadas.length}
+                  className="flex items-center gap-1 disabled:opacity-30"
+                >
+                  Próximo <ChevronRight size={14} />
+                </button>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              {selecionadas.slice(parIndex, parIndex + 2).map(s => (
+                <div key={s.prospeccao.id} className="card p-3">
+                  <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{s.prospeccao.nome}</p>
+                  <p className="text-xs mb-2 truncate" style={{ color: 'var(--text-secondary)' }}>
+                    {s.cenario.nome} · {MODALIDADE_LABEL[s.cenario.modalidade]}
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    {INDICADORES.map(ind => {
+                      const melhor = melhorValor(ind)
+                      const valor = s.cenario[ind.key]
+                      const destaque = melhor != null && valor === melhor
+                      return (
+                        <div key={ind.key}>
+                          <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>{ind.label}</p>
+                          <p className="text-xs font-semibold" style={{ color: destaque ? 'var(--success)' : 'var(--text-primary)' }}>
+                            {formatarIndicador(valor, ind.formato)}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
