@@ -209,5 +209,6 @@ novo campo) — decisão técnica alinhada ao princípio #4 da especificação
 
 Branch de trabalho: `previsoes/prazo-fornecimento-material`.
 HEAD antes desta rodada: `b33ba14` (fecho da Rodada 3).
-Commit e push preenchidos após concluir o commit desta rodada (ver
-`git log --oneline -5`).
+Commit desta rodada: `f1650f4` (branch de trabalho) / `5a2aae2` (merge
+`--no-ff` em `main`). Ambos os branches foram reconstruídos (`tsc` + build)
+e enviados para o `origin`.
