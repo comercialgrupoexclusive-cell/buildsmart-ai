@@ -157,5 +157,6 @@ ambiguidade.
 
 Branch de trabalho: `previsoes/prazo-fornecimento-material`.
 HEAD antes desta rodada: `e9c07aa` (fecho da Rodada 4).
-Commit e push preenchidos após concluir o commit desta rodada (ver
-`git log --oneline -5`).
+Commit desta rodada: `16480e7` (branch de trabalho) / `bbf2013` (merge
+`--no-ff` em `main`). Ambos os branches foram reconstruídos (`tsc` + build)
+e enviados para o `origin`.
