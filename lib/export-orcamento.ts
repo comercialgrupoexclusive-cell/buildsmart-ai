@@ -7,8 +7,8 @@ export type ItemExportRow = {
   codigo: string
   descricao: string
   unidade: string
-  quantidade: number
-  precoUnitario: number    // snapshot (base da composição)
+  quantidade: number | null
+  precoUnitario: number | null // snapshot (base da composição)
   totalItem: number        // calculado com overrides de insumo
   insumos?: InsumoExportRow[]
 }

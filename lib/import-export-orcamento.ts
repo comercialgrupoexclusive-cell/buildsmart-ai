@@ -55,8 +55,8 @@ export type LinhaOrcamentoTabular = {
   composicaoClassificacao?: ClassificacaoOrcamento | null
   composicaoGrupo?: string
   composicaoUnidade?: string
-  composicaoQuantidade?: number
-  composicaoValorUnitario?: number
+  composicaoQuantidade?: number | null
+  composicaoValorUnitario?: number | null
   composicaoValorTotal?: number
   insumoDescricao?: string
   insumoClassificacao?: ClassificacaoOrcamento | null

@@ -9,7 +9,7 @@
 // aqui é só o "previsto" herdado da Prospecção.
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowUpRight, Landmark, TrendingUp } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Landmark, TrendingUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
@@ -51,7 +51,11 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
     setLoading(false)
   }
 
-  useEffect(() => { void load() }, [projetoId])
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load() }, 0)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projetoId])
 
   if (loading) {
     return (
@@ -99,6 +103,11 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
 
   const temResultado = principal && (principal.lucro != null || principal.rentabilidade != null)
   const positivo = (principal?.lucro ?? 0) >= 0
+  const camposPendentes = [
+    !prospeccao.endereco && 'endereço',
+    !principal?.valor_arrematacao && 'preço/aquisição',
+    !principal?.valor_venda_estimado && 'venda estimada',
+  ].filter(Boolean) as string[]
 
   return (
     <div className="flex flex-col gap-4">
@@ -115,6 +124,27 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
           Ver prospecção <ArrowUpRight size={14} />
         </Link>
       </div>
+
+      {camposPendentes.length > 0 && (
+        <div className="card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{ borderColor: 'rgba(245,158,11,0.45)' }}>
+          <div className="flex items-start gap-3 min-w-0">
+            <AlertTriangle size={18} className="mt-0.5 flex-shrink-0" style={{ color: '#f59e0b' }} />
+            <div className="min-w-0">
+              <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>Ficha da prospecção incompleta</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                Falta preencher: {camposPendentes.join(', ')}.
+              </p>
+            </div>
+          </div>
+          <Link
+            href={`/projetos/${projetoId}?tab=dados&edit=1#ficha-imovel`}
+            className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border flex-shrink-0"
+            style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
+          >
+            Preencher imóvel <ArrowUpRight size={13} />
+          </Link>
+        </div>
+      )}
 
       <div className="card p-4">
         <p className="text-xs font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>

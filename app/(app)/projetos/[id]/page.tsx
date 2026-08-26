@@ -46,6 +46,8 @@ type Projeto = {
   created_at: string
 }
 
+type ProjetoTab = 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas' | 'investimento' | 'mercado_venda' | 'viabilidade_venda'
+
 const STATUS_OPTIONS = [
   { value: 'em_andamento', label: 'Em andamento' },
   { value: 'aguardando', label: 'Aguardando' },
@@ -72,13 +74,12 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const { id } = use(params)
   const { isCliente } = usePermission()
   const searchParams = useSearchParams()
+  const requestedEdit = searchParams.get('edit') === '1'
   const [projeto, setProjeto] = useState<Projeto | null>(null)
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
   const [dependencias, setDependencias] = useState<ProjetoItemDependencia[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas' | 'investimento' | 'mercado_venda' | 'viabilidade_venda'>(
-    (searchParams.get('tab') as 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas' | 'investimento' | 'mercado_venda' | 'viabilidade_venda') ?? 'estrutura'
-  )
+  const [tab, setTab] = useState<ProjetoTab>((searchParams.get('tab') as ProjetoTab) ?? 'estrutura')
   // Prospecção-sombra de venda (ajuste de produto: Pesquisa de mercado e
   // Viabilidade também do lado da VENDA, depois de adquirir o imóvel — ver
   // lib/investidor-venda.ts). Resolvida (criada se ainda não existir) só
@@ -89,7 +90,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const resolvendoVendaRef = useRef(false)
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingDados, setEditingDados] = useState(false)
+  const [editingDados, setEditingDados] = useState(tab === 'dados' && requestedEdit)
   const [dadosForm, setDadosForm] = useState<Partial<Projeto>>({})
   const [saving, setSaving] = useState(false)
   const [fotoFile, setFotoFile] = useState<File | null>(null)
@@ -134,6 +135,9 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           setTab('investimento')
         }
       }
+      if (searchParams.get('tab') === 'dados' && requestedEdit) {
+        setEditingDados(true)
+      }
     }
     const flat = (its ?? []) as ProjetoItemNode[]
     setItens(flat)
@@ -165,7 +169,11 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     setVendaCenarios((data ?? []) as ProspeccaoCenario[])
   }
 
-  useEffect(() => { void carregarVendaCenarios() }, [vendaProspeccaoId])
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void carregarVendaCenarios() }, 0)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendaProspeccaoId])
 
   // ── Cascata handlers ──
 
@@ -224,7 +232,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     return updated
   }
 
-  async function handleUpdateItem(itemId: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>> & { concluido?: boolean }) {
+  async function handleUpdateItem(itemId: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status' | 'percentual_executado'>> & { concluido?: boolean }) {
     const updated = itens.map(i => i.id === itemId ? { ...i, ...fields } : i)
     setItens(updated)
     setTree(buildProjetoTree(updated))
@@ -237,6 +245,39 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     // Mexeu em data → propaga para as tarefas dependentes
     if ('data_inicio' in fields || 'data_prazo' in fields) {
       await reschedule(updated, dependencias)
+    }
+  }
+
+  async function handleUpdatePercentual(itemId: string, percentual: number, applyDescendants = false) {
+    const pct = Math.min(100, Math.max(0, Math.round(percentual * 100) / 100))
+    const collectDescendants = (nodes: ProjetoItemNode[], targetId: string): string[] => {
+      for (const node of nodes) {
+        if (node.id === targetId) {
+          const ids: string[] = []
+          const walk = (children: ProjetoItemNode[] = []) => children.forEach(child => {
+            ids.push(child.id)
+            walk(child.children ?? [])
+          })
+          walk(node.children ?? [])
+          return ids
+        }
+        const nested = collectDescendants(node.children ?? [], targetId)
+        if (nested.length) return nested
+      }
+      return []
+    }
+    const ids = applyDescendants ? [itemId, ...collectDescendants(tree, itemId)] : [itemId]
+    const fields = { percentual_executado: pct, concluido: pct >= 100 }
+    const previous = itens
+    const updated = itens.map(item => ids.includes(item.id) ? { ...item, ...fields } : item)
+    setItens(updated)
+    setTree(buildProjetoTree(updated))
+    const supabase = createClient()
+    const { error } = await supabase.from('projeto_itens').update(fields).in('id', ids)
+    if (error) {
+      setItens(previous)
+      setTree(buildProjetoTree(previous))
+      alert('Erro ao salvar percentual: ' + error.message)
     }
   }
 
@@ -517,6 +558,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
             onDelete={handleDelete}
             onRename={handleRename}
             onUpdateItem={(id, fields) => handleUpdateItem(id, fields)}
+            onUpdatePercentual={handleUpdatePercentual}
             onSavePredecessoras={handleSavePredecessoras}
           />
         </div>
@@ -594,7 +636,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
               </div>
             )}
 
-            <div className="p-5 sm:p-6">
+            <div id="ficha-imovel" className="p-5 sm:p-6 scroll-mt-24">
               <div className="flex items-start justify-between gap-3 mb-5">
                 <div className="min-w-0">
                   <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Informações do Projeto</h2>

@@ -162,6 +162,15 @@ const CLASSIFICACOES_INSUMO: { value: ClassificacaoInsumo; label: string }[] = [
 // Deriva os dados de exibição/custo de um item de composição, qualquer que seja
 // sua origem (insumo SINAPI ou insumo próprio da empresa)
 function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; descricao: string; unidade: string; classificacao: string; preco: number } {
+  if (ins.descricao_snapshot) {
+    return {
+      codigo: ins.codigo_snapshot || '',
+      descricao: fixMojibake(ins.descricao_snapshot),
+      unidade: ins.unidade_snapshot || 'UN',
+      classificacao: ins.classificacao_snapshot || 'MATERIAL_SERVICOS',
+      preco: Number(ins.preco_unitario_snapshot || 0),
+    }
+  }
   if (ins.insumo_proprio) {
     return {
       codigo: ins.insumo_proprio.codigo,
@@ -178,15 +187,6 @@ function infoDoItem(ins: ComposicaoItemJoin, uf: string): { codigo: string; desc
       unidade: fixMojibake(ins.insumo.unidade),
       classificacao: ins.insumo.classificacao,
       preco: ins.insumo.precos?.[uf] ?? 0,
-    }
-  }
-  if (ins.descricao_snapshot) {
-    return {
-      codigo: ins.codigo_snapshot || '',
-      descricao: fixMojibake(ins.descricao_snapshot),
-      unidade: ins.unidade_snapshot || 'UN',
-      classificacao: ins.classificacao_snapshot || 'MATERIAL_SERVICOS',
-      preco: Number(ins.preco_unitario_snapshot || 0),
     }
   }
   return { codigo: '—', descricao: '(insumo removido)', unidade: '—', classificacao: '', preco: 0 }
@@ -1311,6 +1311,42 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
 
     // Materiais n\u00e3o s\u00e3o mais atualizados incrementalmente aqui \u2014 use
     // "Importar p/ Materiais" para recalcular a partir do or\u00e7amento atual.
+  }
+
+  async function handleUpdateItemInline(itemId: string, updates: {
+    descricao_snapshot?: string | null
+    unidade_snapshot?: string | null
+    preco_unitario_snapshot?: number | null
+    quantidade?: number | null
+  }) {
+    const item = itens.find(i => i.id === itemId)
+    if (!item) return
+    const previous = item
+    const nextItem = {
+      ...item,
+      ...updates,
+      descricao: updates.descricao_snapshot ?? item.descricao,
+      unidade: updates.unidade_snapshot ?? item.unidade,
+    }
+    setItens(prev => prev.map(i => i.id === itemId ? nextItem : i))
+
+    const { error } = await atualizarComAtor('orcamento_itens', [itemId], updates)
+    if (error) {
+      setItens(prev => prev.map(i => i.id === itemId ? previous : i))
+      alert(`Nao foi possivel atualizar o item: ${error.message}`)
+    }
+  }
+
+  async function handleUpdateInsumoInline(insumoId: string, updates: Partial<Pick<ComposicaoItemJoin, 'descricao_snapshot' | 'unidade_snapshot' | 'preco_unitario_snapshot'>>) {
+    setItens(prev => prev.map(item => ({
+      ...item,
+      composicao_itens: item.composicao_itens?.map(ins => ins.id === insumoId ? { ...ins, ...updates } : ins),
+    })))
+    const { error } = await atualizarComAtor('orcamento_item_insumos', [insumoId], updates)
+    if (error) {
+      alert(`Nao foi possivel atualizar o insumo: ${error.message}`)
+      if (orcamento) await loadItens(orcamento.id)
+    }
   }
 
   async function handleEditItemSave() {
@@ -2585,6 +2621,8 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                 onAddItem={() => openItemModal(null)}
                 onRemove={handleRemoveItem}
                 onUpdateQuantidade={handleUpdateItemQuantidade}
+                onUpdateItemInline={handleUpdateItemInline}
+                onUpdateInsumoInline={handleUpdateInsumoInline}
                 bdi={bdi}
                 expandedItems={expandedItems}
                 onToggleItem={toggleItemExpanded}
@@ -2638,6 +2676,8 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                       onAddItem={() => openItemModal(etapa.id)}
                       onRemove={handleRemoveItem}
                       onUpdateQuantidade={handleUpdateItemQuantidade}
+                      onUpdateItemInline={handleUpdateItemInline}
+                      onUpdateInsumoInline={handleUpdateInsumoInline}
                       bdi={bdi}
                       expandedItems={expandedItems}
                       onToggleItem={toggleItemExpanded}
@@ -3292,7 +3332,7 @@ function CustoCard({ icon: Icon, cor, label, value, hint, highlight, children }:
 // ─── Grupo de etapa (nível 1 da cascata) ─────────────────────────────────────
 function GrupoEtapa({
   nome, dragHandle, itens, subetapasMeta = [], isReadonly, collapsed, onToggleGrupo, onAddItem, onRemove, bdi,
-  onUpdateQuantidade, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
+  onUpdateQuantidade, onUpdateItemInline, onUpdateInsumoInline, expandedItems, onToggleItem, insumoOverrides, onOverrideInsumo, getItemTotal,
   obraUf, icon: Icon, iconCor, subtotalDireto,
   onDeleteEtapa, onRenameEtapa, onAddItemToSubetapa, onAddInsumoToItem, onRenameSubetapa, onDeleteSubetapa, onEditSubetapaValor, onRestoreSubetapaValor, onRestoreItemValor, onRestoreInsumoValor, onEditItem, onDuplicateItem, menuAberto, onToggleMenu, menuRef,
   onReorderSubetapas, onReorderItens, mobileDragLocked,
@@ -3309,6 +3349,8 @@ function GrupoEtapa({
   onAddItem: () => void
   onRemove: (id: string) => void
   onUpdateQuantidade: (id: string, quantidade: number) => void
+  onUpdateItemInline?: (id: string, updates: { descricao_snapshot?: string | null; unidade_snapshot?: string | null; preco_unitario_snapshot?: number | null; quantidade?: number | null }) => void
+  onUpdateInsumoInline?: (id: string, updates: Partial<Pick<ComposicaoItemJoin, 'descricao_snapshot' | 'unidade_snapshot' | 'preco_unitario_snapshot'>>) => void
   bdi: number
   expandedItems: Record<string, boolean>
   onToggleItem: (id: string) => void
@@ -3420,6 +3462,15 @@ function GrupoEtapa({
   function parseQuantidadeInput(value: string) {
     const parsed = Number(value.replace(',', '.'))
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  }
+
+  function parseValorInput(value: string) {
+    const parsed = Number(value.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'))
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+  }
+
+  function formatValorInput(value: number | null | undefined) {
+    return value != null ? value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''
   }
 
   return (
@@ -3717,10 +3768,47 @@ function GrupoEtapa({
                                         />
                                       )
                                     })()}
-                                    <span className="truncate block">{item.descricao}</span>
+                                    <input
+                                      type="text"
+                                      defaultValue={item.descricao}
+                                      className="input-base input-compact w-full min-w-[220px]"
+                                      style={{ color: 'var(--text-primary)' }}
+                                      disabled={isReadonly}
+                                      onClick={e => e.stopPropagation()}
+                                      onBlur={e => {
+                                        const next = e.currentTarget.value.trim()
+                                        if (next && next !== item.descricao) onUpdateItemInline?.(item.id, { descricao_snapshot: next })
+                                      }}
+                                      onKeyDown={e => {
+                                        if (e.key === 'Enter') e.currentTarget.blur()
+                                        if (e.key === 'Escape') {
+                                          e.currentTarget.value = item.descricao
+                                          e.currentTarget.blur()
+                                        }
+                                      }}
+                                    />
                                   </div>
                                 </td>
-                                <td className="px-3 py-2 align-top text-center" style={{ color: 'var(--text-secondary)' }}>{item.unidade}</td>
+                                <td className="px-3 py-2 align-top text-center">
+                                  <input
+                                    type="text"
+                                    defaultValue={item.unidade}
+                                    className="input-base input-compact text-center"
+                                    style={{ width: 70, color: 'var(--text-secondary)' }}
+                                    disabled={isReadonly}
+                                    onBlur={e => {
+                                      const next = e.currentTarget.value.trim() || 'UN'
+                                      if (next !== item.unidade) onUpdateItemInline?.(item.id, { unidade_snapshot: next })
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') e.currentTarget.blur()
+                                      if (e.key === 'Escape') {
+                                        e.currentTarget.value = item.unidade
+                                        e.currentTarget.blur()
+                                      }
+                                    }}
+                                  />
+                                </td>
                                 <td className="px-3 py-2 align-top text-center">
                                   <input
                                     type="text"
@@ -3749,7 +3837,34 @@ function GrupoEtapa({
                                     }}
                                   />
                                 </td>
-                                <td className="px-3 py-2 align-top text-right tabular-nums" style={{ color: item.preco_unitario_snapshot != null ? 'var(--text-secondary)' : 'var(--warning)' }}>{item.preco_unitario_snapshot != null ? formatCurrency(item.preco_unitario_snapshot) : 'A conferir'}</td>
+                                <td className="px-3 py-2 align-top text-right">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="A conferir"
+                                    defaultValue={formatValorInput(item.preco_unitario_snapshot)}
+                                    className="input-base input-compact text-right tabular-nums"
+                                    style={{ width: 104, color: item.preco_unitario_snapshot != null ? 'var(--text-secondary)' : 'var(--warning)' }}
+                                    disabled={isReadonly}
+                                    onFocus={e => e.currentTarget.select()}
+                                    onBlur={e => {
+                                      const next = parseValorInput(e.currentTarget.value)
+                                      if (next === null) {
+                                        e.currentTarget.value = formatValorInput(item.preco_unitario_snapshot)
+                                        return
+                                      }
+                                      e.currentTarget.value = formatValorInput(next)
+                                      if (next !== item.preco_unitario_snapshot) onUpdateItemInline?.(item.id, { preco_unitario_snapshot: next })
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') e.currentTarget.blur()
+                                      if (e.key === 'Escape') {
+                                        e.currentTarget.value = formatValorInput(item.preco_unitario_snapshot)
+                                        e.currentTarget.blur()
+                                      }
+                                    }}
+                                  />
+                                </td>
                                 <td className="px-3 py-2 align-top text-right font-semibold tabular-nums" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
                                   <div className="flex items-center justify-end gap-1">
                                     <span title={hasValueMismatch ? item.importacao_alertas?.join(' ') : undefined}>{formatCurrency(itemTotal)}</span>
@@ -3860,11 +3975,73 @@ function GrupoEtapa({
                                                         title={verifTitle(ins.verificado, ins.verificado_por, ins.verificado_em, profileNomes || {})}
                                                       />
                                                     )}
-                                                    <p className="font-medium" style={{ color: 'var(--text-primary)' }}>{info.descricao}</p>
+                                                    <input
+                                                      type="text"
+                                                      defaultValue={info.descricao}
+                                                      className="input-base input-compact w-full min-w-[220px]"
+                                                      style={{ color: 'var(--text-primary)' }}
+                                                      disabled={isReadonly}
+                                                      onBlur={e => {
+                                                        const next = e.currentTarget.value.trim()
+                                                        if (next && next !== info.descricao) onUpdateInsumoInline?.(ins.id, { descricao_snapshot: next })
+                                                      }}
+                                                      onKeyDown={e => {
+                                                        if (e.key === 'Enter') e.currentTarget.blur()
+                                                        if (e.key === 'Escape') {
+                                                          e.currentTarget.value = info.descricao
+                                                          e.currentTarget.blur()
+                                                        }
+                                                      }}
+                                                    />
                                                   </div>
                                                 </td>
-                                                <td className="px-3 py-2 text-center" style={{ color: 'var(--text-secondary)' }}>{info.unidade}</td>
-                                                <td className="px-3 py-2 text-right" style={{ color: 'var(--text-secondary)' }}>{preco > 0 ? formatCurrency(preco) : '-'}</td>
+                                                <td className="px-3 py-2 text-center">
+                                                  <input
+                                                    type="text"
+                                                    defaultValue={info.unidade}
+                                                    className="input-base input-compact text-center"
+                                                    style={{ width: 64, color: 'var(--text-secondary)' }}
+                                                    disabled={isReadonly}
+                                                    onBlur={e => {
+                                                      const next = e.currentTarget.value.trim() || 'UN'
+                                                      if (next !== info.unidade) onUpdateInsumoInline?.(ins.id, { unidade_snapshot: next })
+                                                    }}
+                                                    onKeyDown={e => {
+                                                      if (e.key === 'Enter') e.currentTarget.blur()
+                                                      if (e.key === 'Escape') {
+                                                        e.currentTarget.value = info.unidade
+                                                        e.currentTarget.blur()
+                                                      }
+                                                    }}
+                                                  />
+                                                </td>
+                                                <td className="px-3 py-2 text-right">
+                                                  <input
+                                                    type="text"
+                                                    inputMode="decimal"
+                                                    defaultValue={formatValorInput(preco)}
+                                                    className="input-base input-compact text-right tabular-nums"
+                                                    style={{ width: 98, color: 'var(--text-secondary)' }}
+                                                    disabled={isReadonly}
+                                                    onFocus={e => e.currentTarget.select()}
+                                                    onBlur={e => {
+                                                      const next = parseValorInput(e.currentTarget.value)
+                                                      if (next === null) {
+                                                        e.currentTarget.value = formatValorInput(preco)
+                                                        return
+                                                      }
+                                                      e.currentTarget.value = formatValorInput(next)
+                                                      if (next !== preco) onUpdateInsumoInline?.(ins.id, { preco_unitario_snapshot: next })
+                                                    }}
+                                                    onKeyDown={e => {
+                                                      if (e.key === 'Enter') e.currentTarget.blur()
+                                                      if (e.key === 'Escape') {
+                                                        e.currentTarget.value = formatValorInput(preco)
+                                                        e.currentTarget.blur()
+                                                      }
+                                                    }}
+                                                  />
+                                                </td>
                                                 <td className="px-3 py-2 text-center tabular-nums" style={{ color: 'var(--text-secondary)' }}>{qtdCalculada.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}</td>
                                                 <td className="px-3 py-2 text-center">
                                                   <div className="inline-flex items-center gap-1.5">
@@ -4103,8 +4280,25 @@ function GrupoEtapa({
                                   )
                                 })()}
 
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium leading-snug whitespace-normal break-words" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
+                                <div className="min-w-0 flex-1" onClick={e => e.stopPropagation()}>
+                                  <input
+                                    type="text"
+                                    defaultValue={item.descricao}
+                                    className="input-base input-compact w-full text-sm font-medium"
+                                    style={{ color: 'var(--text-primary)' }}
+                                    disabled={isReadonly}
+                                    onBlur={e => {
+                                      const next = e.currentTarget.value.trim()
+                                      if (next && next !== item.descricao) onUpdateItemInline?.(item.id, { descricao_snapshot: next })
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') e.currentTarget.blur()
+                                      if (e.key === 'Escape') {
+                                        e.currentTarget.value = item.descricao
+                                        e.currentTarget.blur()
+                                      }
+                                    }}
+                                  />
                                   <div className="mt-1.5 flex items-center justify-between gap-2">
                                     <div className="flex flex-wrap items-center gap-1.5 text-[11px] min-w-0" style={{ color: 'var(--text-secondary)' }} onClick={e => e.stopPropagation()}>
                                       <input
@@ -4133,9 +4327,51 @@ function GrupoEtapa({
                                           }
                                         }}
                                       />
-                                      <span className="flex-shrink-0">{item.unidade}</span>
+                                      <input
+                                        type="text"
+                                        defaultValue={item.unidade}
+                                        className="input-base input-compact text-center"
+                                        style={{ width: 48, color: 'var(--text-secondary)' }}
+                                        disabled={isReadonly}
+                                        onBlur={e => {
+                                          const next = e.currentTarget.value.trim() || 'UN'
+                                          if (next !== item.unidade) onUpdateItemInline?.(item.id, { unidade_snapshot: next })
+                                        }}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') e.currentTarget.blur()
+                                          if (e.key === 'Escape') {
+                                            e.currentTarget.value = item.unidade
+                                            e.currentTarget.blur()
+                                          }
+                                        }}
+                                      />
                                       <span style={{ opacity: 0.5 }}>·</span>
-                                      <span className="tabular-nums" style={{ color: item.preco_unitario_snapshot != null ? undefined : 'var(--warning)' }}>{item.preco_unitario_snapshot != null ? formatCurrency(item.preco_unitario_snapshot) : 'A conferir'}</span>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder="A conferir"
+                                        defaultValue={formatValorInput(item.preco_unitario_snapshot)}
+                                        className="input-base input-compact text-right tabular-nums"
+                                        style={{ width: 92, color: item.preco_unitario_snapshot != null ? 'var(--text-secondary)' : 'var(--warning)' }}
+                                        disabled={isReadonly}
+                                        onFocus={e => e.currentTarget.select()}
+                                        onBlur={e => {
+                                          const next = parseValorInput(e.currentTarget.value)
+                                          if (next === null) {
+                                            e.currentTarget.value = formatValorInput(item.preco_unitario_snapshot)
+                                            return
+                                          }
+                                          e.currentTarget.value = formatValorInput(next)
+                                          if (next !== item.preco_unitario_snapshot) onUpdateItemInline?.(item.id, { preco_unitario_snapshot: next })
+                                        }}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') e.currentTarget.blur()
+                                          if (e.key === 'Escape') {
+                                            e.currentTarget.value = formatValorInput(item.preco_unitario_snapshot)
+                                            e.currentTarget.blur()
+                                          }
+                                        }}
+                                      />
                                       {hasInsumos && <span className="flex-shrink-0" style={{ opacity: 0.6 }}>· {item.composicao_itens?.length} insumos</span>}
                                     </div>
                                     <span className="flex items-center gap-1 text-sm font-semibold tabular-nums flex-shrink-0" style={{ color: hasValueMismatch ? 'var(--danger)' : hasOverride ? 'var(--warning)' : 'var(--text-primary)' }}>
@@ -4224,16 +4460,72 @@ function GrupoEtapa({
                                                 title={verifTitle(ins.verificado, ins.verificado_por, ins.verificado_em, profileNomes || {})}
                                               />
                                             )}
-                                            <div className="min-w-0 flex-1">
-                                              <p className="text-xs font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>{info.descricao}</p>
-                                              <p className="mt-0.5 text-[11px] truncate" style={{ color: 'var(--text-secondary)' }}>
-                                                {info.unidade}
-                                              </p>
+                                            <div className="min-w-0 flex-1" onClick={e => e.stopPropagation()}>
+                                              <input
+                                                type="text"
+                                                defaultValue={info.descricao}
+                                                className="input-base input-compact w-full text-xs font-medium"
+                                                style={{ color: 'var(--text-primary)' }}
+                                                disabled={isReadonly}
+                                                onBlur={e => {
+                                                  const next = e.currentTarget.value.trim()
+                                                  if (next && next !== info.descricao) onUpdateInsumoInline?.(ins.id, { descricao_snapshot: next })
+                                                }}
+                                                onKeyDown={e => {
+                                                  if (e.key === 'Enter') e.currentTarget.blur()
+                                                  if (e.key === 'Escape') {
+                                                    e.currentTarget.value = info.descricao
+                                                    e.currentTarget.blur()
+                                                  }
+                                                }}
+                                              />
+                                              <input
+                                                type="text"
+                                                defaultValue={info.unidade}
+                                                className="input-base input-compact mt-1 text-[11px]"
+                                                style={{ width: 58, color: 'var(--text-secondary)' }}
+                                                disabled={isReadonly}
+                                                onBlur={e => {
+                                                  const next = e.currentTarget.value.trim() || 'UN'
+                                                  if (next !== info.unidade) onUpdateInsumoInline?.(ins.id, { unidade_snapshot: next })
+                                                }}
+                                                onKeyDown={e => {
+                                                  if (e.key === 'Enter') e.currentTarget.blur()
+                                                  if (e.key === 'Escape') {
+                                                    e.currentTarget.value = info.unidade
+                                                    e.currentTarget.blur()
+                                                  }
+                                                }}
+                                              />
                                             </div>
                                           </div>
 
                                           <div className="mt-2 grid grid-cols-[auto_auto_1fr] items-center gap-x-2 gap-y-1 text-xs" onClick={e => e.stopPropagation()}>
-                                            <span style={{ color: 'var(--text-secondary)' }}>{preco > 0 ? formatCurrency(preco) : '-'}</span>
+                                            <input
+                                              type="text"
+                                              inputMode="decimal"
+                                              defaultValue={formatValorInput(preco)}
+                                              className="input-base input-compact text-right tabular-nums"
+                                              style={{ width: 92, color: 'var(--text-secondary)' }}
+                                              disabled={isReadonly}
+                                              onFocus={e => e.currentTarget.select()}
+                                              onBlur={e => {
+                                                const next = parseValorInput(e.currentTarget.value)
+                                                if (next === null) {
+                                                  e.currentTarget.value = formatValorInput(preco)
+                                                  return
+                                                }
+                                                e.currentTarget.value = formatValorInput(next)
+                                                if (next !== preco) onUpdateInsumoInline?.(ins.id, { preco_unitario_snapshot: next })
+                                              }}
+                                              onKeyDown={e => {
+                                                if (e.key === 'Enter') e.currentTarget.blur()
+                                                if (e.key === 'Escape') {
+                                                  e.currentTarget.value = formatValorInput(preco)
+                                                  e.currentTarget.blur()
+                                                }
+                                              }}
+                                            />
                                             <span className="font-semibold flex items-center gap-1" style={{ color: totalDivergente ? 'var(--danger)' : isOverridden ? 'var(--warning)' : 'var(--text-secondary)' }}>
                                               {totalExibido > 0 ? formatCurrency(totalExibido) : '-'}
                                               {totalDivergente && !isReadonly && onRestoreInsumoValor && (

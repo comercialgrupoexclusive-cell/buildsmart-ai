@@ -21,6 +21,7 @@ export type ProjetoItemNode = {
   data_prazo: string | null
   is_marco: boolean
   status: string | null
+  percentual_executado?: number | null
   children?: ProjetoItemNode[]
 }
 
@@ -32,7 +33,7 @@ export type ProjetoItemDependencia = {
   created_at?: string
 }
 
-type ProjetoItemUpdate = Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>> & { concluido?: boolean }
+type ProjetoItemUpdate = Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status' | 'percentual_executado'>> & { concluido?: boolean }
 
 type Props = {
   itens: ProjetoItemNode[]
@@ -45,6 +46,7 @@ type Props = {
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
   onUpdateItem?: (id: string, fields: ProjetoItemUpdate) => void
+  onUpdatePercentual?: (id: string, percentual: number, applyDescendants?: boolean) => void
   onSavePredecessoras?: (itemId: string, predecessorIds: string[]) => void
 }
 
@@ -62,12 +64,24 @@ const NIVEL_LABELS = ['', 'Disciplina', 'Item', 'Subitem']
 const NIVEL_COLORS = ['', 'var(--accent)', 'var(--text-primary)', 'var(--text-secondary)']
 const NIVEL_BG    = ['', 'rgba(59,123,248,0.06)', 'transparent', 'transparent']
 
+function pctOwn(node: ProjetoItemNode) {
+  if (node.percentual_executado != null && Number.isFinite(Number(node.percentual_executado))) {
+    return Math.min(100, Math.max(0, Number(node.percentual_executado)))
+  }
+  return node.concluido ? 100 : 0
+}
+
 function calcProgress(node: ProjetoItemNode): { total: number; done: number } {
-  if (!node.children || node.children.length === 0) return { total: 1, done: node.concluido ? 1 : 0 }
+  if (!node.children || node.children.length === 0) return { total: 1, done: pctOwn(node) / 100 }
   return node.children.reduce((acc, c) => {
     const p = calcProgress(c)
     return { total: acc.total + p.total, done: acc.done + p.done }
   }, { total: 0, done: 0 })
+}
+
+function calcProgressPct(node: ProjetoItemNode) {
+  const p = calcProgress(node)
+  return p.total > 0 ? Math.round((p.done / p.total) * 100) : pctOwn(node)
 }
 
 function fmtDate(d: string | null) {
@@ -103,7 +117,7 @@ function calcStatus(node: ProjetoItemNode): StatusKey {
   if (node.nivel === 1 && node.children?.length) {
     const p = calcProgress(node)
     if (p.total > 0 && p.done === p.total) return 'concluido'
-  } else if (node.concluido) {
+  } else if (node.concluido || pctOwn(node) >= 100) {
     return 'concluido'
   }
   const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -141,7 +155,7 @@ function fileToDataUrl(file: File) {
   })
 }
 
-export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = [], dependencias = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, onSavePredecessoras }: Props) {
+export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = [], dependencias = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, onUpdatePercentual, onSavePredecessoras }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [files, setFiles] = useState<ProjectItemFile[]>([])
   const [targetItemId, setTargetItemId] = useState<string | null>(null)
@@ -159,7 +173,10 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
 
   useEffect(() => {
     const raw = localStorage.getItem(projectFilesKey(projetoId))
-    if (raw) setFiles(JSON.parse(raw))
+    if (raw) {
+      const cachedFiles = JSON.parse(raw) as ProjectItemFile[]
+      window.setTimeout(() => setFiles(cachedFiles), 0)
+    }
     createClient().from('project_item_files').select('*').eq('project_id', projetoId)
       .then(({ data }: { data: ProjectItemFile[] | null }) => {
         if (data?.length) {
@@ -277,6 +294,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
             onDelete={onDelete}
             onRename={onRename}
             onUpdateItem={onUpdateItem}
+            onUpdatePercentual={onUpdatePercentual}
             dependencias={dependencias}
             nomeById={nomeById}
             onEditPredecessoras={canEdit && onSavePredecessoras ? setPredecessorTarget : undefined}
@@ -316,7 +334,7 @@ export function ProjetoCascata({ itens, projetoId, canEdit = true, profiles = []
   )
 }
 
-function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, dependencias, nomeById, onEditPredecessoras, file, allFiles, onAttach, onOpenFile, onRemoveFile }: {
+function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, onRename, onUpdateItem, onUpdatePercentual, dependencias, nomeById, onEditPredecessoras, file, allFiles, onAttach, onOpenFile, onRemoveFile }: {
   item: ProjetoItemNode
   canEdit: boolean
   profiles: { id: string; name: string; apelido: string | null }[]
@@ -325,6 +343,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
   onUpdateItem?: (id: string, fields: ProjetoItemUpdate) => void
+  onUpdatePercentual?: (id: string, percentual: number, applyDescendants?: boolean) => void
   dependencias: ProjetoItemDependencia[]
   nomeById: Map<string, string>
   onEditPredecessoras?: (item: ProjetoItemNode) => void
@@ -366,7 +385,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
     .filter(Boolean) as string[]
 
   const progress = item.nivel === 1 ? calcProgress(item) : null
-  const progPct  = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0
+  const progPct  = calcProgressPct(item)
 
   const eff      = effectiveDates(item)
   const atrasado = !!(item.data_prazo && !item.concluido && new Date(item.data_prazo) < new Date())
@@ -381,6 +400,16 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
   function saveResp() {
     onUpdateItem?.(item.id, { responsavel: tempResp.trim() || null })
     setEditingResp(false)
+  }
+
+  function commitPercentual(raw: string) {
+    const parsed = Number(raw.replace(',', '.'))
+    if (!Number.isFinite(parsed)) return
+    const pct = Math.min(100, Math.max(0, parsed))
+    const applyDesc = hasChildren
+      ? confirm(`Aplicar ${pct}% tambem aos filhos de "${item.nome}"?`)
+      : false
+    onUpdatePercentual?.(item.id, pct, applyDesc)
   }
 
   const indent = (item.nivel - 1) * 20
@@ -471,6 +500,30 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                 </span>
               )}
             </span>
+          )}
+
+          {canEdit && (
+            <label className="hidden sm:flex items-center gap-1 flex-shrink-0" title="Percentual de execução">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                defaultValue={progPct}
+                onClick={e => e.stopPropagation()}
+                onFocus={e => e.currentTarget.select()}
+                onBlur={e => commitPercentual(e.currentTarget.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') e.currentTarget.blur()
+                  if (e.key === 'Escape') {
+                    e.currentTarget.value = String(progPct)
+                    e.currentTarget.blur()
+                  }
+                }}
+                className="h-7 w-14 rounded-md border px-1 text-center text-xs font-semibold tabular-nums outline-none"
+                style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              />
+              <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>%</span>
+            </label>
           )}
 
           {canEdit && onEditPredecessoras && (
@@ -606,6 +659,35 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                 </div>
               )}
             </div>
+
+            {canEdit && (
+              <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
+                <label className="min-w-0">
+                  <span className="block text-[10px] mb-1 uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Execução</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      defaultValue={progPct}
+                      onClick={e => e.stopPropagation()}
+                      onFocus={e => e.currentTarget.select()}
+                      onBlur={e => commitPercentual(e.currentTarget.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') e.currentTarget.blur()
+                        if (e.key === 'Escape') {
+                          e.currentTarget.value = String(progPct)
+                          e.currentTarget.blur()
+                        }
+                      }}
+                      className="h-10 w-24 rounded-lg border px-2 text-center text-sm font-semibold tabular-nums outline-none"
+                      style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    />
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>%</span>
+                  </div>
+                </label>
+              </div>
+            )}
 
             {/* Painel de datas mobile (Início / Duração / Fim) */}
             {canEdit && hasDateInput && showDatesMobile && (
@@ -885,10 +967,11 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
               profiles={profiles}
               onToggle={onToggle}
               onAdd={onAdd}
-              onDelete={onDelete}
-              onRename={onRename}
-              onUpdateItem={onUpdateItem}
-              dependencias={dependencias}
+            onDelete={onDelete}
+            onRename={onRename}
+            onUpdateItem={onUpdateItem}
+            onUpdatePercentual={onUpdatePercentual}
+            dependencias={dependencias}
               nomeById={nomeById}
               onEditPredecessoras={onEditPredecessoras}
               file={allFiles.find(f => f.item_id === child.id)}

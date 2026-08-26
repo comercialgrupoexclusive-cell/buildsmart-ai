@@ -82,7 +82,20 @@ const FASE_META: Record<ProspeccaoFase, { label: string; color: string }> = {
 const FASES_ORDEM: ProspeccaoFase[] = ['nova', 'em_analise', 'aprovada', 'em_disputa', 'adquirida', 'descartada', 'nao_adquirida']
 
 const EMPTY_FORM = { nome: '', endereco: '', tipo_aquisicao: 'compra_direta' as Prospeccao['tipo_aquisicao'], link_leilao: '', data_leilao: '' }
-const EMPTY_IMOVEL_FORM = { nome: '', endereco: '', estagio: 'aguardando|projeto' as EstagioImovelValue }
+const EMPTY_IMOVEL_FORM = {
+  tipo_aquisicao: 'compra_direta' as Prospeccao['tipo_aquisicao'],
+  nome: '',
+  endereco: '',
+  tipo_imovel: '',
+  preco: '',
+  area: '',
+  dormitorios: '',
+  banheiros: '',
+  vagas: '',
+  link_anuncio: '',
+  conservacao: '',
+  estagio: 'aguardando|projeto' as EstagioImovelValue,
+}
 const ROTINA_TIPO_LABEL: Record<InvestidorRotina['tipo'], string> = {
   triagem_prospeccoes: 'Triagem de prospecções',
   revisao_cenarios: 'Revisão de cenários',
@@ -892,12 +905,44 @@ function NovoImovelModal({ open, onClose, onCreated }: { open: boolean; onClose:
       alert(`Não foi possível criar o imóvel: ${error?.message}`)
       return
     }
+    const fichaInicial = [
+      `Tipo de aquisição: ${TIPO_AQUISICAO_LABEL[form.tipo_aquisicao]}`,
+      form.tipo_imovel.trim() ? `Tipo do imóvel: ${form.tipo_imovel.trim()}` : null,
+      form.preco.trim() ? `Preço: ${form.preco.trim()}` : null,
+      form.area.trim() ? `Área: ${form.area.trim()}` : null,
+      form.dormitorios.trim() ? `Dormitórios: ${form.dormitorios.trim()}` : null,
+      form.banheiros.trim() ? `Banheiros: ${form.banheiros.trim()}` : null,
+      form.vagas.trim() ? `Vagas: ${form.vagas.trim()}` : null,
+      form.conservacao.trim() ? `Estado/conservação: ${form.conservacao.trim()}` : null,
+    ].filter(Boolean).join('\n')
+
+    const { data: prospeccao } = await supabase.from('prospeccoes').insert({
+      nome: form.nome.trim(),
+      endereco: form.endereco.trim() || null,
+      tipo_aquisicao: form.tipo_aquisicao,
+      link_leilao: form.link_anuncio.trim() || null,
+      foto_url,
+      fase: 'adquirida',
+      observacao: fichaInicial || null,
+      project_id: data.id,
+    }).select('id').single()
+
+    const preco = Number(form.preco.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'))
+    if (prospeccao?.id && Number.isFinite(preco) && preco > 0) {
+      await supabase.from('prospeccao_cenarios').insert({
+        prospeccao_id: prospeccao.id,
+        nome: 'Ficha inicial',
+        modalidade: 'vista',
+        principal: true,
+        valor_arrematacao: preco,
+      })
+    }
     fecharEResetar()
     onCreated(data.id)
   }
 
   return (
-    <Modal open={open} onClose={() => !saving && fecharEResetar()} title="Novo imóvel" size="sm">
+    <Modal open={open} onClose={() => !saving && fecharEResetar()} title="Novo imóvel" size="md">
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
           {fotoPreview ? (
@@ -923,11 +968,24 @@ function NovoImovelModal({ open, onClose, onCreated }: { open: boolean; onClose:
             </label>
           )}
         </div>
-        <Input label="Nome *" placeholder="Ex: Casa Centro - reforma" value={form.nome} onChange={event => setForm(f => ({ ...f, nome: event.target.value }))} autoFocus />
-        <Input label="Endereço" placeholder="Rua, bairro, cidade..." value={form.endereco} onChange={event => setForm(f => ({ ...f, endereco: event.target.value }))} />
-        <Select label="Estágio atual" value={form.estagio} onChange={event => setForm(f => ({ ...f, estagio: event.target.value as EstagioImovelValue }))}>
-          {ESTAGIOS_IMOVEL.map(stage => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
-        </Select>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Select label="Tipo de aquisição" value={form.tipo_aquisicao} onChange={event => setForm(f => ({ ...f, tipo_aquisicao: event.target.value as Prospeccao['tipo_aquisicao'] }))}>
+            {Object.entries(TIPO_AQUISICAO_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </Select>
+          <Select label="Estágio atual" value={form.estagio} onChange={event => setForm(f => ({ ...f, estagio: event.target.value as EstagioImovelValue }))}>
+            {ESTAGIOS_IMOVEL.map(stage => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
+          </Select>
+          <Input label="Nome *" placeholder="Ex: Casa Centro - reforma" value={form.nome} onChange={event => setForm(f => ({ ...f, nome: event.target.value }))} autoFocus />
+          <Input label="Tipo do imóvel" placeholder="Casa, apartamento, terreno..." value={form.tipo_imovel} onChange={event => setForm(f => ({ ...f, tipo_imovel: event.target.value }))} />
+          <Input label="Endereço/localização" placeholder="Rua, bairro, cidade..." value={form.endereco} onChange={event => setForm(f => ({ ...f, endereco: event.target.value }))} className="sm:col-span-2" />
+          <Input label="Preço" placeholder="R$ 0,00" value={form.preco} onChange={event => setForm(f => ({ ...f, preco: event.target.value }))} />
+          <Input label="Área" placeholder="Ex: 50 m²" value={form.area} onChange={event => setForm(f => ({ ...f, area: event.target.value }))} />
+          <Input label="Dormitórios" type="number" min="0" value={form.dormitorios} onChange={event => setForm(f => ({ ...f, dormitorios: event.target.value }))} />
+          <Input label="Banheiros" type="number" min="0" value={form.banheiros} onChange={event => setForm(f => ({ ...f, banheiros: event.target.value }))} />
+          <Input label="Vagas" type="number" min="0" value={form.vagas} onChange={event => setForm(f => ({ ...f, vagas: event.target.value }))} />
+          <Input label="Estado/conservação" placeholder="Novo, usado, reforma leve..." value={form.conservacao} onChange={event => setForm(f => ({ ...f, conservacao: event.target.value }))} />
+          <Input label={form.tipo_aquisicao === 'leilao' ? 'Link do leilão' : 'Link do anúncio'} type="url" placeholder="https://..." value={form.link_anuncio} onChange={event => setForm(f => ({ ...f, link_anuncio: event.target.value }))} className="sm:col-span-2" />
+        </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" onClick={fecharEResetar} disabled={saving}>Cancelar</Button>
           <Button onClick={handleSave} loading={saving} disabled={!form.nome.trim()}>Criar imóvel</Button>

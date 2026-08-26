@@ -19,7 +19,7 @@ type TemplateItemRow = {
   tipo_composicao?: 'propria' | 'sinapi'
   composicao_id?: string | null
   sinapi_composicao_id?: string | null
-  quantidade: number
+  quantidade: number | null
   codigo_snapshot?: string | null
   descricao_snapshot?: string | null
   unidade_snapshot?: string | null
@@ -48,7 +48,7 @@ type ItemParaTemplate = {
   subetapa: string | null
   composicao_id: string | null
   sinapi_composicao_id: string | null
-  quantidade: number
+  quantidade: number | null
   ordem?: number | null
   codigo_snapshot?: string | null
   descricao_snapshot?: string | null
