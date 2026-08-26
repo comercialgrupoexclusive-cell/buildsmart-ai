@@ -232,7 +232,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     return updated
   }
 
-  async function handleUpdateItem(itemId: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status' | 'percentual_executado'>> & { concluido?: boolean }) {
+  async function handleUpdateItem(itemId: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status' | 'percentual_executado' | 'duracao_dias'>> & { concluido?: boolean }) {
     const updated = itens.map(i => i.id === itemId ? { ...i, ...fields } : i)
     setItens(updated)
     setTree(buildProjetoTree(updated))
@@ -890,8 +890,17 @@ function scheduleFromDependencies(
       if (!curStart) {
         // Sem início efetivo (folha sem data OU pai cujos filhos não têm data):
         // ancora o próprio início no dia seguinte ao término da predecessora.
+        // Fluxo validado: marco externo aprovado → dependentes iniciam no dia
+        // seguinte → prazo = início + duracao_dias. Só se aplica a item-folha
+        // (pai deriva o prazo dos filhos via effFim, não tem duração própria)
+        // e nunca a marco (marco não tem duração: prazo = início).
         node.data_inicio = target
-        if (!node.data_prazo || node.data_prazo < target) node.data_prazo = target
+        const temFilhos = (childrenOf.get(itemId)?.length ?? 0) > 0
+        if (!temFilhos && !node.is_marco && node.duracao_dias != null && node.duracao_dias >= 0) {
+          node.data_prazo = shiftDate(target, node.duracao_dias)
+        } else if (!node.data_prazo || node.data_prazo < target) {
+          node.data_prazo = target
+        }
         changed = true
       } else if (target !== curStart) {
         // ASAP: alinha o início logo após o término da predecessora

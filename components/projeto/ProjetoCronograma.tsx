@@ -20,7 +20,7 @@ interface Props {
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
   onToggle: (id: string, concluido: boolean) => void
-  onUpdateItem: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>> & { concluido?: boolean }) => void
+  onUpdateItem: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status' | 'duracao_dias'>> & { concluido?: boolean }) => void
   onSavePredecessoras: (itemId: string, predecessorIds: string[]) => void
 }
 
@@ -239,6 +239,15 @@ const STATUS_FILTER_OPTIONS = [
 
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r }
 function daysBetween(a: Date, b: Date) { return Math.round((b.getTime() - a.getTime()) / 86400000) }
+
+/** Duração exibida: usa o campo persistido quando existir; senão deriva das
+ * datas (compatibilidade com itens criados antes de duracao_dias existir). */
+function effectiveDuracao(item: ProjetoItemNode): number | null {
+  if (item.duracao_dias != null) return item.duracao_dias
+  if (!item.data_inicio || !item.data_prazo) return null
+  const d = daysBetween(new Date(item.data_inicio), new Date(item.data_prazo))
+  return d >= 0 ? d : null
+}
 function startOfMonth(d: Date) { return new Date(d.getFullYear(), d.getMonth(), 1) }
 function startOfWeek(d: Date) { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r }
 
@@ -272,7 +281,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
   onDelete: (id: string) => void
   onRename: (id: string, nome: string) => void
   onToggle: (id: string, concluido: boolean) => void
-  onUpdateItem: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status'>> & { concluido?: boolean }) => void
+  onUpdateItem: (id: string, fields: Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status' | 'duracao_dias'>> & { concluido?: boolean }) => void
   onEditPredecessoras: (item: ProjetoItemNode) => void
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(
@@ -571,21 +580,36 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                   <div className="mt-1.5 grid grid-cols-3 gap-1.5 pl-6">
                     <input type="date" value={item.data_inicio ?? ''} className="text-[10px] rounded border px-1 py-0.5"
                       style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                      onChange={e => onUpdateItem(id, { data_inicio: e.target.value || null })} />
-                    <input type="number" min={0} placeholder="Dur"
-                      value={item.data_inicio && item.data_prazo ? Math.max(0, daysBetween(new Date(item.data_inicio), new Date(item.data_prazo))) : ''}
-                      className="text-[10px] rounded border px-1 py-0.5 text-center"
+                      onChange={e => {
+                        const newInicio = e.target.value || null
+                        const patch: Parameters<typeof onUpdateItem>[1] = { data_inicio: newInicio }
+                        if (newInicio && !item.is_marco && item.duracao_dias != null) {
+                          patch.data_prazo = addDays(new Date(newInicio), item.duracao_dias).toISOString().slice(0, 10)
+                        }
+                        onUpdateItem(id, patch)
+                      }} />
+                    <input type="number" min={0} placeholder={item.is_marco ? '—' : 'Dur'} disabled={item.is_marco}
+                      value={item.is_marco ? '' : effectiveDuracao(item) ?? ''}
+                      className="text-[10px] rounded border px-1 py-0.5 text-center disabled:opacity-40"
                       style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                       onChange={e => {
                         const dur = parseInt(e.target.value)
-                        if (!isNaN(dur) && item.data_inicio) {
-                          const fim = addDays(new Date(item.data_inicio), dur).toISOString().slice(0, 10)
-                          onUpdateItem(id, { data_prazo: fim })
-                        }
+                        if (isNaN(dur) || dur < 0) return
+                        const patch: Parameters<typeof onUpdateItem>[1] = { duracao_dias: dur }
+                        if (item.data_inicio) patch.data_prazo = addDays(new Date(item.data_inicio), dur).toISOString().slice(0, 10)
+                        onUpdateItem(id, patch)
                       }} />
                     <input type="date" value={item.data_prazo ?? ''} className="text-[10px] rounded border px-1 py-0.5"
                       style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                      onChange={e => onUpdateItem(id, { data_prazo: e.target.value || null })} />
+                      onChange={e => {
+                        const newFim = e.target.value || null
+                        const patch: Parameters<typeof onUpdateItem>[1] = { data_prazo: newFim }
+                        if (item.data_inicio && newFim) {
+                          const d = daysBetween(new Date(item.data_inicio), new Date(newFim))
+                          if (d >= 0) patch.duracao_dias = d
+                        }
+                        onUpdateItem(id, patch)
+                      }} />
                   </div>
                 )}
               </div>
@@ -637,9 +661,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
               const atrasado = !!(fim && !concluido && new Date(fim) < today)
               const origItem = item
               const isEditing = editingName === id
-              const dur = origItem?.data_inicio && origItem?.data_prazo
-                ? Math.max(0, daysBetween(new Date(origItem.data_inicio), new Date(origItem.data_prazo)))
-                : null
+              const dur = origItem ? effectiveDuracao(origItem) : null
 
               return (
                 <div key={id} className="flex items-center border-b gap-0.5" style={{
@@ -701,19 +723,36 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                     <>
                       <input type="date" value={origItem.data_inicio ?? ''} className="text-[10px] rounded border px-0.5 py-0"
                         style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-secondary)', width: 68, height: 22 }}
-                        onChange={e => onUpdateItem(id, { data_inicio: e.target.value || null })} />
-                      <input type="number" min={0} value={dur ?? ''} placeholder="—"
-                        className="text-[10px] rounded border px-0.5 py-0 text-center"
+                        onChange={e => {
+                          const newInicio = e.target.value || null
+                          const patch: Parameters<typeof onUpdateItem>[1] = { data_inicio: newInicio }
+                          if (newInicio && !origItem.is_marco && origItem.duracao_dias != null) {
+                            patch.data_prazo = addDays(new Date(newInicio), origItem.duracao_dias).toISOString().slice(0, 10)
+                          }
+                          onUpdateItem(id, patch)
+                        }} />
+                      <input type="number" min={0} value={origItem.is_marco ? '' : dur ?? ''} placeholder={origItem.is_marco ? '—' : undefined}
+                        disabled={origItem.is_marco}
+                        className="text-[10px] rounded border px-0.5 py-0 text-center disabled:opacity-40"
                         style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-secondary)', width: 30, height: 22 }}
                         onChange={e => {
                           const d = parseInt(e.target.value)
-                          if (!isNaN(d) && origItem.data_inicio) {
-                            onUpdateItem(id, { data_prazo: addDays(new Date(origItem.data_inicio), d).toISOString().slice(0, 10) })
-                          }
+                          if (isNaN(d) || d < 0) return
+                          const patch: Parameters<typeof onUpdateItem>[1] = { duracao_dias: d }
+                          if (origItem.data_inicio) patch.data_prazo = addDays(new Date(origItem.data_inicio), d).toISOString().slice(0, 10)
+                          onUpdateItem(id, patch)
                         }} />
                       <input type="date" value={origItem.data_prazo ?? ''} className="text-[10px] rounded border px-0.5 py-0"
                         style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border)', color: 'var(--text-secondary)', width: 68, height: 22 }}
-                        onChange={e => onUpdateItem(id, { data_prazo: e.target.value || null })} />
+                        onChange={e => {
+                          const newFim = e.target.value || null
+                          const patch: Parameters<typeof onUpdateItem>[1] = { data_prazo: newFim }
+                          if (origItem.data_inicio && newFim) {
+                            const dd = daysBetween(new Date(origItem.data_inicio), new Date(newFim))
+                            if (dd >= 0) patch.duracao_dias = dd
+                          }
+                          onUpdateItem(id, patch)
+                        }} />
                     </>
                   ) : (
                     <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--text-secondary)', width: 166, textAlign: 'center' }}>

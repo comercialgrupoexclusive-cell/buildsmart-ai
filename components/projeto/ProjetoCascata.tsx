@@ -22,6 +22,12 @@ export type ProjetoItemNode = {
   is_marco: boolean
   status: string | null
   percentual_executado?: number | null
+  // Duração persistida (dias corridos). Fluxo validado: marco externo
+  // aprovado → dependentes iniciam no dia seguinte → prazo = início +
+  // duracao_dias. Marco não usa duração (fica null). Itens antigos sem
+  // este campo preenchido continuam funcionando via fallback derivado de
+  // data_inicio/data_prazo (ver effectiveDuracao).
+  duracao_dias: number | null
   children?: ProjetoItemNode[]
 }
 
@@ -33,7 +39,7 @@ export type ProjetoItemDependencia = {
   created_at?: string
 }
 
-type ProjetoItemUpdate = Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status' | 'percentual_executado'>> & { concluido?: boolean }
+type ProjetoItemUpdate = Partial<Pick<ProjetoItemNode, 'responsavel' | 'data_inicio' | 'data_prazo' | 'is_marco' | 'status' | 'percentual_executado' | 'duracao_dias'>> & { concluido?: boolean }
 
 type Props = {
   itens: ProjetoItemNode[]
@@ -140,6 +146,12 @@ function addDaysToDate(date: string, days: number): string {
   const d = new Date(date + 'T00:00:00')
   d.setDate(d.getDate() + days)
   return d.toISOString().slice(0, 10)
+}
+
+/** Duração exibida: usa o campo persistido quando existir; senão deriva das
+ * datas (compatibilidade com itens criados antes de duracao_dias existir). */
+function effectiveDuracao(item: ProjetoItemNode): number | null {
+  return item.duracao_dias ?? calcDurationDays(item.data_inicio ?? '', item.data_prazo ?? '')
 }
 
 function projectFilesKey(projetoId: string) {
@@ -699,7 +711,14 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                     className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
                     style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                     value={item.data_inicio ?? ''}
-                    onChange={e => onUpdateItem?.(item.id, { data_inicio: e.target.value || null })}
+                    onChange={e => {
+                      const newInicio = e.target.value || null
+                      const patch: ProjetoItemUpdate = { data_inicio: newInicio }
+                      if (newInicio && !item.is_marco && item.duracao_dias != null) {
+                        patch.data_prazo = addDaysToDate(newInicio, item.duracao_dias)
+                      }
+                      onUpdateItem?.(item.id, patch)
+                    }}
                   />
                 </label>
                 <label className="min-w-0">
@@ -707,15 +726,17 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                   <input
                     type="number"
                     min={0}
-                    className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
+                    disabled={item.is_marco}
+                    className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none disabled:opacity-40"
                     style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                    placeholder="dias"
-                    value={calcDurationDays(item.data_inicio ?? '', item.data_prazo ?? '') ?? ''}
+                    placeholder={item.is_marco ? '—' : 'dias'}
+                    value={item.is_marco ? '' : effectiveDuracao(item) ?? ''}
                     onChange={e => {
                       const days = parseInt(e.target.value)
-                      if (!isNaN(days) && days >= 0 && item.data_inicio) {
-                        onUpdateItem?.(item.id, { data_prazo: addDaysToDate(item.data_inicio, days) })
-                      }
+                      if (isNaN(days) || days < 0) return
+                      const patch: ProjetoItemUpdate = { duracao_dias: days }
+                      if (item.data_inicio) patch.data_prazo = addDaysToDate(item.data_inicio, days)
+                      onUpdateItem?.(item.id, patch)
                     }}
                   />
                 </label>
@@ -726,7 +747,15 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                     className="w-full min-h-10 rounded-lg border px-2 text-xs outline-none"
                     style={{ background: 'var(--bg-card)', borderColor: atrasado ? '#EF4444' : 'var(--border)', color: 'var(--text-primary)' }}
                     value={item.data_prazo ?? ''}
-                    onChange={e => onUpdateItem?.(item.id, { data_prazo: e.target.value || null })}
+                    onChange={e => {
+                      const newFim = e.target.value || null
+                      const patch: ProjetoItemUpdate = { data_prazo: newFim }
+                      if (item.data_inicio && newFim) {
+                        const d = calcDurationDays(item.data_inicio, newFim)
+                        if (d !== null) patch.duracao_dias = d
+                      }
+                      onUpdateItem?.(item.id, patch)
+                    }}
                   />
                 </label>
               </div>
@@ -824,11 +853,11 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                 value={item.data_inicio ?? ''}
                 onChange={e => {
                   const newInicio = e.target.value || null
-                  if (newInicio && item.data_prazo) {
-                    onUpdateItem?.(item.id, { data_inicio: newInicio })
-                  } else {
-                    onUpdateItem?.(item.id, { data_inicio: newInicio })
+                  const patch: ProjetoItemUpdate = { data_inicio: newInicio }
+                  if (newInicio && !item.is_marco && item.duracao_dias != null) {
+                    patch.data_prazo = addDaysToDate(newInicio, item.duracao_dias)
                   }
+                  onUpdateItem?.(item.id, patch)
                 }}
                 onBlur={() => setEditingDate(null)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingDate(null) }}
@@ -859,7 +888,9 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
 
         {/* Coluna 4 — Duração */}
         <div className="hidden sm:block py-1 pr-1">
-          {hasDateInput ? (
+          {item.is_marco ? (
+            <span className="text-xs opacity-30" style={{ color: 'var(--text-secondary)' }} title="Marco não tem duração">—</span>
+          ) : hasDateInput ? (
             editingDate === 'duracao' && canEdit ? (
               <input
                 type="number"
@@ -867,19 +898,23 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                 min={0}
                 className="text-xs rounded-md border px-1.5 py-0.5 outline-none w-full"
                 style={{ background: 'var(--bg-secondary)', borderColor: 'var(--accent)', color: 'var(--text-primary)' }}
-                defaultValue={calcDurationDays(item.data_inicio ?? '', item.data_prazo ?? '') ?? ''}
+                defaultValue={effectiveDuracao(item) ?? ''}
                 onBlur={e => {
                   const days = parseInt(e.target.value)
-                  if (!isNaN(days) && days >= 0 && item.data_inicio) {
-                    onUpdateItem?.(item.id, { data_prazo: addDaysToDate(item.data_inicio, days) })
+                  if (!isNaN(days) && days >= 0) {
+                    const patch: ProjetoItemUpdate = { duracao_dias: days }
+                    if (item.data_inicio) patch.data_prazo = addDaysToDate(item.data_inicio, days)
+                    onUpdateItem?.(item.id, patch)
                   }
                   setEditingDate(null)
                 }}
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     const days = parseInt((e.target as HTMLInputElement).value)
-                    if (!isNaN(days) && days >= 0 && item.data_inicio) {
-                      onUpdateItem?.(item.id, { data_prazo: addDaysToDate(item.data_inicio, days) })
+                    if (!isNaN(days) && days >= 0) {
+                      const patch: ProjetoItemUpdate = { duracao_dias: days }
+                      if (item.data_inicio) patch.data_prazo = addDaysToDate(item.data_inicio, days)
+                      onUpdateItem?.(item.id, patch)
                     }
                     setEditingDate(null)
                   }
@@ -889,12 +924,12 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
             ) : (
               <button
                 className="text-left w-full rounded px-1 py-0.5 hover:bg-[var(--bg-secondary)] transition-colors"
-                disabled={!canEdit || !item.data_inicio}
-                onClick={() => canEdit && item.data_inicio && setEditingDate('duracao')}
-                title={!item.data_inicio ? 'Defina a data de início primeiro' : 'Clique para editar duração'}
+                disabled={!canEdit}
+                onClick={() => canEdit && setEditingDate('duracao')}
+                title="Clique para editar duração"
               >
                 {(() => {
-                  const dur = calcDurationDays(item.data_inicio ?? '', item.data_prazo ?? '')
+                  const dur = effectiveDuracao(item)
                   return dur !== null ? (
                     <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                       {dur}d
@@ -927,7 +962,15 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                 className="text-xs rounded-md border px-1.5 py-0.5 outline-none w-full"
                 style={{ background: 'var(--bg-secondary)', borderColor: 'var(--accent)', color: 'var(--text-primary)' }}
                 value={item.data_prazo ?? ''}
-                onChange={e => onUpdateItem?.(item.id, { data_prazo: e.target.value || null })}
+                onChange={e => {
+                  const newFim = e.target.value || null
+                  const patch: ProjetoItemUpdate = { data_prazo: newFim }
+                  if (item.data_inicio && newFim) {
+                    const d = calcDurationDays(item.data_inicio, newFim)
+                    if (d !== null) patch.duracao_dias = d
+                  }
+                  onUpdateItem?.(item.id, patch)
+                }}
                 onBlur={() => setEditingDate(null)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingDate(null) }}
               />
