@@ -119,7 +119,20 @@ export function ProspeccaoCenarios({
   const [modo, setModo] = useState<'lista' | 'novo' | string>('lista')
   const [criandoBase, setCriandoBase] = useState(false)
   const [erroBase, setErroBase] = useState<string | null>(null)
+  const [verTodosMesmoComUm, setVerTodosMesmoComUm] = useState(false)
+  const [duplicando, setDuplicando] = useState(false)
   const jaTentouRef = useRef(false)
+
+  async function duplicarParaComparar(c: ProspeccaoCenario) {
+    setDuplicando(true)
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { id, created_at, updated_at, principal, ...resto } = c
+    const { error } = await supabase.from('prospeccao_cenarios').insert({ ...resto, nome: `${c.nome} (cópia)`, principal: false })
+    setDuplicando(false)
+    if (error) { alert(`Não foi possível duplicar: ${error.message}`); return }
+    onChanged()
+  }
 
   async function criarCenarioBase() {
     setCriandoBase(true)
@@ -172,6 +185,33 @@ export function ProspeccaoCenarios({
       <div className="flex flex-col items-center justify-center gap-2 py-16">
         <Loader2 size={20} className="animate-spin" style={{ color: 'var(--accent)' }} />
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Preparando o cenário Base com os dados já conhecidos…</p>
+      </div>
+    )
+  }
+
+  // Ajuste de produto: com exatamente 1 cenário (o caso comum, já que
+  // criamos o "Base" automaticamente), a Viabilidade abre direto na tela
+  // completa do cenário — não faz sentido mostrar uma grade pensada para
+  // vários cenários com um card só. "Duplicar para comparar" (dentro do
+  // EditorCenario) e "Ver todos os cenários" (uma vez que já existam 2+)
+  // continuam disponíveis para quando o usuário quiser montar alternativas.
+  if (cenarios.length === 1 && modo === 'lista' && !verTodosMesmoComUm) {
+    return (
+      <div className="flex flex-col gap-4">
+        {erroBase && (
+          <div className="card p-4 flex items-center gap-2" style={{ borderLeft: '3px solid var(--danger)' }}>
+            <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{erroBase}</p>
+          </div>
+        )}
+        <EditorCenario
+          prospeccaoId={prospeccaoId}
+          cenario={cenarios[0]}
+          onVoltar={() => setVerTodosMesmoComUm(true)}
+          onSalvo={onChanged}
+          voltarLabel="Ver todos os cenários"
+          onDuplicar={() => void duplicarParaComparar(cenarios[0])}
+          duplicando={duplicando}
+        />
       </div>
     )
   }
@@ -327,8 +367,16 @@ function ListaCenarios({
 }
 
 function EditorCenario({
-  prospeccaoId, cenario, onVoltar, onSalvo,
-}: { prospeccaoId: string; cenario: ProspeccaoCenario | null; onVoltar: () => void; onSalvo: () => void }) {
+  prospeccaoId, cenario, onVoltar, onSalvo, voltarLabel, onDuplicar, duplicando,
+}: {
+  prospeccaoId: string
+  cenario: ProspeccaoCenario | null
+  onVoltar: () => void
+  onSalvo: () => void
+  voltarLabel?: string
+  onDuplicar?: () => void
+  duplicando?: boolean
+}) {
   const [form, setForm] = useState<FormState>(cenario ? cenarioParaForm(cenario) : FORM_VAZIO)
   const [saving, setSaving] = useState(false)
 
@@ -366,9 +414,16 @@ function EditorCenario({
 
   return (
     <div className="flex flex-col gap-4">
-      <button onClick={onVoltar} className="inline-flex items-center gap-1.5 text-sm font-medium w-fit" style={{ color: 'var(--text-secondary)' }}>
-        <ArrowLeft size={14} /> Cenários
-      </button>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <button onClick={onVoltar} className="inline-flex items-center gap-1.5 text-sm font-medium w-fit" style={{ color: 'var(--text-secondary)' }}>
+          <ArrowLeft size={14} /> {voltarLabel || 'Cenários'}
+        </button>
+        {onDuplicar && (
+          <button onClick={onDuplicar} disabled={duplicando} className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1.5 rounded-md disabled:opacity-50" style={{ color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+            <Copy size={12} /> Duplicar para comparar
+          </button>
+        )}
+      </div>
 
       <div className="card p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Input label="Nome do cenário" value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
@@ -398,31 +453,31 @@ function EditorCenario({
       </div>
 
       <Secao titulo="Imóvel">
-        {campo('valor_arrematacao', 'Valor da arrematação', { hint: 'R$' })}
+        {campo('valor_arrematacao', 'Valor de aquisição', { hint: 'R$' })}
         {campo('valor_venda_estimado', 'Valor da venda estimado', { hint: 'R$' })}
       </Secao>
 
       {financiado && (
         <Secao titulo="Estrutura do financiamento">
-          {campo('entrada', '% da entrada', { hint: '% do valor de arrematação' })}
+          {campo('entrada', '% da entrada', { hint: '% do valor de aquisição' })}
           {campo('taxa_juros', 'Taxa de juros anual', { hint: '%' })}
           {campo('prazo_financiamento_meses', 'Prazo do financiamento', { hint: 'meses' })}
         </Secao>
       )}
 
-      <Secao titulo={compraDireta ? 'Custos da compra' : 'Custos da arrematação'}>
+      <Secao titulo="Custos de aquisição">
         {!compraDireta && campo('comissao_leiloeiro', 'Comissão do leiloeiro', { hint: '%' })}
         {campo('itbi', 'ITBI', { hint: '%' })}
         {campo('registro', 'Registro', { hint: 'R$' })}
         {campo('advogado_desocupacao', 'Advogado / desocupação', { hint: 'R$' })}
       </Secao>
 
-      <Secao titulo="Extras pós imissão">
+      <Secao titulo="Extras pós aquisição">
         {campo('reforma', 'Reforma', { hint: 'R$' })}
         {campo('outros_custos', 'Outros custos', { hint: 'R$' })}
       </Secao>
 
-      <Secao titulo="Pós arrematação">
+      <Secao titulo="Pós aquisição">
         {campo('prazo_venda_meses', 'Prazo até a venda', { hint: 'meses' })}
         {campo('iptu', 'IPTU mensal', { hint: 'R$/mês' })}
         {campo('condominio', 'Condomínio mensal', { hint: 'R$/mês' })}

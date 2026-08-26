@@ -647,9 +647,16 @@ export type Prospeccao = {
   responsavel: string | null
   proxima_acao: string | null
   observacao: string | null
-  // Vínculo futuro com o Ativo (Project contexto='investimento') — a ação de
-  // conversão não existe ainda, só a possibilidade estrutural do vínculo.
+  // Vínculo com o Ativo (Project contexto='investimento') — usado tanto por
+  // uma Prospecção convertida quanto pela "prospecção-sombra de venda"
+  // (is_venda=true) de um Imóvel.
   project_id: string | null
+  // true só na linha-sombra criada por lib/investidor-venda.ts para dar a um
+  // Imóvel um contêiner de Pesquisa de Mercado/Viabilidade do lado da
+  // VENDA, reaproveitando prospeccao_ficha/comparaveis/analises_mercado/
+  // cenarios sem duplicar essas tabelas. Nunca aparece na listagem normal
+  // de Prospecções (ver app/(app)/investidor/page.tsx, filtro is_venda=false).
+  is_venda: boolean
   // Board (Excalidraw) da prospecção — mesmo mecanismo de projetos.board_data.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   board_data?: any

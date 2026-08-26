@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, use } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, KeyRound, ClipboardList, Landmark } from 'lucide-react'
+import { ArrowLeft, Save, Pencil, LayoutList, Info, CalendarDays, LayoutDashboard, Sparkles, ImagePlus, Trash2, User, MapPin, Clock, CheckCircle2, Calculator, KeyRound, ClipboardList, Landmark, TrendingUp, LineChart } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { ProjetoCascata, buildProjetoTree, type ProjetoItemDependencia, type ProjetoItemNode } from '@/components/projeto/ProjetoCascata'
@@ -14,7 +14,11 @@ import { ProjetoOrcamentosPanel } from '@/components/projeto/ProjetoOrcamentosPa
 import { IniciarObraButton } from '@/components/projeto/IniciarObraButton'
 import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
 import { ProjetoResumoInvestimento } from '@/components/investidor/ProjetoResumoInvestimento'
+import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
+import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
+import { getOrCreateProspeccaoVenda } from '@/lib/investidor-venda'
 import { entregarObra, type ProjectPhase } from '@/lib/project-cycle'
+import type { ProspeccaoCenario } from '@/lib/types'
 import dynamic from 'next/dynamic'
 
 const ExcalidrawBoard = dynamic(
@@ -72,9 +76,17 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
   const [itens, setItens] = useState<ProjetoItemNode[]>([])
   const [tree, setTree] = useState<ProjetoItemNode[]>([])
   const [dependencias, setDependencias] = useState<ProjetoItemDependencia[]>([])
-  const [tab, setTab] = useState<'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas' | 'investimento'>(
-    (searchParams.get('tab') as 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas' | 'investimento') ?? 'estrutura'
+  const [tab, setTab] = useState<'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas' | 'investimento' | 'mercado_venda' | 'viabilidade_venda'>(
+    (searchParams.get('tab') as 'estrutura' | 'orcamento' | 'dados' | 'cronograma' | 'board' | 'tour' | 'ia' | 'tarefas' | 'investimento' | 'mercado_venda' | 'viabilidade_venda') ?? 'estrutura'
   )
+  // Prospecção-sombra de venda (ajuste de produto: Pesquisa de mercado e
+  // Viabilidade também do lado da VENDA, depois de adquirir o imóvel — ver
+  // lib/investidor-venda.ts). Resolvida (criada se ainda não existir) só
+  // quando o usuário entra em uma dessas duas abas, nunca antes.
+  const [vendaProspeccaoId, setVendaProspeccaoId] = useState<string | null>(null)
+  const [vendaCenarios, setVendaCenarios] = useState<ProspeccaoCenario[]>([])
+  const [erroVenda, setErroVenda] = useState<string | null>(null)
+  const resolvendoVendaRef = useRef(false)
   const [profiles, setProfiles] = useState<{ id: string; name: string; apelido: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [editingDados, setEditingDados] = useState(false)
@@ -128,6 +140,32 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
     setTree(buildProjetoTree(flat))
     setLoading(false)
   }
+
+  // Resolve (cria se necessário) a prospecção-sombra de venda só quando o
+  // usuário entra em uma das duas abas de venda pela primeira vez.
+  useEffect(() => {
+    if (!projeto || projeto.contexto !== 'investimento') return
+    if (tab !== 'mercado_venda' && tab !== 'viabilidade_venda') return
+    if (vendaProspeccaoId || resolvendoVendaRef.current) return
+    resolvendoVendaRef.current = true
+    let cancelado = false
+    const supabase = createClient()
+    getOrCreateProspeccaoVenda(supabase, projeto.id, projeto.nome)
+      .then(vid => { if (!cancelado) setVendaProspeccaoId(vid) })
+      .catch(err => { if (!cancelado) setErroVenda(err instanceof Error ? err.message : 'Não foi possível preparar a análise de venda.') })
+      .finally(() => { resolvendoVendaRef.current = false })
+    return () => { cancelado = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, projeto?.id])
+
+  async function carregarVendaCenarios() {
+    if (!vendaProspeccaoId) return
+    const supabase = createClient()
+    const { data } = await supabase.from('prospeccao_cenarios').select('*').eq('prospeccao_id', vendaProspeccaoId).order('created_at')
+    setVendaCenarios((data ?? []) as ProspeccaoCenario[])
+  }
+
+  useEffect(() => { void carregarVendaCenarios() }, [vendaProspeccaoId])
 
   // ── Cascata handlers ──
 
@@ -396,6 +434,8 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           { key: 'investimento' as const, label: 'Visão geral',  icon: Landmark },
           { key: 'estrutura' as const,    label: 'Estrutura',    icon: LayoutList },
           { key: 'orcamento' as const,    label: 'Orçamento',    icon: Calculator },
+          { key: 'mercado_venda' as const,     label: 'Pesquisa de mercado', icon: TrendingUp },
+          { key: 'viabilidade_venda' as const, label: 'Viabilidade',         icon: LineChart },
           { key: 'cronograma' as const,   label: 'Planejamento', icon: CalendarDays },
           { key: 'tarefas' as const,      label: 'Execução/Tarefas', icon: ClipboardList },
           { key: 'board' as const,        label: 'Board',        icon: LayoutDashboard },
@@ -513,6 +553,23 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       {tab === 'tarefas' && <ContextoTarefas projetoId={projeto.id} />}
 
       {tab === 'investimento' && <ProjetoResumoInvestimento projetoId={projeto.id} />}
+
+      {(tab === 'mercado_venda' || tab === 'viabilidade_venda') && (!vendaProspeccaoId ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-16">
+          {erroVenda ? (
+            <p className="text-sm" style={{ color: 'var(--danger)' }}>{erroVenda}</p>
+          ) : (
+            <>
+              <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Preparando a análise de venda…</p>
+            </>
+          )}
+        </div>
+      ) : tab === 'mercado_venda' ? (
+        <ProspeccaoMercado prospeccaoId={vendaProspeccaoId} />
+      ) : (
+        <ProspeccaoCenarios prospeccaoId={vendaProspeccaoId} cenarios={vendaCenarios} onChanged={carregarVendaCenarios} />
+      ))}
 
       {tab === 'dados' && (
         <div className="space-y-4">

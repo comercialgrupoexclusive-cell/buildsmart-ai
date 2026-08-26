@@ -9,26 +9,45 @@
 // aqui é só o "previsto" herdado da Prospecção.
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowUpRight, Landmark } from 'lucide-react'
+import { ArrowUpRight, Landmark, TrendingUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
+import { getProspeccaoVenda } from '@/lib/investidor-venda'
 import type { Prospeccao, ProspeccaoCenario } from '@/lib/types'
 
 export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) {
   const [prospeccao, setProspeccao] = useState<Prospeccao | null>(null)
   const [principal, setPrincipal] = useState<ProspeccaoCenario | null>(null)
+  const [vendaPrincipal, setVendaPrincipal] = useState<ProspeccaoCenario | null>(null)
+  const [vendaFaixaBase, setVendaFaixaBase] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
 
   async function load() {
     setLoading(true)
     const supabase = createClient()
-    const { data: p } = await supabase.from('prospeccoes').select('*').eq('project_id', projetoId).maybeSingle()
+    const { data: p } = await supabase.from('prospeccoes').select('*').eq('project_id', projetoId).eq('is_venda', false).maybeSingle()
     if (p) {
       const { data: c } = await supabase.from('prospeccao_cenarios').select('*').eq('prospeccao_id', p.id).eq('principal', true).maybeSingle()
       setPrincipal((c as ProspeccaoCenario | null) ?? null)
     }
     setProspeccao((p as Prospeccao | null) ?? null)
+
+    // Lado da venda: só LÊ a prospecção-sombra (não cria) — ver
+    // lib/investidor-venda.ts. Se o usuário nunca abriu as abas Pesquisa de
+    // mercado/Viabilidade do Imóvel, ela simplesmente ainda não existe.
+    const venda = await getProspeccaoVenda(supabase, projetoId)
+    if (venda) {
+      const [{ data: cVenda }, { data: analisesVenda }] = await Promise.all([
+        supabase.from('prospeccao_cenarios').select('*').eq('prospeccao_id', venda.id).eq('principal', true).maybeSingle(),
+        supabase.from('prospeccao_analises_mercado').select('faixa_base').eq('prospeccao_id', venda.id).order('created_at', { ascending: false }).limit(1),
+      ])
+      setVendaPrincipal((cVenda as ProspeccaoCenario | null) ?? null)
+      setVendaFaixaBase(analisesVenda?.[0]?.faixa_base ?? null)
+    } else {
+      setVendaPrincipal(null)
+      setVendaFaixaBase(null)
+    }
     setLoading(false)
   }
 
@@ -42,16 +61,38 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
     )
   }
 
+  const temVenda = vendaPrincipal || vendaFaixaBase != null
+  const vendaCard = temVenda && (
+    <div className="card p-4">
+      <p className="text-xs font-medium mb-3 flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}><TrendingUp size={12} /> VENDA</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Campo label="Preço de venda estimado" valor={vendaPrincipal?.valor_venda_estimado != null ? formatCurrency(vendaPrincipal.valor_venda_estimado) : '—'} />
+        {vendaFaixaBase != null && <Campo label="Faixa de mercado (base)" valor={formatCurrency(vendaFaixaBase)} />}
+      </div>
+      <Link
+        href={`/projetos/${projetoId}?tab=mercado_venda`}
+        className="inline-flex items-center gap-1 text-xs font-medium mt-3"
+        style={{ color: 'var(--accent)' }}
+      >
+        Analisar preço de venda <ArrowUpRight size={12} />
+      </Link>
+    </div>
+  )
+
   if (!prospeccao) {
     // Cadastro direto (sem passar por uma Prospecção) é um caminho válido de
     // criar um Imóvel — não é um erro nem uma inconsistência de dados. As
     // outras abas (Estrutura, Orçamento, Planejamento...) funcionam
-    // normalmente mesmo sem prospecção de origem.
-    return (
+    // normalmente mesmo sem prospecção de origem. Se já existir alguma
+    // pesquisa/viabilidade de venda, ela aparece aqui mesmo sem prospecção
+    // de compra — Visão Geral deixa de ficar vazia nesse caso.
+    return temVenda ? (
+      <div className="flex flex-col gap-4">{vendaCard}</div>
+    ) : (
       <EmptyState
         icon={Landmark}
         title="Cadastro direto"
-        description="Este imóvel foi cadastrado diretamente, sem uma prospecção de origem — não há dados de viabilidade prevista para mostrar aqui."
+        description="Este imóvel foi cadastrado diretamente, sem uma prospecção de origem. Abra Pesquisa de mercado/Viabilidade para decidir o preço de venda."
       />
     )
   }
@@ -85,7 +126,7 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
           </p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <Campo label="Valor de arrematação" valor={principal.valor_arrematacao != null ? formatCurrency(principal.valor_arrematacao) : '—'} />
+            <Campo label="Valor de aquisição" valor={principal.valor_arrematacao != null ? formatCurrency(principal.valor_arrematacao) : '—'} />
             <Campo label="Valor de venda estimado" valor={principal.valor_venda_estimado != null ? formatCurrency(principal.valor_venda_estimado) : '—'} />
             {temResultado ? (
               <>
@@ -99,9 +140,11 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
         )}
       </div>
 
+      {vendaCard}
+
       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-        Estes valores refletem o cenário previsto na prospecção. Comparação com o realizado
-        (financeiro real da obra) e Comercialização chegam em marcos futuros do Laboratório Investidor.
+        Estes valores refletem o cenário previsto na prospecção de compra{temVenda ? ' e a pesquisa de venda feita no próprio Imóvel' : ''}.
+        Comparação com o realizado (financeiro real da obra) e Comercialização chegam em marcos futuros do Laboratório Investidor.
       </p>
     </div>
   )

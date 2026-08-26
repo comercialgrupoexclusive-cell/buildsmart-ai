@@ -544,6 +544,7 @@ function ProspeccoesTab() {
     const { data } = await supabase
       .from('prospeccoes')
       .select('*, prospeccao_cenarios(id,nome,principal,valor_arrematacao,lucro,rentabilidade)')
+      .eq('is_venda', false)
       .order('created_at', { ascending: false })
     setProspeccoes((data ?? []) as ProspeccaoComPrincipal[])
     setLoading(false)
@@ -671,10 +672,12 @@ function ProspeccaoCard({ prospeccao: p, index }: { prospeccao: ProspeccaoComPri
 
       <div className="px-4 py-3 flex flex-col gap-2">
         <div className="flex items-center justify-between text-xs">
-          <span className="flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
-            <Calendar size={11} />
-            {p.data_leilao ? new Date(p.data_leilao + 'T12:00:00').toLocaleDateString('pt-BR') : 'Sem data de leilão'}
-          </span>
+          {p.data_leilao ? (
+            <span className="flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
+              <Calendar size={11} />
+              {new Date(p.data_leilao + 'T12:00:00').toLocaleDateString('pt-BR')}
+            </span>
+          ) : <span />}
           {principal?.valor_arrematacao != null && (
             <span className="font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>
               {formatCurrency(principal.valor_arrematacao)}
@@ -948,6 +951,7 @@ function ComparadorTab() {
     const { data } = await supabase
       .from('prospeccoes')
       .select('*, prospeccao_cenarios(*)')
+      .eq('is_venda', false)
       .order('created_at', { ascending: false })
     const comCenarios = ((data ?? []) as ProspeccaoComCenarios[]).filter(p => p.prospeccao_cenarios?.length > 0)
     setProspeccoes(comCenarios)

@@ -25,9 +25,13 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { Button } from '@/components/ui/Button'
+import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
 import type { ProspeccaoComparavel, ProspeccaoFicha, ProspeccaoAnaliseMercado } from '@/lib/types'
+
+type Ordenacao = 'relevancia' | 'menor_preco' | 'maior_preco' | 'menor_m2'
+type FiltroEstado = 'todos' | 'salvos' | 'favoritos'
 
 const SIMILARIDADE_LABEL: Record<string, string> = {
   mesmo_predio: 'Mesmo prédio',
@@ -87,6 +91,15 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
   const [buscaSemResultados, setBuscaSemResultados] = useState(false)
   const assinaturaAnalisadaRef = useRef<string | null>(null)
 
+  // Ajuste de produto: "Pesquisa de mercado" vira duas sub-abas — Resultados
+  // (o que foi encontrado, com filtro/ordenação) e Resumo (estatísticas,
+  // tabela e gráficos ordenados por relevância) — em vez de uma tela única
+  // e comprida.
+  const [subTab, setSubTab] = useState<'resultados' | 'resumo'>('resultados')
+  const [filtroSimilaridade, setFiltroSimilaridade] = useState<'todos' | keyof typeof SIMILARIDADE_LABEL>('todos')
+  const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos')
+  const [ordenacao, setOrdenacao] = useState<Ordenacao>('relevancia')
+
   async function carregar() {
     setLoading(true)
     const supabase = createClient()
@@ -144,6 +157,28 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
   const selecionados = comparaveis.filter(c => c.salvo || c.favorito)
   const selecionadosOrdenados = ordenarPorSimilaridade(selecionados)
   const assinaturaSelecao = selecionados.map(c => c.id).sort().join(',')
+
+  function ordenarPor(lista: ProspeccaoComparavel[], ord: Ordenacao): ProspeccaoComparavel[] {
+    if (ord === 'relevancia') return ordenarPorSimilaridade(lista)
+    const chave = ord === 'menor_m2' ? 'preco_m2' : 'preco'
+    const asc = ord !== 'maior_preco'
+    return [...lista].sort((a, b) => {
+      const av = a[chave]
+      const bv = b[chave]
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      return asc ? av - bv : bv - av
+    })
+  }
+
+  const comparaveisFiltrados = comparaveis.filter(c => {
+    if (filtroSimilaridade !== 'todos' && c.similaridade !== filtroSimilaridade) return false
+    if (filtroEstado === 'salvos' && !c.salvo) return false
+    if (filtroEstado === 'favoritos' && !c.favorito) return false
+    return true
+  })
+  const comparaveisExibidos = ordenarPor(comparaveisFiltrados, ordenacao)
 
   const precosSelecionados = selecionados.filter(c => c.preco != null).map(c => c.preco as number)
   const m2Selecionados = selecionados.filter(c => c.preco_m2 != null).map(c => c.preco_m2 as number)
@@ -262,16 +297,31 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
       )}
 
       <div className="card p-5">
-        <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <div>
-            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Comparáveis</h2>
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Resultados brutos, antes de qualquer interpretação. Do mais semelhante (mesmo prédio) ao menos semelhante (bairro).</p>
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Pesquisa de mercado</h2>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Do mais semelhante (mesmo prédio) ao menos semelhante (bairro).</p>
           </div>
           <Button onClick={() => pesquisarComparaveis(false)} loading={pesquisando} icon={<Search size={14} />} className="flex-shrink-0">Pesquisar comparáveis</Button>
         </div>
+        <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
+          {([
+            { id: 'resultados' as const, label: `Resultados${comparaveis.length ? ` (${comparaveis.length})` : ''}` },
+            { id: 'resumo' as const, label: 'Resumo' },
+          ]).map(t => (
+            <button
+              key={t.id}
+              onClick={() => setSubTab(t.id)}
+              className="px-3.5 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap"
+              style={subTab === t.id ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {comparaveis.length === 0 && buscaSemResultados ? (
+      {subTab === 'resultados' && (comparaveis.length === 0 && buscaSemResultados ? (
         <div className="card p-8 text-center flex flex-col items-center gap-3">
           <AlertTriangle size={20} style={{ color: '#f59e0b' }} />
           <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Nenhum comparável foi encontrado nesta busca.</p>
@@ -284,50 +334,93 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
       ) : comparaveis.length === 0 ? (
         <EmptyState icon={Search} title="Nenhum comparável ainda" description="Clique em 'Pesquisar comparáveis' para a Luiza buscar via web_search." />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {ordenarPorSimilaridade(comparaveis).map(c => (
-            <div key={c.id} className="card p-4 flex flex-col gap-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{c.titulo || c.fonte || 'Comparável'}</p>
-                  {c.similaridade && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>{SIMILARIDADE_LABEL[c.similaridade] || c.similaridade}</span>}
-                </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <button onClick={() => alternarCampo(c.id, 'salvo', c.salvo)} title={c.salvo ? 'Remover dos salvos' : 'Salvar'} className="p-1.5 rounded hover:bg-[var(--bg-secondary)]">
-                    <Bookmark size={14} fill={c.salvo ? 'var(--accent)' : 'none'} style={{ color: c.salvo ? 'var(--accent)' : 'var(--text-secondary)' }} />
-                  </button>
-                  <button onClick={() => alternarCampo(c.id, 'favorito', c.favorito)} title={c.favorito ? 'Remover favorito' : 'Favoritar'} className="p-1.5 rounded hover:bg-[var(--bg-secondary)]">
-                    <Star size={14} fill={c.favorito ? '#f59e0b' : 'none'} style={{ color: c.favorito ? '#f59e0b' : 'var(--text-secondary)' }} />
-                  </button>
-                </div>
-              </div>
-              <p className="text-lg font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(c.preco)}</p>
-              <p className="text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>
-                {c.area != null ? `${c.area} m²` : '—'}{c.preco_m2 != null ? ` · ${formatCurrency(c.preco_m2)}/m²` : ''}
-                {c.dormitorios != null ? ` · ${c.dormitorios} dorm.` : ''}{c.banheiros != null ? ` · ${c.banheiros} banh.` : ''}{c.vagas != null ? ` · ${c.vagas} vaga(s)` : ''}
-              </p>
-              {c.estado_conservacao && <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{c.estado_conservacao}</p>}
-              {c.diferencas && <p className="text-xs italic" style={{ color: 'var(--text-secondary)' }}>{c.diferencas}</p>}
-              <div className="flex items-center justify-between gap-2 mt-1">
-                {c.url ? (
-                  <a href={c.url} target="_blank" rel="noreferrer" className="text-xs inline-flex items-center gap-1 hover:underline" style={{ color: 'var(--accent)' }}>
-                    Abrir anúncio <ExternalLink size={11} />
-                  </a>
-                ) : <span />}
-                {!c.url_confirmada && c.url && (
-                  <span className="text-[10px] flex items-center gap-1" style={{ color: '#f59e0b' }}><FlagOff size={10} /> link não confirmado</span>
-                )}
-              </div>
+        <>
+          <div className="card p-4 flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {(['todos', 'mesmo_predio', 'mesma_rua', 'entorno', 'bairro'] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setFiltroSimilaridade(v)}
+                  className="text-xs font-medium px-2.5 py-1 rounded-full"
+                  style={filtroSimilaridade === v
+                    ? { background: 'var(--accent)', color: 'white' }
+                    : { color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                >
+                  {v === 'todos' ? 'Todos' : SIMILARIDADE_LABEL[v]}
+                </button>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+            <div className="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+              {(['todos', 'salvos', 'favoritos'] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setFiltroEstado(v)}
+                  className="text-xs font-medium px-2.5 py-1 rounded-md"
+                  style={filtroEstado === v ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
+                >
+                  {v === 'todos' ? 'Todos' : v === 'salvos' ? 'Salvos' : 'Favoritos'}
+                </button>
+              ))}
+            </div>
+            <Select value={ordenacao} onChange={e => setOrdenacao(e.target.value as Ordenacao)} className="sm:ml-auto w-full sm:w-auto">
+              <option value="relevancia">Ordenar por relevância</option>
+              <option value="menor_preco">Menor preço</option>
+              <option value="maior_preco">Maior preço</option>
+              <option value="menor_m2">Menor R$/m²</option>
+            </Select>
+          </div>
 
+          {comparaveisExibidos.length === 0 ? (
+            <EmptyState icon={Search} title="Nenhum comparável com esse filtro" description="Ajuste os filtros acima para ver os resultados." />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {comparaveisExibidos.map(c => (
+                <div key={c.id} className="card p-4 flex flex-col gap-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{c.titulo || c.fonte || 'Comparável'}</p>
+                      {c.similaridade && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>{SIMILARIDADE_LABEL[c.similaridade] || c.similaridade}</span>}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => alternarCampo(c.id, 'salvo', c.salvo)} title={c.salvo ? 'Remover dos salvos' : 'Salvar'} className="p-1.5 rounded hover:bg-[var(--bg-secondary)]">
+                        <Bookmark size={14} fill={c.salvo ? 'var(--accent)' : 'none'} style={{ color: c.salvo ? 'var(--accent)' : 'var(--text-secondary)' }} />
+                      </button>
+                      <button onClick={() => alternarCampo(c.id, 'favorito', c.favorito)} title={c.favorito ? 'Remover favorito' : 'Favoritar'} className="p-1.5 rounded hover:bg-[var(--bg-secondary)]">
+                        <Star size={14} fill={c.favorito ? '#f59e0b' : 'none'} style={{ color: c.favorito ? '#f59e0b' : 'var(--text-secondary)' }} />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-lg font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(c.preco)}</p>
+                  <p className="text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+                    {c.area != null ? `${c.area} m²` : '—'}{c.preco_m2 != null ? ` · ${formatCurrency(c.preco_m2)}/m²` : ''}
+                    {c.dormitorios != null ? ` · ${c.dormitorios} dorm.` : ''}{c.banheiros != null ? ` · ${c.banheiros} banh.` : ''}{c.vagas != null ? ` · ${c.vagas} vaga(s)` : ''}
+                  </p>
+                  {c.estado_conservacao && <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{c.estado_conservacao}</p>}
+                  {c.diferencas && <p className="text-xs italic" style={{ color: 'var(--text-secondary)' }}>{c.diferencas}</p>}
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    {c.url ? (
+                      <a href={c.url} target="_blank" rel="noreferrer" className="text-xs inline-flex items-center gap-1 hover:underline" style={{ color: 'var(--accent)' }}>
+                        Abrir anúncio <ExternalLink size={11} />
+                      </a>
+                    ) : <span />}
+                    {!c.url_confirmada && c.url && (
+                      <span className="text-[10px] flex items-center gap-1" style={{ color: '#f59e0b' }}><FlagOff size={10} /> link não confirmado</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ))}
+
+      {subTab === 'resumo' && (
+      <>
       <div className="card p-5">
         <div className="mb-3">
-          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Conclusão</h2>
+          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Resumo</h2>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Salve ou favorite os comparáveis que valem a pena considerar — a conclusão abaixo se atualiza sozinha, sem precisar de outro botão.
+            Salve ou favorite os comparáveis que valem a pena considerar — o resumo abaixo se atualiza sozinho, sem precisar de outro botão.
           </p>
         </div>
 
@@ -464,6 +557,8 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
             ))}
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )
