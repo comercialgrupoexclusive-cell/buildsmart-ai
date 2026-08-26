@@ -813,7 +813,7 @@ function shiftDate(d: string, n: number): string {
  * antecipa), preservando a duração; um item pai arrasta toda a subárvore.
  * Retorna só os itens cujas datas mudaram.
  */
-function scheduleFromDependencies(
+export function scheduleFromDependencies(
   itens: ProjetoItemNode[],
   deps: ProjetoItemDependencia[],
 ): Map<string, { data_inicio: string | null; data_prazo: string | null }> {
@@ -896,8 +896,10 @@ function scheduleFromDependencies(
         // e nunca a marco (marco não tem duração: prazo = início).
         node.data_inicio = target
         const temFilhos = (childrenOf.get(itemId)?.length ?? 0) > 0
-        if (!temFilhos && !node.is_marco && node.duracao_dias != null && node.duracao_dias >= 0) {
-          node.data_prazo = shiftDate(target, node.duracao_dias)
+        // duracao_dias conta o dia inicial (atividade de 1 dia começa e
+        // termina no mesmo dia): prazo = início + duracao_dias - 1.
+        if (!temFilhos && !node.is_marco && node.duracao_dias != null && node.duracao_dias > 0) {
+          node.data_prazo = shiftDate(target, node.duracao_dias - 1)
         } else if (!node.data_prazo || node.data_prazo < target) {
           node.data_prazo = target
         }

@@ -134,18 +134,27 @@ function calcStatus(node: ProjetoItemNode): StatusKey {
 
 const STATUS_ORDER: StatusKey[] = ['pendente', 'em_andamento', 'concluido', 'atrasado']
 
-function calcDurationDays(inicio: string, fim: string): number | null {
+// duracao_dias conta o dia inicial: uma atividade de 1 dia começa e termina
+// no mesmo dia (data_prazo = data_inicio). Por isso a duração em dias
+// corridos entre duas datas é (fim - início) + 1, não (fim - início).
+export function calcDurationDays(inicio: string, fim: string): number | null {
   if (!inicio || !fim) return null
   const d1 = new Date(inicio + 'T00:00:00')
   const d2 = new Date(fim + 'T00:00:00')
   const diff = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
-  return diff >= 0 ? diff : null
+  return diff >= 0 ? diff + 1 : null
 }
 
 function addDaysToDate(date: string, days: number): string {
   const d = new Date(date + 'T00:00:00')
   d.setDate(d.getDate() + days)
   return d.toISOString().slice(0, 10)
+}
+
+// Inverso de calcDurationDays: para duração > 0, data_prazo = data_inicio +
+// duracao_dias - 1 (o dia inicial já conta como o 1º dia ocupado).
+export function dataPrazoDeDuracao(inicio: string, duracaoDias: number): string {
+  return duracaoDias > 0 ? addDaysToDate(inicio, duracaoDias - 1) : inicio
 }
 
 /** Duração exibida: usa o campo persistido quando existir; senão deriva das
@@ -715,7 +724,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                       const newInicio = e.target.value || null
                       const patch: ProjetoItemUpdate = { data_inicio: newInicio }
                       if (newInicio && !item.is_marco && item.duracao_dias != null) {
-                        patch.data_prazo = addDaysToDate(newInicio, item.duracao_dias)
+                        patch.data_prazo = dataPrazoDeDuracao(newInicio, item.duracao_dias)
                       }
                       onUpdateItem?.(item.id, patch)
                     }}
@@ -735,7 +744,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                       const days = parseInt(e.target.value)
                       if (isNaN(days) || days < 0) return
                       const patch: ProjetoItemUpdate = { duracao_dias: days }
-                      if (item.data_inicio) patch.data_prazo = addDaysToDate(item.data_inicio, days)
+                      if (item.data_inicio) patch.data_prazo = dataPrazoDeDuracao(item.data_inicio, days)
                       onUpdateItem?.(item.id, patch)
                     }}
                   />
@@ -855,7 +864,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                   const newInicio = e.target.value || null
                   const patch: ProjetoItemUpdate = { data_inicio: newInicio }
                   if (newInicio && !item.is_marco && item.duracao_dias != null) {
-                    patch.data_prazo = addDaysToDate(newInicio, item.duracao_dias)
+                    patch.data_prazo = dataPrazoDeDuracao(newInicio, item.duracao_dias)
                   }
                   onUpdateItem?.(item.id, patch)
                 }}
@@ -903,7 +912,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                   const days = parseInt(e.target.value)
                   if (!isNaN(days) && days >= 0) {
                     const patch: ProjetoItemUpdate = { duracao_dias: days }
-                    if (item.data_inicio) patch.data_prazo = addDaysToDate(item.data_inicio, days)
+                    if (item.data_inicio) patch.data_prazo = dataPrazoDeDuracao(item.data_inicio, days)
                     onUpdateItem?.(item.id, patch)
                   }
                   setEditingDate(null)
@@ -913,7 +922,7 @@ function CascataNode({ item, canEdit, profiles = [], onToggle, onAdd, onDelete, 
                     const days = parseInt((e.target as HTMLInputElement).value)
                     if (!isNaN(days) && days >= 0) {
                       const patch: ProjetoItemUpdate = { duracao_dias: days }
-                      if (item.data_inicio) patch.data_prazo = addDaysToDate(item.data_inicio, days)
+                      if (item.data_inicio) patch.data_prazo = dataPrazoDeDuracao(item.data_inicio, days)
                       onUpdateItem?.(item.id, patch)
                     }
                     setEditingDate(null)

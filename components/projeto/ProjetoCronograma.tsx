@@ -240,13 +240,20 @@ const STATUS_FILTER_OPTIONS = [
 function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r }
 function daysBetween(a: Date, b: Date) { return Math.round((b.getTime() - a.getTime()) / 86400000) }
 
+// duracao_dias conta o dia inicial: uma atividade de 1 dia começa e termina
+// no mesmo dia. Por isso data_prazo = data_inicio + (duracao_dias - 1), e a
+// duração derivada de duas datas é (fim - início) + 1, não (fim - início).
+export function dataPrazoDeDuracao(inicio: string, duracaoDias: number): string {
+  return duracaoDias > 0 ? addDays(new Date(inicio), duracaoDias - 1).toISOString().slice(0, 10) : inicio
+}
+
 /** Duração exibida: usa o campo persistido quando existir; senão deriva das
  * datas (compatibilidade com itens criados antes de duracao_dias existir). */
-function effectiveDuracao(item: ProjetoItemNode): number | null {
+export function effectiveDuracao(item: ProjetoItemNode): number | null {
   if (item.duracao_dias != null) return item.duracao_dias
   if (!item.data_inicio || !item.data_prazo) return null
   const d = daysBetween(new Date(item.data_inicio), new Date(item.data_prazo))
-  return d >= 0 ? d : null
+  return d >= 0 ? d + 1 : null
 }
 function startOfMonth(d: Date) { return new Date(d.getFullYear(), d.getMonth(), 1) }
 function startOfWeek(d: Date) { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r }
@@ -584,7 +591,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                         const newInicio = e.target.value || null
                         const patch: Parameters<typeof onUpdateItem>[1] = { data_inicio: newInicio }
                         if (newInicio && !item.is_marco && item.duracao_dias != null) {
-                          patch.data_prazo = addDays(new Date(newInicio), item.duracao_dias).toISOString().slice(0, 10)
+                          patch.data_prazo = dataPrazoDeDuracao(newInicio, item.duracao_dias)
                         }
                         onUpdateItem(id, patch)
                       }} />
@@ -596,7 +603,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                         const dur = parseInt(e.target.value)
                         if (isNaN(dur) || dur < 0) return
                         const patch: Parameters<typeof onUpdateItem>[1] = { duracao_dias: dur }
-                        if (item.data_inicio) patch.data_prazo = addDays(new Date(item.data_inicio), dur).toISOString().slice(0, 10)
+                        if (item.data_inicio) patch.data_prazo = dataPrazoDeDuracao(item.data_inicio, dur)
                         onUpdateItem(id, patch)
                       }} />
                     <input type="date" value={item.data_prazo ?? ''} className="text-[10px] rounded border px-1 py-0.5"
@@ -606,7 +613,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                         const patch: Parameters<typeof onUpdateItem>[1] = { data_prazo: newFim }
                         if (item.data_inicio && newFim) {
                           const d = daysBetween(new Date(item.data_inicio), new Date(newFim))
-                          if (d >= 0) patch.duracao_dias = d
+                          if (d >= 0) patch.duracao_dias = d + 1
                         }
                         onUpdateItem(id, patch)
                       }} />
@@ -727,7 +734,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                           const newInicio = e.target.value || null
                           const patch: Parameters<typeof onUpdateItem>[1] = { data_inicio: newInicio }
                           if (newInicio && !origItem.is_marco && origItem.duracao_dias != null) {
-                            patch.data_prazo = addDays(new Date(newInicio), origItem.duracao_dias).toISOString().slice(0, 10)
+                            patch.data_prazo = dataPrazoDeDuracao(newInicio, origItem.duracao_dias)
                           }
                           onUpdateItem(id, patch)
                         }} />
@@ -739,7 +746,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                           const d = parseInt(e.target.value)
                           if (isNaN(d) || d < 0) return
                           const patch: Parameters<typeof onUpdateItem>[1] = { duracao_dias: d }
-                          if (origItem.data_inicio) patch.data_prazo = addDays(new Date(origItem.data_inicio), d).toISOString().slice(0, 10)
+                          if (origItem.data_inicio) patch.data_prazo = dataPrazoDeDuracao(origItem.data_inicio, d)
                           onUpdateItem(id, patch)
                         }} />
                       <input type="date" value={origItem.data_prazo ?? ''} className="text-[10px] rounded border px-0.5 py-0"
@@ -749,7 +756,7 @@ function GanttView({ flat, tree, deps, profiles, canEdit, onAdd, onDelete, onRen
                           const patch: Parameters<typeof onUpdateItem>[1] = { data_prazo: newFim }
                           if (origItem.data_inicio && newFim) {
                             const dd = daysBetween(new Date(origItem.data_inicio), new Date(newFim))
-                            if (dd >= 0) patch.duracao_dias = dd
+                            if (dd >= 0) patch.duracao_dias = dd + 1
                           }
                           onUpdateItem(id, patch)
                         }} />
