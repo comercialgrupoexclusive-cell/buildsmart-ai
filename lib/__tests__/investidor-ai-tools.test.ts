@@ -390,3 +390,85 @@ describe('execInvestidorAiTool — Rotinas e Agentes (Marco 8)', () => {
     expect(JSON.stringify(db.tables.prospeccoes)).toBe(antes)
   })
 })
+
+describe('execInvestidorAiTool — Skill 1: Pesquisa e Análise de Mercado', () => {
+  let db: FakeDB
+  beforeEach(() => {
+    db = new FakeDB()
+    db.seed('prospeccoes', [
+      { id: 'p1', nome: 'São Manoel — Edifício Princesa', endereco: 'Rua São Manoel, 1340', fase: 'em_analise', proxima_acao: null, link_leilao: null, observacao: null, project_id: null, data_leilao: null },
+    ])
+  })
+
+  it('preencher_ficha_extraida cria a ficha na primeira extração (sem propor/confirmar)', async () => {
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'preencher_ficha_extraida', {
+      prospeccao_nome: 'São Manoel',
+      fonte_tipo: 'link',
+      fonte_url: 'https://exemplo.com/anuncio',
+      dados: { tipo: 'cobertura', area: 140, dormitorios: 3, estado_conservacao: 'reformado' },
+    }, ctx())
+    expect(r).toMatch(/ficha.*atualizada/i)
+    expect(db.tables.prospeccao_ficha.length).toBe(1)
+    expect(db.tables.prospeccao_ficha[0].dados_extraidos).toEqual({ tipo: 'cobertura', area: 140, dormitorios: 3, estado_conservacao: 'reformado' })
+    expect(db.tables.prospeccao_ficha[0].status).toBe('parcial')
+  })
+
+  it('preencher_ficha_extraida faz merge com a ficha existente, sem sobrescrever o que não veio nesta chamada', async () => {
+    db.seed('prospeccao_ficha', [{ id: 'f1', prospeccao_id: 'p1', fonte_tipo: 'link', fonte_url: 'https://exemplo.com/1', dados_extraidos: { area: 140, dormitorios: 3 }, dados_confirmados: {}, conflitos: [], status: 'parcial' }])
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'preencher_ficha_extraida', {
+      prospeccao_nome: 'São Manoel', dados: { preco_anunciado: 355000 },
+    }, ctx())
+    expect(db.tables.prospeccao_ficha.length).toBe(1)
+    expect(db.tables.prospeccao_ficha[0].dados_extraidos).toEqual({ area: 140, dormitorios: 3, preco_anunciado: 355000 })
+  })
+
+  it('preencher_ficha_extraida nunca rebaixa uma ficha já validada de volta para parcial', async () => {
+    db.seed('prospeccao_ficha', [{ id: 'f1', prospeccao_id: 'p1', fonte_tipo: 'link', fonte_url: null, dados_extraidos: { area: 140 }, dados_confirmados: { area: 140 }, conflitos: [], status: 'validada' }])
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'preencher_ficha_extraida', {
+      prospeccao_nome: 'São Manoel', dados: { vagas: 0 },
+    }, ctx())
+    expect(db.tables.prospeccao_ficha[0].status).toBe('validada')
+  })
+
+  it('registrar_comparaveis_brutos grava direto (sem propor/confirmar) e preserva url_confirmada=false quando o link individual não foi achado', async () => {
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'registrar_comparaveis_brutos', {
+      prospeccao_nome: 'São Manoel',
+      comparaveis: [
+        { titulo: 'Cobertura 171m² mesmo prédio', preco: 750000, area: 171, dormitorios: 3, vagas: 1, fonte: 'Foxter', url: 'https://exemplo.com/empreendimento/3872', url_confirmada: false, similaridade: 'mesmo_predio', diferencas: 'Tem vaga, padrão superior' },
+        { preco: 399000, area: 144 },
+      ],
+    }, ctx())
+    expect(r).toMatch(/2 comparável/i)
+    expect(db.tables.prospeccao_comparaveis.length).toBe(2)
+    expect(db.tables.prospeccao_comparaveis[0].url_confirmada).toBe(false)
+    expect(db.tables.prospeccao_comparaveis[0].similaridade).toBe('mesmo_predio')
+    expect(db.tables.prospeccao_comparaveis[0].salvo).toBe(false)
+    expect(db.tables.prospeccao_comparaveis[0].favorito).toBe(false)
+  })
+
+  it('registrar_comparaveis_brutos nunca inventa similaridade fora do enum', async () => {
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'registrar_comparaveis_brutos', {
+      prospeccao_nome: 'São Manoel',
+      comparaveis: [{ preco: 500000, similaridade: 'planeta_marte' }],
+    }, ctx())
+    expect(db.tables.prospeccao_comparaveis[0].similaridade).toBeNull()
+  })
+
+  it('registrar_analise_mercado não grava nada — só formata a entrega para a tela (snapshot só acontece ao Encerrar, feito pela UI)', async () => {
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'registrar_analise_mercado', {
+      resumo: 'Comparáveis do mesmo prédio pesaram mais. Faixa considera necessidade de reforma.',
+      faixa_conservadora: 380000,
+      faixa_base: 420000,
+      faixa_otimista: 460000,
+      pendencias: 'Confirmar estado da cobertura vizinha.',
+    }, ctx())
+    expect(r).toMatch(/aba mercado/i)
+    expect(db.tables.prospeccao_analises_mercado).toBeUndefined()
+    expect(db.tables.prospeccao_comparaveis).toBeUndefined()
+  })
+
+  it('registrar_analise_mercado exige o resumo', async () => {
+    const r = await execInvestidorAiTool(db as unknown as SupabaseClient, 'registrar_analise_mercado', {}, ctx())
+    expect(r).toMatch(/preciso do texto/i)
+  })
+})

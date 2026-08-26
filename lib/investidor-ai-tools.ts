@@ -31,7 +31,7 @@ import { criarPropostaPendente, acharPendenteParaResolver, marcarRejeitada, marc
 import { calcularCenario, type PremissasCenario } from './investidor-calculadora'
 import { extrairConteudoDeLink } from './link-extract'
 import { formatCurrency } from './utils'
-import type { InvestidorAgente, InvestidorRotina, Prospeccao, ProspeccaoCenario, ProspeccaoEvidencia, ProspeccaoFase } from './types'
+import type { InvestidorAgente, InvestidorRotina, Prospeccao, ProspeccaoCenario, ProspeccaoEvidencia, ProspeccaoFase, ProspeccaoFicha } from './types'
 
 type DB = SupabaseClient
 // `any` aqui é deliberado, não uma sobra — mesma convenção de
@@ -60,6 +60,11 @@ export const INVESTIDOR_AI_TOOL_NAMES = [
   'propose_create_cenario', 'propose_update_cenario', 'propose_delete_cenario', 'propose_set_cenario_principal',
   'propose_convert_to_ativo', 'propose_create_evidencia',
   'propose_create_rotina_investidor', 'propose_update_rotina_investidor', 'propose_run_rotina_investidor',
+  // Skill 1 (Mercado): escritas de descoberta/análise, não decisões de
+  // domínio — não passam por proposta pendente (ver comentário em
+  // preencher_ficha_extraida abaixo). Só disponíveis em Work (não estão em
+  // TOOLS_LEITURA de lib/luizia-investidor-runtime.ts).
+  'preencher_ficha_extraida', 'registrar_comparaveis_brutos', 'registrar_analise_mercado',
   'confirm_pending_action', 'reject_pending_action',
 ]
 
@@ -385,6 +390,83 @@ export function investidorAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletio
             natureza: { type: 'string', enum: NATUREZAS, description: 'observado (padrão) | inferido | estimado' },
           },
           required: ['informacao'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'preencher_ficha_extraida',
+        description: 'Registra na Ficha da Prospecção o que foi lido de uma fonte (link/PDF/imagem) — NUNCA um fato confirmado, só o que a fonte diz. Chame depois de ler a fonte (via extrair_link, ou o texto/imagem anexado). Grava direto (sem propor/confirmar) porque é extração, não uma decisão — a validação humana de verdade acontece na tela de Ficha, separadamente.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...ctxProps(scoped),
+            fonte_tipo: { type: 'string', enum: ['link', 'pdf', 'imagem'] },
+            fonte_url: { type: 'string', description: 'URL da fonte, se for link (opcional)' },
+            fonte_nome_arquivo: { type: 'string', description: 'Nome do arquivo, se for PDF/imagem (opcional)' },
+            dados: {
+              type: 'object',
+              description: 'Atributos encontrados na fonte, ex.: {"tipo":"cobertura","endereco":"...","area":140,"dormitorios":3,"banheiros":2,"vagas":0,"terraco":true,"churrasqueira":true,"preco_anunciado":355000,"condominio":480,"estado_conservacao":"necessita reforma"}. Só inclua o que a fonte realmente disse.',
+            },
+          },
+          required: ['dados'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'registrar_comparaveis_brutos',
+        description: 'Registra resultados BRUTOS de comparáveis encontrados via web_search, ANTES de qualquer interpretação/conclusão. Chame isso assim que encontrar cada comparável, preservando preço, área, características e a URL individual do anúncio quando encontrável (nunca invente uma URL — se só achou a página do empreendimento, marque url_confirmada=false e diga isso em diferencas). Grava direto (sem propor/confirmar): são candidatos de pesquisa, não uma decisão de domínio — o usuário decide depois o que salvar/favoritar na tela.',
+        parameters: {
+          type: 'object',
+          properties: {
+            ...ctxProps(scoped),
+            comparaveis: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  titulo: { type: 'string' },
+                  preco: { type: 'number' },
+                  area: { type: 'number' },
+                  dormitorios: { type: 'integer' },
+                  banheiros: { type: 'integer' },
+                  vagas: { type: 'integer' },
+                  caracteristicas: { type: 'array', items: { type: 'string' } },
+                  estado_conservacao: { type: 'string' },
+                  fonte: { type: 'string', description: 'Nome do site/imobiliária' },
+                  url: { type: 'string', description: 'Link individual do anúncio, ou a página onde foi encontrado se o individual não existir' },
+                  url_confirmada: { type: 'boolean', description: 'true só se for o link individual do anúncio; false se for página genérica/fallback' },
+                  identificador_anuncio: { type: 'string', description: 'Código/id do anúncio, se disponível (opcional)' },
+                  data_evidencia: { type: 'string', description: 'YYYY-MM-DD, data de hoje se não houver outra' },
+                  diferencas: { type: 'string', description: 'Diferenças relevantes em relação ao imóvel-alvo' },
+                  similaridade: { type: 'string', enum: ['mesmo_predio', 'mesma_rua', 'entorno', 'bairro'] },
+                },
+                required: ['preco'],
+              },
+            },
+          },
+          required: ['comparaveis'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'registrar_analise_mercado',
+        description: 'Entrega o resultado da Análise de Mercado, baseado na ficha validada, evidências e comparáveis salvos/favoritados. Separe claramente dado observado de inferência/estimativa. faixa_conservadora/base/otimista são estimativas SUAS, nunca fatos — evite falsa precisão. Isso NÃO grava nada permanente ainda (só quando o usuário clicar "Encerrar Análise de Mercado" na tela) — é só a entrega do resultado desta análise.',
+        parameters: {
+          type: 'object',
+          properties: {
+            resumo: { type: 'string', description: 'Texto curto: quais comparáveis pesaram mais, diferenças importantes, riscos, limitações da amostra, leitura do preço atual.' },
+            faixa_conservadora: { type: 'number' },
+            faixa_base: { type: 'number' },
+            faixa_otimista: { type: 'number' },
+            pendencias: { type: 'string', description: 'O que falta/pode mudar a conclusão (opcional)' },
+          },
+          required: ['resumo'],
         },
       },
     },
@@ -925,6 +1007,70 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         })
         if (!proposta) return 'Não consegui preparar a execução da rotina agora. Tente novamente.'
         return descricao
+      }
+
+      case 'preencher_ficha_extraida': {
+        const resolvido = await resolveProspeccao(db, ctx, args.prospeccao_nome)
+        if (resolvido.tipo !== 'unica') return mensagemProspeccaoNaoResolvida(resolvido, args.prospeccao_nome)
+        const p = resolvido.item
+        const dadosNovos = (args.dados && typeof args.dados === 'object') ? args.dados as Record<string, unknown> : {}
+        const { data: existente } = await db.from('prospeccao_ficha').select('*').eq('prospeccao_id', p.id).maybeSingle()
+        const fichaExistente = existente as ProspeccaoFicha | null
+        const dadosExtraidos = { ...(fichaExistente?.dados_extraidos || {}), ...dadosNovos }
+        const payload = {
+          fonte_tipo: args.fonte_tipo || fichaExistente?.fonte_tipo || null,
+          fonte_url: args.fonte_url || fichaExistente?.fonte_url || null,
+          fonte_nome_arquivo: args.fonte_nome_arquivo || fichaExistente?.fonte_nome_arquivo || null,
+          dados_extraidos: dadosExtraidos,
+          status: fichaExistente?.status === 'validada' ? 'validada' : 'parcial',
+          updated_at: new Date().toISOString(),
+        }
+        const { error } = fichaExistente
+          ? await db.from('prospeccao_ficha').update(payload).eq('id', fichaExistente.id)
+          : await db.from('prospeccao_ficha').insert({ prospeccao_id: p.id, ...payload })
+        if (error) return `Erro ao preencher a ficha: ${error.message}`
+        const campos = Object.keys(dadosNovos)
+        return `Ficha de "${p.nome}" atualizada com ${campos.length} campo(s) extraído(s) da fonte (${campos.join(', ') || 'nenhum campo novo'}). Abra a aba Ficha para validar.`
+      }
+
+      case 'registrar_comparaveis_brutos': {
+        const resolvido = await resolveProspeccao(db, ctx, args.prospeccao_nome)
+        if (resolvido.tipo !== 'unica') return mensagemProspeccaoNaoResolvida(resolvido, args.prospeccao_nome)
+        const p = resolvido.item
+        const lista = Array.isArray(args.comparaveis) ? args.comparaveis : []
+        if (lista.length === 0) return 'Nenhum comparável para registrar.'
+        const payload = lista.map((c: Args) => ({
+          prospeccao_id: p.id,
+          titulo: c.titulo || null,
+          preco: c.preco != null ? Number(c.preco) : null,
+          area: c.area != null ? Number(c.area) : null,
+          dormitorios: c.dormitorios != null ? Number(c.dormitorios) : null,
+          banheiros: c.banheiros != null ? Number(c.banheiros) : null,
+          vagas: c.vagas != null ? Number(c.vagas) : null,
+          caracteristicas: Array.isArray(c.caracteristicas) ? c.caracteristicas : [],
+          estado_conservacao: c.estado_conservacao || null,
+          fonte: c.fonte || null,
+          url: c.url || null,
+          url_confirmada: Boolean(c.url_confirmada),
+          identificador_anuncio: c.identificador_anuncio || null,
+          data_evidencia: c.data_evidencia || null,
+          diferencas: c.diferencas || null,
+          similaridade: ['mesmo_predio', 'mesma_rua', 'entorno', 'bairro'].includes(c.similaridade) ? c.similaridade : null,
+          salvo: false,
+          favorito: false,
+        }))
+        const { error } = await db.from('prospeccao_comparaveis').insert(payload)
+        if (error) return `Erro ao registrar comparáveis: ${error.message}`
+        return `${payload.length} comparável(is) registrado(s) para "${p.nome}". Abra a aba Mercado para ver, salvar e favoritar.`
+      }
+
+      case 'registrar_analise_mercado': {
+        if (!args.resumo || !String(args.resumo).trim()) return 'Preciso do texto da análise.'
+        return [
+          'Análise de mercado pronta — abra a aba Mercado para ver a tabela, os gráficos e a faixa de valor.',
+          '',
+          String(args.resumo).trim(),
+        ].join('\n')
       }
 
       case 'confirm_pending_action':
