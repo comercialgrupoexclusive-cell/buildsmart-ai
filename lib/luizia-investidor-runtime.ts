@@ -306,3 +306,131 @@ export async function runInvestidorSkill(input: InvestidorSkillInput): Promise<I
   const { message, mutated, analiseMercado } = await rodarLoopInvestidor(input.prompt, input.history, ctx, db, permitirEscrita, input.anexo)
   return { message, usedLLM: true, blocked: false, mutated, analiseMercado }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pesquisa de Comparáveis (Skill 1) — pipeline DETERMINÍSTICO, hotfix.
+//
+// Problema real: o botão "Pesquisar comparáveis" chamava rodarLoopInvestidor
+// com tool_choice 'auto' — o modelo ficava livre para decidir se usava
+// web_search e se chamava registrar_comparaveis_brutos. Em produção isso
+// devolvia HTTP 200 sem nenhum comparável salvo (Prospecção "Bella").
+//
+// Correção: duas chamadas separadas à Responses API, cada uma com UMA ÚNICA
+// tool disponível e tool_choice: 'required' — o modelo não tem como pular a
+// etapa, porque não há outra tool para chamar:
+//   FASE 1 — só web_search disponível → o modelo É OBRIGADO a pesquisar.
+//   FASE 2 — só registrar_comparaveis_brutos disponível → o modelo É
+//            OBRIGADO a estruturar o que pesquisou (podendo, honestamente,
+//            registrar uma lista vazia se não achou nada real).
+// Nenhuma tool/tabela nova; reaproveita exatamente as mesmas definições e o
+// mesmo executor de lib/investidor-ai-tools.ts.
+// ═══════════════════════════════════════════════════════════════════════════
+export type PesquisaComparaveisResultado = {
+  message: string
+  usedLLM: boolean
+  status: 'ok' | 'sem_resultados' | 'erro'
+  totalComparaveis: number
+}
+
+export async function executarPesquisaComparaveis(input: {
+  prospeccaoId: string
+  profileId: string | null
+  actor: string
+  ampliar: boolean
+}): Promise<PesquisaComparaveisResultado> {
+  const apiKey = process.env.OPENAI_API_KEY || ''
+  if (!apiKey.startsWith('sk-')) return { message: 'A IA não está configurada agora (sem chave da OpenAI).', usedLLM: false, status: 'erro', totalComparaveis: 0 }
+  const db = supabase()
+  if (!db) return { message: 'Banco de dados indisponível agora.', usedLLM: false, status: 'erro', totalComparaveis: 0 }
+
+  const { data: prospeccao } = await db.from('prospeccoes').select('*').eq('id', input.prospeccaoId).maybeSingle()
+  if (!prospeccao) return { message: 'Prospecção não encontrada.', usedLLM: false, status: 'erro', totalComparaveis: 0 }
+
+  const { data: ficha } = await db.from('prospeccao_ficha').select('*').eq('prospeccao_id', input.prospeccaoId).maybeSingle()
+  // dados_confirmados (validado por humano) prevalece sobre dados_extraidos
+  // quando os dois existirem — mesma prioridade usada no resto da Skill 1.
+  const dadosAlvo: Record<string, unknown> = { ...(ficha?.dados_extraidos || {}), ...(ficha?.dados_confirmados || {}) }
+
+  const descricaoAlvo = [
+    `Nome da prospecção: ${prospeccao.nome}`,
+    prospeccao.endereco ? `Endereço: ${prospeccao.endereco}` : null,
+    Object.keys(dadosAlvo).length ? `Dados da ficha do imóvel-alvo: ${JSON.stringify(dadosAlvo)}` : null,
+  ].filter((l): l is string => !!l).join('\n')
+
+  const openai = new OpenAI({ apiKey })
+  const hoje = new Date().toLocaleDateString('pt-BR')
+
+  // FASE 1 — busca obrigatória (única tool = web_search).
+  const buscaInstrucoes = [
+    `Você é a Luiza, assistente do BuildSmart AI. DATA ATUAL: ${hoje}.`,
+    'Pesquise comparáveis reais de mercado imobiliário para o imóvel-alvo abaixo, usando a ferramenta de busca disponível.',
+    descricaoAlvo || '(A ficha do imóvel-alvo ainda não tem dados extraídos — pesquise pelo nome/endereço da prospecção mesmo assim.)',
+    input.ampliar
+      ? 'A busca anterior não encontrou nada. Amplie: procure de novo por mesmo prédio/condomínio, mesma rua e entorno próximo e, se ainda assim não houver amostra suficiente, amplie para o bairro.'
+      : 'Priorize nesta ordem: 1) mesmo prédio/condomínio, 2) mesma rua, 3) entorno imediato, 4) bairro (só se necessário). Pare quando tiver amostra suficiente — não pesquise por pesquisar.',
+    'Para CADA resultado real e específico de imóvel à venda que encontrar, relate: título/endereço do anúncio, preço, área, dormitórios, banheiros, vagas, características, estado de conservação, fonte (site/imobiliária), a URL individual do anúncio (nunca invente uma URL — se só achar a página do empreendimento/lista, diga isso explicitamente), e a categoria de similaridade (mesmo prédio/mesma rua/entorno/bairro).',
+  ].join('\n\n')
+
+  let buscaRes: OpenAI.Responses.Response
+  try {
+    buscaRes = await openai.responses.create({
+      model: 'gpt-4o',
+      input: [{ role: 'user', content: buscaInstrucoes }],
+      tools: [WEB_SEARCH_TOOL],
+      tool_choice: 'required',
+      max_output_tokens: 1500,
+    })
+  } catch (err) {
+    return { message: err instanceof Error ? err.message : 'Falha ao pesquisar.', usedLLM: true, status: 'erro', totalComparaveis: 0 }
+  }
+  const textoBusca = extrairTextoComFontes(buscaRes.output)
+
+  if (!textoBusca.trim()) {
+    return { message: 'A pesquisa não retornou nenhum resultado.', usedLLM: true, status: 'sem_resultados', totalComparaveis: 0 }
+  }
+
+  // FASE 2 — estruturação obrigatória (única tool = registrar_comparaveis_brutos).
+  const ctx: InvestidorAiCtx = { actor: input.actor, origem: 'floating', profileId: input.profileId, conversationKey: conversationKeyFloating(input.profileId), fixedProspeccaoId: input.prospeccaoId }
+  const registrarTool = investidorAiToolDefs(true).find(t => t.type === 'function' && t.function.name === 'registrar_comparaveis_brutos')
+  if (!registrarTool) return { message: 'Erro interno: tool de registro não encontrada.', usedLLM: true, status: 'erro', totalComparaveis: 0 }
+
+  const estruturarInstrucoes = [
+    'Estes são os resultados BRUTOS da pesquisa que você acabou de fazer para o imóvel-alvo:',
+    textoBusca,
+    'Estruture CADA resultado real e específico de imóvel (não links de busca genéricos, não é a própria ficha do imóvel-alvo) com registrar_comparaveis_brutos, preservando preço, área, características, fonte e a URL individual quando existir (url_confirmada=false se só achou a página do empreendimento). Se, relendo o texto acima, não houver nenhum resultado real e específico, chame registrar_comparaveis_brutos com comparaveis: [].',
+  ].join('\n\n')
+
+  let estruturaRes: OpenAI.Responses.Response
+  try {
+    estruturaRes = await openai.responses.create({
+      model: 'gpt-4o',
+      input: [{ role: 'user', content: estruturarInstrucoes }],
+      tools: [paraFunctionToolResponses(registrarTool)],
+      tool_choice: 'required',
+      max_output_tokens: 1200,
+    })
+  } catch (err) {
+    return { message: err instanceof Error ? err.message : 'Falha ao estruturar os resultados.', usedLLM: true, status: 'erro', totalComparaveis: 0 }
+  }
+
+  const fnCalls = estruturaRes.output.filter((o): o is OpenAI.Responses.ResponseFunctionToolCall => o.type === 'function_call')
+  for (const fc of fnCalls) {
+    let args: Record<string, unknown> = {}
+    try { args = JSON.parse(fc.arguments) } catch { /* ignore */ }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await execInvestidorAiTool(db, 'registrar_comparaveis_brutos', args as Record<string, any>, ctx)
+  }
+
+  // Pós-condição real: confia na contagem do banco, não na resposta do
+  // modelo — mesmo com tool_choice 'required', só o total registrado de
+  // fato distingue "achou e salvou" de "concluiu honestamente que não achou
+  // nada" (comparaveis: []).
+  const { count } = await db.from('prospeccao_comparaveis').select('id', { count: 'exact', head: true }).eq('prospeccao_id', input.prospeccaoId)
+  const total = count ?? 0
+  return {
+    message: total > 0 ? `Pesquisa concluída: ${total} comparável(is) registrado(s) para esta prospecção.` : 'Nenhum comparável foi encontrado nesta busca.',
+    usedLLM: true,
+    status: total === 0 ? 'sem_resultados' : 'ok',
+    totalComparaveis: total,
+  }
+}

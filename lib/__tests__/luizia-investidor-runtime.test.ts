@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { FakeDB } from './fake-supabase'
 import {
   paraFunctionToolResponses, extrairTextoComFontes, montarMensagemUsuario, runInvestidorSkill,
+  executarPesquisaComparaveis,
   type InvestidorAnexo,
 } from '../luizia-investidor-runtime'
 
@@ -172,5 +173,57 @@ describe('runInvestidorSkill — anexo nunca usa o fast path de listagem', () =>
     // teste acima).
     expect(resultado.usedLLM).toBe(true)
     expect(resultado.message).toMatch(/não está configurada/i)
+  })
+})
+
+// Hotfix: o botão "Pesquisar comparáveis" chamava o loop de IA com
+// tool_choice 'auto', deixando o modelo livre para não pesquisar/não
+// registrar nada e ainda assim devolver 200 (bug real da Prospecção
+// "Bella"). executarPesquisaComparaveis é o pipeline determinístico que
+// substituiu isso — aqui testamos só as guardas puras, sem OPENAI_API_KEY
+// (mesma limitação de sandbox de todos os outros testes deste arquivo: as
+// duas chamadas reais à Responses API — busca obrigatória e estruturação
+// obrigatória — não são exercitáveis aqui).
+describe('executarPesquisaComparaveis — guardas determinísticas (sem OPENAI_API_KEY)', () => {
+  const envAntes = { ...process.env }
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://fake.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-role-key'
+    delete process.env.OPENAI_API_KEY
+  })
+
+  afterEach(() => {
+    process.env = { ...envAntes }
+    vi.mocked(createClient).mockReset()
+  })
+
+  it('sem OPENAI_API_KEY, retorna status erro sem tentar nada no banco', async () => {
+    const db = new FakeDB()
+    vi.mocked(createClient).mockReturnValue(db as unknown as ReturnType<typeof createClient>)
+    const resultado = await executarPesquisaComparaveis({ prospeccaoId: 'p1', profileId: null, actor: 'Teste', ampliar: false })
+    expect(resultado.status).toBe('erro')
+    expect(resultado.usedLLM).toBe(false)
+    expect(resultado.totalComparaveis).toBe(0)
+    expect(resultado.message).toMatch(/não está configurada/i)
+  })
+
+  it('sem banco de dados configurado, retorna status erro', async () => {
+    process.env.OPENAI_API_KEY = 'sk-fake-key-para-passar-da-guarda-de-configuracao'
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    const resultado = await executarPesquisaComparaveis({ prospeccaoId: 'p1', profileId: null, actor: 'Teste', ampliar: false })
+    expect(resultado.status).toBe('erro')
+    expect(resultado.message).toMatch(/banco de dados indisponível/i)
+  })
+
+  it('prospecção inexistente retorna status erro antes de chamar a IA', async () => {
+    process.env.OPENAI_API_KEY = 'sk-fake-key-para-passar-da-guarda-de-configuracao'
+    const db = new FakeDB() // sem seed de prospeccoes — "p1" não existe
+    vi.mocked(createClient).mockReturnValue(db as unknown as ReturnType<typeof createClient>)
+    const resultado = await executarPesquisaComparaveis({ prospeccaoId: 'p1', profileId: null, actor: 'Teste', ampliar: false })
+    expect(resultado.status).toBe('erro')
+    expect(resultado.message).toMatch(/não encontrada/i)
   })
 })
