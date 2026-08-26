@@ -114,8 +114,8 @@ function formParaPremissas(f: FormState): PremissasCenario {
 }
 
 export function ProspeccaoCenarios({
-  prospeccaoId, cenarios, onChanged,
-}: { prospeccaoId: string; cenarios: ProspeccaoCenario[]; onChanged: () => void }) {
+  prospeccaoId, cenarios, tipoAquisicao, onChanged,
+}: { prospeccaoId: string; cenarios: ProspeccaoCenario[]; tipoAquisicao: ProspeccaoCenario['tipo_aquisicao']; onChanged: () => void }) {
   const [modo, setModo] = useState<'lista' | 'novo' | string>('lista')
   const [criandoBase, setCriandoBase] = useState(false)
   const [erroBase, setErroBase] = useState<string | null>(null)
@@ -147,7 +147,7 @@ export function ProspeccaoCenarios({
     const faixaBaseMercado: number | null = analises?.[0]?.faixa_base ?? null
 
     const premissas: PremissasCenario = {
-      modalidade: 'vista', tipo_aquisicao: 'leilao',
+      modalidade: 'vista', tipo_aquisicao: tipoAquisicao,
       valor_arrematacao: valorArrematacao, valor_venda_estimado: faixaBaseMercado,
       registro: null, advogado_desocupacao: null,
       reforma: null, outros_custos: null,
@@ -206,6 +206,7 @@ export function ProspeccaoCenarios({
         <EditorCenario
           prospeccaoId={prospeccaoId}
           cenario={cenarios[0]}
+          tipoAquisicaoPadrao={tipoAquisicao}
           onVoltar={() => setVerTodosMesmoComUm(true)}
           onSalvo={onChanged}
           voltarLabel="Ver todos os cenários"
@@ -234,6 +235,7 @@ export function ProspeccaoCenarios({
     <EditorCenario
       prospeccaoId={prospeccaoId}
       cenario={editando}
+      tipoAquisicaoPadrao={tipoAquisicao}
       onVoltar={() => setModo('lista')}
       onSalvo={() => { setModo('lista'); onChanged() }}
     />
@@ -367,17 +369,20 @@ function ListaCenarios({
 }
 
 function EditorCenario({
-  prospeccaoId, cenario, onVoltar, onSalvo, voltarLabel, onDuplicar, duplicando,
+  prospeccaoId, cenario, tipoAquisicaoPadrao, onVoltar, onSalvo, voltarLabel, onDuplicar, duplicando,
 }: {
   prospeccaoId: string
   cenario: ProspeccaoCenario | null
+  tipoAquisicaoPadrao?: ProspeccaoCenario['tipo_aquisicao']
   onVoltar: () => void
   onSalvo: () => void
   voltarLabel?: string
   onDuplicar?: () => void
   duplicando?: boolean
 }) {
-  const [form, setForm] = useState<FormState>(cenario ? cenarioParaForm(cenario) : FORM_VAZIO)
+  const [form, setForm] = useState<FormState>(
+    cenario ? cenarioParaForm(cenario) : { ...FORM_VAZIO, tipo_aquisicao: tipoAquisicaoPadrao ?? 'compra_direta' }
+  )
   const [saving, setSaving] = useState(false)
 
   const premissas = formParaPremissas(form)
@@ -496,7 +501,7 @@ function EditorCenario({
   )
 }
 
-function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+export function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <div className="card p-4">
       <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>{titulo}</h3>

@@ -568,7 +568,9 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       ) : tab === 'mercado_venda' ? (
         <ProspeccaoMercado prospeccaoId={vendaProspeccaoId} />
       ) : (
-        <ProspeccaoCenarios prospeccaoId={vendaProspeccaoId} cenarios={vendaCenarios} onChanged={carregarVendaCenarios} />
+        // Lado da venda nunca é leilão — é sempre o Imóvel já adquirido
+        // sendo vendido, então tipo_aquisicao é sempre compra_direta aqui.
+        <ProspeccaoCenarios prospeccaoId={vendaProspeccaoId} cenarios={vendaCenarios} tipoAquisicao="compra_direta" onChanged={carregarVendaCenarios} />
       ))}
 
       {tab === 'dados' && (

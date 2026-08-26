@@ -15,21 +15,37 @@ import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-import type { ProspeccaoFicha as ProspeccaoFichaType, ProspeccaoFichaConflito } from '@/lib/types'
+import { formatCurrency } from '@/lib/utils'
+import type { ProspeccaoFicha as ProspeccaoFichaType, ProspeccaoFichaConflito, Prospeccao } from '@/lib/types'
 
 const CAMPO_LABEL: Record<string, string> = {
   tipo: 'Tipo do imóvel',
   endereco: 'Endereço/Localização',
   area: 'Área (m²)',
+  area_total: 'Área total (m²)',
   dormitorios: 'Dormitórios',
   banheiros: 'Banheiros',
   vagas: 'Vagas',
   terraco: 'Terraço',
   churrasqueira: 'Churrasqueira',
+  lareira: 'Lareira',
+  piscina_infantil: 'Piscina infantil',
   preco_anunciado: 'Preço anunciado',
   condominio: 'Condomínio',
+  iptu_anual: 'IPTU anual',
   estado_conservacao: 'Estado/conservação',
+  infraestrutura: 'Infraestrutura do condomínio',
+  caracteristicas: 'Características',
 }
+
+// Agrupamento visual (não muda os dados — jsonb continua aberto por
+// variar por fonte, ver comentário do tipo ProspeccaoFicha em lib/types.ts).
+// Tudo que não cai em nenhum grupo vai para "Outros" — nada é descartado.
+const GRUPO_CARACTERISTICAS = [
+  'tipo', 'area', 'area_total', 'dormitorios', 'banheiros', 'vagas', 'terraco',
+  'churrasqueira', 'lareira', 'piscina_infantil', 'estado_conservacao', 'caracteristicas', 'infraestrutura',
+]
+const GRUPO_FINANCEIRO = ['preco_anunciado', 'condominio', 'iptu_anual']
 
 function labelDoCampo(campo: string) {
   return CAMPO_LABEL[campo] || campo.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase())
@@ -52,7 +68,9 @@ const STATUS_COLOR: Record<ProspeccaoFichaType['status'], string> = {
   validada: '#10b981',
 }
 
-export function ProspeccaoFicha({ prospeccaoId, linkLeilao }: { prospeccaoId: string; linkLeilao?: string | null }) {
+export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
+  prospeccaoId: string; linkLeilao?: string | null; tipoAquisicao?: Prospeccao['tipo_aquisicao']
+}) {
   const { currentProfile } = useProfile()
   const [ficha, setFicha] = useState<ProspeccaoFichaType | null>(null)
   const [loading, setLoading] = useState(true)
@@ -218,6 +236,23 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao }: { prospeccaoId: st
           )}
         </div>
 
+        {ficha && campos.length > 0 && (
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mb-4 pb-4" style={{ borderBottom: '1px solid var(--border)' }}>
+            <p className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
+              {confirmados.preco_anunciado && !Number.isNaN(Number(confirmados.preco_anunciado)) ? formatCurrency(Number(confirmados.preco_anunciado)) : '—'}
+            </p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {[
+                confirmados.tipo,
+                confirmados.area ? `${confirmados.area} m²` : null,
+                confirmados.dormitorios ? `${confirmados.dormitorios} dorm.` : null,
+                confirmados.banheiros ? `${confirmados.banheiros} banh.` : null,
+                confirmados.vagas ? `${confirmados.vagas} vaga(s)` : null,
+              ].filter(Boolean).join(' · ') || 'Detalhes ainda não confirmados'}
+            </p>
+          </div>
+        )}
+
         <div className="flex flex-col gap-3">
           <Select label="Fonte" value={fonteTipo} onChange={e => setFonteTipo(e.target.value as 'link' | 'pdf' | 'imagem')}>
             <option value="link">Link do anúncio</option>
@@ -232,7 +267,9 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao }: { prospeccaoId: st
                 <Button onClick={extrairDeLink} loading={extraindo} icon={<Sparkles size={14} />} className="flex-shrink-0">Extrair da fonte</Button>
               </div>
               {fonteHerdada && fonteUrl && (
-                <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}><Link2 size={12} /> Link herdado da Prospecção (leilão) — pode extrair direto ou trocar por outro.</p>
+                <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  <Link2 size={12} /> Link herdado da Prospecção {tipoAquisicao === 'leilao' ? '(leilão)' : '(fonte cadastrada)'} — pode extrair direto ou trocar por outro.
+                </p>
               )}
             </div>
           ) : (
@@ -256,42 +293,64 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao }: { prospeccaoId: st
         </div>
       </div>
 
-      {ficha && campos.length > 0 && (
-        <div className="card p-5">
-          <h3 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Dados extraídos → validação</h3>
-          <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Confirme, corrija ou deixe em branco (pendente) cada campo. Divergências ficam registradas como conflito, não escondidas.</p>
+      {ficha && campos.length > 0 && (() => {
+        // Agrupamento visual só para não empilhar tudo numa lista só (sem
+        // hierarquia nenhuma, "parece uma ingembração" na visão do usuário)
+        // — os dados continuam abertos (jsonb), nada some se não estiver
+        // mapeado num grupo: cai em "Outros".
+        const caracteristicas = campos.filter(c => GRUPO_CARACTERISTICAS.includes(c))
+        const financeiro = campos.filter(c => GRUPO_FINANCEIRO.includes(c))
+        const outros = campos.filter(c => !GRUPO_CARACTERISTICAS.includes(c) && !GRUPO_FINANCEIRO.includes(c))
+        const grupos = [
+          { titulo: 'Características do imóvel', itens: caracteristicas },
+          { titulo: 'Financeiro', itens: financeiro },
+          { titulo: 'Outros dados', itens: outros },
+        ].filter(g => g.itens.length > 0)
 
-          <div className="flex flex-col gap-3">
-            {campos.map(campo => {
-              const extraido = ficha.dados_extraidos?.[campo]
-              const jaConfirmado = ficha.dados_confirmados?.[campo]
-              const divergente = extraido != null && jaConfirmado != null && fmtValor(extraido).trim().toLowerCase() !== fmtValor(jaConfirmado).trim().toLowerCase()
-              return (
-                <div key={campo} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-2 items-start pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
-                  <div>
-                    <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{labelDoCampo(campo)}</p>
-                    {divergente && <p className="text-[10px] flex items-center gap-1 mt-0.5" style={{ color: '#f59e0b' }}><AlertTriangle size={10} /> conflito</p>}
-                  </div>
-                  <div>
-                    <p className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>Extraído da fonte</p>
-                    <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{fmtValor(extraido) || '—'}</p>
-                  </div>
-                  <Input
-                    placeholder="Confirmar/corrigir (em branco = pendente)"
-                    value={confirmados[campo] ?? ''}
-                    onChange={e => setConfirmados(prev => ({ ...prev, [campo]: e.target.value }))}
-                  />
-                </div>
-              )
-            })}
-          </div>
+        function linhaCampo(campo: string) {
+          const extraido = ficha!.dados_extraidos?.[campo]
+          const jaConfirmado = ficha!.dados_confirmados?.[campo]
+          const divergente = extraido != null && jaConfirmado != null && fmtValor(extraido).trim().toLowerCase() !== fmtValor(jaConfirmado).trim().toLowerCase()
+          return (
+            <div key={campo} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-2 items-start pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{labelDoCampo(campo)}</p>
+                {divergente && <p className="text-[10px] flex items-center gap-1 mt-0.5" style={{ color: '#f59e0b' }}><AlertTriangle size={10} /> conflito</p>}
+              </div>
+              <div>
+                <p className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>Extraído da fonte</p>
+                <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{fmtValor(extraido) || '—'}</p>
+              </div>
+              <Input
+                placeholder="Confirmar/corrigir (em branco = pendente)"
+                value={confirmados[campo] ?? ''}
+                onChange={e => setConfirmados(prev => ({ ...prev, [campo]: e.target.value }))}
+              />
+            </div>
+          )
+        }
 
-          <div className="flex justify-end gap-2 pt-4">
-            <Button variant="secondary" onClick={() => salvarValidacao(false)} loading={salvando}>Salvar validação</Button>
-            <Button onClick={() => salvarValidacao(true)} loading={salvando} icon={<Check size={14} />}>Marcar ficha como validada</Button>
+        return (
+          <div className="flex flex-col gap-4">
+            <div className="card p-5">
+              <h3 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Dados extraídos → validação</h3>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Confirme, corrija ou deixe em branco (pendente) cada campo. Divergências ficam registradas como conflito, não escondidas.</p>
+            </div>
+
+            {grupos.map(g => (
+              <div key={g.titulo} className="card p-5">
+                <h4 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>{g.titulo}</h4>
+                <div className="flex flex-col gap-3">{g.itens.map(linhaCampo)}</div>
+              </div>
+            ))}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => salvarValidacao(false)} loading={salvando}>Salvar validação</Button>
+              <Button onClick={() => salvarValidacao(true)} loading={salvando} icon={<Check size={14} />}>Marcar ficha como validada</Button>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {!ficha && (
         <div className="card p-8 text-center">

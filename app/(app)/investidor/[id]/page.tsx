@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ProspeccaoArquivos } from '@/components/investidor/ProspeccaoArquivos'
 import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidencias'
-import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
+import { ProspeccaoCenarios, TIPO_AQUISICAO_LABEL } from '@/components/investidor/ProspeccaoCenarios'
 import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
 import { formatCurrency } from '@/lib/utils'
@@ -38,22 +38,36 @@ const FASE_OPTIONS: { value: ProspeccaoFase; label: string }[] = [
   { value: 'nova', label: 'Nova' },
   { value: 'em_analise', label: 'Em análise' },
   { value: 'aprovada', label: 'Aprovada' },
-  { value: 'em_disputa', label: 'Em disputa' },
+  { value: 'em_disputa', label: 'Em negociação' },
   { value: 'adquirida', label: 'Adquirida' },
   { value: 'descartada', label: 'Descartada' },
   { value: 'nao_adquirida', label: 'Não adquirida' },
 ]
 
-type Tab = 'resumo' | 'ficha' | 'evidencias' | 'mercado' | 'analise' | 'arquivos' | 'board'
+const STATUS_FICHA_LABEL: Record<'pendente' | 'parcial' | 'validada', string> = {
+  pendente: 'Ficha pendente', parcial: 'Ficha parcial', validada: 'Ficha validada',
+}
+
+type Tab = 'decidir' | 'ficha' | 'evidencias' | 'mercado' | 'analise' | 'arquivos' | 'board'
+
+// Funil da Prospecção: Pesquisar (Imóvel) → Encontrar resultados/Analisar
+// (Pesquisa de mercado) → Analisar viabilidade → Decidir. A ordem das abas
+// (e o veredito agregado em DecidirTab) existe para deixar esse funil
+// explícito — antes disso a tela padrão só mostrava dados do cenário
+// principal, sem juntar ficha + mercado + viabilidade num veredito.
+type FichaResumo = { status: 'pendente' | 'parcial' | 'validada' } | null
+type AnaliseMercadoResumo = { faixa_base: number | null } | null
 
 export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const tab = (searchParams.get('tab') as Tab) ?? 'resumo'
+  const tab = (searchParams.get('tab') as Tab) ?? 'decidir'
 
   const [prospeccao, setProspeccao] = useState<Prospeccao | null>(null)
   const [cenarios, setCenarios] = useState<ProspeccaoCenario[]>([])
+  const [ficha, setFicha] = useState<FichaResumo>(null)
+  const [analiseMercado, setAnaliseMercado] = useState<AnaliseMercadoResumo>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { void loadData() }, [id])
@@ -69,12 +83,16 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
   async function loadData() {
     setLoading(true)
     const supabase = createClient()
-    const [{ data: p }, { data: c }] = await Promise.all([
+    const [{ data: p }, { data: c }, { data: f }, { data: analises }] = await Promise.all([
       supabase.from('prospeccoes').select('*').eq('id', id).single(),
       supabase.from('prospeccao_cenarios').select('*').eq('prospeccao_id', id).order('created_at'),
+      supabase.from('prospeccao_ficha').select('status').eq('prospeccao_id', id).maybeSingle(),
+      supabase.from('prospeccao_analises_mercado').select('faixa_base').eq('prospeccao_id', id).order('created_at', { ascending: false }).limit(1),
     ])
     setProspeccao(p as Prospeccao | null)
     setCenarios((c ?? []) as ProspeccaoCenario[])
+    setFicha((f as FichaResumo) ?? null)
+    setAnaliseMercado((analises?.[0] as AnaliseMercadoResumo) ?? null)
     setLoading(false)
   }
 
@@ -124,10 +142,10 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
 
       <div className="flex gap-1 p-1 rounded-lg w-fit max-w-full overflow-x-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', WebkitOverflowScrolling: 'touch' }}>
         {[
-          { id: 'resumo' as const, label: 'Visão geral', icon: LayoutDashboard },
           { id: 'ficha' as const, label: 'Imóvel', icon: ClipboardList },
           { id: 'mercado' as const, label: 'Pesquisa de mercado', icon: TrendingUp },
           { id: 'analise' as const, label: 'Viabilidade', icon: LineChart },
+          { id: 'decidir' as const, label: 'Decidir', icon: LayoutDashboard },
           { id: 'arquivos' as const, label: 'Arquivos', icon: FileTextIcon },
           { id: 'board' as const, label: 'Board', icon: Pencil },
         ].map(t => (
@@ -142,13 +160,13 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
         ))}
       </div>
 
-      {tab === 'resumo' && (
-        <ResumoTab prospeccao={prospeccao} principal={principal} onSaved={loadData} />
+      {tab === 'decidir' && (
+        <DecidirTab prospeccao={prospeccao} principal={principal} ficha={ficha} analiseMercado={analiseMercado} onSaved={loadData} />
       )}
 
       {tab === 'ficha' && (
         <div className="flex flex-col gap-4">
-          <ProspeccaoFicha prospeccaoId={id} linkLeilao={prospeccao.link_leilao} />
+          <ProspeccaoFicha prospeccaoId={id} linkLeilao={prospeccao.link_leilao} tipoAquisicao={prospeccao.tipo_aquisicao} />
           <ProspeccaoEvidencias prospeccaoId={id} />
         </div>
       )}
@@ -156,7 +174,7 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
       {tab === 'mercado' && <ProspeccaoMercado prospeccaoId={id} />}
 
       {tab === 'analise' && (
-        <ProspeccaoCenarios prospeccaoId={id} cenarios={cenarios} onChanged={loadData} />
+        <ProspeccaoCenarios prospeccaoId={id} cenarios={cenarios} tipoAquisicao={prospeccao.tipo_aquisicao} onChanged={loadData} />
       )}
 
       {tab === 'arquivos' && <ProspeccaoArquivos prospeccaoId={id} />}
@@ -170,7 +188,9 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
   )
 }
 
-function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao; principal?: ProspeccaoCenario; onSaved: () => void }) {
+function DecidirTab({ prospeccao, principal, ficha, analiseMercado, onSaved }: {
+  prospeccao: Prospeccao; principal?: ProspeccaoCenario; ficha: FichaResumo; analiseMercado: AnaliseMercadoResumo; onSaved: () => void
+}) {
   const router = useRouter()
   const { isCliente } = usePermission()
   const [editing, setEditing] = useState(false)
@@ -255,6 +275,7 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
     const { error } = await supabase.from('prospeccoes').update({
       nome: form.nome.trim(),
       endereco: form.endereco || null,
+      tipo_aquisicao: form.tipo_aquisicao,
       link_leilao: form.link_leilao || null,
       data_leilao: form.data_leilao || null,
       fase: form.fase,
@@ -273,8 +294,41 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
 
   const temResultado = principal && (principal.lucro != null || principal.rentabilidade != null)
 
+  const veredito = (
+    <div className="card p-4">
+      <p className="text-xs font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
+        VEREDITO — PESQUISAR → ENCONTRAR RESULTADOS → ANALISAR → DECIDIR
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <VeredictoItem
+          label="Pesquisar (Imóvel)"
+          valor={ficha ? STATUS_FICHA_LABEL[ficha.status] : 'Sem ficha ainda'}
+          ok={ficha?.status === 'validada'}
+        />
+        <VeredictoItem
+          label="Encontrar/Analisar mercado"
+          valor={analiseMercado?.faixa_base != null ? formatCurrency(analiseMercado.faixa_base) : 'Sem análise ainda'}
+          ok={analiseMercado?.faixa_base != null}
+        />
+        <VeredictoItem
+          label="Viabilidade"
+          valor={temResultado ? `${principal!.rentabilidade!.toFixed(1)}% · ${formatCurrency(principal!.lucro!)}` : 'Sem cenário calculado'}
+          ok={!!temResultado}
+          positivo={temResultado ? (principal!.lucro ?? 0) >= 0 : undefined}
+        />
+        <VeredictoItem
+          label="Fase"
+          valor={FASE_OPTIONS.find(f => f.value === prospeccao.fase)?.label ?? '—'}
+          ok={prospeccao.fase === 'adquirida'}
+        />
+      </div>
+    </div>
+  )
+
   if (!editing) {
     return (
+      <div className="flex flex-col gap-4">
+      {veredito}
       <div className="card p-5 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Resumo</h2>
@@ -303,7 +357,10 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <Campo label="Fase" valor={FASE_OPTIONS.find(f => f.value === prospeccao.fase)?.label} />
-          <Campo label="Data do leilão" valor={prospeccao.data_leilao ? new Date(prospeccao.data_leilao + 'T12:00:00').toLocaleDateString('pt-BR') : null} />
+          <Campo label="Tipo de aquisição" valor={TIPO_AQUISICAO_LABEL[prospeccao.tipo_aquisicao]} />
+          {prospeccao.tipo_aquisicao === 'leilao' && (
+            <Campo label="Data do leilão" valor={prospeccao.data_leilao ? new Date(prospeccao.data_leilao + 'T12:00:00').toLocaleDateString('pt-BR') : null} />
+          )}
           <Campo label="Avaliação (venda estimada, cenário principal)" valor={principal?.valor_venda_estimado != null ? formatCurrency(principal.valor_venda_estimado) : null} />
           <Campo label="Lance/arrematação (cenário principal)" valor={principal?.valor_arrematacao != null ? formatCurrency(principal.valor_arrematacao) : null} />
           {temResultado && (
@@ -316,7 +373,9 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
           <Campo label="Próxima ação" valor={prospeccao.proxima_acao} />
           {prospeccao.link_leilao && (
             <div className="sm:col-span-2">
-              <p className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>Link do leilão/anúncio</p>
+              <p className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
+                {prospeccao.tipo_aquisicao === 'leilao' ? 'Link do leilão' : 'Link do anúncio'}
+              </p>
               <a href={prospeccao.link_leilao} target="_blank" rel="noreferrer" className="text-sm break-all hover:underline" style={{ color: 'var(--accent)' }}>
                 {prospeccao.link_leilao}
               </a>
@@ -330,10 +389,13 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
           </div>
         </div>
       </div>
+      </div>
     )
   }
 
   return (
+    <div className="flex flex-col gap-4">
+    {veredito}
     <div className="card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Editar prospecção</h2>
@@ -344,8 +406,20 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
           {FASE_OPTIONS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </Select>
         <Input label="Endereço" value={form.endereco ?? ''} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} />
-        <Input label="Link do leilão/anúncio" type="url" value={form.link_leilao ?? ''} onChange={e => setForm(f => ({ ...f, link_leilao: e.target.value }))} />
-        <Input label="Data do leilão" type="date" value={form.data_leilao ?? ''} onChange={e => setForm(f => ({ ...f, data_leilao: e.target.value }))} />
+        <Select
+          label="Tipo de aquisição"
+          value={form.tipo_aquisicao}
+          onChange={e => setForm(f => ({ ...f, tipo_aquisicao: e.target.value as Prospeccao['tipo_aquisicao'] }))}
+        >
+          {Object.entries(TIPO_AQUISICAO_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </Select>
+        <Input
+          label={form.tipo_aquisicao === 'leilao' ? 'Link do leilão' : 'Link do anúncio'}
+          type="url" value={form.link_leilao ?? ''} onChange={e => setForm(f => ({ ...f, link_leilao: e.target.value }))}
+        />
+        {form.tipo_aquisicao === 'leilao' && (
+          <Input label="Data do leilão" type="date" value={form.data_leilao ?? ''} onChange={e => setForm(f => ({ ...f, data_leilao: e.target.value }))} />
+        )}
         <Input label="Responsável" value={form.responsavel ?? ''} onChange={e => setForm(f => ({ ...f, responsavel: e.target.value }))} />
         <Input label="Próxima ação" value={form.proxima_acao ?? ''} onChange={e => setForm(f => ({ ...f, proxima_acao: e.target.value }))} />
       </div>
@@ -355,6 +429,7 @@ function ResumoTab({ prospeccao, principal, onSaved }: { prospeccao: Prospeccao;
         <Button onClick={handleSave} loading={saving} icon={<Save size={14} />} disabled={!form.nome.trim()}>Salvar</Button>
       </div>
     </div>
+    </div>
   )
 }
 
@@ -363,6 +438,18 @@ function Campo({ label, valor }: { label: string; valor?: string | null }) {
     <div>
       <p className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{label}</p>
       <p className="text-sm font-medium" style={{ color: valor ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{valor || '—'}</p>
+    </div>
+  )
+}
+
+function VeredictoItem({ label, valor, ok, positivo }: { label: string; valor: string; ok: boolean; positivo?: boolean }) {
+  const cor = positivo !== undefined
+    ? (positivo ? 'var(--success)' : 'var(--danger)')
+    : (ok ? 'var(--success)' : 'var(--text-secondary)')
+  return (
+    <div>
+      <p className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>{label}</p>
+      <p className="font-semibold text-sm" style={{ color: cor }}>{valor}</p>
     </div>
   )
 }

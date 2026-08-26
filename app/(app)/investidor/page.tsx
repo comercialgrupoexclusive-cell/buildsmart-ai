@@ -15,7 +15,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { formatCurrency } from '@/lib/utils'
-import { MODALIDADE_LABEL } from '@/components/investidor/ProspeccaoCenarios'
+import { MODALIDADE_LABEL, TIPO_AQUISICAO_LABEL } from '@/components/investidor/ProspeccaoCenarios'
 import type { InvestidorAgente, InvestidorRotina, InvestidorRotinaRun, Prospeccao, ProspeccaoFase, ProspeccaoCenario } from '@/lib/types'
 
 type ProspeccaoComPrincipal = Prospeccao & { prospeccao_cenarios?: ProspeccaoCenario[] }
@@ -73,7 +73,7 @@ const FASE_META: Record<ProspeccaoFase, { label: string; color: string }> = {
   nova: { label: 'Nova', color: '#64748b' },
   em_analise: { label: 'Em análise', color: 'var(--accent)' },
   aprovada: { label: 'Aprovada', color: '#10b981' },
-  em_disputa: { label: 'Em disputa', color: '#f59e0b' },
+  em_disputa: { label: 'Em negociação', color: '#f59e0b' },
   adquirida: { label: 'Adquirida', color: '#8b5cf6' },
   descartada: { label: 'Descartada', color: '#ef4444' },
   nao_adquirida: { label: 'Não adquirida', color: '#94a3b8' },
@@ -81,7 +81,7 @@ const FASE_META: Record<ProspeccaoFase, { label: string; color: string }> = {
 
 const FASES_ORDEM: ProspeccaoFase[] = ['nova', 'em_analise', 'aprovada', 'em_disputa', 'adquirida', 'descartada', 'nao_adquirida']
 
-const EMPTY_FORM = { nome: '', endereco: '', link_leilao: '', data_leilao: '' }
+const EMPTY_FORM = { nome: '', endereco: '', tipo_aquisicao: 'compra_direta' as Prospeccao['tipo_aquisicao'], link_leilao: '', data_leilao: '' }
 const EMPTY_IMOVEL_FORM = { nome: '', endereco: '', estagio: 'aguardando|projeto' as EstagioImovelValue }
 const ROTINA_TIPO_LABEL: Record<InvestidorRotina['tipo'], string> = {
   triagem_prospeccoes: 'Triagem de prospecções',
@@ -1187,6 +1187,7 @@ function NovaProspeccaoModal({ open, onClose, onCreated }: { open: boolean; onCl
     const { error } = await supabase.from('prospeccoes').insert({
       nome: form.nome.trim(),
       endereco: form.endereco.trim() || null,
+      tipo_aquisicao: form.tipo_aquisicao,
       link_leilao: form.link_leilao.trim() || null,
       data_leilao: form.data_leilao || null,
       foto_url,
@@ -1241,15 +1242,22 @@ function NovaProspeccaoModal({ open, onClose, onCreated }: { open: boolean; onCl
           value={form.endereco}
           onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))}
         />
+        <Select
+          label="Tipo de aquisição"
+          value={form.tipo_aquisicao}
+          onChange={e => setForm(f => ({ ...f, tipo_aquisicao: e.target.value as Prospeccao['tipo_aquisicao'] }))}
+        >
+          {Object.entries(TIPO_AQUISICAO_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </Select>
         <Input
-          label="Link do leilão/anúncio"
+          label={form.tipo_aquisicao === 'leilao' ? 'Link do leilão' : 'Link do anúncio'}
           type="url"
           placeholder="https://..."
           value={form.link_leilao}
           onChange={e => setForm(f => ({ ...f, link_leilao: e.target.value }))}
         />
         <Input
-          label="Data do leilão"
+          label={form.tipo_aquisicao === 'leilao' ? 'Data do leilão' : 'Data do anúncio'}
           type="date"
           value={form.data_leilao}
           onChange={e => setForm(f => ({ ...f, data_leilao: e.target.value }))}

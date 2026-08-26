@@ -643,6 +643,11 @@ export type Prospeccao = {
   foto_url: string | null
   link_leilao: string | null
   data_leilao: string | null
+  // Hotfix: dimensão de primeira classe na Prospecção (antes só existia em
+  // prospeccao_cenarios.tipo_aquisicao, obrigando cada cenário a assumir
+  // 'leilao' sem sinal nenhum da prospecção-mãe). Cenários novos herdam
+  // este valor (ver ProspeccaoCenarios.tsx e lib/investidor-ai-tools.ts).
+  tipo_aquisicao: 'leilao' | 'compra_direta'
   fase: ProspeccaoFase
   responsavel: string | null
   proxima_acao: string | null

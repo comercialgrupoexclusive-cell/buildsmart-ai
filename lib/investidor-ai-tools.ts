@@ -317,7 +317,7 @@ export function investidorAiToolDefs(scoped: boolean): OpenAI.Chat.ChatCompletio
             ...ctxProps(scoped),
             nome_cenario: { type: 'string', description: 'Nome do cenário (ex.: "Financiado SAC 20%")' },
             modalidade: { type: 'string', enum: MODALIDADES, description: 'vista, sac ou price' },
-            tipo_aquisicao: { type: 'string', enum: TIPOS_AQUISICAO, description: 'leilao (padrão) ou compra_direta — compra direta não tem leiloeiro, não informe comissao_leiloeiro nesse caso' },
+            tipo_aquisicao: { type: 'string', enum: TIPOS_AQUISICAO, description: 'leilao ou compra_direta — se não informado, herda da prospecção; compra direta não tem leiloeiro, não informe comissao_leiloeiro nesse caso' },
             ...CENARIO_PROPS,
           },
           required: ['nome_cenario', 'modalidade'],
@@ -546,7 +546,7 @@ function fmtData(iso: string | null): string {
 }
 
 const FASE_LABEL: Record<ProspeccaoFase, string> = {
-  nova: 'Nova', em_analise: 'Em análise', aprovada: 'Aprovada', em_disputa: 'Em disputa',
+  nova: 'Nova', em_analise: 'Em análise', aprovada: 'Aprovada', em_disputa: 'Em negociação',
   adquirida: 'Adquirida', descartada: 'Descartada', nao_adquirida: 'Não adquirida',
 }
 
@@ -587,7 +587,12 @@ function resumoRotina(r: InvestidorRotina, agente?: InvestidorAgente | null): st
 // ─── Premissas: monta PremissasCenario a partir dos args da tool (percentual
 // número inteiro -> fração), preenchendo com o cenário existente quando é
 // uma edição parcial. ────────────────────────────────────────────────────
-function montarPremissas(args: Args, modalidade: ProspeccaoCenario['modalidade'], base?: ProspeccaoCenario | null): PremissasCenario {
+function montarPremissas(
+  args: Args,
+  modalidade: ProspeccaoCenario['modalidade'],
+  base?: ProspeccaoCenario | null,
+  prospeccaoTipoAquisicao?: Prospeccao['tipo_aquisicao'],
+): PremissasCenario {
   const doBase = (campo: string): number | null => (base ? (base[campo as keyof ProspeccaoCenario] as number | null) ?? null : null)
   const pct = (campo: string): number | null => {
     if (args[campo] !== undefined) return args[campo] == null ? null : Number(args[campo]) / 100
@@ -597,9 +602,12 @@ function montarPremissas(args: Args, modalidade: ProspeccaoCenario['modalidade']
     if (args[campo] !== undefined) return args[campo] == null ? null : Number(args[campo])
     return doBase(campo)
   }
+  // Cenário herda a modalidade de aquisição da própria prospecção quando a
+  // Luiza não recebeu tipo_aquisicao explícito — antes caía sempre em
+  // 'leilao', gerando comissão de leiloeiro em compras diretas.
   const tipoAquisicao: ProspeccaoCenario['tipo_aquisicao'] = TIPOS_AQUISICAO.includes(args.tipo_aquisicao)
     ? args.tipo_aquisicao
-    : base?.tipo_aquisicao ?? 'leilao'
+    : base?.tipo_aquisicao ?? prospeccaoTipoAquisicao ?? 'compra_direta'
   const premissas = { modalidade, tipo_aquisicao: tipoAquisicao } as unknown as Record<string, unknown>
   for (const c of CAMPOS_PERCENTUAL) premissas[c] = pct(c)
   for (const c of CAMPOS_MONETARIOS) premissas[c] = num(c)
@@ -807,7 +815,7 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         if (!args.nome_cenario) return 'Preciso do nome do cenário.'
         if (!MODALIDADES.includes(args.modalidade)) return 'Modalidade precisa ser vista, sac ou price.'
         const p = resolvido.item
-        const premissas = montarPremissas(args, args.modalidade)
+        const premissas = montarPremissas(args, args.modalidade, null, p.tipo_aquisicao)
         const resultado = calcularCenario(premissas)
         const payload = { prospeccao_id: p.id, nome: String(args.nome_cenario).trim(), ...premissas, ...resultado }
         const descricao = [
@@ -832,7 +840,7 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         if (cenario.tipo === 'nao_encontrada') return `Não encontrei nenhum cenário parecido com "${args.nome_cenario}" em "${p.nome}".`
         if (cenario.tipo === 'ambigua') return formatarAmbiguidade('cenários', args.nome_cenario, cenario.candidatos.map(c => c.nome))
         const c = cenario.item
-        const premissas = montarPremissas(args, c.modalidade, c)
+        const premissas = montarPremissas(args, c.modalidade, c, p.tipo_aquisicao)
         const resultado = calcularCenario(premissas)
         const payload = { cenarioId: c.id, patch: { ...premissas, ...resultado } }
         const descricao = [

@@ -136,7 +136,7 @@ describe('execInvestidorAiTool — propor → confirmar/rejeitar (nunca escreve 
 
   it('propose_create_cenario calcula o resultado ANTES de confirmar (mesmo motor do Marco 3) e persiste o mesmo resultado ao confirmar', async () => {
     const proposta = await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_cenario', {
-      prospeccao_nome: 'Vila Nova', nome_cenario: 'À vista teste', modalidade: 'vista',
+      prospeccao_nome: 'Vila Nova', nome_cenario: 'À vista teste', modalidade: 'vista', tipo_aquisicao: 'leilao',
       valor_arrematacao: 225000, valor_venda_estimado: 400000, comissao_leiloeiro: 5, itbi: 3,
       registro: 5000, reforma: 10000, outros_custos: 22000, prazo_venda_meses: 6, condominio: 400,
       corretagem: 6, imposto_ganho_capital: 15,
@@ -167,19 +167,30 @@ describe('execInvestidorAiTool — propor → confirmar/rejeitar (nunca escreve 
     expect(criado.investimento_total).toBeCloseTo(271150, 2)
   })
 
-  it('propose_create_cenario sem tipo_aquisicao usa "leilao" por padrão (compatibilidade)', async () => {
+  it('propose_create_cenario sem tipo_aquisicao usa "compra_direta" como padrão quando a prospecção também não informa (Hotfix R9 — não assumir leilão)', async () => {
     await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_cenario', {
       prospeccao_nome: 'Vila Nova', nome_cenario: 'Padrão teste', modalidade: 'vista',
       valor_arrematacao: 100000, valor_venda_estimado: 200000,
     }, ctx())
     await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
     const criado = db.tables.prospeccao_cenarios.find(c => c.nome === 'Padrão teste')!
+    expect(criado.tipo_aquisicao).toBe('compra_direta')
+  })
+
+  it('propose_create_cenario sem tipo_aquisicao herda o tipo_aquisicao da prospecção-mãe (Hotfix R9)', async () => {
+    db.tables.prospeccoes[0].tipo_aquisicao = 'leilao'
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'propose_create_cenario', {
+      prospeccao_nome: 'Vila Nova', nome_cenario: 'Herdado da prospecção', modalidade: 'vista',
+      valor_arrematacao: 100000, valor_venda_estimado: 200000,
+    }, ctx())
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'confirm_pending_action', {}, ctx())
+    const criado = db.tables.prospeccao_cenarios.find(c => c.nome === 'Herdado da prospecção')!
     expect(criado.tipo_aquisicao).toBe('leilao')
   })
 
   it('propose_update_cenario recalcula ao mudar uma premissa', async () => {
     db.seed('prospeccao_cenarios', [{
-      id: 'c1', prospeccao_id: 'p1', nome: 'Original', modalidade: 'vista',
+      id: 'c1', prospeccao_id: 'p1', nome: 'Original', modalidade: 'vista', tipo_aquisicao: 'leilao',
       valor_arrematacao: 225000, valor_venda_estimado: 400000, comissao_leiloeiro: 0.05, itbi: 0.03,
       registro: 5000, advogado_desocupacao: 0, reforma: 10000, outros_custos: 22000,
       prazo_venda_meses: 6, iptu: 0, condominio: 400, corretagem: 0.06, imposto_ganho_capital: 0.15,
