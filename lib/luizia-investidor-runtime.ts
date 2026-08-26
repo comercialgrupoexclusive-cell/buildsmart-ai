@@ -159,7 +159,7 @@ export function montarMensagemUsuario(prompt: string, anexo: InvestidorAnexo | n
   return { role: 'user', content: partes.length ? partes : prompt }
 }
 
-async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: InvestidorAiCtx, db: DB, permitirEscrita: boolean, anexo?: InvestidorAnexo | null): Promise<{ message: string; mutated: boolean }> {
+async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: InvestidorAiCtx, db: DB, permitirEscrita: boolean, anexo?: InvestidorAnexo | null): Promise<{ message: string; mutated: boolean; analiseMercado?: Record<string, unknown> }> {
   const apiKey = process.env.OPENAI_API_KEY || ''
   if (!apiKey.startsWith('sk-')) return { message: 'A IA não está configurada agora (sem chave da OpenAI).', mutated: false }
   const openai = new OpenAI({ apiKey })
@@ -180,8 +180,13 @@ async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: Inve
     'Se o usuário colar um link específico (não uma pesquisa) e pedir para ler/analisar, use a tool extrair_link com essa URL exata — não confunda com web_search.',
     'Se a mensagem trouxer uma foto ou o texto de um PDF anexado, ou o resultado de extrair_link, extraia as informações relevantes sobre a oportunidade (valores, datas, condições, restrições, estado do imóvel). Para CADA informação extraída, classifique explicitamente a natureza antes de sugerir registrar: "observado" (está literalmente escrito/visível na foto, PDF ou página), "inferido" (você concluiu a partir do que viu, sem estar explícito) ou "estimado" (é uma suposição/cálculo seu — nunca trate um preço anunciado como o valor real de venda). Depois de extrair, ofereça registrar como evidência com propose_create_evidencia, citando a fonte (nome do arquivo, "foto enviada pelo usuário" ou a URL) e a data de hoje como data_evidencia (a menos que o documento tenha outra data explícita escrita nele).',
     'Ao propor um cenário novo ou alterado, sempre mostre o resultado calculado (investimento total, venda líquida, lucro, rentabilidade) e pergunte se pode confirmar antes de chamar confirm_pending_action.',
+    // Skill 1 — Pesquisa e Análise de Mercado Imobiliário.
+    'FICHA DA PROSPECÇÃO (Skill 1): se pedirem para extrair/ler a fonte do imóvel-alvo (link/PDF/foto), leia com extrair_link ou o anexo, e chame preencher_ficha_extraida com os atributos encontrados (tipo, endereço, área, dormitórios, banheiros, vagas, terraço, churrasqueira, preço anunciado, condomínio, estado/conservação, demais características). REGRA FUNDAMENTAL: fonte é evidência, não verdade — nunca escreva algo como confirmado; só registre o que a fonte disse. A validação humana acontece depois, na tela de Ficha.',
+    'PESQUISA DE COMPARÁVEIS (Skill 1): se pedirem para pesquisar comparáveis, use web_search priorizando, nessa ordem: mesmo prédio/condomínio, mesma rua, entorno imediato, e só então bairro. Compare por tipologia, área, dormitórios, banheiros, vagas, características relevantes, estado/conservação e localização. Não pesquise volume por pesquisar — pare quando tiver amostra suficiente. Para CADA comparável encontrado, chame registrar_comparaveis_brutos ANTES de tirar qualquer conclusão, preservando preço, área, características, fonte e a URL individual do anúncio (nunca invente uma URL — se só achar a página do empreendimento, marque url_confirmada=false).',
+    'ANÁLISE DE MERCADO (Skill 1): quando pedirem para analisar o mercado, use a ficha validada, evidências e os comparáveis já salvos/favoritados (não use qualquer resultado bruto ruim só porque foi encontrado — "favorito" é sinal do usuário, não garantia de qualidade técnica). Separe claramente dado observado de inferência/estimativa/pendência. Chame registrar_analise_mercado com o resumo e a faixa conservadora/base/otimista — deixe claro que a faixa é uma ESTIMATIVA sua, nunca um fato, e evite falsa precisão.',
+    'Orçamento de reforma, quantitativos, custos de reforma e cronograma da reforma NÃO pertencem a esta skill — se pedirem isso aqui, diga que essa parte fica para uma etapa seguinte.',
     permitirEscrita
-      ? 'REGRA DE ESCRITA (obrigatória, sem exceção): você NUNCA cria, altera, exclui, converte ou executa rotina diretamente, mesmo com ordem explícita. Todo pedido de criar/editar prospecção, criar/editar/excluir cenário, marcar cenário principal, converter em Ativo, registrar evidência, criar/editar rotina ou executar rotina passa SEMPRE por uma tool propose_* primeiro, mostrando o rascunho e perguntando se pode confirmar. SÓ chame confirm_pending_action depois que o usuário confirmar EXPLICITAMENTE nesta mensagem (ex.: "sim", "confirmo", "pode criar"). Uma mensagem que só ajusta um dado é refinamento — chame de novo a mesma tool propose_* com os dados atualizados. Se o usuário recusar, chame reject_pending_action.'
+      ? 'REGRA DE ESCRITA (obrigatória, sem exceção): você NUNCA cria, altera, exclui, converte ou executa rotina diretamente, mesmo com ordem explícita. Todo pedido de criar/editar prospecção, criar/editar/excluir cenário, marcar cenário principal, converter em Ativo, registrar evidência, criar/editar rotina ou executar rotina passa SEMPRE por uma tool propose_* primeiro, mostrando o rascunho e perguntando se pode confirmar. SÓ chame confirm_pending_action depois que o usuário confirmar EXPLICITAMENTE nesta mensagem (ex.: "sim", "confirmo", "pode criar"). Uma mensagem que só ajusta um dado é refinamento — chame de novo a mesma tool propose_* com os dados atualizados. Se o usuário recusar, chame reject_pending_action. EXCEÇÃO explícita: preencher_ficha_extraida, registrar_comparaveis_brutos e registrar_analise_mercado NÃO passam por confirmação — são descoberta/pesquisa (ficha extraída ainda depende de validação humana na tela; comparáveis brutos são candidatos de pesquisa; a análise só vira permanente quando o usuário clicar "Encerrar" na tela) — chame-as diretamente quando fizer sentido no fluxo desta skill.'
       : 'Você está em modo consulta (Chat) — só pode listar, buscar, comparar e pesquisar, nunca alterar nem executar rotina. Se o usuário pedir para criar, editar, excluir, marcar principal, converter algo, registrar evidência ou executar rotina, diga que ele precisa mudar para o modo Work (botão de alternância ao lado do campo de mensagem).',
   ].join('\n')
 
@@ -191,6 +196,7 @@ async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: Inve
   ]
 
   let mutated = false
+  let analiseMercado: Record<string, unknown> | undefined
   let loop = 0
   while (loop < 4) {
     loop++
@@ -200,24 +206,28 @@ async function rodarLoopInvestidor(prompt: string, history: ChatMsg[], ctx: Inve
       input,
       tools,
       tool_choice: 'auto',
-      max_output_tokens: 600,
+      max_output_tokens: 800,
     })
     const fnCalls = res.output.filter((o): o is OpenAI.Responses.ResponseFunctionToolCall => o.type === 'function_call')
     if (fnCalls.length === 0) {
       const texto = extrairTextoComFontes(res.output)
-      return { message: texto || 'Não consegui responder agora.', mutated }
+      return { message: texto || 'Não consegui responder agora.', mutated, analiseMercado }
     }
     input = [...input, ...(res.output as unknown as OpenAI.Responses.ResponseInputItem[])]
     for (const fc of fnCalls) {
       let args: Record<string, unknown> = {}
       try { args = JSON.parse(fc.arguments) } catch { /* ignore */ }
+      // registrar_analise_mercado não grava nada — a UI (Skill 1 Mercado)
+      // precisa dos argumentos estruturados (faixa, resumo) para desenhar a
+      // tabela/gráficos, não só do texto de confirmação em prosa.
+      if (fc.name === 'registrar_analise_mercado') analiseMercado = args
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const resultado = await execInvestidorAiTool(db, fc.name, args as Record<string, any>, ctx)
       if (TOOLS_QUE_PODEM_ESCREVER.has(fc.name) && resultado && !pareceFalhaOuRecusa(resultado)) mutated = true
       input.push({ type: 'function_call_output', call_id: fc.call_id, output: resultado ?? 'Função não reconhecida.' })
     }
   }
-  return { message: 'Não consegui concluir a consulta agora. Tente reformular.', mutated }
+  return { message: 'Não consegui concluir a consulta agora. Tente reformular.', mutated, analiseMercado }
 }
 
 export type InvestidorSkillInput = {
@@ -235,6 +245,7 @@ export type InvestidorSkillResult = {
   usedLLM: boolean
   blocked: boolean
   mutated: boolean
+  analiseMercado?: Record<string, unknown>
 }
 
 function conversationKeyFloating(profileId: string | null): string {
@@ -292,6 +303,6 @@ export async function runInvestidorSkill(input: InvestidorSkillInput): Promise<I
   }
 
   const permitirEscrita = input.modo === 'work'
-  const { message, mutated } = await rodarLoopInvestidor(input.prompt, input.history, ctx, db, permitirEscrita, input.anexo)
-  return { message, usedLLM: true, blocked: false, mutated }
+  const { message, mutated, analiseMercado } = await rodarLoopInvestidor(input.prompt, input.history, ctx, db, permitirEscrita, input.anexo)
+  return { message, usedLLM: true, blocked: false, mutated, analiseMercado }
 }

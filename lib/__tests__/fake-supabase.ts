@@ -22,13 +22,13 @@ class FakeQuery implements PromiseLike<{ data: Row[] | Row | null; error: null |
   private orderAsc = true
   private limitN: number | null = null
   private mode: 'select' | 'insert' | 'update' | 'delete' = 'select'
-  private payload: Row | null = null
+  private payload: Row | Row[] | null = null
   private singleMode: 'one' | 'maybe' | null = null
 
   constructor(private db: FakeDB, private table: string) {}
 
   select(_cols?: string) { return this }
-  insert(payload: Row) { this.mode = 'insert'; this.payload = payload; return this }
+  insert(payload: Row | Row[]) { this.mode = 'insert'; this.payload = payload; return this }
   update(payload: Row) { this.mode = 'update'; this.payload = payload; return this }
   delete() { this.mode = 'delete'; return this }
 
@@ -53,10 +53,11 @@ class FakeQuery implements PromiseLike<{ data: Row[] | Row | null; error: null |
     const table = this.db.tables[this.table] || (this.db.tables[this.table] = [])
 
     if (this.mode === 'insert') {
-      const row: Row = { id: this.db.nextId(), created_at: new Date().toISOString(), ...this.payload }
-      table.push(row)
-      if (this.singleMode) return { data: row, error: null }
-      return { data: [row], error: null }
+      const payloads = Array.isArray(this.payload) ? this.payload : [this.payload || {}]
+      const rows = payloads.map(p => ({ id: this.db.nextId(), created_at: new Date().toISOString(), ...p }))
+      table.push(...rows)
+      if (this.singleMode) return { data: rows[0], error: null }
+      return { data: rows, error: null }
     }
 
     let rows = table.filter(r => this.filters.every(f => f(r)))

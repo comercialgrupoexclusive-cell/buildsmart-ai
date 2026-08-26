@@ -11,7 +11,7 @@ import { useEffect, useState, use } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus, Building2, ArrowUpRight, Trash2, FileSearch } from 'lucide-react'
+import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus, Building2, ArrowUpRight, Trash2, FileSearch, ClipboardList, TrendingUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -20,6 +20,8 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { ProspeccaoArquivos } from '@/components/investidor/ProspeccaoArquivos'
 import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidencias'
 import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
+import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
+import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
 import { formatCurrency } from '@/lib/utils'
 import type { Prospeccao, ProspeccaoFase, ProspeccaoCenario } from '@/lib/types'
 
@@ -42,7 +44,7 @@ const FASE_OPTIONS: { value: ProspeccaoFase; label: string }[] = [
   { value: 'nao_adquirida', label: 'Não adquirida' },
 ]
 
-type Tab = 'resumo' | 'evidencias' | 'analise' | 'arquivos' | 'board'
+type Tab = 'resumo' | 'ficha' | 'evidencias' | 'mercado' | 'analise' | 'arquivos' | 'board'
 
 export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -120,10 +122,12 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
-      <div className="flex gap-1 p-1 rounded-lg w-fit overflow-x-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <div className="flex gap-1 p-1 rounded-lg w-fit max-w-full overflow-x-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', WebkitOverflowScrolling: 'touch' }}>
         {[
           { id: 'resumo' as const, label: 'Resumo', icon: LayoutDashboard },
+          { id: 'ficha' as const, label: 'Ficha', icon: ClipboardList },
           { id: 'evidencias' as const, label: 'Evidências', icon: FileSearch },
+          { id: 'mercado' as const, label: 'Mercado', icon: TrendingUp },
           { id: 'analise' as const, label: 'Análise', icon: LineChart },
           { id: 'arquivos' as const, label: 'Arquivos', icon: FileTextIcon },
           { id: 'board' as const, label: 'Board', icon: Pencil },
@@ -131,7 +135,7 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap flex-shrink-0"
             style={tab === t.id ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}
           >
             <t.icon size={14} /> {t.label}
@@ -143,7 +147,11 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
         <ResumoTab prospeccao={prospeccao} principal={principal} onSaved={loadData} />
       )}
 
+      {tab === 'ficha' && <ProspeccaoFicha prospeccaoId={id} />}
+
       {tab === 'evidencias' && <ProspeccaoEvidencias prospeccaoId={id} />}
+
+      {tab === 'mercado' && <ProspeccaoMercado prospeccaoId={id} />}
 
       {tab === 'analise' && (
         <ProspeccaoCenarios prospeccaoId={id} cenarios={cenarios} onChanged={loadData} />

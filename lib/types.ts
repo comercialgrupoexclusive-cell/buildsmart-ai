@@ -724,6 +724,84 @@ export type ProspeccaoEvidencia = {
   updated_at: string
 }
 
+// ─── Skill 1: Pesquisa e Análise de Mercado Imobiliário ───────────────────────
+// Fluxo: FONTE → EXTRAÇÃO → VALIDAÇÃO HUMANA → PESQUISA DE COMPARÁVEIS →
+// RESULTADOS BRUTOS → SELEÇÃO/FAVORITOS → ANÁLISE IA → ENCERRAR. Orçamento/
+// reforma não pertence a esta skill.
+
+// Ficha da Prospecção: fonte é evidência, não verdade — dados_extraidos (o
+// que a IA leu) e dados_confirmados (o que o usuário validou) podem divergir
+// de propósito (ver conflitos). Atributos do imóvel são abertos (jsonb) por
+// variarem por fonte — não travamos num conjunto fixo de campos.
+export type ProspeccaoFichaConflito = {
+  campo: string
+  valor_extraido: unknown
+  valor_confirmado: unknown
+  nota?: string
+}
+
+export type ProspeccaoFicha = {
+  id: string
+  prospeccao_id: string
+  fonte_tipo: 'link' | 'pdf' | 'imagem' | null
+  fonte_url: string | null
+  fonte_nome_arquivo: string | null
+  dados_extraidos: Record<string, unknown>
+  dados_confirmados: Record<string, unknown>
+  conflitos: ProspeccaoFichaConflito[]
+  status: 'pendente' | 'parcial' | 'validada'
+  created_at: string
+  updated_at: string
+}
+
+// Resultado bruto de comparável, persistido ANTES de qualquer interpretação
+// da IA. favorito = sinal do usuário ("considero interessante"), não implica
+// que a IA deva tratá-lo como melhor comparável.
+export type ProspeccaoComparavel = {
+  id: string
+  prospeccao_id: string
+  titulo: string | null
+  preco: number | null
+  area: number | null
+  preco_m2: number | null
+  dormitorios: number | null
+  banheiros: number | null
+  vagas: number | null
+  caracteristicas: string[]
+  estado_conservacao: string | null
+  fonte: string | null
+  url: string | null
+  url_confirmada: boolean
+  identificador_anuncio: string | null
+  data_evidencia: string | null
+  diferencas: string | null
+  similaridade: 'mesmo_predio' | 'mesma_rua' | 'entorno' | 'bairro' | null
+  salvo: boolean
+  favorito: boolean
+  created_at: string
+}
+
+// Snapshot imutável (por convenção de app — sem update/delete na UI) ao
+// encerrar uma Análise de Mercado. faixa_conservadora/base/otimista são
+// estimativas da IA, nunca fatos observados. Não muda retroativamente se
+// anúncios externos mudarem depois.
+export type ProspeccaoAnaliseMercado = {
+  id: string
+  prospeccao_id: string
+  ficha_snapshot: Record<string, unknown>
+  evidencias_snapshot: unknown[]
+  comparaveis_snapshot: unknown[]
+  favoritos_snapshot: unknown[]
+  analise_texto: string
+  faixa_conservadora: number | null
+  faixa_base: number | null
+  faixa_otimista: number | null
+  pendencias: string | null
+  fontes: unknown[]
+  criado_por: string | null
+  created_at: string
+}
+
 export type InvestidorAgente = {
   id: string
   nome: string
