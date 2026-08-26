@@ -49,6 +49,7 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
   const [encerrando, setEncerrando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [analiseAtual, setAnaliseAtual] = useState<AnaliseAtual | null>(null)
+  const [buscaSemResultados, setBuscaSemResultados] = useState(false)
 
   async function carregar() {
     setLoading(true)
@@ -73,18 +74,23 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prospeccaoId])
 
-  async function pesquisarComparaveis() {
+  async function pesquisarComparaveis(ampliarBusca = false) {
     setErro(null)
+    setBuscaSemResultados(false)
     setPesquisando(true)
     try {
       const res = await fetch('/api/investidor/mercado', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pesquisar_comparaveis', prospeccaoId, profileId: currentProfile?.id, actor: currentProfile?.name }),
+        body: JSON.stringify({ action: 'pesquisar_comparaveis', prospeccaoId, profileId: currentProfile?.id, actor: currentProfile?.name, ampliarBusca }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Falha na pesquisa.')
+      if (!res.ok || data.status === 'erro') throw new Error(data.error || data.message || 'Falha na pesquisa.')
       if (data.blocked) throw new Error(data.message)
+      // Pós-condição real: 200 não é sucesso funcional se nada foi
+      // registrado — sem isso a tela mostrava "concluído" mesmo com 0
+      // comparáveis (bug real da Prospecção Bella).
+      setBuscaSemResultados(data.status === 'sem_resultados')
       void carregar()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Não consegui pesquisar comparáveis agora.')
@@ -190,11 +196,21 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
             <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Comparáveis</h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Resultados brutos, antes de qualquer interpretação. Do mais semelhante (mesmo prédio) ao menos semelhante (bairro).</p>
           </div>
-          <Button onClick={pesquisarComparaveis} loading={pesquisando} icon={<Search size={14} />} className="flex-shrink-0">Pesquisar comparáveis</Button>
+          <Button onClick={() => pesquisarComparaveis(false)} loading={pesquisando} icon={<Search size={14} />} className="flex-shrink-0">Pesquisar comparáveis</Button>
         </div>
       </div>
 
-      {comparaveis.length === 0 ? (
+      {comparaveis.length === 0 && buscaSemResultados ? (
+        <div className="card p-8 text-center flex flex-col items-center gap-3">
+          <AlertTriangle size={20} style={{ color: '#f59e0b' }} />
+          <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Nenhum comparável foi encontrado nesta busca.</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Tente novamente ou amplie a busca (mesmo prédio → mesma rua → entorno → bairro).</p>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => pesquisarComparaveis(false)} loading={pesquisando}>Tentar novamente</Button>
+            <Button onClick={() => pesquisarComparaveis(true)} loading={pesquisando}>Ampliar busca</Button>
+          </div>
+        </div>
+      ) : comparaveis.length === 0 ? (
         <EmptyState icon={Search} title="Nenhum comparável ainda" description="Clique em 'Pesquisar comparáveis' para a Luiza buscar via web_search." />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

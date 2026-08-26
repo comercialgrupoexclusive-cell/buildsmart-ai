@@ -126,8 +126,8 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
         {[
           { id: 'resumo' as const, label: 'Resumo', icon: LayoutDashboard },
           { id: 'ficha' as const, label: 'Ficha', icon: ClipboardList },
-          { id: 'evidencias' as const, label: 'Evidências', icon: FileSearch },
-          { id: 'mercado' as const, label: 'Mercado', icon: TrendingUp },
+          { id: 'evidencias' as const, label: 'Fontes', icon: FileSearch },
+          { id: 'mercado' as const, label: 'Pesquisa de mercado', icon: TrendingUp },
           { id: 'analise' as const, label: 'Análise', icon: LineChart },
           { id: 'arquivos' as const, label: 'Arquivos', icon: FileTextIcon },
           { id: 'board' as const, label: 'Board', icon: Pencil },
@@ -147,7 +147,7 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
         <ResumoTab prospeccao={prospeccao} principal={principal} onSaved={loadData} />
       )}
 
-      {tab === 'ficha' && <ProspeccaoFicha prospeccaoId={id} />}
+      {tab === 'ficha' && <ProspeccaoFicha prospeccaoId={id} linkLeilao={prospeccao.link_leilao} />}
 
       {tab === 'evidencias' && <ProspeccaoEvidencias prospeccaoId={id} />}
 

@@ -52,12 +52,13 @@ const STATUS_COLOR: Record<ProspeccaoFichaType['status'], string> = {
   validada: '#10b981',
 }
 
-export function ProspeccaoFicha({ prospeccaoId }: { prospeccaoId: string }) {
+export function ProspeccaoFicha({ prospeccaoId, linkLeilao }: { prospeccaoId: string; linkLeilao?: string | null }) {
   const { currentProfile } = useProfile()
   const [ficha, setFicha] = useState<ProspeccaoFichaType | null>(null)
   const [loading, setLoading] = useState(true)
   const [fonteTipo, setFonteTipo] = useState<'link' | 'pdf' | 'imagem'>('link')
   const [fonteUrl, setFonteUrl] = useState('')
+  const [fonteHerdada, setFonteHerdada] = useState(false)
   const [extraindo, setExtraindo] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [confirmados, setConfirmados] = useState<Record<string, string>>({})
@@ -75,7 +76,23 @@ export function ProspeccaoFicha({ prospeccaoId }: { prospeccaoId: string }) {
       for (const [k, v] of Object.entries(f.dados_confirmados || {})) if (!(k in merge)) merge[k] = fmtValor(v)
       setConfirmados(merge)
       setFonteTipo(f.fonte_tipo || 'link')
-      setFonteUrl(f.fonte_url || '')
+      // A ficha já tem fonte própria — nunca sobrescrever com o link da
+      // Prospecção, mesmo que ele exista.
+      if (f.fonte_url) {
+        setFonteUrl(f.fonte_url)
+        setFonteHerdada(false)
+      } else if (linkLeilao) {
+        setFonteUrl(linkLeilao)
+        setFonteHerdada(true)
+      } else {
+        setFonteUrl('')
+        setFonteHerdada(false)
+      }
+    } else if (linkLeilao) {
+      // Ainda não existe ficha nenhuma: herda o link do leilão já cadastrado
+      // na Prospecção, para o usuário não precisar redigitar.
+      setFonteUrl(linkLeilao)
+      setFonteHerdada(true)
     }
     setLoading(false)
   }
@@ -209,9 +226,14 @@ export function ProspeccaoFicha({ prospeccaoId }: { prospeccaoId: string }) {
           </Select>
 
           {fonteTipo === 'link' ? (
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Input placeholder="https://..." value={fonteUrl} onChange={e => setFonteUrl(e.target.value)} className="flex-1" />
-              <Button onClick={extrairDeLink} loading={extraindo} icon={<Sparkles size={14} />} className="flex-shrink-0">Extrair da fonte</Button>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input placeholder="https://..." value={fonteUrl} onChange={e => { setFonteUrl(e.target.value); setFonteHerdada(false) }} className="flex-1" />
+                <Button onClick={extrairDeLink} loading={extraindo} icon={<Sparkles size={14} />} className="flex-shrink-0">Extrair da fonte</Button>
+              </div>
+              {fonteHerdada && fonteUrl && (
+                <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}><Link2 size={12} /> Link herdado da Prospecção (leilão) — pode extrair direto ou trocar por outro.</p>
+              )}
             </div>
           ) : (
             <label className="flex items-center justify-center gap-2 border-2 border-dashed rounded-xl py-6 cursor-pointer transition-colors hover:bg-[var(--bg-secondary)]" style={{ borderColor: 'var(--border)' }}>

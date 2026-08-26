@@ -114,7 +114,7 @@ export function ProspeccaoEvidencias({ prospeccaoId }: { prospeccaoId: string })
       <div className="card p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Evidências</h2>
+            <h2 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Fontes</h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
               O que já se sabe sobre a oportunidade — pesquisas, comparáveis, dados do edital. Serve de base para as premissas dos Cenários (aba Análise).
             </p>
