@@ -11,7 +11,7 @@ import { useEffect, useState, use } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus, Building2, ArrowUpRight, Trash2, FileSearch, ClipboardList, TrendingUp } from 'lucide-react'
+import { ArrowLeft, Info, LineChart, FileText as FileTextIcon, LayoutDashboard, Save, Pencil, ImagePlus, Building2, ArrowUpRight, Trash2, ClipboardList, TrendingUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { usePermission } from '@/lib/permissions'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -124,11 +124,10 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
 
       <div className="flex gap-1 p-1 rounded-lg w-fit max-w-full overflow-x-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', WebkitOverflowScrolling: 'touch' }}>
         {[
-          { id: 'resumo' as const, label: 'Resumo', icon: LayoutDashboard },
-          { id: 'ficha' as const, label: 'Ficha', icon: ClipboardList },
-          { id: 'evidencias' as const, label: 'Fontes', icon: FileSearch },
+          { id: 'resumo' as const, label: 'Visão geral', icon: LayoutDashboard },
+          { id: 'ficha' as const, label: 'Imóvel', icon: ClipboardList },
           { id: 'mercado' as const, label: 'Pesquisa de mercado', icon: TrendingUp },
-          { id: 'analise' as const, label: 'Análise', icon: LineChart },
+          { id: 'analise' as const, label: 'Viabilidade', icon: LineChart },
           { id: 'arquivos' as const, label: 'Arquivos', icon: FileTextIcon },
           { id: 'board' as const, label: 'Board', icon: Pencil },
         ].map(t => (
@@ -147,9 +146,12 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
         <ResumoTab prospeccao={prospeccao} principal={principal} onSaved={loadData} />
       )}
 
-      {tab === 'ficha' && <ProspeccaoFicha prospeccaoId={id} linkLeilao={prospeccao.link_leilao} />}
-
-      {tab === 'evidencias' && <ProspeccaoEvidencias prospeccaoId={id} />}
+      {tab === 'ficha' && (
+        <div className="flex flex-col gap-4">
+          <ProspeccaoFicha prospeccaoId={id} linkLeilao={prospeccao.link_leilao} />
+          <ProspeccaoEvidencias prospeccaoId={id} />
+        </div>
+      )}
 
       {tab === 'mercado' && <ProspeccaoMercado prospeccaoId={id} />}
 

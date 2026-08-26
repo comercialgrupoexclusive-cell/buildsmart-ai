@@ -393,11 +393,11 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       <div className="max-w-full overflow-x-auto pb-1">
         <div className="flex items-center gap-1 p-1 rounded-lg w-max" style={{ background: 'var(--bg-secondary)' }}>
         {(projeto.contexto === 'investimento' ? [
-          { key: 'investimento' as const, label: 'Visão Geral',  icon: Landmark },
+          { key: 'investimento' as const, label: 'Visão geral',  icon: Landmark },
           { key: 'estrutura' as const,    label: 'Estrutura',    icon: LayoutList },
           { key: 'orcamento' as const,    label: 'Orçamento',    icon: Calculator },
-          { key: 'cronograma' as const,   label: 'Cronograma',   icon: CalendarDays },
-          { key: 'tarefas' as const,      label: 'Tarefas',      icon: ClipboardList },
+          { key: 'cronograma' as const,   label: 'Planejamento', icon: CalendarDays },
+          { key: 'tarefas' as const,      label: 'Execução/Tarefas', icon: ClipboardList },
           { key: 'board' as const,        label: 'Board',        icon: LayoutDashboard },
           { key: 'tour' as const,         label: 'Tour 360°',    icon: ImagePlus },
           { key: 'dados' as const,        label: 'Dados Gerais', icon: Info },

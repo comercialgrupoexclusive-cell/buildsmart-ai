@@ -54,6 +54,7 @@ const EMPTY_FORM = {
   template_id: '',
   responsavel_tecnico_id: '',
   drive_folder_url: '',
+  eh_investimento: false,
 }
 
 function extractDriveFolderId(url: string): string | null {
@@ -145,6 +146,7 @@ export default function ProjetosPage() {
       drive_folder_url: driveUrl || null,
       drive_folder_id: extractDriveFolderId(driveUrl),
       foto_url,
+      contexto: form.eh_investimento ? 'investimento' as const : 'projeto' as const,
     }
     const { data, error } = await supabase.from('projetos').insert(payload).select().single()
     if (!error && data) {
@@ -620,6 +622,22 @@ export default function ProjetosPage() {
                   </p>
                 )}
               </Field>
+
+              {/* Cadastro direto de Imóvel de investimento (sem passar por uma
+                  Prospecção do Laboratório Investidor) */}
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.eh_investimento}
+                    onChange={e => setForm(f => ({ ...f, eh_investimento: e.target.checked }))}
+                  />
+                  <span className="text-sm" style={{ color: 'var(--text-primary)' }}>Este é um imóvel de investimento</span>
+                </label>
+                <p className="text-xs mt-1 ml-6" style={{ color: 'var(--text-secondary)' }}>
+                  Sem prospecção de origem — abre direto como Imóvel, com as abas Estrutura/Orçamento/Planejamento normalmente.
+                </p>
+              </div>
 
               {/* Foto do projeto */}
               <Field label="Foto do projeto">

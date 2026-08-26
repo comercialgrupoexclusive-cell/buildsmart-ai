@@ -6,9 +6,9 @@
 // automáticos, usando o motor puro de lib/investidor-calculadora.ts (mesma
 // lógica que a Luiza usará nos marcos futuros — ver princípio "não duplicar
 // lógica entre frontend e Luiza" da especificação).
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  Plus, Pencil, Copy, Trash2, Star, ArrowLeft, Save, TrendingUp, TrendingDown, Calculator,
+  Plus, Pencil, Copy, Trash2, Star, ArrowLeft, Save, TrendingUp, TrendingDown, Calculator, Loader2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Input, Select } from '@/components/ui/Input'
@@ -17,6 +17,18 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
 import { calcularCenario, type PremissasCenario } from '@/lib/investidor-calculadora'
 import type { ProspeccaoCenario } from '@/lib/types'
+
+// Premissas genéricas usadas como ponto de partida do cenário "Base"
+// auto-criado — as mesmas porcentagens que já eram o valor padrão do
+// formulário manual (FORM_VAZIO abaixo). Não são um "dado" do imóvel, são a
+// mesma suposição de trabalho que a Luiza/usuário já usava antes.
+const PREMISSAS_GENERICAS_BASE = {
+  comissao_leiloeiro: 0.05,
+  itbi: 0.03,
+  corretagem: 0.06,
+  imposto_ganho_capital: 0.15,
+  entrada: 0.20,
+}
 
 export const MODALIDADE_LABEL: Record<ProspeccaoCenario['modalidade'], string> = {
   vista: 'À vista',
@@ -105,9 +117,76 @@ export function ProspeccaoCenarios({
   prospeccaoId, cenarios, onChanged,
 }: { prospeccaoId: string; cenarios: ProspeccaoCenario[]; onChanged: () => void }) {
   const [modo, setModo] = useState<'lista' | 'novo' | string>('lista')
+  const [criandoBase, setCriandoBase] = useState(false)
+  const [erroBase, setErroBase] = useState<string | null>(null)
+  const jaTentouRef = useRef(false)
+
+  async function criarCenarioBase() {
+    setCriandoBase(true)
+    setErroBase(null)
+    const supabase = createClient()
+    const [{ data: ficha }, { data: analises }] = await Promise.all([
+      supabase.from('prospeccao_ficha').select('dados_confirmados').eq('prospeccao_id', prospeccaoId).maybeSingle(),
+      supabase.from('prospeccao_analises_mercado').select('faixa_base').eq('prospeccao_id', prospeccaoId).order('created_at', { ascending: false }).limit(1),
+    ])
+    const precoConfirmado = (ficha?.dados_confirmados as Record<string, unknown> | null)?.preco_anunciado
+    const valorArrematacao = precoConfirmado != null && !Number.isNaN(Number(precoConfirmado)) ? Number(precoConfirmado) : null
+    const faixaBaseMercado: number | null = analises?.[0]?.faixa_base ?? null
+
+    const premissas: PremissasCenario = {
+      modalidade: 'vista', tipo_aquisicao: 'leilao',
+      valor_arrematacao: valorArrematacao, valor_venda_estimado: faixaBaseMercado,
+      registro: null, advogado_desocupacao: null,
+      reforma: null, outros_custos: null,
+      prazo_venda_meses: null, iptu: null, condominio: null,
+      taxa_juros: null, prazo_financiamento_meses: null,
+      ...PREMISSAS_GENERICAS_BASE,
+    }
+    const resultado = calcularCenario(premissas)
+    const { error } = await supabase.from('prospeccao_cenarios').insert({
+      prospeccao_id: prospeccaoId, nome: 'Base', principal: true, ...premissas, ...resultado,
+    })
+    setCriandoBase(false)
+    if (error) { setErroBase(`Não foi possível criar o cenário Base automaticamente: ${error.message}`); return }
+    onChanged()
+  }
+
+  // Ajuste de produto: a tela não começa mais vazia com só um botão "+ Novo
+  // cenário" — na primeira vez que a Prospecção não tem nenhum cenário
+  // ainda, criamos automaticamente um cenário "Base" já preenchido com o
+  // que já se sabe (preço anunciado da Ficha, valor de mercado da última
+  // Análise de Mercado encerrada). Campos sem dado real ficam null (a UI
+  // de ListaCenarios/EditorCenario já mostra "—"/"A conferir" para eles —
+  // mesmo padrão do orçamento preliminar). Nenhum dado fictício é criado:
+  // só o que já existe de verdade na prospecção, mais as mesmas premissas
+  // percentuais genéricas que o formulário manual já usava por padrão.
+  useEffect(() => {
+    if (cenarios.length > 0 || jaTentouRef.current) return
+    jaTentouRef.current = true
+    void criarCenarioBase()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prospeccaoId, cenarios.length])
+
+  if (criandoBase) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-16">
+        <Loader2 size={20} className="animate-spin" style={{ color: 'var(--accent)' }} />
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Preparando o cenário Base com os dados já conhecidos…</p>
+      </div>
+    )
+  }
 
   if (modo === 'lista') {
-    return <ListaCenarios cenarios={cenarios} onNovo={() => setModo('novo')} onEditar={id => setModo(id)} onChanged={onChanged} />
+    return (
+      <div className="flex flex-col gap-4">
+        {erroBase && (
+          <div className="card p-4 flex items-center gap-2" style={{ borderLeft: '3px solid var(--danger)' }}>
+            <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{erroBase}</p>
+          </div>
+        )}
+        <ListaCenarios cenarios={cenarios} onNovo={() => setModo('novo')} onEditar={id => setModo(id)} onChanged={onChanged} />
+      </div>
+    )
   }
 
   const editando = modo === 'novo' ? null : (cenarios.find(c => c.id === modo) ?? null)

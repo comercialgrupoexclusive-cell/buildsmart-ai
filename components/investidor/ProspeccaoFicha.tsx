@@ -208,8 +208,8 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao }: { prospeccaoId: st
       <div className="card p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <div>
-            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Ficha da Prospecção</h2>
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Fonte é evidência, não verdade. A Luiza extrai; você confirma ou corrige.</p>
+            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Dados do imóvel</h2>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>O que o anúncio diz é evidência, não verdade — a Luiza extrai, você confirma ou corrige.</p>
           </div>
           {ficha && (
             <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full" style={{ background: `${STATUS_COLOR[ficha.status]}22`, color: STATUS_COLOR[ficha.status] }}>

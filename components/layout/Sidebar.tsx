@@ -12,12 +12,12 @@ import { useProfile } from '@/lib/profile-context'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/investidor', label: 'Investidor', icon: Landmark },
   { href: '/tarefas', label: 'Tarefas', icon: ClipboardList },
   { href: '/projetos', label: 'Projetos', icon: FolderOpen },
   { href: '/obras', label: 'Obras', icon: HardHat },
   { href: '/orcamentos', label: 'Orçamentos', icon: FileText },
   { href: '/canteiro', label: 'Canteiro', icon: Hammer },
-  { href: '/investidor', label: 'Investidor', icon: Landmark },
   { href: '/buildassist', label: 'BuildAssistente IA', icon: BotMessageSquare, featured: true },
 ]
 

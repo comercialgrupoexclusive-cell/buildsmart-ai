@@ -1,16 +1,26 @@
 'use client'
 
-// Skill 1 — Pesquisa e Análise de Mercado Imobiliário (Laboratório
-// Investidor). Fluxo desta tela: PESQUISA DE COMPARÁVEIS → RESULTADOS
-// BRUTOS → SELEÇÃO/FAVORITOS → ANÁLISE IA → ENCERRAR.
+// Pesquisa de mercado (Laboratório Investidor). Fluxo desta tela: PESQUISA
+// DE COMPARÁVEIS → RESULTADOS BRUTOS → SELEÇÃO/FAVORITOS → CONCLUSÃO. A
+// busca (executarPesquisaComparaveis, motor determinístico com web_search
+// obrigatório) NÃO foi alterada neste ajuste de UX — só a apresentação.
+//
+// Ajuste de produto: a conclusão não exige mais um botão "Analisar
+// mercado" separado. Média/mediana/faixa de preço são calculadas aqui,
+// no cliente, direto dos comparáveis selecionados (sem IA, sempre
+// disponíveis). O resumo curto da Luiza + a faixa conservadora/base/
+// otimista continuam vindo do mesmo endpoint de sempre
+// (/api/investidor/mercado, action=analisar_mercado), só que disparados
+// automaticamente (com debounce) quando a seleção muda, em vez de
+// exigir um clique extra.
 //
 // Orçamento/reforma NÃO pertence a esta skill — não implementado aqui.
 // "Favorito" é só um sinal do usuário ("considero interessante"); a
 // qualidade técnica do comparável continua sendo responsabilidade da
 // análise. faixa_conservadora/base/otimista são ESTIMATIVAS da IA, nunca
 // fatos observados — exibidas com esse aviso.
-import { useEffect, useState } from 'react'
-import { Search, ExternalLink, Bookmark, Star, TrendingUp, AlertTriangle, FlagOff } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Search, ExternalLink, Bookmark, Star, AlertTriangle, FlagOff, Loader2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
@@ -24,6 +34,30 @@ const SIMILARIDADE_LABEL: Record<string, string> = {
   mesma_rua: 'Mesma rua',
   entorno: 'Entorno',
   bairro: 'Bairro',
+}
+
+const SIMILARIDADE_RANK: Record<string, number> = {
+  mesmo_predio: 0, mesma_rua: 1, entorno: 2, bairro: 3,
+}
+
+function rankSimilaridade(c: ProspeccaoComparavel): number {
+  return c.similaridade ? (SIMILARIDADE_RANK[c.similaridade] ?? 4) : 5
+}
+
+function ordenarPorSimilaridade(lista: ProspeccaoComparavel[]): ProspeccaoComparavel[] {
+  return [...lista].sort((a, b) => rankSimilaridade(a) - rankSimilaridade(b))
+}
+
+function media(nums: number[]): number | null {
+  if (!nums.length) return null
+  return nums.reduce((a, b) => a + b, 0) / nums.length
+}
+
+function mediana(nums: number[]): number | null {
+  if (!nums.length) return null
+  const s = [...nums].sort((a, b) => a - b)
+  const meio = Math.floor(s.length / 2)
+  return s.length % 2 !== 0 ? s[meio] : (s[meio - 1] + s[meio]) / 2
 }
 
 type AnaliseAtual = {
@@ -48,8 +82,10 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
   const [analisando, setAnalisando] = useState(false)
   const [encerrando, setEncerrando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [erroAnalise, setErroAnalise] = useState<string | null>(null)
   const [analiseAtual, setAnaliseAtual] = useState<AnaliseAtual | null>(null)
   const [buscaSemResultados, setBuscaSemResultados] = useState(false)
+  const assinaturaAnalisadaRef = useRef<string | null>(null)
 
   async function carregar() {
     setLoading(true)
@@ -106,9 +142,22 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
   }
 
   const selecionados = comparaveis.filter(c => c.salvo || c.favorito)
+  const selecionadosOrdenados = ordenarPorSimilaridade(selecionados)
+  const assinaturaSelecao = selecionados.map(c => c.id).sort().join(',')
+
+  const precosSelecionados = selecionados.filter(c => c.preco != null).map(c => c.preco as number)
+  const m2Selecionados = selecionados.filter(c => c.preco_m2 != null).map(c => c.preco_m2 as number)
+  const estatisticas = {
+    mediaPreco: media(precosSelecionados),
+    medianaPreco: mediana(precosSelecionados),
+    mediaM2: media(m2Selecionados),
+    medianaM2: mediana(m2Selecionados),
+    minPreco: precosSelecionados.length ? Math.min(...precosSelecionados) : null,
+    maxPreco: precosSelecionados.length ? Math.max(...precosSelecionados) : null,
+  }
 
   async function analisarMercado() {
-    setErro(null)
+    setErroAnalise(null)
     setAnalisando(true)
     try {
       const res = await fetch('/api/investidor/mercado', {
@@ -119,14 +168,36 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Falha na análise.')
       if (data.blocked) throw new Error(data.message)
-      if (!data.analiseMercado) throw new Error('A Luiza não retornou uma análise estruturada. Tente novamente.')
+      if (!data.analiseMercado) throw new Error('A Luiza não retornou uma análise estruturada.')
       setAnaliseAtual(data.analiseMercado as AnaliseAtual)
     } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Não consegui analisar o mercado agora.')
+      setErroAnalise(err instanceof Error ? err.message : 'Não consegui gerar o resumo automático agora.')
     } finally {
       setAnalisando(false)
     }
   }
+
+  // Ajuste de produto: substitui o botão "Analisar mercado" por um disparo
+  // automático (com debounce) sempre que a seleção de comparáveis muda —
+  // a pesquisa termina em conclusão sem exigir mais um clique. As
+  // estatísticas (média/mediana/faixa) acima já aparecem sem depender
+  // disto; isto só busca o resumo em texto da Luiza + a faixa estimada.
+  useEffect(() => {
+    // Não precisa "limpar" analiseAtual aqui: com 0 selecionados a própria
+    // UI abaixo já esconde a seção de conclusão, então nada fica exibido
+    // desatualizado — evita setState síncrono dentro do efeito.
+    if (selecionados.length === 0) {
+      assinaturaAnalisadaRef.current = null
+      return
+    }
+    if (assinaturaSelecao === assinaturaAnalisadaRef.current) return
+    const timer = setTimeout(() => {
+      assinaturaAnalisadaRef.current = assinaturaSelecao
+      void analisarMercado()
+    }, 900)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assinaturaSelecao])
 
   async function encerrarAnalise() {
     if (!analiseAtual) return
@@ -148,7 +219,7 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
       criado_por: currentProfile?.name || null,
     })
     setEncerrando(false)
-    if (error) { setErro(`Não consegui encerrar a análise: ${error.message}`); return }
+    if (error) { setErroAnalise(`Não consegui encerrar a análise: ${error.message}`); return }
     setAnaliseAtual(null)
     void carregar()
   }
@@ -214,7 +285,7 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
         <EmptyState icon={Search} title="Nenhum comparável ainda" description="Clique em 'Pesquisar comparáveis' para a Luiza buscar via web_search." />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {comparaveis.map(c => (
+          {ordenarPorSimilaridade(comparaveis).map(c => (
             <div key={c.id} className="card p-4 flex flex-col gap-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -253,16 +324,49 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
       )}
 
       <div className="card p-5">
-        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-          <div>
-            <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Análise de Mercado</h2>
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Usa a ficha validada, evidências e os comparáveis salvos/favoritados ({selecionados.length} selecionado{selecionados.length === 1 ? '' : 's'}).</p>
-          </div>
-          <Button onClick={analisarMercado} loading={analisando} disabled={selecionados.length === 0} icon={<TrendingUp size={14} />} className="flex-shrink-0">Analisar mercado</Button>
+        <div className="mb-3">
+          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Conclusão</h2>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Salve ou favorite os comparáveis que valem a pena considerar — a conclusão abaixo se atualiza sozinha, sem precisar de outro botão.
+          </p>
         </div>
 
-        {analiseAtual && (
+        {selecionados.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum comparável selecionado ainda. Toque no marcador ou na estrela de um comparável acima para ver a conclusão aqui.</p>
+        ) : (
           <div className="flex flex-col gap-4 mt-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Estatistica label="Média" valor={fmt(estatisticas.mediaPreco)} />
+              <Estatistica label="Mediana" valor={fmt(estatisticas.medianaPreco)} />
+              <Estatistica label="Faixa observada" valor={estatisticas.minPreco != null ? `${fmt(estatisticas.minPreco)} – ${fmt(estatisticas.maxPreco)}` : '—'} />
+              <Estatistica label="Mediana R$/m²" valor={estatisticas.medianaM2 != null ? `${formatCurrency(estatisticas.medianaM2)}/m²` : '—'} />
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    {['Referência', 'Semelhança', 'Preço', 'Área', 'R$/m²', 'Diferenças', ''].map(col => (
+                      <th key={col} className="text-left font-medium px-2 py-1.5 whitespace-nowrap" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {selecionadosOrdenados.map(c => (
+                    <tr key={c.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td className="px-2 py-1.5 max-w-[220px] truncate" style={{ color: 'var(--text-primary)' }}>{c.titulo || c.fonte || 'Comparável'}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>{c.similaridade ? (SIMILARIDADE_LABEL[c.similaridade] || c.similaridade) : '—'}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(c.preco)}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums" style={{ color: 'var(--text-secondary)' }}>{c.area != null ? `${c.area} m²` : '—'}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap tabular-nums" style={{ color: 'var(--text-secondary)' }}>{c.preco_m2 != null ? `${formatCurrency(c.preco_m2)}/m²` : '—'}</td>
+                      <td className="px-2 py-1.5 max-w-[220px] truncate italic" style={{ color: 'var(--text-secondary)' }}>{c.diferencas || '—'}</td>
+                      <td className="px-2 py-1.5 text-center">{c.favorito && <Star size={13} fill="#f59e0b" style={{ color: '#f59e0b' }} className="inline" />}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>Preços</p>
@@ -298,35 +402,47 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
               </div>
             </div>
 
-            <div>
-              <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>Faixa de mercado — ESTIMATIVA DA IA, não um fato observado</p>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="card p-3 text-center" style={{ borderTop: '3px solid #94a3b8' }}>
-                  <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>Conservadora</p>
-                  <p className="text-sm font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(analiseAtual.faixa_conservadora)}</p>
-                </div>
-                <div className="card p-3 text-center" style={{ borderTop: '3px solid var(--accent)' }}>
-                  <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>Base</p>
-                  <p className="text-sm font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(analiseAtual.faixa_base)}</p>
-                </div>
-                <div className="card p-3 text-center" style={{ borderTop: '3px solid #10b981' }}>
-                  <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>Otimista</p>
-                  <p className="text-sm font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(analiseAtual.faixa_otimista)}</p>
-                </div>
-              </div>
-            </div>
+            {analisando && !analiseAtual && (
+              <p className="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}><Loader2 size={14} className="animate-spin" /> Gerando resumo automático da Luiza…</p>
+            )}
 
-            <div className="card p-4" style={{ background: 'var(--bg-secondary)' }}>
-              <p className="text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Análise da Luiza</p>
-              <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{analiseAtual.resumo}</p>
-              {analiseAtual.pendencias && (
-                <p className="text-xs mt-2 flex items-start gap-1.5" style={{ color: '#f59e0b' }}><AlertTriangle size={12} className="mt-0.5 flex-shrink-0" /> {analiseAtual.pendencias}</p>
-              )}
-            </div>
+            {erroAnalise && !analiseAtual && (
+              <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}><AlertTriangle size={12} /> {erroAnalise} (as estatísticas acima já são a conclusão útil da pesquisa mesmo sem o resumo da Luiza).</p>
+            )}
 
-            <div className="flex justify-end">
-              <Button onClick={encerrarAnalise} loading={encerrando}>Encerrar Análise de Mercado</Button>
-            </div>
+            {analiseAtual && (
+              <>
+                <div>
+                  <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>Faixa de mercado — ESTIMATIVA DA IA, não um fato observado</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="card p-3 text-center" style={{ borderTop: '3px solid #94a3b8' }}>
+                      <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>Conservadora</p>
+                      <p className="text-sm font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(analiseAtual.faixa_conservadora)}</p>
+                    </div>
+                    <div className="card p-3 text-center" style={{ borderTop: '3px solid var(--accent)' }}>
+                      <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>Base</p>
+                      <p className="text-sm font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(analiseAtual.faixa_base)}</p>
+                    </div>
+                    <div className="card p-3 text-center" style={{ borderTop: '3px solid #10b981' }}>
+                      <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>Otimista</p>
+                      <p className="text-sm font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(analiseAtual.faixa_otimista)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card p-4" style={{ background: 'var(--bg-secondary)' }}>
+                  <p className="text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Resumo da Luiza</p>
+                  <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{analiseAtual.resumo}</p>
+                  {analiseAtual.pendencias && (
+                    <p className="text-xs mt-2 flex items-start gap-1.5" style={{ color: '#f59e0b' }}><AlertTriangle size={12} className="mt-0.5 flex-shrink-0" /> {analiseAtual.pendencias}</p>
+                  )}
+                </div>
+
+                <div className="flex justify-end">
+                  <Button onClick={encerrarAnalise} loading={encerrando}>Encerrar Análise de Mercado</Button>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -349,6 +465,15 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function Estatistica({ label, valor }: { label: string; valor: string }) {
+  return (
+    <div className="card p-3 text-center">
+      <p className="text-[10px] font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</p>
+      <p className="text-sm font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{valor}</p>
     </div>
   )
 }

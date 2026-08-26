@@ -43,11 +43,15 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
   }
 
   if (!prospeccao) {
+    // Cadastro direto (sem passar por uma Prospecção) é um caminho válido de
+    // criar um Imóvel — não é um erro nem uma inconsistência de dados. As
+    // outras abas (Estrutura, Orçamento, Planejamento...) funcionam
+    // normalmente mesmo sem prospecção de origem.
     return (
       <EmptyState
         icon={Landmark}
-        title="Nenhuma prospecção vinculada"
-        description="Este projeto está marcado como investimento, mas não foi encontrado o vínculo com a prospecção de origem."
+        title="Cadastro direto"
+        description="Este imóvel foi cadastrado diretamente, sem uma prospecção de origem — não há dados de viabilidade prevista para mostrar aqui."
       />
     )
   }
