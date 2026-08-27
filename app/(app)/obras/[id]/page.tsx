@@ -300,6 +300,16 @@ export default function ObraPage({ params }: { params: Promise<{ id: string }> }
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between flex-wrap gap-3">
                 <div>
+                  {/* Estabilização V1: Project e Obra têm telas parecidas — este
+                      selo existe só para deixar inequívoco em qual das duas o
+                      usuário está, reduzindo gravação no contexto errado (não
+                      é um redesenho). */}
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide mb-1"
+                    style={{ background: 'rgba(59,123,248,0.15)', color: 'var(--accent)' }}
+                  >
+                    <HardHat size={10} /> Obra
+                  </span>
                   <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
                     {obra.nome}
                   </h1>

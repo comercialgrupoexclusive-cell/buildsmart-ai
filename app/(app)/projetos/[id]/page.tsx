@@ -426,6 +426,15 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           <ArrowLeft size={18} />
         </Link>
         <div className="flex-1 min-w-0">
+          {/* Estabilização V1: Project e Obra têm telas parecidas — este selo
+              existe só para deixar inequívoco em qual das duas o usuário está,
+              reduzindo gravação no contexto errado (não é um redesenho). */}
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide mb-1"
+            style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--success)' }}
+          >
+            <LayoutList size={10} /> Project
+          </span>
           <h1 className="text-xl font-bold truncate" style={{ color: 'var(--text-primary)' }}>{projeto.nome}</h1>
           <div className="flex items-center gap-2 min-w-0">
             {projeto.cliente && <p className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>{projeto.cliente}</p>}
