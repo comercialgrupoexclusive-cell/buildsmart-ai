@@ -30,7 +30,31 @@ const STATUS_LABEL: Record<string, string> = {
   arquivado: 'Arquivado',
 }
 
-export function ProjetoOrcamentosPanel({ projetoId, projetoNome }: { projetoId: string; projetoNome?: string }) {
+type OrcamentoRow = Omit<OrcamentoResumo, 'total' | 'totalItens' | 'totalEtapas'>
+
+// Estabilização V1: o orçamento que realmente virou obra pode ter sido
+// vinculado por fora do fluxo "Iniciar Obra" (ex.: cadastro direto da obra)
+// e nesse caso fica com projeto_id nulo — nunca apareceria só pelo filtro
+// por projeto_id, mesmo sendo o orçamento real que a Obra está usando.
+// Mescla o que veio por projeto_id com o que veio por obra_id (deduplicado
+// por id) para não deixar esse orçamento "órfão" invisível do lado do
+// Project (caso real: Jardim Allegra). Não migra nem religa nada no banco —
+// só garante que ele apareça na lista.
+export function mesclarOrcamentosPorProjetoEObra(porProjeto: OrcamentoRow[] | null, porObra: OrcamentoRow[] | null): OrcamentoRow[] {
+  const porId = new Map<string, OrcamentoRow>()
+  for (const o of [...(porProjeto || []), ...(porObra || [])]) porId.set(o.id, o)
+  return [...porId.values()]
+}
+
+// O orçamento operacional da obra (obra_id preenchido) é o que reflete a
+// realidade da execução — prioriza ele sobre is_principal (que é uma
+// marcação da fase de projeto, anterior a "Iniciar Obra", e que pode ter
+// ficado num orçamento diferente do que a obra realmente usa).
+export function escolherOrcamentoPadrao(lista: Pick<OrcamentoRow, 'id' | 'obra_id' | 'is_principal'>[]): string | null {
+  return lista.find(o => o.obra_id)?.id ?? lista.find(o => o.is_principal)?.id ?? lista[0]?.id ?? null
+}
+
+export function ProjetoOrcamentosPanel({ projetoId, projetoNome, obraId }: { projetoId: string; projetoNome?: string; obraId?: string | null }) {
   const supabase = createClient()
   const [orcamentos, setOrcamentos] = useState<OrcamentoResumo[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,14 +69,21 @@ export function ProjetoOrcamentosPanel({ projetoId, projetoNome }: { projetoId: 
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase
-      .from('orcamentos')
-      .select('id, nome, versao, status, is_principal, bdi_percentual, created_at, obra_id')
-      .eq('projeto_id', projetoId)
-      .order('is_principal', { ascending: false })
-      .order('created_at', { ascending: true })
-    const lista = ((data || []) as Omit<OrcamentoResumo, 'total' | 'totalItens' | 'totalEtapas'>[])
-      .map(o => ({ ...o, total: 0, totalItens: 0, totalEtapas: 0 }))
+    const [{ data }, { data: dataObra }]: [{ data: OrcamentoRow[] | null }, { data: OrcamentoRow[] | null }] = await Promise.all([
+      supabase
+        .from('orcamentos')
+        .select('id, nome, versao, status, is_principal, bdi_percentual, created_at, obra_id')
+        .eq('projeto_id', projetoId)
+        .order('is_principal', { ascending: false })
+        .order('created_at', { ascending: true }),
+      obraId
+        ? supabase
+            .from('orcamentos')
+            .select('id, nome, versao, status, is_principal, bdi_percentual, created_at, obra_id')
+            .eq('obra_id', obraId)
+        : Promise.resolve({ data: null }),
+    ])
+    const lista = mesclarOrcamentosPorProjetoEObra(data, dataObra).map(o => ({ ...o, total: 0, totalItens: 0, totalEtapas: 0 }))
 
     if (lista.length > 0) {
       const ids = lista.map(o => o.id)
@@ -80,7 +111,7 @@ export function ProjetoOrcamentosPanel({ projetoId, projetoNome }: { projetoId: 
     }
 
     setOrcamentos(lista)
-    setSelecionadoId(prev => (prev && lista.some(o => o.id === prev)) ? prev : (lista.find(o => o.is_principal)?.id || lista[0]?.id || null))
+    setSelecionadoId(prev => (prev && lista.some(o => o.id === prev)) ? prev : escolherOrcamentoPadrao(lista))
     setLoading(false)
   }
 

@@ -33,7 +33,9 @@ async function gerarResumoObra(db: DB, obraId: string, instrucaoExtra: string | 
     db.from('etapas').select('nome,status,data_inicio,data_fim').eq('obra_id', obraId).order('data_inicio').limit(20),
     db.from('materiais').select('descricao,quantidade_total,unidade,status_compra,data_necessidade')
       .eq('obra_id', obraId).neq('status_compra', 'comprado').order('data_necessidade').limit(15),
-    db.from('medicoes').select('percentual_executado,observacao,created_at').eq('obra_id', obraId)
+    // eixo='fisico' — medicoes também guarda mão de obra/gerenciamento na
+    // mesma coluna; sem o filtro, percentual_executado podia vir de qualquer eixo.
+    db.from('medicoes').select('percentual_executado,observacao,created_at').eq('obra_id', obraId).eq('eixo', 'fisico')
       .order('created_at', { ascending: false }).limit(3),
   ])
 

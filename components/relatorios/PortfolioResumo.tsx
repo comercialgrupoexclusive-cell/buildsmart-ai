@@ -54,7 +54,11 @@ export function PortfolioResumo() {
           .limit(1),
         supabase.from('etapas').select('status').eq('obra_id', obra.id),
         supabase.from('materiais').select('status_compra').eq('obra_id', obra.id),
-        supabase.from('medicoes').select('percentual_executado').eq('obra_id', obra.id).order('periodo_inicio', { ascending: false }).limit(1),
+        // eixo='fisico' — medicoes também guarda mão de obra/gerenciamento na
+        // mesma coluna (ver migration medicoes_por_orcamento); sem o filtro,
+        // "Avanço físico" podia mostrar o percentual da medição mais recente
+        // de QUALQUER eixo.
+        supabase.from('medicoes').select('percentual_executado').eq('obra_id', obra.id).eq('eixo', 'fisico').order('periodo_inicio', { ascending: false }).limit(1),
       ])
 
       const orc = (orcRes.data || [])[0]

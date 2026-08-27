@@ -542,7 +542,7 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
       )}
 
       {tab === 'orcamento' && (
-        <ProjetoOrcamentosPanel projetoId={projeto.id} projetoNome={projeto.nome} />
+        <ProjetoOrcamentosPanel projetoId={projeto.id} projetoNome={projeto.nome} obraId={projeto.obra_id} />
       )}
 
       {tab === 'estrutura' && (
