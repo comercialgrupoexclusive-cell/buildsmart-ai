@@ -48,13 +48,33 @@ export type PremissasCenario = Pick<
   | 'prazo_financiamento_meses'
 >
 
-export type ResultadoCenario = {
+// Resultado bruto interno — sempre números (a mesma lógica de sempre), só
+// usado por calcularVista/calcularFinanciado. O que vira público
+// (ResultadoCenario) passa por calcularCenario, que decide o que é válido
+// mostrar de acordo com os dados disponíveis (ver comentário abaixo).
+type ResultadoBruto = {
   percentual_financiado: number | null
   valor_financiado: number | null
   investimento_total: number
   valor_liquido_venda: number
   lucro: number
   rentabilidade: number
+}
+
+// Hotfix (Ajuste de fluxo do Investidor): sem valor de aquisição e/ou valor
+// de venda estimado, lucro/rentabilidade não são um resultado válido — antes
+// o motor tratava o campo ausente como 0 (via n()) e calculava, por exemplo,
+// uma "rentabilidade de -85%" para um imóvel que só tinha o valor de
+// aquisição preenchido (caso real: "Bella teste pesquisa"). Os 4 campos
+// calculados ficam null quando a premissa da qual dependem está ausente —
+// a tela decide como comunicar "Viabilidade incompleta" a partir disso.
+export type ResultadoCenario = {
+  percentual_financiado: number | null
+  valor_financiado: number | null
+  investimento_total: number | null
+  valor_liquido_venda: number | null
+  lucro: number | null
+  rentabilidade: number | null
 }
 
 function n(v: number | null | undefined): number {
@@ -112,7 +132,7 @@ function tabelaAmortizacao(
 
 // Aba "Pagamento à Vista": D31 (Total de Custos), D38 (Valor Real de Venda),
 // E41 (lucro absoluto), D41 (rentabilidade).
-function calcularVista(p: PremissasCenario): ResultadoCenario {
+function calcularVista(p: PremissasCenario): ResultadoBruto {
   const arrematacao = n(p.valor_arrematacao)
   const venda = n(p.valor_venda_estimado)
   const comissaoLeiloeiro = calcComissaoLeiloeiro(p, arrematacao)
@@ -130,8 +150,10 @@ function calcularVista(p: PremissasCenario): ResultadoCenario {
 
   const comissaoCorretor = n(p.corretagem) * venda
   // Base do IR sobre ganho de capital exclui "outros custos" e advogado de
-  // desocupação — assim está na planilha original (D35).
-  const baseGanhoCapital = venda - comissaoCorretor - (arrematacao + comissaoLeiloeiro + itbi + registro + reforma)
+  // desocupação — assim está na planilha original (D35). Nunca negativa: uma
+  // venda abaixo do custo não gera "imposto negativo" que infla o valor
+  // líquido de venda.
+  const baseGanhoCapital = Math.max(0, venda - comissaoCorretor - (arrematacao + comissaoLeiloeiro + itbi + registro + reforma))
   const irGanhoCapital = n(p.imposto_ganho_capital) * baseGanhoCapital
   const valorLiquidoVenda = venda - comissaoCorretor - irGanhoCapital
   const lucro = valorLiquidoVenda - investimentoTotal
@@ -143,7 +165,7 @@ function calcularVista(p: PremissasCenario): ResultadoCenario {
 // Abas "Pagamento Financiado" + "SAC"/"PRICE": F39/G39 (Total de Custos),
 // F44/G44 (Saldo Devedor), F47/G47 (Valor Real de Venda), F51/G51 (lucro
 // absoluto), F52/G52 (rentabilidade, com a correção 2 do cabeçalho).
-function calcularFinanciado(modalidade: 'sac' | 'price', p: PremissasCenario): ResultadoCenario {
+function calcularFinanciado(modalidade: 'sac' | 'price', p: PremissasCenario): ResultadoBruto {
   const arrematacao = n(p.valor_arrematacao)
   const venda = n(p.valor_venda_estimado)
   const percentualEntrada = n(p.entrada)
@@ -170,8 +192,9 @@ function calcularFinanciado(modalidade: 'sac' | 'price', p: PremissasCenario): R
     totalPosArrematacao + valorEntrada
 
   const comissaoCorretor = n(p.corretagem) * venda
-  const baseGanhoCapital = venda - comissaoCorretor -
-    (valorEntrada + totalPago + saldoDevedorFinal + comissaoLeiloeiro + itbi + registro + reforma)
+  // Nunca negativa — ver comentário equivalente em calcularVista().
+  const baseGanhoCapital = Math.max(0, venda - comissaoCorretor -
+    (valorEntrada + totalPago + saldoDevedorFinal + comissaoLeiloeiro + itbi + registro + reforma))
   const irGanhoCapital = n(p.imposto_ganho_capital) * baseGanhoCapital
   const valorLiquidoVenda = venda - comissaoCorretor - irGanhoCapital - saldoDevedorFinal
   const lucro = valorLiquidoVenda - investimentoTotal
@@ -188,6 +211,40 @@ function calcularFinanciado(modalidade: 'sac' | 'price', p: PremissasCenario): R
 }
 
 export function calcularCenario(p: PremissasCenario): ResultadoCenario {
-  if (p.modalidade === 'vista') return calcularVista(p)
-  return calcularFinanciado(p.modalidade, p)
+  const bruto = p.modalidade === 'vista' ? calcularVista(p) : calcularFinanciado(p.modalidade, p)
+  const semAquisicao = p.valor_arrematacao == null
+  const semVenda = p.valor_venda_estimado == null
+  return {
+    percentual_financiado: bruto.percentual_financiado,
+    valor_financiado: bruto.valor_financiado,
+    // Investimento total depende só do lado da aquisição — fica válido sem
+    // o valor de venda, mas não sem o valor de aquisição.
+    investimento_total: semAquisicao ? null : bruto.investimento_total,
+    // Os três dependem do valor de venda (e, por consequência, também do de
+    // aquisição, que entra na base do IR e no lucro).
+    valor_liquido_venda: (semAquisicao || semVenda) ? null : bruto.valor_liquido_venda,
+    lucro: (semAquisicao || semVenda) ? null : bruto.lucro,
+    rentabilidade: (semAquisicao || semVenda) ? null : bruto.rentabilidade,
+  }
+}
+
+// Campos de premissa cuja ausência torna lucro/rentabilidade um resultado
+// inválido (ver calcularCenario). Usado pela UI para explicar "Viabilidade
+// incompleta" — o que falta preencher, não só "sem resultado".
+export type CampoFaltantePremissa = 'valor_arrematacao' | 'valor_venda_estimado'
+
+export function pendenciasCenario(p: Pick<PremissasCenario, 'valor_arrematacao' | 'valor_venda_estimado'>): CampoFaltantePremissa[] {
+  const faltando: CampoFaltantePremissa[] = []
+  if (p.valor_arrematacao == null) faltando.push('valor_arrematacao')
+  if (p.valor_venda_estimado == null) faltando.push('valor_venda_estimado')
+  return faltando
+}
+
+// Guarda única para telas que só exibem lucro/rentabilidade já persistidos
+// (cards de listagem, resumo) — confere pelas premissas, não só pelo campo
+// já gravado, porque cenários calculados antes deste hotfix podem ter
+// lucro/rentabilidade numéricos só porque o valor ausente virou 0 (ver
+// pendenciasCenario). Evita reintroduzir o mesmo bug ao ler dado antigo.
+export function resultadoCenarioValido(c: Pick<ProspeccaoCenario, 'valor_arrematacao' | 'valor_venda_estimado' | 'lucro' | 'rentabilidade'>): boolean {
+  return pendenciasCenario(c).length === 0 && c.lucro != null && c.rentabilidade != null
 }

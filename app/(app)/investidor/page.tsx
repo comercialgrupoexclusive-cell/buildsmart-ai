@@ -16,6 +16,7 @@ import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { formatCurrency } from '@/lib/utils'
 import { MODALIDADE_LABEL, TIPO_AQUISICAO_LABEL } from '@/components/investidor/ProspeccaoCenarios'
+import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
 import type { InvestidorAgente, InvestidorRotina, InvestidorRotinaRun, Prospeccao, ProspeccaoFase, ProspeccaoCenario } from '@/lib/types'
 
 type ProspeccaoComPrincipal = Prospeccao & { prospeccao_cenarios?: ProspeccaoCenario[] }
@@ -642,7 +643,7 @@ function ProspeccoesTab() {
 function ProspeccaoCard({ prospeccao: p, index }: { prospeccao: ProspeccaoComPrincipal; index: number }) {
   const meta = FASE_META[p.fase]
   const principal = p.prospeccao_cenarios?.find(c => c.principal)
-  const temResultado = principal && (principal.lucro != null || principal.rentabilidade != null)
+  const temResultado = principal && resultadoCenarioValido(principal)
 
   return (
     <Link

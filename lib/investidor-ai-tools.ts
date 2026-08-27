@@ -28,7 +28,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type OpenAI from 'openai'
 import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from './ai-resolve'
 import { criarPropostaPendente, acharPendenteParaResolver, marcarRejeitada, marcarExecutada, formatarListaPendentes } from './luizia-pending-actions'
-import { calcularCenario, type PremissasCenario } from './investidor-calculadora'
+import { calcularCenario, pendenciasCenario, type PremissasCenario } from './investidor-calculadora'
 import { extrairConteudoDeLink } from './link-extract'
 import { formatCurrency } from './utils'
 import type { InvestidorAgente, InvestidorRotina, Prospeccao, ProspeccaoCenario, ProspeccaoEvidencia, ProspeccaoFase, ProspeccaoFicha } from './types'
@@ -615,12 +615,17 @@ function montarPremissas(
   return premissas as unknown as PremissasCenario
 }
 
-function descricaoResultado(r: ReturnType<typeof calcularCenario>): string {
+function descricaoResultado(r: ReturnType<typeof calcularCenario>, premissas: PremissasCenario): string {
+  const pendencias = pendenciasCenario(premissas)
+  if (pendencias.length > 0) {
+    const faltando = pendencias.map(p => p === 'valor_arrematacao' ? 'valor de aquisição' : 'valor de venda estimado').join(' e ')
+    return `Viabilidade incompleta — falta informar ${faltando}. Lucro e rentabilidade só aparecem depois disso.`
+  }
   return [
-    `Investimento total: ${formatCurrency(r.investimento_total)}`,
-    `Venda líquida estimada: ${formatCurrency(r.valor_liquido_venda)}`,
-    `Lucro: ${formatCurrency(r.lucro)}`,
-    `Rentabilidade: ${r.rentabilidade.toFixed(1)}%`,
+    `Investimento total: ${formatCurrency(r.investimento_total!)}`,
+    `Venda líquida estimada: ${formatCurrency(r.valor_liquido_venda!)}`,
+    `Lucro: ${formatCurrency(r.lucro!)}`,
+    `Rentabilidade: ${r.rentabilidade!.toFixed(1)}%`,
   ].join('\n')
 }
 
@@ -820,7 +825,7 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         const payload = { prospeccao_id: p.id, nome: String(args.nome_cenario).trim(), ...premissas, ...resultado }
         const descricao = [
           `Novo cenário "${payload.nome}" (${MODALIDADE_LABEL[payload.modalidade]}) em "${p.nome}":`,
-          descricaoResultado(resultado),
+          descricaoResultado(resultado, premissas),
           '', 'Confirmar criação?',
         ].join('\n')
         const proposta = await criarPropostaPendente(db, {
@@ -845,7 +850,7 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         const payload = { cenarioId: c.id, patch: { ...premissas, ...resultado } }
         const descricao = [
           `Alterar cenário "${c.nome}" de "${p.nome}" — novo resultado:`,
-          descricaoResultado(resultado),
+          descricaoResultado(resultado, premissas),
           '', 'Confirmar alteração?',
         ].join('\n')
         const proposta = await criarPropostaPendente(db, {

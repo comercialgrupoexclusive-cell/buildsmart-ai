@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularCenario, type PremissasCenario } from '../investidor-calculadora'
+import { calcularCenario, pendenciasCenario, resultadoCenarioValido, type PremissasCenario } from '../investidor-calculadora'
 
 // Valores-ouro extraídos/derivados de "Calculadora do Leilão.xlsx" (anexo do
 // usuário, teste-ouro da especificação do Investidor). O caso "à vista" usa
@@ -136,7 +136,7 @@ describe('calcularCenario — PRICE (derivado das fórmulas literais da planilha
   it('SAC e PRICE não empatam por acaso (evita regressão do bug de cópia G52=F52 do arquivo original)', () => {
     const sac = calcularCenario({ ...premissas, modalidade: 'sac' })
     const price = calcularCenario(premissas)
-    expect(sac.rentabilidade).not.toBeCloseTo(price.rentabilidade, 3)
+    expect(sac.rentabilidade!).not.toBeCloseTo(price.rentabilidade!, 3)
   })
 })
 
@@ -166,7 +166,7 @@ describe('calcularCenario — casos de borda', () => {
     expect(r.valor_liquido_venda).toBeCloseTo(200000, 6) // sem saldo devedor a abater
   })
 
-  it('cenário 100% vazio não gera NaN/Infinity (guarda contra divisão por zero)', () => {
+  it('cenário 100% vazio não gera NaN/Infinity, e sem valor de aquisição/venda o resultado é null (não 0)', () => {
     const r = calcularCenario({
       modalidade: 'vista',
       tipo_aquisicao: 'leilao',
@@ -187,9 +187,124 @@ describe('calcularCenario — casos de borda', () => {
       taxa_juros: null,
       prazo_financiamento_meses: null,
     })
-    expect(r.investimento_total).toBe(0)
-    expect(r.rentabilidade).toBe(0)
-    expect(Number.isFinite(r.lucro)).toBe(true)
+    expect(r.investimento_total).toBeNull()
+    expect(r.rentabilidade).toBeNull()
+    expect(r.lucro).toBeNull()
+    expect(r.valor_liquido_venda).toBeNull()
+  })
+})
+
+// Hotfix (Ajuste de fluxo do Investidor): sem valor de aquisição e/ou de
+// venda estimado, lucro/rentabilidade não podem ser exibidos como um
+// resultado válido — caso real que motivou a correção: "Bella teste
+// pesquisa" tinha valor_arrematacao=379900 e valor_venda_estimado=null, e o
+// motor antigo (via n() tratando null como 0) calculava rentabilidade=-85%.
+describe('calcularCenario — resultado incompleto quando falta valor de aquisição/venda', () => {
+  const base: PremissasCenario = {
+    modalidade: 'vista',
+    tipo_aquisicao: 'leilao',
+    valor_arrematacao: 379900,
+    valor_venda_estimado: null,
+    comissao_leiloeiro: 0.05,
+    itbi: 0.03,
+    registro: 0,
+    advogado_desocupacao: 0,
+    reforma: 0,
+    outros_custos: 0,
+    prazo_venda_meses: 0,
+    iptu: 0,
+    condominio: 0,
+    corretagem: 0.06,
+    imposto_ganho_capital: 0.15,
+    entrada: null,
+    taxa_juros: null,
+    prazo_financiamento_meses: null,
+  }
+
+  it('sem valor de venda estimado: investimento_total continua válido, mas lucro/rentabilidade/valor_liquido_venda ficam null (não -85%)', () => {
+    const r = calcularCenario(base)
+    expect(r.investimento_total).toBeCloseTo(379900 + 0.05 * 379900 + 0.03 * 379900, 2)
+    expect(r.valor_liquido_venda).toBeNull()
+    expect(r.lucro).toBeNull()
+    expect(r.rentabilidade).toBeNull()
+  })
+
+  it('sem valor de aquisição: investimento_total também fica null (depende da arrematação)', () => {
+    const r = calcularCenario({ ...base, valor_arrematacao: null, valor_venda_estimado: 400000 })
+    expect(r.investimento_total).toBeNull()
+    expect(r.valor_liquido_venda).toBeNull()
+    expect(r.lucro).toBeNull()
+    expect(r.rentabilidade).toBeNull()
+  })
+
+  it('com os dois valores presentes, o resultado volta a ser numérico normalmente', () => {
+    const r = calcularCenario({ ...base, valor_venda_estimado: 500000 })
+    expect(r.lucro).not.toBeNull()
+    expect(r.rentabilidade).not.toBeNull()
+  })
+})
+
+// Base do IR sobre ganho de capital nunca pode ser negativa — uma venda
+// abaixo do custo de aquisição+custos não pode gerar "imposto negativo" que
+// infla artificialmente o valor líquido de venda.
+describe('calcularCenario — base de ganho de capital nunca é negativa', () => {
+  it('venda estimada abaixo do custo total: base de IR é 0, não negativa', () => {
+    const r = calcularCenario({
+      modalidade: 'vista',
+      tipo_aquisicao: 'compra_direta',
+      valor_arrematacao: 300000,
+      valor_venda_estimado: 250000, // venda abaixo do custo de aquisição
+      comissao_leiloeiro: 0,
+      itbi: 0.03,
+      registro: 0,
+      advogado_desocupacao: 0,
+      reforma: 0,
+      outros_custos: 0,
+      prazo_venda_meses: 0,
+      iptu: 0,
+      condominio: 0,
+      corretagem: 0.06,
+      imposto_ganho_capital: 0.15,
+      entrada: null,
+      taxa_juros: null,
+      prazo_financiamento_meses: null,
+    })
+    // Sem o clamp, a base ficaria negativa e o IR "negativo" infiaria o
+    // valor líquido de venda para além de venda - comissão do corretor.
+    const comissaoCorretor = 0.06 * 250000
+    expect(r.valor_liquido_venda).toBeCloseTo(250000 - comissaoCorretor, 2)
+    expect(r.lucro).toBeLessThan(0) // prejuízo real, mas sem IR negativo mascarando
+  })
+})
+
+describe('pendenciasCenario / resultadoCenarioValido', () => {
+  it('sem pendências quando os dois valores estão presentes', () => {
+    expect(pendenciasCenario({ valor_arrematacao: 100000, valor_venda_estimado: 200000 })).toEqual([])
+  })
+
+  it('aponta os campos que faltam', () => {
+    expect(pendenciasCenario({ valor_arrematacao: null, valor_venda_estimado: 200000 })).toEqual(['valor_arrematacao'])
+    expect(pendenciasCenario({ valor_arrematacao: 100000, valor_venda_estimado: null })).toEqual(['valor_venda_estimado'])
+    expect(pendenciasCenario({ valor_arrematacao: null, valor_venda_estimado: null })).toEqual(['valor_arrematacao', 'valor_venda_estimado'])
+  })
+
+  it('resultadoCenarioValido é true só quando não há pendência e lucro/rentabilidade estão preenchidos', () => {
+    expect(resultadoCenarioValido({ valor_arrematacao: 100000, valor_venda_estimado: 200000, lucro: 50000, rentabilidade: 10 })).toBe(true)
+  })
+
+  it('resultadoCenarioValido rejeita dado legado corrompido: lucro/rentabilidade numéricos mas premissa ausente', () => {
+    // Formato real de uma linha gravada pelo motor antigo (bug): venda null
+    // mas lucro/rentabilidade não-nulos porque null virou 0 no cálculo.
+    expect(resultadoCenarioValido({
+      valor_arrematacao: 379900,
+      valor_venda_estimado: null,
+      lucro: -332602.45,
+      rentabilidade: -85,
+    })).toBe(false)
+  })
+
+  it('resultadoCenarioValido rejeita quando lucro/rentabilidade ainda não foram calculados', () => {
+    expect(resultadoCenarioValido({ valor_arrematacao: 100000, valor_venda_estimado: 200000, lucro: null, rentabilidade: null })).toBe(false)
   })
 })
 
@@ -246,6 +361,6 @@ describe('calcularCenario — compra_direta não aplica comissão de leiloeiro',
     const comDireta = calcularCenario({ ...financiado, tipo_aquisicao: 'compra_direta' })
     const comLeilao = calcularCenario(financiado)
     // Sem a comissão de 5% sobre 100000 = 5000 a menos de investimento
-    expect(comLeilao.investimento_total - comDireta.investimento_total).toBeCloseTo(5000, 2)
+    expect(comLeilao.investimento_total! - comDireta.investimento_total!).toBeCloseTo(5000, 2)
   })
 })

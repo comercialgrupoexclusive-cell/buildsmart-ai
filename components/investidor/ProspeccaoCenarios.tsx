@@ -8,15 +8,20 @@
 // lógica entre frontend e Luiza" da especificação).
 import { useEffect, useRef, useState } from 'react'
 import {
-  Plus, Pencil, Copy, Trash2, Star, ArrowLeft, Save, TrendingUp, TrendingDown, Calculator, Loader2,
+  Plus, Pencil, Copy, Trash2, Star, ArrowLeft, Save, TrendingUp, TrendingDown, Calculator, Loader2, AlertTriangle,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
-import { calcularCenario, type PremissasCenario } from '@/lib/investidor-calculadora'
+import { calcularCenario, pendenciasCenario, type PremissasCenario, type CampoFaltantePremissa } from '@/lib/investidor-calculadora'
 import type { ProspeccaoCenario } from '@/lib/types'
+
+export const PENDENCIA_PREMISSA_LABEL: Record<CampoFaltantePremissa, string> = {
+  valor_arrematacao: 'o valor de aquisição',
+  valor_venda_estimado: 'o valor de venda estimado',
+}
 
 // Premissas genéricas usadas como ponto de partida do cenário "Base"
 // auto-criado — as mesmas porcentagens que já eram o valor padrão do
@@ -387,9 +392,11 @@ function EditorCenario({
 
   const premissas = formParaPremissas(form)
   const resultado = calcularCenario(premissas)
+  const pendencias = pendenciasCenario(premissas)
+  const resultadoValido = pendencias.length === 0
   const financiado = form.modalidade !== 'vista'
   const compraDireta = form.tipo_aquisicao === 'compra_direta'
-  const positivo = resultado.lucro >= 0
+  const positivo = resultado.lucro != null && resultado.lucro >= 0
 
   function campo(k: keyof FormState, label: string, opts?: { hint?: string; type?: string }) {
     return (
@@ -447,14 +454,24 @@ function EditorCenario({
         </Select>
       </div>
 
-      <div className="card p-4" style={{ borderColor: positivo ? 'var(--accent)' : 'var(--danger)' }}>
+      <div className="card p-4" style={{ borderColor: !resultadoValido ? 'var(--border)' : positivo ? 'var(--accent)' : 'var(--danger)' }}>
         <p className="text-xs font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>RESULTADO (atualizado automaticamente)</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Resultado label="Investimento total" valor={formatCurrency(resultado.investimento_total)} />
-          <Resultado label="Valor líquido de venda" valor={formatCurrency(resultado.valor_liquido_venda)} />
-          <Resultado label="Lucro" valor={formatCurrency(resultado.lucro)} positivo={positivo} />
-          <Resultado label="Rentabilidade" valor={`${resultado.rentabilidade.toFixed(1)}%`} positivo={positivo} />
-        </div>
+        {resultadoValido ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <Resultado label="Investimento total" valor={formatCurrency(resultado.investimento_total!)} />
+            <Resultado label="Valor líquido de venda" valor={formatCurrency(resultado.valor_liquido_venda!)} />
+            <Resultado label="Lucro" valor={formatCurrency(resultado.lucro!)} positivo={positivo} />
+            <Resultado label="Rentabilidade" valor={`${resultado.rentabilidade!.toFixed(1)}%`} positivo={positivo} />
+          </div>
+        ) : (
+          <div className="flex items-start gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" style={{ color: '#f59e0b' }} />
+            <p>
+              <span className="font-medium" style={{ color: 'var(--text-primary)' }}>Viabilidade incompleta.</span>{' '}
+              Falta informar {pendencias.map(p => PENDENCIA_PREMISSA_LABEL[p]).join(' e ')} para calcular lucro e rentabilidade.
+            </p>
+          </div>
+        )}
       </div>
 
       <Secao titulo="Imóvel">

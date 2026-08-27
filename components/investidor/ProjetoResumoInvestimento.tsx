@@ -14,6 +14,7 @@ import { createClient } from '@/lib/supabase/client'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
 import { getProspeccaoVenda } from '@/lib/investidor-venda'
+import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
 import type { Prospeccao, ProspeccaoCenario } from '@/lib/types'
 
 export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) {
@@ -101,7 +102,7 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
     )
   }
 
-  const temResultado = principal && (principal.lucro != null || principal.rentabilidade != null)
+  const temResultado = principal && resultadoCenarioValido(principal)
   const positivo = (principal?.lucro ?? 0) >= 0
   const camposPendentes = [
     !prospeccao.endereco && 'endereço',

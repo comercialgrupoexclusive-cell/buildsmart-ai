@@ -22,6 +22,7 @@ import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidenci
 import { ProspeccaoCenarios, TIPO_AQUISICAO_LABEL } from '@/components/investidor/ProspeccaoCenarios'
 import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
+import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
 import { formatCurrency } from '@/lib/utils'
 import type { Prospeccao, ProspeccaoFase, ProspeccaoCenario } from '@/lib/types'
 
@@ -62,7 +63,10 @@ export default function ProspeccaoDetalhe({ params }: { params: Promise<{ id: st
   const { id } = use(params)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const tab = (searchParams.get('tab') as Tab) ?? 'decidir'
+  // Ajuste de fluxo: "Achei um imóvel → pesquisei quanto vale → estimei
+  // quanto gasto → vejo quanto ganho → decido" — a prospecção deve abrir
+  // pela ficha do imóvel, não direto no resumo/decisão.
+  const tab = (searchParams.get('tab') as Tab) ?? 'ficha'
 
   const [prospeccao, setProspeccao] = useState<Prospeccao | null>(null)
   const [cenarios, setCenarios] = useState<ProspeccaoCenario[]>([])
@@ -292,29 +296,48 @@ function DecidirTab({ prospeccao, principal, ficha, analiseMercado, onSaved }: {
     }
   }
 
-  const temResultado = principal && (principal.lucro != null || principal.rentabilidade != null)
+  // Registrar a decisão = mudar a fase — ação isolada do formulário de edição
+  // geral (nome/endereço/link/etc.), para "Decidir" não virar mais uma tela
+  // de preenchimento.
+  const [decidindo, setDecidindo] = useState(false)
+  async function handleDecidir(novaFase: ProspeccaoFase) {
+    setDecidindo(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('prospeccoes').update({ fase: novaFase }).eq('id', prospeccao.id)
+    setDecidindo(false)
+    if (error) { alert(`Não foi possível registrar a decisão: ${error.message}`); return }
+    onSaved()
+  }
+
+  const fichaOk = ficha?.status === 'validada'
+  const mercadoOk = analiseMercado?.faixa_base != null
+  const temResultado = !!(principal && resultadoCenarioValido(principal))
+  const pronto = fichaOk && mercadoOk && temResultado
 
   const veredito = (
     <div className="card p-4">
       <p className="text-xs font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
-        VEREDITO — PESQUISAR → ENCONTRAR RESULTADOS → ANALISAR → DECIDIR
+        PESQUISAR → ENCONTRAR RESULTADOS → ANALISAR → DECIDIR
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <VeredictoItem
-          label="Pesquisar (Imóvel)"
+          label="Imóvel"
           valor={ficha ? STATUS_FICHA_LABEL[ficha.status] : 'Sem ficha ainda'}
-          ok={ficha?.status === 'validada'}
+          ok={fichaOk}
+          href={!fichaOk ? `/investidor/${prospeccao.id}?tab=ficha` : undefined}
         />
         <VeredictoItem
-          label="Encontrar/Analisar mercado"
-          valor={analiseMercado?.faixa_base != null ? formatCurrency(analiseMercado.faixa_base) : 'Sem análise ainda'}
-          ok={analiseMercado?.faixa_base != null}
+          label="Pesquisa de mercado"
+          valor={analiseMercado?.faixa_base != null ? formatCurrency(analiseMercado.faixa_base) : 'Ainda não analisado'}
+          ok={mercadoOk}
+          href={!mercadoOk ? `/investidor/${prospeccao.id}?tab=mercado` : undefined}
         />
         <VeredictoItem
           label="Viabilidade"
-          valor={temResultado ? `${principal!.rentabilidade!.toFixed(1)}% · ${formatCurrency(principal!.lucro!)}` : 'Sem cenário calculado'}
-          ok={!!temResultado}
+          valor={temResultado ? `${principal!.rentabilidade!.toFixed(1)}% · ${formatCurrency(principal!.lucro!)}` : 'Cenário incompleto'}
+          ok={temResultado}
           positivo={temResultado ? (principal!.lucro ?? 0) >= 0 : undefined}
+          href={!temResultado ? `/investidor/${prospeccao.id}?tab=analise` : undefined}
         />
         <VeredictoItem
           label="Fase"
@@ -329,25 +352,46 @@ function DecidirTab({ prospeccao, principal, ficha, analiseMercado, onSaved }: {
     return (
       <div className="flex flex-col gap-4">
       {veredito}
+
+      <div className="card p-5 space-y-3">
+        <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Decisão</h2>
+        {!pronto ? (
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            Complete Imóvel, Pesquisa de mercado e Viabilidade acima para registrar a decisão.
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              Fase atual: <strong style={{ color: 'var(--text-primary)' }}>{FASE_OPTIONS.find(f => f.value === prospeccao.fase)?.label}</strong>
+            </p>
+            <div className="w-56">
+              <Select value={prospeccao.fase} disabled={decidindo} onChange={e => handleDecidir(e.target.value as ProspeccaoFase)}>
+                {FASE_OPTIONS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </Select>
+            </div>
+          </div>
+        )}
+        {!isCliente && prospeccao.fase === 'adquirida' && (
+          prospeccao.project_id ? (
+            <Link
+              href={`/projetos/${prospeccao.project_id}`}
+              className="inline-flex items-center gap-1.5 text-sm font-medium"
+              style={{ color: 'var(--accent)' }}
+            >
+              Imóvel criado — Abrir imóvel <ArrowUpRight size={14} />
+            </Link>
+          ) : (
+            <Button size="sm" icon={<Building2 size={13} />} onClick={handleConverterEmAtivo} loading={convertendo}>
+              Criar imóvel
+            </Button>
+          )
+        )}
+      </div>
+
       <div className="card p-5 space-y-4">
         <div className="flex items-center justify-between gap-2">
           <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Resumo</h2>
           <div className="flex items-center gap-2">
-            {!isCliente && prospeccao.fase === 'adquirida' && (
-              prospeccao.project_id ? (
-                <Link
-                  href={`/projetos/${prospeccao.project_id}`}
-                  className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg"
-                  style={{ color: 'var(--accent)' }}
-                >
-                  Imóvel criado — Abrir imóvel <ArrowUpRight size={14} />
-                </Link>
-              ) : (
-                <Button size="sm" icon={<Building2 size={13} />} onClick={handleConverterEmAtivo} loading={convertendo}>
-                  Criar imóvel
-                </Button>
-              )
-            )}
             <Button variant="secondary" size="sm" icon={<Pencil size={13} />} onClick={() => { setForm(prospeccao); setEditing(true) }}>Editar</Button>
             {!isCliente && (
               <Button variant="danger" size="sm" icon={<Trash2 size={13} />} onClick={handleExcluir} loading={excluindo}>Excluir</Button>
@@ -356,18 +400,23 @@ function DecidirTab({ prospeccao, principal, ficha, analiseMercado, onSaved }: {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-          <Campo label="Fase" valor={FASE_OPTIONS.find(f => f.value === prospeccao.fase)?.label} />
+          <Campo label="Situação do imóvel" valor={ficha ? STATUS_FICHA_LABEL[ficha.status] : 'Sem ficha ainda'} />
+          <Campo label="Valor estimado de mercado" valor={analiseMercado?.faixa_base != null ? formatCurrency(analiseMercado.faixa_base) : null} />
+          <Campo label="Cenário principal" valor={principal?.nome} />
+          <Campo label="Valor de aquisição (cenário principal)" valor={principal?.valor_arrematacao != null ? formatCurrency(principal.valor_arrematacao) : null} />
+          <Campo label="Investimento estimado (cenário principal)" valor={principal?.investimento_total != null ? formatCurrency(principal.investimento_total) : null} />
+          <Campo label="Valor de venda estimado (cenário principal)" valor={principal?.valor_venda_estimado != null ? formatCurrency(principal.valor_venda_estimado) : null} />
+          {temResultado ? (
+            <>
+              <Campo label="Lucro estimado" valor={formatCurrency(principal!.lucro!)} />
+              <Campo label="Rentabilidade" valor={`${principal!.rentabilidade!.toFixed(1)}%`} />
+            </>
+          ) : (
+            <Campo label="Lucro e rentabilidade" valor="Viabilidade incompleta" />
+          )}
           <Campo label="Tipo de aquisição" valor={TIPO_AQUISICAO_LABEL[prospeccao.tipo_aquisicao]} />
           {prospeccao.tipo_aquisicao === 'leilao' && (
             <Campo label="Data do leilão" valor={prospeccao.data_leilao ? new Date(prospeccao.data_leilao + 'T12:00:00').toLocaleDateString('pt-BR') : null} />
-          )}
-          <Campo label="Avaliação (venda estimada, cenário principal)" valor={principal?.valor_venda_estimado != null ? formatCurrency(principal.valor_venda_estimado) : null} />
-          <Campo label="Lance/arrematação (cenário principal)" valor={principal?.valor_arrematacao != null ? formatCurrency(principal.valor_arrematacao) : null} />
-          {temResultado && (
-            <>
-              <Campo label="Lucro estimado (cenário principal)" valor={principal!.lucro != null ? formatCurrency(principal!.lucro) : null} />
-              <Campo label="Rentabilidade (cenário principal)" valor={principal!.rentabilidade != null ? `${principal!.rentabilidade.toFixed(1)}%` : null} />
-            </>
           )}
           <Campo label="Responsável" valor={prospeccao.responsavel} />
           <Campo label="Próxima ação" valor={prospeccao.proxima_acao} />
@@ -442,14 +491,25 @@ function Campo({ label, valor }: { label: string; valor?: string | null }) {
   )
 }
 
-function VeredictoItem({ label, valor, ok, positivo }: { label: string; valor: string; ok: boolean; positivo?: boolean }) {
+function VeredictoItem({ label, valor, ok, positivo, href }: { label: string; valor: string; ok: boolean; positivo?: boolean; href?: string }) {
   const cor = positivo !== undefined
     ? (positivo ? 'var(--success)' : 'var(--danger)')
     : (ok ? 'var(--success)' : 'var(--text-secondary)')
-  return (
-    <div>
+  const conteudo = (
+    <>
       <p className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>{label}</p>
       <p className="font-semibold text-sm" style={{ color: cor }}>{valor}</p>
-    </div>
+    </>
   )
+  if (href) {
+    return (
+      <Link href={href} className="group block rounded-md -m-1 p-1 transition-colors hover:bg-[var(--bg-secondary)]">
+        {conteudo}
+        <span className="text-[11px] font-medium inline-flex items-center gap-0.5 mt-0.5" style={{ color: 'var(--accent)' }}>
+          Completar <ArrowUpRight size={10} />
+        </span>
+      </Link>
+    )
+  }
+  return <div>{conteudo}</div>
 }
