@@ -94,11 +94,29 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
     return temVenda ? (
       <div className="flex flex-col gap-4">{vendaCard}</div>
     ) : (
-      <EmptyState
-        icon={Landmark}
-        title="Cadastro direto"
-        description="Este imóvel foi cadastrado diretamente, sem uma prospecção de origem. Abra Pesquisa de mercado/Viabilidade para decidir o preço de venda."
-      />
+      <div className="flex flex-col gap-4">
+        <EmptyState
+          icon={Landmark}
+          title="Cadastro direto"
+          description="Este imóvel foi cadastrado diretamente, sem uma prospecção de origem. Preencha os dados do imóvel e pesquise o mercado para decidir o preço de venda."
+        />
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Link
+            href={`/projetos/${projetoId}?tab=mercado_venda`}
+            className="inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-lg border flex-1"
+            style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
+          >
+            Preencher dados do imóvel <ArrowUpRight size={13} />
+          </Link>
+          <Link
+            href={`/projetos/${projetoId}?tab=viabilidade_venda`}
+            className="inline-flex items-center justify-center gap-1.5 text-sm font-semibold px-3 py-2 rounded-lg border flex-1"
+            style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
+          >
+            Analisar viabilidade de venda <ArrowUpRight size={13} />
+          </Link>
+        </div>
+      </div>
     )
   }
 
@@ -138,7 +156,7 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
             </div>
           </div>
           <Link
-            href={`/projetos/${projetoId}?tab=dados&edit=1#ficha-imovel`}
+            href={`/investidor/${prospeccao.id}?tab=decidir`}
             className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border flex-shrink-0"
             style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
           >

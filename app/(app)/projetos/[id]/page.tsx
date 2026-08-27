@@ -14,6 +14,7 @@ import { ProjetoOrcamentosPanel } from '@/components/projeto/ProjetoOrcamentosPa
 import { IniciarObraButton } from '@/components/projeto/IniciarObraButton'
 import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
 import { ProjetoResumoInvestimento } from '@/components/investidor/ProjetoResumoInvestimento'
+import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
 import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
 import { getOrCreateProspeccaoVenda } from '@/lib/investidor-venda'
@@ -617,7 +618,16 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
           )}
         </div>
       ) : tab === 'mercado_venda' ? (
-        <ProspeccaoMercado prospeccaoId={vendaProspeccaoId} />
+        <div className="flex flex-col gap-4">
+          {/* Ativos não têm uma aba "Imóvel" própria (ela só existe na
+              Prospecção de origem, do lado da compra) — sem isto, a ficha do
+              lado da venda ficava permanentemente vazia e sem nenhum jeito
+              de preencher tipo/área/dormitórios, então a busca de
+              comparáveis não sabia nem que tipo de imóvel é (bug real:
+              buscava "apartamento" para uma casa). */}
+          <ProspeccaoFicha prospeccaoId={vendaProspeccaoId} tipoAquisicao="compra_direta" />
+          <ProspeccaoMercado prospeccaoId={vendaProspeccaoId} />
+        </div>
       ) : (
         // Lado da venda nunca é leilão — é sempre o Imóvel já adquirido
         // sendo vendido, então tipo_aquisicao é sempre compra_direta aqui.

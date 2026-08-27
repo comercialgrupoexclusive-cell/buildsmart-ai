@@ -81,6 +81,10 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
   const [erro, setErro] = useState<string | null>(null)
   const [confirmados, setConfirmados] = useState<Record<string, string>>({})
   const [salvando, setSalvando] = useState(false)
+  const [campoManualChave, setCampoManualChave] = useState('')
+  const [campoManualCustom, setCampoManualCustom] = useState('')
+  const [campoManualValor, setCampoManualValor] = useState('')
+  const [salvandoManual, setSalvandoManual] = useState(false)
 
   async function carregar() {
     setLoading(true)
@@ -208,6 +212,44 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
     }).eq('id', ficha.id)
     setSalvando(false)
     if (error) { setErro(`Não foi possível salvar a validação: ${error.message}`); return }
+    window.dispatchEvent(new Event('buildsmart:investidor-changed'))
+    void carregar()
+  }
+
+  // Sem link/PDF/foto para extrair (ex.: imóvel já adquirido, sem anúncio
+  // disponível), o usuário precisa poder digitar os dados direto — sem
+  // isso a ficha fica permanentemente vazia e nada que depende dela (como a
+  // pesquisa de comparáveis, que lê tipo/área/dormitórios daqui) sabe nada
+  // sobre o imóvel.
+  async function adicionarCampoManual() {
+    const chave = (campoManualChave === '__outro__' ? campoManualCustom : campoManualChave).trim().toLowerCase().replace(/\s+/g, '_')
+    const valor = campoManualValor.trim()
+    if (!chave || !valor) return
+    setSalvandoManual(true)
+    setErro(null)
+    const supabase = createClient()
+    if (!ficha) {
+      const { error } = await supabase.from('prospeccao_ficha').insert({
+        prospeccao_id: prospeccaoId,
+        dados_extraidos: {},
+        dados_confirmados: { [chave]: valor },
+        status: 'parcial',
+      })
+      if (error) { setErro(`Não foi possível salvar: ${error.message}`); setSalvandoManual(false); return }
+    } else {
+      const dadosConfirmados = { ...(ficha.dados_confirmados || {}), [chave]: valor }
+      const { error } = await supabase.from('prospeccao_ficha').update({
+        dados_confirmados: dadosConfirmados,
+        status: ficha.status === 'pendente' ? 'parcial' : ficha.status,
+        updated_at: new Date().toISOString(),
+      }).eq('id', ficha.id)
+      if (error) { setErro(`Não foi possível salvar: ${error.message}`); setSalvandoManual(false); return }
+    }
+    setCampoManualChave('')
+    setCampoManualCustom('')
+    setCampoManualValor('')
+    setSalvandoManual(false)
+    window.dispatchEvent(new Event('buildsmart:investidor-changed'))
     void carregar()
   }
 
@@ -293,6 +335,32 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
         </div>
       </div>
 
+      <div className="card p-5">
+        <h3 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Adicionar informação manualmente</h3>
+        <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
+          Sem link, PDF ou foto? Digite direto — útil para um imóvel já adquirido, sem anúncio disponível.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Select value={campoManualChave} onChange={e => setCampoManualChave(e.target.value)} className="sm:w-56">
+            <option value="">Selecione o campo…</option>
+            {Object.entries(CAMPO_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            <option value="__outro__">Outro campo…</option>
+          </Select>
+          {campoManualChave === '__outro__' && (
+            <Input placeholder="Nome do campo" value={campoManualCustom} onChange={e => setCampoManualCustom(e.target.value)} className="sm:w-48" />
+          )}
+          <Input placeholder="Valor (ex.: Casa)" value={campoManualValor} onChange={e => setCampoManualValor(e.target.value)} className="flex-1" />
+          <Button
+            onClick={adicionarCampoManual}
+            loading={salvandoManual}
+            disabled={!campoManualChave.trim() || !campoManualValor.trim() || (campoManualChave === '__outro__' && !campoManualCustom.trim())}
+            className="flex-shrink-0"
+          >
+            Adicionar
+          </Button>
+        </div>
+      </div>
+
       {ficha && campos.length > 0 && (() => {
         // Agrupamento visual só para não empilhar tudo numa lista só (sem
         // hierarquia nenhuma, "parece uma ingembração" na visão do usuário)
@@ -354,7 +422,7 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
 
       {!ficha && (
         <div className="card p-8 text-center">
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhuma fonte extraída ainda. Informe um link ou envie um PDF/imagem acima.</p>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum dado ainda. Informe um link, envie um PDF/imagem, ou adicione um campo manualmente acima.</p>
         </div>
       )}
     </div>

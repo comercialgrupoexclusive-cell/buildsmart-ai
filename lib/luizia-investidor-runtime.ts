@@ -349,12 +349,31 @@ export async function executarPesquisaComparaveis(input: {
   const { data: ficha } = await db.from('prospeccao_ficha').select('*').eq('prospeccao_id', input.prospeccaoId).maybeSingle()
   // dados_confirmados (validado por humano) prevalece sobre dados_extraidos
   // quando os dois existirem — mesma prioridade usada no resto da Skill 1.
-  const dadosAlvo: Record<string, unknown> = { ...(ficha?.dados_extraidos || {}), ...(ficha?.dados_confirmados || {}) }
+  let dadosAlvo: Record<string, unknown> = { ...(ficha?.dados_extraidos || {}), ...(ficha?.dados_confirmados || {}) }
+  let enderecoAlvo = prospeccao.endereco as string | null
+
+  // Prospecção-sombra de venda (ver lib/investidor-venda.ts): herda os
+  // dados do imóvel já coletados no lado da compra — mesma unidade física.
+  // Sem isso a ficha do lado da venda começa sempre vazia, e a busca de
+  // comparáveis não sabia nem o tipo do imóvel (bug real: uma Casa virava
+  // "apartamento" por suposição do modelo). A ficha do próprio lado da
+  // venda, se já tiver algo preenchido, continua tendo prioridade.
+  if (prospeccao.is_venda && prospeccao.project_id) {
+    const { data: origem } = await db.from('prospeccoes').select('id, endereco').eq('project_id', prospeccao.project_id).eq('is_venda', false).maybeSingle()
+    if (origem) {
+      enderecoAlvo = enderecoAlvo ?? (origem.endereco as string | null)
+      const { data: fichaOrigem } = await db.from('prospeccao_ficha').select('*').eq('prospeccao_id', origem.id).maybeSingle()
+      dadosAlvo = { ...(fichaOrigem?.dados_extraidos || {}), ...(fichaOrigem?.dados_confirmados || {}), ...dadosAlvo }
+    }
+  }
 
   const descricaoAlvo = [
     `Nome da prospecção: ${prospeccao.nome}`,
-    prospeccao.endereco ? `Endereço: ${prospeccao.endereco}` : null,
+    enderecoAlvo ? `Endereço: ${enderecoAlvo}` : null,
     Object.keys(dadosAlvo).length ? `Dados da ficha do imóvel-alvo: ${JSON.stringify(dadosAlvo)}` : null,
+    typeof dadosAlvo.tipo === 'string' && dadosAlvo.tipo.trim()
+      ? `Tipo do imóvel confirmado: ${dadosAlvo.tipo} — pesquise exclusivamente por esse tipo de imóvel, nunca por outro (ex.: nunca troque "casa" por "apartamento" ou vice-versa).`
+      : null,
   ].filter((l): l is string => !!l).join('\n')
 
   const openai = new OpenAI({ apiKey })
