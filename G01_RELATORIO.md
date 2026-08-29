@@ -27,6 +27,20 @@ repositório V1" da seção 9.** Fica registrado como pendência para decisão d
 for necessário separar fisicamente em outro repositório GitHub mais adiante, o conteúdo de
 `v2/` pode ser extraído com `git subtree split` preservando histórico.
 
+**Tentativa de correção do desvio (mesma sessão, rodada posterior):** a pedido do Product
+Owner, o executor tentou de fato migrar `v2/` para um repositório GitHub novo e separado
+(`buildsmart-v2`), com o objetivo de manter a V1 rodando normalmente em `buildsmart-ai/main`
+enquanto a V2 é construída de forma isolada. O histórico de `v2/` foi extraído com sucesso via
+`git subtree split -P v2` (branch local `v2-split`, 2 commits, `v2/` como raiz). A criação do
+repositório novo, porém, falhou: `mcp__github__create_repository` retornou
+`403 Resource not accessible by integration` — a integração GitHub desta sessão não tem
+permissão para criar repositórios, apenas para ler/escrever em repositórios já existentes e
+já autorizados. Diante disso, o Product Owner optou por **cancelar a migração** e manter o
+desvio como está (V2 em `buildsmart-ai/v2/`) até que exista uma forma de criar o repositório
+(ex.: o próprio Product Owner cria um repositório vazio no GitHub e autoriza esta sessão a
+usá-lo). A branch temporária `v2-split` foi removida do repositório local; nenhum dado foi
+perdido, pois o conteúdo permanece intacto em `v2/` na branch de trabalho.
+
 ## Ambiente (versões efetivamente instaladas)
 - Node.js: v22.22.2
 - npm: 10.9.7
