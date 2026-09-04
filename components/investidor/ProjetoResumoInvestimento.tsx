@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
 import { getProspeccaoVenda } from '@/lib/investidor-venda'
 import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
+import { ProjetoCustosAquisicao } from './ProjetoCustosAquisicao'
 import type { Prospeccao, ProspeccaoCenario } from '@/lib/types'
 
 // Núcleo N06.3 — fase operacional do ciclo de investimento (spec V0 do
@@ -157,6 +158,7 @@ export function ProjetoResumoInvestimento({ projetoId, faseInvestimento, onFaseC
       <div className="flex flex-col gap-4">
         <FaseAtivoCard projetoId={projetoId} faseInvestimento={faseInvestimento ?? null} onChanged={onFaseChanged} />
         {vendaCard}
+        <ProjetoCustosAquisicao projetoId={projetoId} />
       </div>
     ) : (
       <div className="flex flex-col gap-4">
@@ -182,6 +184,7 @@ export function ProjetoResumoInvestimento({ projetoId, faseInvestimento, onFaseC
             Analisar viabilidade de venda <ArrowUpRight size={13} />
           </Link>
         </div>
+        <ProjetoCustosAquisicao projetoId={projetoId} />
       </div>
     )
   }
@@ -259,9 +262,11 @@ export function ProjetoResumoInvestimento({ projetoId, faseInvestimento, onFaseC
 
       {vendaCard}
 
+      <ProjetoCustosAquisicao projetoId={projetoId} />
+
       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
         Estes valores refletem o cenário previsto na prospecção de compra{temVenda ? ' e a pesquisa de venda feita no próprio Imóvel' : ''}.
-        Comparação com o realizado (financeiro real da obra) e Comercialização chegam em marcos futuros do Laboratório Investidor.
+        Comercialização chega em marcos futuros do Laboratório Investidor.
       </p>
     </div>
   )

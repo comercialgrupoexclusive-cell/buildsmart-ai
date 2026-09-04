@@ -814,6 +814,27 @@ export type ProspeccaoAnaliseMercado = {
   created_at: string
 }
 
+// ─── Núcleo N06.3: custos reais de aquisição pós-arrematação de um Ativo ─────
+// Categoria + valor + comprovante opcional, vinculado direto ao Projeto
+// (não a uma etapa de Orçamento de obra) — compara com o previsto do
+// cenário financeiro (ProspeccaoCenario.investimento_total).
+export type CategoriaCustoAquisicao =
+  | 'comissao_leiloeiro' | 'itbi' | 'registro' | 'escritura'
+  | 'advogado_desocupacao' | 'certidoes_outros' | 'iptu_pago' | 'condominio_pago'
+
+export type ProjetoCustoAquisicao = {
+  id: string
+  projeto_id: string
+  categoria: CategoriaCustoAquisicao
+  descricao: string | null
+  valor: number
+  data_pagamento: string | null
+  comprovante_url: string | null
+  comprovante_nome: string | null
+  created_by: string | null
+  created_at: string
+}
+
 export type InvestidorAgente = {
   id: string
   nome: string
