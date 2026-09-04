@@ -511,7 +511,11 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
   const [salvandoHierarquia, setSalvandoHierarquia] = useState(false)
   const [erroHierarquia, setErroHierarquia] = useState('')
 
-  // Grupos colapsados (nível etapa) — persistido no localStorage por obra
+  // Grupos colapsados (nível etapa) — persistido no localStorage por obra.
+  // Núcleo N06.1: etapa ausente do mapa (nunca tocada pelo usuário) agora
+  // conta como colapsada por padrão (ver leituras `?? true` nos call sites
+  // de GrupoEtapa) — antes um orçamento com 17 etapas abria com as 17
+  // (e todas as composições/insumos dentro delas) expandidas ao mesmo tempo.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     if (typeof window === 'undefined') return {}
     try {
@@ -2616,8 +2620,8 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                 itens={itensPorEtapa.sem_etapa}
                 subetapasMeta={subetapasMetaPorEtapa.sem_etapa}
                 isReadonly={isReadonly}
-                collapsed={collapsed['sem_etapa']}
-                onToggleGrupo={() => setCollapsed(c => ({ ...c, sem_etapa: !c['sem_etapa'] }))}
+                collapsed={collapsed['sem_etapa'] ?? true}
+                onToggleGrupo={() => setCollapsed(c => ({ ...c, sem_etapa: !(c['sem_etapa'] ?? true) }))}
                 onAddItem={() => openItemModal(null)}
                 onRemove={handleRemoveItem}
                 onUpdateQuantidade={handleUpdateItemQuantidade}
@@ -2671,8 +2675,8 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
                       itens={itensDaEtapa}
                       subetapasMeta={metasDaEtapa}
                       isReadonly={isReadonly}
-                      collapsed={collapsed[etapa.id]}
-                      onToggleGrupo={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
+                      collapsed={collapsed[etapa.id] ?? true}
+                      onToggleGrupo={() => setCollapsed(c => ({ ...c, [etapa.id]: !(c[etapa.id] ?? true) }))}
                       onAddItem={() => openItemModal(etapa.id)}
                       onRemove={handleRemoveItem}
                       onUpdateQuantidade={handleUpdateItemQuantidade}
