@@ -11,13 +11,75 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, ArrowUpRight, Landmark, TrendingUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useProfile } from '@/lib/profile-context'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Select } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
 import { getProspeccaoVenda } from '@/lib/investidor-venda'
 import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
 import type { Prospeccao, ProspeccaoCenario } from '@/lib/types'
 
-export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) {
+// Núcleo N06.3 — fase operacional do ciclo de investimento (spec V0 do
+// Laboratório Investidor), independente do fase_ciclo genérico
+// (projeto/em_obra/entregue) usado no cabeçalho do Project. Ver migração
+// projetos_fase_investimento.sql e RPC mudar_fase_investimento (grava
+// Audit em portal_audit_log).
+const FASE_INVESTIMENTO_LABEL: Record<string, string> = {
+  aquisicao_concluida: 'Aquisição concluída',
+  regularizacao_posse: 'Regularização/Posse',
+  reforma: 'Reforma',
+  pronto_para_venda: 'Pronto para venda',
+  a_venda: 'À venda',
+  negociacao: 'Negociação',
+  vendido: 'Vendido',
+  encerrado: 'Encerrado',
+}
+const FASE_INVESTIMENTO_ORDEM = Object.keys(FASE_INVESTIMENTO_LABEL)
+
+function FaseAtivoCard({ projetoId, faseInvestimento, onChanged }: {
+  projetoId: string; faseInvestimento: string | null; onChanged?: () => void
+}) {
+  const { currentProfile } = useProfile()
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function mudarFase(novaFase: string) {
+    if (!novaFase || novaFase === faseInvestimento) return
+    setSalvando(true)
+    setErro(null)
+    const supabase = createClient()
+    const { error } = await supabase.rpc('mudar_fase_investimento', {
+      p_projeto_id: projetoId,
+      p_fase_investimento: novaFase,
+      p_profile_id: currentProfile?.id ?? null,
+    })
+    setSalvando(false)
+    if (error) { setErro(error.message); return }
+    onChanged?.()
+  }
+
+  return (
+    <div className="card p-4 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Fase do Ativo</p>
+        {erro && <p className="text-xs mt-0.5" style={{ color: 'var(--danger)' }}>{erro}</p>}
+      </div>
+      <Select
+        value={faseInvestimento ?? ''}
+        onChange={e => void mudarFase(e.target.value)}
+        disabled={salvando}
+        className="w-auto min-w-[190px] py-1.5 text-sm flex-shrink-0"
+      >
+        <option value="" disabled>— Não definida —</option>
+        {FASE_INVESTIMENTO_ORDEM.map(v => <option key={v} value={v}>{FASE_INVESTIMENTO_LABEL[v]}</option>)}
+      </Select>
+    </div>
+  )
+}
+
+export function ProjetoResumoInvestimento({ projetoId, faseInvestimento, onFaseChanged }: {
+  projetoId: string; faseInvestimento?: string | null; onFaseChanged?: () => void
+}) {
   const [prospeccao, setProspeccao] = useState<Prospeccao | null>(null)
   const [principal, setPrincipal] = useState<ProspeccaoCenario | null>(null)
   const [vendaPrincipal, setVendaPrincipal] = useState<ProspeccaoCenario | null>(null)
@@ -92,9 +154,13 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
     // pesquisa/viabilidade de venda, ela aparece aqui mesmo sem prospecção
     // de compra — Visão Geral deixa de ficar vazia nesse caso.
     return temVenda ? (
-      <div className="flex flex-col gap-4">{vendaCard}</div>
+      <div className="flex flex-col gap-4">
+        <FaseAtivoCard projetoId={projetoId} faseInvestimento={faseInvestimento ?? null} onChanged={onFaseChanged} />
+        {vendaCard}
+      </div>
     ) : (
       <div className="flex flex-col gap-4">
+        <FaseAtivoCard projetoId={projetoId} faseInvestimento={faseInvestimento ?? null} onChanged={onFaseChanged} />
         <EmptyState
           icon={Landmark}
           title="Cadastro direto"
@@ -130,6 +196,8 @@ export function ProjetoResumoInvestimento({ projetoId }: { projetoId: string }) 
 
   return (
     <div className="flex flex-col gap-4">
+      <FaseAtivoCard projetoId={projetoId} faseInvestimento={faseInvestimento ?? null} onChanged={onFaseChanged} />
+
       <div className="card p-4 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Origem</p>

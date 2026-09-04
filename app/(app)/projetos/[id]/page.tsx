@@ -40,6 +40,7 @@ type Projeto = {
   data_previsao: string | null
   status: 'aguardando' | 'em_andamento' | 'concluido' | 'suspenso'
   fase_ciclo: ProjectPhase
+  fase_investimento: string | null
   contexto: 'projeto' | 'investimento'
   obra_id: string | null
   responsavel: string | null
@@ -604,7 +605,9 @@ export default function ProjetoDetalhe({ params }: { params: Promise<{ id: strin
 
       {tab === 'tarefas' && <ContextoTarefas projetoId={projeto.id} />}
 
-      {tab === 'investimento' && <ProjetoResumoInvestimento projetoId={projeto.id} />}
+      {tab === 'investimento' && (
+        <ProjetoResumoInvestimento projetoId={projeto.id} faseInvestimento={projeto.fase_investimento} onFaseChanged={loadData} />
+      )}
 
       {(tab === 'mercado_venda' || tab === 'viabilidade_venda') && (!vendaProspeccaoId ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16">
