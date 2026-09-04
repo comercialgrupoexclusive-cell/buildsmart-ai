@@ -10,7 +10,7 @@
 // anúncio diz "reformado", usuário confirma "necessita reforma") — nesse
 // caso o conflito fica registrado, não escondido.
 import { useEffect, useState } from 'react'
-import { Link2, FileText, ImagePlus, Sparkles, Check, AlertTriangle, Loader2 } from 'lucide-react'
+import { Link2, FileText, ImagePlus, Sparkles, Check, AlertTriangle, Loader2, History } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { Input, Select } from '@/components/ui/Input'
@@ -85,6 +85,11 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
   const [campoManualCustom, setCampoManualCustom] = useState('')
   const [campoManualValor, setCampoManualValor] = useState('')
   const [salvandoManual, setSalvandoManual] = useState(false)
+  // Núcleo N06.2 (progressive disclosure): por padrão mostra só o dado
+  // confirmado — a distinção extraído/confirmado/conflito (que é o motor
+  // "fonte é evidência, não verdade" da Skill 1) fica atrás deste controle,
+  // em vez de sempre visível lado a lado para cada campo.
+  const [mostrarOrigem, setMostrarOrigem] = useState(false)
 
   async function carregar() {
     setLoading(true)
@@ -379,6 +384,18 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
           const extraido = ficha!.dados_extraidos?.[campo]
           const jaConfirmado = ficha!.dados_confirmados?.[campo]
           const divergente = extraido != null && jaConfirmado != null && fmtValor(extraido).trim().toLowerCase() !== fmtValor(jaConfirmado).trim().toLowerCase()
+          if (!mostrarOrigem) {
+            return (
+              <div key={campo} className="grid grid-cols-1 sm:grid-cols-[1fr_2fr] gap-2 items-center pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
+                <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{labelDoCampo(campo)}</p>
+                <Input
+                  placeholder="Confirmar/corrigir (em branco = pendente)"
+                  value={confirmados[campo] ?? ''}
+                  onChange={e => setConfirmados(prev => ({ ...prev, [campo]: e.target.value }))}
+                />
+              </div>
+            )
+          }
           return (
             <div key={campo} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr] gap-2 items-start pb-3" style={{ borderBottom: '1px solid var(--border)' }}>
               <div>
@@ -398,11 +415,40 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
           )
         }
 
+        const temConflito = campos.some(campo => {
+          const extraido = ficha!.dados_extraidos?.[campo]
+          const jaConfirmado = ficha!.dados_confirmados?.[campo]
+          return extraido != null && jaConfirmado != null && fmtValor(extraido).trim().toLowerCase() !== fmtValor(jaConfirmado).trim().toLowerCase()
+        })
+
         return (
           <div className="flex flex-col gap-4">
             <div className="card p-5">
-              <h3 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Dados extraídos → validação</h3>
-              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Confirme, corrija ou deixe em branco (pendente) cada campo. Divergências ficam registradas como conflito, não escondidas.</p>
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <h3 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                    {mostrarOrigem ? 'Dados extraídos → validação' : 'Dados confirmados'}
+                  </h3>
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    {mostrarOrigem
+                      ? 'Confirme, corrija ou deixe em branco (pendente) cada campo. Divergências ficam registradas como conflito, não escondidas.'
+                      : 'Confirme ou corrija cada campo. A fonte original de cada dado fica em "Ver origem do dado".'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMostrarOrigem(v => !v)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                  style={mostrarOrigem
+                    ? { background: 'var(--accent)', color: 'white' }
+                    : { color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
+                >
+                  <History size={12} /> Ver origem do dado
+                  {!mostrarOrigem && temConflito && (
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#f59e0b' }} title="Há divergências entre extraído e confirmado" />
+                  )}
+                </button>
+              </div>
             </div>
 
             {grupos.map(g => (
