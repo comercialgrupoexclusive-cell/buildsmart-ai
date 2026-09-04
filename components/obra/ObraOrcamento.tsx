@@ -8,7 +8,7 @@ import {
   HardHat, Mountain, Layers, Building2, Grid3x3, Home, ShieldCheck,
   Droplets, Zap, Wrench, DoorOpen, Square, PaintBucket, Bath, Package,
   Pencil, GripVertical, Move, MoreVertical, Copy, type LucideIcon,
-  Sparkles, LayoutTemplate, Save, Wand2, ClipboardCheck, Check, Minus,
+  Sparkles, LayoutTemplate, Save, Wand2, ClipboardCheck, Check, Minus, Settings2,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -406,6 +406,12 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     return () => mq.removeEventListener('change', onChange)
   }, [])
   const mobileDragLocked = isMobileViewport && !reorderMode
+
+  // Núcleo N06.1 (progressive disclosure): BDI e Gerenciamento são % de
+  // configuração, não leitura do dia a dia — o valor calculado (R$) fica
+  // sempre visível no card de resumo, mas o campo para EDITAR o percentual
+  // só aparece com "Avançado" ligado. Não muda cálculo nenhum, só a UI.
+  const [showAvancado, setShowAvancado] = useState(false)
 
   // Conferência do orçamento (QA/revisão) — modo opt-in que só mostra os
   // checkboxes quando ativado, para não poluir a tela o tempo inteiro.
@@ -2430,6 +2436,19 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}
       >
         <div className="px-4 py-3 flex flex-col gap-2.5">
+          <div className="flex justify-end -mb-1">
+            <button
+              type="button"
+              onClick={() => setShowAvancado(v => !v)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium transition-colors"
+              style={showAvancado
+                ? { background: 'var(--accent)', color: 'white' }
+                : { color: 'var(--text-secondary)' }}
+              title="Editar percentual de BDI e Gerenciamento"
+            >
+              <Settings2 size={12} /> Avançado
+            </button>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
             <CustoCard
               icon={Boxes} cor="var(--accent)" label="Custo Material"
@@ -2446,30 +2465,38 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
               value={formatCurrency(subtotal)} hint="Sem BDI"
             />
             <CustoCard icon={Percent} cor="var(--warning)" label="BDI" hint={formatCurrency(totalBdi)}>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number" value={bdi}
-                  onChange={e => setBdi(Number(e.target.value))}
-                  onBlur={handleUpdateBdi}
-                  disabled={isReadonly}
-                  className="input-base w-14 text-center py-0.5 text-sm"
-                  min={0} max={100}
-                />
-                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
-              </div>
+              {showAvancado ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number" value={bdi}
+                    onChange={e => setBdi(Number(e.target.value))}
+                    onBlur={handleUpdateBdi}
+                    disabled={isReadonly}
+                    className="input-base w-14 text-center py-0.5 text-sm"
+                    min={0} max={100}
+                  />
+                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
+                </div>
+              ) : (
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{bdi}%</span>
+              )}
             </CustoCard>
             <CustoCard icon={Wallet} cor="var(--success)" label="Gerenciamento" hint={formatCurrency(totalGerenciamento)}>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="number" value={gerenciamento}
-                  onChange={e => setGerenciamento(Number(e.target.value))}
-                  onBlur={handleUpdateGerenciamento}
-                  disabled={isReadonly}
-                  className="input-base w-14 text-center py-0.5 text-sm"
-                  min={0} max={100}
-                />
-                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
-              </div>
+              {showAvancado ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number" value={gerenciamento}
+                    onChange={e => setGerenciamento(Number(e.target.value))}
+                    onBlur={handleUpdateGerenciamento}
+                    disabled={isReadonly}
+                    className="input-base w-14 text-center py-0.5 text-sm"
+                    min={0} max={100}
+                  />
+                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>%</span>
+                </div>
+              ) : (
+                <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{gerenciamento}%</span>
+              )}
             </CustoCard>
             <CustoCard
               icon={Wallet} cor="var(--accent)" label="Total da Obra"
