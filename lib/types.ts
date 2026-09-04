@@ -640,6 +640,10 @@ export type Prospeccao = {
   id: string
   nome: string
   endereco: string | null
+  // Núcleo N06.2 — geocoding (Nominatim) do endereço, ver lib/geocoding.ts.
+  // Nullable: uma prospecção antiga ou cujo geocoding falhou não tem.
+  latitude: number | null
+  longitude: number | null
   foto_url: string | null
   link_leilao: string | null
   data_leilao: string | null
@@ -788,6 +792,11 @@ export type ProspeccaoComparavel = {
   data_evidencia: string | null
   diferencas: string | null
   similaridade: 'mesmo_predio' | 'mesma_rua' | 'entorno' | 'bairro' | null
+  // Núcleo N06.2 — geocoding best-effort do título/endereço do comparável
+  // (ver lib/geocoding.ts). Nullable: nem todo anúncio tem endereço
+  // específico o bastante para geocodificar.
+  latitude: number | null
+  longitude: number | null
   salvo: boolean
   favorito: boolean
   created_at: string

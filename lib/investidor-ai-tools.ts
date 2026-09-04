@@ -28,6 +28,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type OpenAI from 'openai'
 import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from './ai-resolve'
 import { criarPropostaPendente, acharPendenteParaResolver, marcarRejeitada, marcarExecutada, formatarListaPendentes } from './luizia-pending-actions'
+import { geocodeEndereco, haversineKm, corrigirSimilaridadePorDistancia } from './geocoding'
 import { calcularCenario, pendenciasCenario, type PremissasCenario } from './investidor-calculadora'
 import { extrairConteudoDeLink } from './link-extract'
 import { formatCurrency } from './utils'
@@ -1052,26 +1053,54 @@ export async function execInvestidorAiTool(db: DB, name: string, args: Args, ctx
         const p = resolvido.item
         const lista = Array.isArray(args.comparaveis) ? args.comparaveis : []
         if (lista.length === 0) return 'Nenhum comparável para registrar.'
-        const payload = lista.map((c: Args) => ({
-          prospeccao_id: p.id,
-          titulo: c.titulo || null,
-          preco: c.preco != null ? Number(c.preco) : null,
-          area: c.area != null ? Number(c.area) : null,
-          dormitorios: c.dormitorios != null ? Number(c.dormitorios) : null,
-          banheiros: c.banheiros != null ? Number(c.banheiros) : null,
-          vagas: c.vagas != null ? Number(c.vagas) : null,
-          caracteristicas: Array.isArray(c.caracteristicas) ? c.caracteristicas : [],
-          estado_conservacao: c.estado_conservacao || null,
-          fonte: c.fonte || null,
-          url: c.url || null,
-          url_confirmada: Boolean(c.url_confirmada),
-          identificador_anuncio: c.identificador_anuncio || null,
-          data_evidencia: c.data_evidencia || null,
-          diferencas: c.diferencas || null,
-          similaridade: ['mesmo_predio', 'mesma_rua', 'entorno', 'bairro'].includes(c.similaridade) ? c.similaridade : null,
-          salvo: false,
-          favorito: false,
-        }))
+
+        // Núcleo N06.2: geocoding best-effort de cada comparável (título/
+        // endereço do anúncio) para VALIDAR a similaridade que a IA declarou
+        // (julgamento textual) contra a distância real — nunca promove uma
+        // categoria (ex.: "entorno" nunca vira "mesmo prédio"), só corrige
+        // para uma categoria mais ampla quando a distância real não bate
+        // (ex.: alegou "mesmo prédio" mas geocoding acha 3km de distância).
+        // Sem coordenada da prospecção ou do comparável, mantém a categoria
+        // declarada como estava — geocoding é um refinamento, não um gate.
+        const prospeccaoCoord = p.latitude != null && p.longitude != null ? { lat: p.latitude, lon: p.longitude } : null
+        const payload = []
+        for (const c of lista as Args[]) {
+          const similaridadeDeclarada = ['mesmo_predio', 'mesma_rua', 'entorno', 'bairro'].includes(c.similaridade) ? c.similaridade : null
+          let latitude: number | null = null
+          let longitude: number | null = null
+          let similaridade = similaridadeDeclarada
+          if (prospeccaoCoord && c.titulo) {
+            const coord = await geocodeEndereco(String(c.titulo))
+            if (coord) {
+              latitude = coord.lat
+              longitude = coord.lon
+              const distanciaKm = haversineKm(prospeccaoCoord, coord)
+              similaridade = corrigirSimilaridadePorDistancia(similaridadeDeclarada, distanciaKm) ?? similaridadeDeclarada
+            }
+          }
+          payload.push({
+            prospeccao_id: p.id,
+            titulo: c.titulo || null,
+            preco: c.preco != null ? Number(c.preco) : null,
+            area: c.area != null ? Number(c.area) : null,
+            dormitorios: c.dormitorios != null ? Number(c.dormitorios) : null,
+            banheiros: c.banheiros != null ? Number(c.banheiros) : null,
+            vagas: c.vagas != null ? Number(c.vagas) : null,
+            caracteristicas: Array.isArray(c.caracteristicas) ? c.caracteristicas : [],
+            estado_conservacao: c.estado_conservacao || null,
+            fonte: c.fonte || null,
+            url: c.url || null,
+            url_confirmada: Boolean(c.url_confirmada),
+            identificador_anuncio: c.identificador_anuncio || null,
+            data_evidencia: c.data_evidencia || null,
+            diferencas: c.diferencas || null,
+            similaridade,
+            latitude,
+            longitude,
+            salvo: false,
+            favorito: false,
+          })
+        }
         const { error } = await db.from('prospeccao_comparaveis').insert(payload)
         if (error) return `Erro ao registrar comparáveis: ${error.message}`
         return `${payload.length} comparável(is) registrado(s) para "${p.nome}". Abra a aba Mercado para ver, salvar e favoritar.`

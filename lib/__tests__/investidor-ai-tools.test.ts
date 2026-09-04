@@ -3,8 +3,16 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { FakeDB } from './fake-supabase'
 import { execInvestidorAiTool, type InvestidorAiCtx } from '../investidor-ai-tools'
 import { extrairConteudoDeLink } from '../link-extract'
+import { geocodeEndereco } from '../geocoding'
 
 vi.mock('../link-extract', () => ({ extrairConteudoDeLink: vi.fn() }))
+// Só mocka a chamada de rede (geocodeEndereco) — haversineKm e
+// corrigirSimilaridadePorDistancia continuam reais, para o teste exercitar
+// a correção de verdade, não simular o resultado dela.
+vi.mock('../geocoding', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../geocoding')>()
+  return { ...real, geocodeEndereco: vi.fn() }
+})
 
 // Testa lib/investidor-ai-tools.ts sem rede (o sandbox bloqueia
 // *.supabase.co), com o mesmo FakeDB em memória já usado por
@@ -463,6 +471,59 @@ describe('execInvestidorAiTool — Skill 1: Pesquisa e Análise de Mercado', () 
       comparaveis: [{ preco: 500000, similaridade: 'planeta_marte' }],
     }, ctx())
     expect(db.tables.prospeccao_comparaveis[0].similaridade).toBeNull()
+  })
+
+  it('registrar_comparaveis_brutos sem geocoding da prospecção não tenta geocodificar (geocodeEndereco não é chamado)', async () => {
+    // "São Manoel" (seed do describe) não tem latitude/longitude — mesmo
+    // comportamento de hoje para prospecções ainda sem geocoding.
+    await execInvestidorAiTool(db as unknown as SupabaseClient, 'registrar_comparaveis_brutos', {
+      prospeccao_nome: 'São Manoel',
+      comparaveis: [{ titulo: 'Apto na mesma rua', preco: 500000, similaridade: 'mesma_rua' }],
+    }, ctx())
+    expect(geocodeEndereco).not.toHaveBeenCalled()
+    expect(db.tables.prospeccao_comparaveis[0].similaridade).toBe('mesma_rua')
+    expect(db.tables.prospeccao_comparaveis[0].latitude).toBeNull()
+  })
+
+  describe('registrar_comparaveis_brutos — Núcleo N06.2 (geocoding corrige similaridade por distância real)', () => {
+    beforeEach(() => {
+      db.tables.prospeccoes[0].latitude = -30.0346
+      db.tables.prospeccoes[0].longitude = -51.2177
+      vi.mocked(geocodeEndereco).mockReset()
+    })
+
+    it('corrige "mesmo prédio" para "bairro" quando o geocoding acha o comparável a 3km de distância', async () => {
+      vi.mocked(geocodeEndereco).mockResolvedValue({ lat: -30.06, lon: -51.24 }) // ~3km de distância real
+      await execInvestidorAiTool(db as unknown as SupabaseClient, 'registrar_comparaveis_brutos', {
+        prospeccao_nome: 'São Manoel',
+        comparaveis: [{ titulo: 'Apto supostamente no mesmo prédio', preco: 500000, similaridade: 'mesmo_predio' }],
+      }, ctx())
+      const salvo = db.tables.prospeccao_comparaveis[0]
+      expect(salvo.similaridade).not.toBe('mesmo_predio')
+      expect(salvo.latitude).toBeCloseTo(-30.06, 4)
+      expect(salvo.longitude).toBeCloseTo(-51.24, 4)
+    })
+
+    it('mantém a similaridade quando a distância geocodificada confirma a categoria declarada', async () => {
+      vi.mocked(geocodeEndereco).mockResolvedValue({ lat: -30.0346, lon: -51.2177 }) // mesmo ponto
+      await execInvestidorAiTool(db as unknown as SupabaseClient, 'registrar_comparaveis_brutos', {
+        prospeccao_nome: 'São Manoel',
+        comparaveis: [{ titulo: 'Apto realmente no mesmo prédio', preco: 500000, similaridade: 'mesmo_predio' }],
+      }, ctx())
+      expect(db.tables.prospeccao_comparaveis[0].similaridade).toBe('mesmo_predio')
+    })
+
+    it('geocoding malsucedido (endereço vago) não bloqueia o registro — mantém a similaridade declarada e lat/long null', async () => {
+      vi.mocked(geocodeEndereco).mockResolvedValue(null)
+      await execInvestidorAiTool(db as unknown as SupabaseClient, 'registrar_comparaveis_brutos', {
+        prospeccao_nome: 'São Manoel',
+        comparaveis: [{ titulo: 'Apartamento na região', preco: 500000, similaridade: 'entorno' }],
+      }, ctx())
+      const salvo = db.tables.prospeccao_comparaveis[0]
+      expect(salvo.similaridade).toBe('entorno')
+      expect(salvo.latitude).toBeNull()
+      expect(salvo.longitude).toBeNull()
+    })
   })
 
   it('registrar_analise_mercado não grava nada — só formata a entrega para a tela (snapshot só acontece ao Encerrar, feito pela UI)', async () => {

@@ -202,6 +202,7 @@ function DecidirTab({ prospeccao, principal, ficha, analiseMercado, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [convertendo, setConvertendo] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
+  const [erroEndereco, setErroEndereco] = useState<string | null>(null)
 
   // Marco 4 — conversão Prospecção adquirida → Imóvel (Project com
   // contexto=investimento). Reaproveita a mesma tabela `projetos` e todas
@@ -274,11 +275,44 @@ function DecidirTab({ prospeccao, principal, ficha, analiseMercado, onSaved }: {
   }
 
   async function handleSave() {
+    const endereco = (form.endereco || '').trim()
+    if (!endereco) { setErroEndereco('Endereço é obrigatório.'); return }
     setSaving(true)
+    setErroEndereco(null)
+
+    // Núcleo N06.2: só regeocodifica se o endereço mudou (evita bater na
+    // API de geocoding — Nominatim, limite de 1 req/s — toda vez que o
+    // usuário salva o formulário sem ter tocado no endereço).
+    let latitude = prospeccao.latitude
+    let longitude = prospeccao.longitude
+    if (endereco !== (prospeccao.endereco || '').trim()) {
+      try {
+        const geoRes = await fetch('/api/investidor/geocode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endereco }),
+        })
+        const geoData = await geoRes.json()
+        if (geoData.erro) {
+          setErroEndereco(geoData.erro)
+          setSaving(false)
+          return
+        }
+        latitude = geoData.latitude
+        longitude = geoData.longitude
+      } catch {
+        setErroEndereco('Não foi possível verificar o endereço agora. Tente novamente.')
+        setSaving(false)
+        return
+      }
+    }
+
     const supabase = createClient()
     const { error } = await supabase.from('prospeccoes').update({
       nome: form.nome.trim(),
-      endereco: form.endereco || null,
+      endereco,
+      latitude,
+      longitude,
       tipo_aquisicao: form.tipo_aquisicao,
       link_leilao: form.link_leilao || null,
       data_leilao: form.data_leilao || null,
@@ -454,7 +488,12 @@ function DecidirTab({ prospeccao, principal, ficha, analiseMercado, onSaved }: {
         <Select label="Fase" value={form.fase} onChange={e => setForm(f => ({ ...f, fase: e.target.value as ProspeccaoFase }))}>
           {FASE_OPTIONS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </Select>
-        <Input label="Endereço" value={form.endereco ?? ''} onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} />
+        <Input
+          label="Endereço *"
+          value={form.endereco ?? ''}
+          onChange={e => { setForm(f => ({ ...f, endereco: e.target.value })); setErroEndereco(null) }}
+          error={erroEndereco ?? undefined}
+        />
         <Select
           label="Tipo de aquisição"
           value={form.tipo_aquisicao}
@@ -475,7 +514,7 @@ function DecidirTab({ prospeccao, principal, ficha, analiseMercado, onSaved }: {
       <Textarea label="Observação" rows={3} value={form.observacao ?? ''} onChange={e => setForm(f => ({ ...f, observacao: e.target.value }))} />
       <div className="flex justify-end gap-2 pt-2">
         <Button variant="secondary" onClick={() => { setForm(prospeccao); setEditing(false) }} disabled={saving}>Cancelar</Button>
-        <Button onClick={handleSave} loading={saving} icon={<Save size={14} />} disabled={!form.nome.trim()}>Salvar</Button>
+        <Button onClick={handleSave} loading={saving} icon={<Save size={14} />} disabled={!form.nome.trim() || !(form.endereco ?? '').trim()}>Salvar</Button>
       </div>
     </div>
     </div>

@@ -1218,17 +1218,49 @@ function NovaProspeccaoModal({ open, onClose, onCreated }: { open: boolean; onCl
   const [fotoFile, setFotoFile] = useState<File | null>(null)
   const [fotoPreview, setFotoPreview] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [erroEndereco, setErroEndereco] = useState<string | null>(null)
 
   function fecharEResetar() {
     setForm(EMPTY_FORM)
     setFotoFile(null)
     setFotoPreview(null)
+    setErroEndereco(null)
     onClose()
   }
 
   async function handleSave() {
-    if (!form.nome.trim()) return
+    const endereco = form.endereco.trim()
+    if (!form.nome.trim() || !endereco) return
     setSaving(true)
+    setErroEndereco(null)
+
+    // Núcleo N06.2: endereço precisa ser específico o bastante para
+    // geocodificar — não basta "não estar vazio" (ex.: "SP" ou uma frase de
+    // busca genérica não localiza nada real). Geocoding malsucedido bloqueia
+    // o salvamento com uma mensagem acionável, em vez de gravar um endereço
+    // que a busca de comparáveis não vai conseguir usar depois.
+    let latitude: number | null = null
+    let longitude: number | null = null
+    try {
+      const geoRes = await fetch('/api/investidor/geocode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endereco }),
+      })
+      const geoData = await geoRes.json()
+      if (geoData.erro) {
+        setErroEndereco(geoData.erro)
+        setSaving(false)
+        return
+      }
+      latitude = geoData.latitude
+      longitude = geoData.longitude
+    } catch {
+      setErroEndereco('Não foi possível verificar o endereço agora. Tente novamente.')
+      setSaving(false)
+      return
+    }
+
     const supabase = createClient()
 
     let foto_url: string | null = null
@@ -1245,7 +1277,9 @@ function NovaProspeccaoModal({ open, onClose, onCreated }: { open: boolean; onCl
 
     const { error } = await supabase.from('prospeccoes').insert({
       nome: form.nome.trim(),
-      endereco: form.endereco.trim() || null,
+      endereco,
+      latitude,
+      longitude,
       tipo_aquisicao: form.tipo_aquisicao,
       link_leilao: form.link_leilao.trim() || null,
       data_leilao: form.data_leilao || null,
@@ -1296,10 +1330,11 @@ function NovaProspeccaoModal({ open, onClose, onCreated }: { open: boolean; onCl
           autoFocus
         />
         <Input
-          label="Endereço"
-          placeholder="Rua, bairro, cidade..."
+          label="Endereço *"
+          placeholder="Rua, número, bairro, cidade..."
           value={form.endereco}
-          onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))}
+          onChange={e => { setForm(f => ({ ...f, endereco: e.target.value })); setErroEndereco(null) }}
+          error={erroEndereco ?? undefined}
         />
         <Select
           label="Tipo de aquisição"
@@ -1324,7 +1359,7 @@ function NovaProspeccaoModal({ open, onClose, onCreated }: { open: boolean; onCl
 
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" onClick={fecharEResetar} disabled={saving}>Cancelar</Button>
-          <Button onClick={handleSave} loading={saving} disabled={!form.nome.trim()}>
+          <Button onClick={handleSave} loading={saving} disabled={!form.nome.trim() || !form.endereco.trim()}>
             Criar prospecção
           </Button>
         </div>
