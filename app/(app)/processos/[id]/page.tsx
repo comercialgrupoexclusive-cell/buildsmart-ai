@@ -5,6 +5,9 @@
 // ainda (isso começa em P3.3, com Orçamento) — aqui só prova que
 // criar/listar/abrir Processo e habilitar/desabilitar módulo funcionam de
 // ponta a ponta, conforme o critério de teste da Rodada P3.2 do plano.
+//
+// UI construída só com os padrões de components/ui/ (ver
+// PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Boxes } from 'lucide-react'
@@ -21,6 +24,8 @@ import {
   type ProcessoStatus,
 } from '@/lib/processo'
 import { ProcessProvider } from '@/lib/processo/context'
+import { Select } from '@/components/ui/Input'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ACTIVE', label: 'Ativo' },
@@ -90,10 +95,11 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
 
   if (notFound || !processo) {
     return (
-      <div className="text-center py-20 space-y-3">
-        <p className="text-lg font-medium" style={{ color: 'var(--text-primary)' }}>Processo não encontrado</p>
-        <Link href="/processos" className="text-sm" style={{ color: 'var(--accent)' }}>Voltar para Processos</Link>
-      </div>
+      <EmptyState
+        icon={Boxes}
+        title="Processo não encontrado"
+        action={<Link href="/processos" className="text-sm" style={{ color: 'var(--accent)' }}>Voltar para Processos</Link>}
+      />
     )
   }
 
@@ -115,9 +121,8 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
               {[processo.tipo, processo.cliente_nome, processo.endereco].filter(Boolean).join(' · ') || 'Sem dados adicionais'}
             </p>
           </div>
-          <select
-            className="px-3 py-2 rounded-lg text-sm border outline-none disabled:opacity-50"
-            style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+          <Select
+            className="sm:w-auto"
             value={processo.status}
             disabled={savingStatus}
             onChange={e => handleStatusChange(e.target.value as ProcessoStatus)}
@@ -125,10 +130,10 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
             {STATUS_OPCOES.map(opt => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
-          </select>
+          </Select>
         </div>
 
-        <div className="rounded-2xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+        <div className="card p-5">
           <div className="flex items-center gap-2 mb-4">
             <Boxes size={18} style={{ color: 'var(--accent)' }} />
             <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Módulos</h2>
