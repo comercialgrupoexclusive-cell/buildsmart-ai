@@ -158,12 +158,16 @@ export function SalvarTemplateOrcamentoModal({
 // ─── Usar template salvo ────────────────────────────────────────────────────
 
 export function UsarTemplateOrcamentoModal({
-  open, onClose, obraId, projetoId, orcamentoId, onApplied,
+  open, onClose, obraId, projetoId, processoId, orcamentoId, onApplied,
 }: {
   open: boolean
   onClose: () => void
   obraId?: string
   projetoId?: string
+  // Motor de Processo (P3.3B) — terceiro root, mesmo padrão de obraId/
+  // projetoId. Sem isso o modal nunca reconhecia um orçamento de Processo
+  // (obra_id e projeto_id ambos nulos) e recusava aplicar o template.
+  processoId?: string
   orcamentoId: string
   onApplied?: () => void
 }) {
@@ -192,16 +196,18 @@ export function UsarTemplateOrcamentoModal({
     try {
       const { data: orcamento, error: orcamentoError } = await supabase
         .from('orcamentos')
-        .select('id, obra_id, projeto_id')
+        .select('id, obra_id, projeto_id, processo_id')
         .eq('id', orcamentoId)
         .single()
       if (orcamentoError || !orcamento) throw orcamentoError || new Error('Orçamento não encontrado.')
       if (obraId && orcamento.obra_id && obraId !== orcamento.obra_id) throw new Error('A obra atual não corresponde ao orçamento selecionado.')
       if (projetoId && orcamento.projeto_id && projetoId !== orcamento.projeto_id) throw new Error('O projeto atual não corresponde ao orçamento selecionado.')
+      if (processoId && orcamento.processo_id && processoId !== orcamento.processo_id) throw new Error('O processo atual não corresponde ao orçamento selecionado.')
 
       const obraIdEfetivo = orcamento.obra_id || obraId || null
       const projetoIdEfetivo = orcamento.projeto_id || projetoId || null
-      if (!obraIdEfetivo && !projetoIdEfetivo) throw new Error('O orçamento precisa estar vinculado a um projeto ou obra.')
+      const processoIdEfetivo = orcamento.processo_id || processoId || null
+      if (!obraIdEfetivo && !projetoIdEfetivo && !processoIdEfetivo) throw new Error('O orçamento precisa estar vinculado a um processo, projeto ou obra.')
 
       const { data: etapasExistentesRaw, error: etapasError } = await supabase
         .from('etapas')
@@ -234,6 +240,7 @@ export function UsarTemplateOrcamentoModal({
             .insert({
               obra_id: obraIdEfetivo,
               projeto_id: projetoIdEfetivo,
+              processo_id: processoIdEfetivo,
               orcamento_id: orcamentoId,
               nome: etapaTemplate.nome,
               status: 'planejada',

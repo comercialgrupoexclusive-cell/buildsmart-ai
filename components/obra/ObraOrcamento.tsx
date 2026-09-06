@@ -673,15 +673,21 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
   // projeto_id, também filtramos/gravamos por orcamento_id enquanto não
   // existe obra. Depois que a obra existe, só há um orçamento operacional
   // por obra, então o filtro volta a ser só obra_id.
+  // orcamento?.id (não só a prop orcamentoId) porque "Reabrir (nova versão)"
+  // troca o orçamento em exibição via setOrcamento() sem remontar o
+  // componente (a prop orcamentoId continua apontando pra versão antiga) —
+  // sem isso, a etapaContexto ficaria presa na versão anterior depois de
+  // reabrir, em fase Projeto/Processo (P3.3B).
+  const orcamentoIdAtual = orcamento?.id || orcamentoId || null
   const etapaContexto = resolvedObraId
-    ? { coluna: 'obra_id' as const, id: resolvedObraId, fk: { obra_id: resolvedObraId, orcamento_id: orcamentoId || null }, orcamentoFiltro: null as string | null }
+    ? { coluna: 'obra_id' as const, id: resolvedObraId, fk: { obra_id: resolvedObraId, orcamento_id: orcamentoIdAtual }, orcamentoFiltro: null as string | null }
     : projetoId
-      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { projeto_id: projetoId, orcamento_id: orcamentoId || null }, orcamentoFiltro: orcamentoId || null }
+      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { projeto_id: projetoId, orcamento_id: orcamentoIdAtual }, orcamentoFiltro: orcamentoIdAtual }
       // Motor de Processo (P3.3) — mesmo raciocínio do ramo projeto_id: sem
       // Obra ainda, cada orçamento do Processo tem sua própria hierarquia de
       // etapas, isolada por orcamento_id.
       : processoId
-        ? { coluna: 'processo_id' as const, id: processoId, fk: { processo_id: processoId, orcamento_id: orcamentoId || null }, orcamentoFiltro: orcamentoId || null }
+        ? { coluna: 'processo_id' as const, id: processoId, fk: { processo_id: processoId, orcamento_id: orcamentoIdAtual }, orcamentoFiltro: orcamentoIdAtual }
         : null
 
   async function loadEtapas() {
@@ -811,7 +817,7 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
 
   useEffect(() => {
     Promise.resolve().then(() => loadAll())
-  }, [obraId, orcamentoId])
+  }, [obraId, projetoId, processoId, orcamentoId])
 
   useEffect(() => {
     if (fonte !== 'insumos') return
@@ -2165,11 +2171,36 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
     setReabrindo(true)
     try {
       const novaVersao = orcamento.versao + 1
+      const rootFk = { obra_id: resolvedObraId, projeto_id: projetoId || orcamento.projeto_id, processo_id: processoId || orcamento.processo_id }
       const { data: novoOrc } = await supabase
         .from('orcamentos')
-        .insert({ obra_id: resolvedObraId, projeto_id: projetoId || orcamento.projeto_id, processo_id: processoId || orcamento.processo_id, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, gerenciamento_percentual: orcamento.gerenciamento_percentual, status: 'em_projeto', versao: novaVersao })
+        .insert({ ...rootFk, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, gerenciamento_percentual: orcamento.gerenciamento_percentual, status: 'em_projeto', versao: novaVersao })
         .select().single()
       if (novoOrc) {
+        // Fase Projeto/Processo: etapas são isoladas por orcamento_id (ver
+        // etapaContexto) — a nova versão precisa da própria hierarquia de
+        // etapas; copiar orcamento_itens com o etapa_id da versão anterior
+        // as deixaria "invisíveis" (loadEtapas filtra por orcamento_id da
+        // versão nova). Em fase de Obra, etapas são compartilhadas por
+        // obra_id e não são duplicadas aqui (comportamento já existente).
+        let etapaIdMap = new Map<string, string>()
+        if (!resolvedObraId && etapas.length > 0) {
+          const pares = await Promise.all(etapas.map(async etapa => {
+            const { data: nova, error } = await supabase.from('etapas').insert({
+              ...rootFk,
+              orcamento_id: novoOrc.id,
+              nome: etapa.nome,
+              status: etapa.status,
+              ordem: etapa.ordem,
+              data_inicio: etapa.data_inicio,
+              data_fim: etapa.data_fim,
+              is_marco: etapa.is_marco,
+            }).select('id').single()
+            if (error) throw error
+            return [etapa.id, nova!.id as string] as const
+          }))
+          etapaIdMap = new Map(pares)
+        }
         let atualizados = 0
         for (const item of itensOrcamento) {
           let preco = item.preco_unitario_snapshot
@@ -2178,7 +2209,9 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
             if (precoAtual !== null && precoAtual > 0) { preco = precoAtual; atualizados++ }
           }
           await supabase.from('orcamento_itens').insert({
-            orcamento_id: novoOrc.id, etapa_id: item.etapa_id, subetapa: item.subetapa,
+            orcamento_id: novoOrc.id,
+            etapa_id: (item.etapa_id && etapaIdMap.get(item.etapa_id)) || item.etapa_id,
+            subetapa: item.subetapa,
             tipo_linha: 'item',
             composicao_id: item.composicao_id, sinapi_composicao_id: item.sinapi_composicao_id,
             quantidade: item.quantidade, preco_unitario_snapshot: preco,
@@ -2189,7 +2222,7 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
         for (const meta of subetapasMeta) {
           await supabase.from('orcamento_itens').insert({
             orcamento_id: novoOrc.id,
-            etapa_id: meta.etapa_id,
+            etapa_id: (meta.etapa_id && etapaIdMap.get(meta.etapa_id)) || meta.etapa_id,
             subetapa: meta.nome,
             tipo_linha: 'subetapa',
             quantidade: 1,
@@ -2203,6 +2236,17 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
         }
         setOrcamento(novoOrc)
         await loadItens(novoOrc.id)
+        // Não usa loadEtapas() aqui: seu etapaContexto vem do closure desta
+        // função, criado ANTES do setOrcamento(novoOrc) acima — ainda
+        // apontaria pra versão antiga. Refaz a mesma query com novoOrc.id
+        // explícito para refletir as etapas recém-criadas (fase Projeto/
+        // Processo) ou as etapas compartilhadas (fase Obra).
+        if (etapaContexto) {
+          let query = supabase.from('etapas').select('*').eq(etapaContexto.coluna, etapaContexto.id)
+          if (!resolvedObraId) query = query.eq('orcamento_id', novoOrc.id)
+          const { data } = await query.order('ordem')
+          setEtapas(data || [])
+        }
         if (atualizarPrecos) {
           alert(atualizados > 0
             ? `Nova versão criada. ${atualizados} de ${itensOrcamento.length} ${itensOrcamento.length === 1 ? 'item teve seu preço atualizado' : 'itens tiveram o preço atualizado'} pela base atual (UF ${obraUf}). Itens sem vínculo direto com a base mantiveram o preço anterior.`
@@ -3300,6 +3344,7 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
         onClose={() => setShowUsarTemplate(false)}
         obraId={resolvedObraId || ''}
         projetoId={projetoId || orcamento.projeto_id || undefined}
+        processoId={processoId || orcamento.processo_id || undefined}
         orcamentoId={orcamento.id}
         onApplied={() => loadAll()}
       />
