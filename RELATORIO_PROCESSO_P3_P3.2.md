@@ -33,6 +33,10 @@ Nenhuma migration nova nesta rodada (usa só o schema de P3.1).
 - Em `/processos/[id]`, o seletor de status chama `alterarStatusProcesso` de verdade (persiste no banco e recarrega o Processo); a grade de módulos reflete o estado real de `processo_modulos` e cada toggle chama `habilitarModulo`/`desabilitarModulo`.
 - Cada módulo do shell é só um rótulo com estado habilitado/desabilitado — não há tela de Orçamento/Tarefas/etc. dentro do Processo ainda. Isso é esperado e está dito na própria tela ("Nenhum módulo tem tela própria ainda").
 
+## Validação humana (Luiz, ambiente de preview)
+
+Testado ao vivo no deploy de preview da branch (`buildsmart-ai-git-ba68ab-...vercel.app`): criação de um Processo de teste, navegação até o shell e habilitar/desabilitar módulo — confirmado funcionando ("fomos bem até habilitar e desabilitar conteúdos"). Fecha o critério de teste da seção 11 do plano para esta rodada ("testar criação, listagem, abertura e persistência de contexto"). O Processo de teste criado por Luiz não foi removido — é dado real de teste do usuário, não fictício gerado por mim.
+
 ## Dívida / pendência encontrada
 
 - Nenhuma nova. As pendências já conhecidas (Gate B fixture, Gate E geocoding ao vivo) são do Núcleo, não desta rodada.
