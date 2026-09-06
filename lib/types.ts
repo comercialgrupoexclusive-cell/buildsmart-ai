@@ -83,6 +83,11 @@ export type OrcamentoItem = {
   unidade_snapshot: string | null
   valor_total_informado_snapshot?: number | null
   valor_total_manual_ativo?: boolean | null
+  // Identidade estável do grupo (linha tipo_linha='subetapa' desta mesma
+  // tabela) — quando existe, é a fonte de verdade da agrupação, não o texto
+  // livre em `subetapa`. Fica null quando não há linha-cabeçalho materializada
+  // (grupo só existe como rótulo de texto) — caso legado/raro, ainda suportado.
+  grupo_id?: string | null
   updated_at: string
   composicao?: ComposicaoPropria | null
   sinapi_composicao?: SinapiComposicao | null
