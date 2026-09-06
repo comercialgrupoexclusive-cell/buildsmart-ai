@@ -5,6 +5,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { FakeDB } from './fake-supabase'
 import { normalizarNome } from '../ai-resolve'
 import { execTarefasAiTool, type TarefasAiCtx } from '../tarefas-ai-tools'
+import { hojeISO, diasAFrenteISO } from '../tarefas'
 import {
   detectarFiltroDeterministico, mencionaEntidadeNomeada, tentarFastPath, runTarefasSkill,
 } from '../luizia-tarefas-runtime'
@@ -61,7 +62,7 @@ describe('mencionaEntidadeNomeada — TAREFA != PLANEJAMENTO, e nomes vão para 
 describe('tentarFastPath — 0 chamadas de LLM para perguntas estruturadas', () => {
   it('#1 — "quais minhas tarefas de amanhã?" responde via list_tasks direto', async () => {
     const db = novoDb()
-    const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+    const amanha = diasAFrenteISO(1)
     db.seed('tarefas', [{ id: 't1', titulo: 'Revisar planta', responsavel_id: GABRIEL_ID, status: 'pendente', prioridade: 'normal', data_prazo: amanha }])
     const r = await tentarFastPath(db as unknown as SupabaseClient, 'quais minhas tarefas de amanhã?', ctxFloating())
     expect(r).not.toBeNull()
@@ -70,7 +71,7 @@ describe('tentarFastPath — 0 chamadas de LLM para perguntas estruturadas', () 
 
   it('#2 — "o que tenho hoje?" responde via list_tasks direto', async () => {
     const db = novoDb()
-    const hoje = new Date().toISOString().slice(0, 10)
+    const hoje = hojeISO()
     db.seed('tarefas', [{ id: 't1', titulo: 'Confirmar entrega', responsavel_id: GABRIEL_ID, status: 'pendente', prioridade: 'normal', data_prazo: hoje }])
     const r = await tentarFastPath(db as unknown as SupabaseClient, 'o que tenho hoje?', ctxFloating())
     expect(r).toContain('Confirmar entrega')

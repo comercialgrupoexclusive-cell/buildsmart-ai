@@ -23,7 +23,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type OpenAI from 'openai'
 import type { Tarefa } from './types'
-import { isAtrasada, hojeISO, TAREFAS_ABERTAS, PRIORIDADE_LABEL, STATUS_LABEL, ordenarTarefas } from './tarefas'
+import { isAtrasada, hojeISO, diasAFrenteISO, TAREFAS_ABERTAS, PRIORIDADE_LABEL, STATUS_LABEL, ordenarTarefas } from './tarefas'
 import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from './ai-resolve'
 import { criarPropostaPendente, acharPendenteParaResolver, marcarRejeitada, marcarExecutada, formatarListaPendentes } from './luizia-pending-actions'
 
@@ -518,8 +518,8 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
         if (!args.incluir_concluidas) query = query.in('status', TAREFAS_ABERTAS as unknown as string[])
 
         const hoje = hojeISO()
-        const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
-        const emSeteDias = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+        const amanha = diasAFrenteISO(1)
+        const emSeteDias = diasAFrenteISO(7)
         if (args.filtro === 'hoje') query = query.lte('data_prazo', hoje).not('data_prazo', 'is', null)
         else if (args.filtro === 'amanha') query = query.eq('data_prazo', amanha)
         else if (args.filtro === 'atrasadas') query = query.lt('data_prazo', hoje).not('data_prazo', 'is', null)

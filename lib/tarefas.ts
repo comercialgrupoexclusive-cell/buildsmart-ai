@@ -29,6 +29,17 @@ export function hojeISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// Data local N dias à frente de hoje, na mesma convenção de hojeISO() (ano/mês/dia
+// locais, não UTC). Usar sempre isso — e nunca toISOString(), que é UTC e diverge
+// da data local perto da virada do dia (ex.: 23h em fuso UTC-3 já é o dia seguinte
+// em UTC) — para "amanhã"/"em N dias" nunca discordar de hojeISO() sobre o que é
+// "hoje" nesse mesmo instante.
+export function diasAFrenteISO(dias: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + dias)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function isPrazoHoje(t: Pick<Tarefa, 'data_prazo'>): boolean {
   return t.data_prazo === hojeISO()
 }
