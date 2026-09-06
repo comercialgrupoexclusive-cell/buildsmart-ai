@@ -712,11 +712,16 @@ export function ObraPlanejamento2({ obraId, projetoId, processoId, orcamentoId, 
       })
     }
     scan(tree)
-    if (!minDate || !maxDate) return null
-    const start = parseISODate(minDate)
+    // Sem nenhuma data ainda: usa uma janela padrão em torno de hoje, só para
+    // a linha do tempo ter escala e a lista (com a coluna de datas editável)
+    // ficar visível — não é mais um "tudo ou nada" que esconde a estrutura
+    // vinda do orçamento enquanto ninguém preencheu datas.
+    const hoje = new Date()
+    hoje.setHours(0, 0, 0, 0)
+    const start = minDate ? parseISODate(minDate) : new Date(hoje)
     start.setDate(start.getDate() - 3)
-    const end = parseISODate(maxDate)
-    end.setDate(end.getDate() + 3)
+    const end = maxDate ? parseISODate(maxDate) : new Date(hoje)
+    end.setDate(end.getDate() + (maxDate ? 3 : 30))
     const totalDays = Math.max(1, calcDuracao(toISODateOnly(start), toISODateOnly(end)) || 1)
     return { start, totalDays, pxPerDay: 22 }
   }, [tree])
@@ -917,6 +922,8 @@ export function ObraPlanejamento2({ obraId, projetoId, processoId, orcamentoId, 
           getProgress={nodeProgress}
           toggleExpand={toggleExpand}
           expanded={expanded}
+          onCommitDate={(node, field, value) => saveField(node, field, value)}
+          saving={saving}
         />
       ) : (
       <div className="card overflow-x-auto">
@@ -1079,11 +1086,14 @@ export function ObraPlanejamento2({ obraId, projetoId, processoId, orcamentoId, 
   )
 }
 
-// ─── Gantt simplificado (somente leitura, sem drag) ────────────────────────────
+// ─── Gantt simplificado (datas editáveis, sem drag-and-resize da barra) ────────
 //
-// Visualização de linha do tempo derivada dos mesmos dados da Tabela — edição
-// continua sendo feita por lá. Cada barra mostra previsto (marcador tracejado)
-// x realizado (preenchimento sólido), sem depender de arrastar/soltar.
+// Visualização de linha do tempo derivada dos mesmos dados da Tabela (mesma
+// árvore vinda do orçamento). A coluna "Início — Fim" reaproveita o mesmo
+// DateCell/saveField da Tabela para editar a data do item (folha) direto por
+// aqui — não é um formulário paralelo. Status e predecessoras continuam só
+// na Tabela. Cada barra mostra previsto (marcador) x realizado (preenchimento),
+// sem arrastar/redimensionar — isso ficaria mais arriscado que o pedido em si.
 
 type GanttScale = { start: Date; totalDays: number; pxPerDay: number }
 
@@ -1092,7 +1102,7 @@ function monthLabel(d: Date) {
 }
 
 function SimpleGanttPane({
-  rows, scale, getRange, getProgress, toggleExpand, expanded,
+  rows, scale, getRange, getProgress, toggleExpand, expanded, onCommitDate, saving,
 }: {
   rows: TreeNode[]
   scale: GanttScale | null
@@ -1100,13 +1110,15 @@ function SimpleGanttPane({
   getProgress: (node: TreeNode) => { plan: number; exec: number }
   toggleExpand: (key: string) => void
   expanded: Set<string>
+  onCommitDate: (node: TreeNode, field: 'data_inicio' | 'data_fim', value: string) => void
+  saving: string | null
 }) {
   if (!scale) {
     return (
       <EmptyState
         icon={CalendarRange}
-        title="Nenhuma data definida"
-        description="Defina datas de início e fim na Tabela para visualizar a linha do tempo."
+        title="Sem itens no orçamento"
+        description="Adicione etapas e itens ao orçamento para visualizar a linha do tempo."
       />
     )
   }
@@ -1155,6 +1167,34 @@ function SimpleGanttPane({
                 <span className="truncate text-xs" style={{ color: 'var(--text-primary)', fontWeight }} title={node.descricao}>
                   {node.codigo} — {node.descricao}
                 </span>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Coluna fixa de datas — editável só no item (folha); etapa/subetapa
+            mostram o intervalo agregado dos filhos, somente leitura (mesma
+            regra da Tabela: rollups não são editáveis diretamente). */}
+        <div style={{ minWidth: 190, flexShrink: 0, borderRight: '1px solid var(--border)' }}>
+          <div className="flex items-center px-3 font-semibold text-xs" style={{ height: 60, color: 'var(--text-secondary)', borderBottom: '2px solid var(--border)' }}>
+            Início — Fim
+          </div>
+          {rows.map(node => {
+            const isLeaf = node.level === 2
+            const range = getRange(node)
+            return (
+              <div key={node.key} className="flex items-center gap-1 px-3" style={{ height: 34, borderBottom: '1px solid var(--border)' }}>
+                {isLeaf ? (
+                  <>
+                    <DateCell value={node.plan?.data_inicio} onCommit={v => onCommitDate(node, 'data_inicio', v)} disabled={!!saving} />
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)', opacity: 0.5 }}>–</span>
+                    <DateCell value={node.plan?.data_fim} onCommit={v => onCommitDate(node, 'data_fim', v)} disabled={!!saving} />
+                  </>
+                ) : (
+                  <span className="text-xs truncate" style={{ color: 'var(--text-secondary)', opacity: 0.7 }}>
+                    {range ? `${fmtBR(range.inicio)} – ${fmtBR(range.fim)}` : '—'}
+                  </span>
+                )}
               </div>
             )
           })}
@@ -1225,7 +1265,7 @@ function SimpleGanttPane({
       <div className="flex items-center gap-4 px-3 py-2 text-xs" style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
         <span className="flex items-center gap-1.5"><span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--accent)', display: 'inline-block' }} /> Realizado</span>
         <span className="flex items-center gap-1.5"><span style={{ width: 2, height: 10, background: 'var(--text-primary)', opacity: 0.6, display: 'inline-block' }} /> Previsto</span>
-        <span>Edite datas, status e predecessoras na aba Tabela.</span>
+        <span>Datas editáveis aqui mesmo (coluna Início — Fim). Status e predecessoras: aba Tabela.</span>
       </div>
     </div>
   )
