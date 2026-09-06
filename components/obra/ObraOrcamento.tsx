@@ -452,6 +452,10 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
   // Cascata + overrides
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({})
   const [insumoOverrides, setInsumoOverrides] = useState<Record<string, number>>({})
+  // Debounce por chave da gravação de override de insumo no banco (Fase 2a,
+  // bug #2: overrides viviam só em localStorage) — insumoOverrides continua
+  // sendo o cache de leitura imediata pra digitação não travar.
+  const overrideSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
 
   // Modal adicionar item
@@ -559,21 +563,11 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
   const [finalizando, setFinalizando] = useState(false)
   const [erroFinalizacao, setErroFinalizacao] = useState('')
 
-  // ─── Carregar overrides do localStorage ─────────────────────────────────
-  useEffect(() => {
-    if (!orcamento?.id) return
-    const stored = localStorage.getItem(`bs_overrides_${orcamento.id}`)
-    if (!stored) return
-    // Disparo assíncrono evita setState síncrono no corpo do efeito (cascading renders)
-    Promise.resolve().then(() => {
-      try { setInsumoOverrides(JSON.parse(stored)) } catch { /* ignore */ }
-    })
-  }, [orcamento?.id])
-
-  useEffect(() => {
-    if (!orcamento?.id) return
-    localStorage.setItem(`bs_overrides_${orcamento.id}`, JSON.stringify(insumoOverrides))
-  }, [insumoOverrides, orcamento?.id])
+  // Overrides de insumo (Fase 2a, bug #2): não vêm mais de localStorage —
+  // insumoOverrides agora é só um cache de sessão pra digitação não travar;
+  // a fonte durável é orcamento_item_insumos.quantidade_adotada, gravada
+  // por handleOverrideInsumo/persistirOverrideInsumo e recarregada junto
+  // com o item em loadItens (ins.quantidade_adotada).
 
   useEffect(() => {
     localStorage.setItem(`bs_collapsed_${obraId || orcamentoId}`, JSON.stringify(collapsed))
@@ -936,13 +930,101 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
   })()
 
   // ─── Handlers de override ────────────────────────────────────────────────
-  function handleOverrideInsumo(itemId: string, insumoKey: string, value: number | null) {
-    const key = overrideKey(itemId, insumoKey)
+  // Materializa (grava por completo) as linhas de orcamento_item_insumos de
+  // um item a partir da composição "ao vivo" — usado tanto pela edição
+  // interativa (handleOverrideInsumo) quanto pela importação de planilha
+  // antiga (handleImportarOrcamento), que tinham o mesmo bug: overrides só
+  // existiam em insumoOverrides (React state → localStorage), nunca no
+  // banco. `overridesPorCodigo` são os valores que devem sair já com
+  // quantidade_adotada preenchida; o resto nasce null (usa a calculada).
+  async function materializarInsumosDoItem(
+    itemId: string,
+    quantidadeItem: number | null,
+    itensComposicao: ComposicaoItemJoin[],
+    overridesPorCodigo: Record<string, number>,
+  ) {
+    if (itensComposicao.length === 0) return
+    const payload = itensComposicao.map(ins => {
+      const info = infoDoItem(ins, obraUf)
+      const codigo = info.codigo !== '—' ? info.codigo : ins.id
+      const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : (quantidadeItem ?? 0) * ins.coeficiente
+      return {
+        orcamento_item_id: itemId,
+        sinapi_codigo: codigo,
+        quantidade_calculada: qtdCalculada,
+        quantidade_adotada: overridesPorCodigo[codigo] ?? null,
+        preco_unitario_snapshot: info.preco,
+        descricao_snapshot: info.descricao,
+        unidade_snapshot: info.unidade,
+        classificacao_snapshot: info.classificacao,
+        coeficiente_snapshot: ins.coeficiente,
+      }
+    })
+    const { error } = await supabase.from('orcamento_item_insumos').insert(payload)
+    if (error) throw error
+  }
+
+  // Grava (ou atualiza) só a linha de UM insumo — usado quando o item já
+  // tem pelo menos um insumo materializado (congelamento/conferência
+  // anterior) mas não este em particular.
+  async function persistirOverrideInsumo(item: ItemEnriquecido, ins: ComposicaoItemJoin, insumoKey: string, value: number | null) {
+    try {
+      const { data: existentes } = await supabase
+        .from('orcamento_item_insumos')
+        .select('id, sinapi_codigo')
+        .eq('orcamento_item_id', item.id)
+
+      const existenteDoInsumo = (existentes || []).find((e: { id: string; sinapi_codigo: string }) => e.sinapi_codigo === insumoKey)
+      if (existenteDoInsumo) {
+        const { error } = await supabase.from('orcamento_item_insumos')
+          .update({ quantidade_adotada: value })
+          .eq('id', existenteDoInsumo.id)
+        if (error) throw error
+        return
+      }
+
+      if (!existentes || existentes.length === 0) {
+        await materializarInsumosDoItem(item.id, item.quantidade, item.composicao_itens || [], value != null ? { [insumoKey]: value } : {})
+        return
+      }
+
+      const info = infoDoItem(ins, obraUf)
+      const qtdCalculada = ins.quantidade_calculada != null ? Number(ins.quantidade_calculada) : (item.quantidade ?? 0) * ins.coeficiente
+      const { error } = await supabase.from('orcamento_item_insumos').insert({
+        orcamento_item_id: item.id,
+        sinapi_codigo: insumoKey,
+        quantidade_calculada: qtdCalculada,
+        quantidade_adotada: value,
+        preco_unitario_snapshot: info.preco,
+        descricao_snapshot: info.descricao,
+        unidade_snapshot: info.unidade,
+        classificacao_snapshot: info.classificacao,
+        coeficiente_snapshot: ins.coeficiente,
+      })
+      if (error) throw error
+    } catch (e: any) {
+      console.error('Erro ao salvar override de insumo:', e)
+    }
+  }
+
+  // insumoOverrides (React state) continua sendo a fonte de leitura
+  // imediata pra digitação não travar — mas agora é só um cache de sessão;
+  // a gravação de verdade vai pro banco (debounced por chave, pra não
+  // disparar uma escrita a cada tecla) em vez de localStorage.
+  function handleOverrideInsumo(item: ItemEnriquecido, ins: ComposicaoItemJoin, value: number | null) {
+    const info = infoDoItem(ins, obraUf)
+    const insumoKey = info.codigo !== '—' ? info.codigo : ins.id
+    const key = overrideKey(item.id, insumoKey)
     setInsumoOverrides(prev => {
       const next = { ...prev }
       if (value === null || isNaN(value)) { delete next[key] } else { next[key] = value }
       return next
     })
+
+    if (overrideSaveTimers.current[key]) clearTimeout(overrideSaveTimers.current[key])
+    overrideSaveTimers.current[key] = setTimeout(() => {
+      void persistirOverrideInsumo(item, ins, insumoKey, value === null || isNaN(value) ? null : value)
+    }, 600)
   }
 
   function toggleItemExpanded(itemId: string) {
@@ -2105,7 +2187,12 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
       }
 
       if (insumosAntigos.length && !insumosResumoLegado && itemInserido?.id && !isSinapi && 'composicao_itens' in composicao) {
-        const overridesImportados: Record<string, number> = {}
+        // Fase 2a, bug #2c: overrides trazidos do "sistema antigo" só
+        // ficavam em insumoOverrides (React state → localStorage) — nunca
+        // chegavam em orcamento_item_insumos. Agora materializam o conjunto
+        // completo de insumos da composição (mesma função usada pela
+        // edição interativa), com quantidade_adotada já vindo da planilha.
+        const overridesPorCodigo: Record<string, number> = {}
         const itensComposicao = (composicao as ComposicaoComCusto).composicao_itens || []
         for (const insumoImportado of insumosAntigos) {
           const itemComp = itensComposicao.find(ins => infoDoItem(ins, obraUf).codigo.toUpperCase() === insumoImportado.codigo.toUpperCase())
@@ -2114,10 +2201,14 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
             continue
           }
           const info = infoDoItem(itemComp, obraUf)
-          overridesImportados[overrideKey(itemInserido.id, info.codigo !== '—' ? info.codigo : itemComp.id)] = insumoImportado.quantidadeAdotada
+          overridesPorCodigo[info.codigo !== '—' ? info.codigo : itemComp.id] = insumoImportado.quantidadeAdotada
         }
-        if (Object.keys(overridesImportados).length) {
-          setInsumoOverrides(prev => ({ ...prev, ...overridesImportados }))
+        if (Object.keys(overridesPorCodigo).length) {
+          try {
+            await materializarInsumosDoItem(itemInserido.id, quantidade, itensComposicao, overridesPorCodigo)
+          } catch (e: any) {
+            erros.push(`Linha ${linha.numero}: erro ao gravar quantidades adotadas — ${e.message}`)
+          }
         }
       }
 
@@ -2935,7 +3026,8 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
               value={subetapaLivre}
               onChange={e => setSubetapaLivre(e.target.value)}
               placeholder="Ex: Baldrames, térreo, bloco A..."
-            />            <Input
+            />
+            <Input
               label="Valor da subetapa (opcional)"
               type="text"
               inputMode="decimal"
@@ -3481,7 +3573,7 @@ function GrupoEtapa({
   expandedItems: Record<string, boolean>
   onToggleItem: (id: string) => void
   insumoOverrides: Record<string, number>
-  onOverrideInsumo: (itemId: string, insumoId: string, value: number | null) => void
+  onOverrideInsumo: (item: ItemEnriquecido, ins: ComposicaoItemJoin, value: number | null) => void
   getItemTotal: (item: ItemEnriquecido) => number
   obraUf: string
   icon?: LucideIcon
@@ -4176,7 +4268,7 @@ function GrupoEtapa({
                                                       value={isOverridden ? insumoOverrides[key] : qtdCalculada}
                                                       onChange={e => {
                                                         const v = parseFloat(e.target.value)
-                                                        onOverrideInsumo(item.id, insumoKey, isNaN(v) ? null : v)
+                                                        onOverrideInsumo(item, ins, isNaN(v) ? null : v)
                                                       }}
                                                       disabled={isReadonly}
                                                       className="input-base input-compact text-center tabular-nums"
@@ -4190,7 +4282,7 @@ function GrupoEtapa({
                                                     />
                                                     {isOverridden && !isReadonly && (
                                                       <button
-                                                        onClick={() => onOverrideInsumo(item.id, insumoKey, null)}
+                                                        onClick={() => onOverrideInsumo(item, ins, null)}
                                                         title="Restaurar calculado"
                                                         className="p-1 rounded transition-colors hover:bg-[var(--bg-secondary)]"
                                                       >
@@ -4669,7 +4761,7 @@ function GrupoEtapa({
                                                 value={isOverridden ? insumoOverrides[key] : qtdCalculada}
                                                 onChange={e => {
                                                   const v = parseFloat(e.target.value)
-                                                  onOverrideInsumo(item.id, insumoKey, isNaN(v) ? null : v)
+                                                  onOverrideInsumo(item, ins, isNaN(v) ? null : v)
                                                 }}
                                                 disabled={isReadonly}
                                                 className="input-base input-compact text-center tabular-nums"
@@ -4684,7 +4776,7 @@ function GrupoEtapa({
                                               <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{info.unidade}</span>
                                               {isOverridden && !isReadonly && (
                                                 <button
-                                                  onClick={e => { e.stopPropagation(); onOverrideInsumo(item.id, insumoKey, null) }}
+                                                  onClick={e => { e.stopPropagation(); onOverrideInsumo(item, ins, null) }}
                                                   title="Restaurar calculado"
                                                   className="p-1 rounded transition-colors hover:bg-[var(--bg-card)]"
                                                 >
