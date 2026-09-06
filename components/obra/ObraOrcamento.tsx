@@ -222,6 +222,10 @@ type ItemEnriquecido = {
   id: string
   orcamento_id: string
   etapa_id: string | null
+  // Identidade estável do grupo (id da linha tipo_linha='subetapa' desta
+  // mesma tabela) — Fase 1 do rebuild de Orçamento. Null quando o grupo só
+  // existe como texto livre (caso legado, ainda suportado).
+  grupo_id?: string | null
   subetapa: string | null
   composicao_id: string | null
   sinapi_composicao_id: string | null
@@ -2201,6 +2205,37 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
           }))
           etapaIdMap = new Map(pares)
         }
+        // Cabeçalhos de subetapa PRIMEIRO — precisa dos novos ids antes de
+        // inserir os itens, pra remapear grupo_id (Fase 2a: antes os
+        // cabeçalhos eram inseridos DEPOIS dos itens, sem nenhum vínculo
+        // entre as versões, então a nova versão nunca tinha grupo_id).
+        const cabecalhosOriginais = itens.filter(i => i.tipo_linha === 'subetapa')
+        const grupoIdMap = new Map<string, string>()
+        for (const header of cabecalhosOriginais) {
+          const { data: novoHeader, error: erroHeader } = await supabase.from('orcamento_itens').insert({
+            orcamento_id: novoOrc.id,
+            etapa_id: (header.etapa_id && etapaIdMap.get(header.etapa_id)) || header.etapa_id,
+            subetapa: header.subetapa,
+            tipo_linha: 'subetapa',
+            quantidade: 1,
+            preco_unitario_snapshot: 0,
+            descricao_snapshot: header.descricao_snapshot,
+            codigo_snapshot: header.codigo_snapshot,
+            unidade_snapshot: header.unidade_snapshot || 'VB',
+            subetapa_categoria_snapshot: header.subetapa_categoria_snapshot,
+            subetapa_valor_manual: header.subetapa_valor_manual,
+            subetapa_valor_manual_ativo: header.subetapa_valor_manual_ativo,
+            ordem: header.ordem,
+          }).select('id').single()
+          if (erroHeader) throw erroHeader
+          grupoIdMap.set(header.id, novoHeader!.id as string)
+        }
+
+        // Itens — conjunto COMPLETO de colunas (Fase 2a, bug #5: antes só
+        // copiava um subconjunto e perdia classificação/valor manual
+        // silenciosamente a cada "Reabrir"), + clona orcamento_item_insumos
+        // (overrides materializados nunca eram copiados, então reabrir
+        // "resetava" ajustes de insumo que pareciam salvos).
         let atualizados = 0
         for (const item of itensOrcamento) {
           let preco = item.preco_unitario_snapshot
@@ -2208,31 +2243,36 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
             const precoAtual = await precoAtualDoItem(item)
             if (precoAtual !== null && precoAtual > 0) { preco = precoAtual; atualizados++ }
           }
-          await supabase.from('orcamento_itens').insert({
+          const { data: novoItem, error: erroItem } = await supabase.from('orcamento_itens').insert({
             orcamento_id: novoOrc.id,
             etapa_id: (item.etapa_id && etapaIdMap.get(item.etapa_id)) || item.etapa_id,
+            grupo_id: item.grupo_id ? grupoIdMap.get(item.grupo_id) ?? null : null,
             subetapa: item.subetapa,
             tipo_linha: 'item',
             composicao_id: item.composicao_id, sinapi_composicao_id: item.sinapi_composicao_id,
             quantidade: item.quantidade, preco_unitario_snapshot: preco,
             descricao_snapshot: item.descricao_snapshot, codigo_snapshot: item.codigo_snapshot,
             unidade_snapshot: item.unidade_snapshot,
-          })
-        }
-        for (const meta of subetapasMeta) {
-          await supabase.from('orcamento_itens').insert({
-            orcamento_id: novoOrc.id,
-            etapa_id: (meta.etapa_id && etapaIdMap.get(meta.etapa_id)) || meta.etapa_id,
-            subetapa: meta.nome,
-            tipo_linha: 'subetapa',
-            quantidade: 1,
-            preco_unitario_snapshot: 0,
-            descricao_snapshot: meta.descricao || meta.nome,
-            codigo_snapshot: `SUB-${meta.id.slice(0, 8)}`,
-            unidade_snapshot: 'VB',
-            subetapa_valor_manual: meta.valor_manual,
-            subetapa_valor_manual_ativo: meta.ativo,
-          })
+            classificacao_snapshot: item.classificacao_snapshot,
+            grupo_snapshot: item.grupo_snapshot,
+            tipo_item_snapshot: item.tipo_item_snapshot,
+            subetapa_categoria_snapshot: item.subetapa_categoria_snapshot,
+            valor_total_informado_snapshot: item.valor_total_informado_snapshot,
+            valor_total_manual_ativo: item.valor_total_manual_ativo,
+            ordem: item.ordem,
+          }).select('id').single()
+          if (erroItem) throw erroItem
+
+          const { data: insumosOriginais } = await supabase
+            .from('orcamento_item_insumos').select('*').eq('orcamento_item_id', item.id)
+          if (insumosOriginais && insumosOriginais.length > 0) {
+            const payload = insumosOriginais.map((ins: Record<string, unknown>) => {
+              const { id: _insId, verificado: _insVerificado, verificado_por: _insVerificadoPor, verificado_em: _insVerificadoEm, ...insCampos } = ins
+              return { ...insCampos, orcamento_item_id: novoItem!.id }
+            })
+            const { error: erroInsumos } = await supabase.from('orcamento_item_insumos').insert(payload)
+            if (erroInsumos) throw erroInsumos
+          }
         }
         setOrcamento(novoOrc)
         await loadItens(novoOrc.id)
