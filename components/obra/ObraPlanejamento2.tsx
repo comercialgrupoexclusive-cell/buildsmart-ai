@@ -309,7 +309,7 @@ function PredecessorPickerModal({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds }: { obraId?: string; projetoId?: string; orcamentoId: string; orcamentoIds?: string[] }) {
+export function ObraPlanejamento2({ obraId, projetoId, processoId, orcamentoId, orcamentoIds }: { obraId?: string; projetoId?: string; processoId?: string; orcamentoId: string; orcamentoIds?: string[] }) {
   const supabase = createClient()
   const [subTab, setSubTab] = useState<'estrutura' | 'previsoes' | 'curva'>('estrutura')
   const [loading, setLoading] = useState(true)
@@ -334,12 +334,16 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
   // projeto_id, nunca os dois. planejamento_itens/dependencias sempre são
   // gravados com orcamento_id + o contexto atual (obra ou projeto).
   const etapaContexto = obraId
-    ? { coluna: 'obra_id' as const, id: obraId, fk: { obra_id: obraId, projeto_id: null as string | null }, orcamentoFiltro: null as string | null }
+    ? { coluna: 'obra_id' as const, id: obraId, fk: { obra_id: obraId, projeto_id: null as string | null, processo_id: null as string | null }, orcamentoFiltro: null as string | null }
     : projetoId
-      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { obra_id: null as string | null, projeto_id: projetoId }, orcamentoFiltro: orcamentoId || null }
-      : null
+      ? { coluna: 'projeto_id' as const, id: projetoId, fk: { obra_id: null as string | null, projeto_id: projetoId, processo_id: null as string | null }, orcamentoFiltro: orcamentoId || null }
+      // Motor de Processo (P3.4) — mesmo raciocínio do ramo projeto_id: sem
+      // Obra ainda, cada orçamento do Processo tem seu próprio planejamento.
+      : processoId
+        ? { coluna: 'processo_id' as const, id: processoId, fk: { obra_id: null as string | null, projeto_id: null as string | null, processo_id: processoId }, orcamentoFiltro: orcamentoId || null }
+        : null
 
-  useEffect(() => { if (etapaContexto && orcamentoId) load() }, [obraId, projetoId, orcamentoId])
+  useEffect(() => { if (etapaContexto && orcamentoId) load() }, [obraId, projetoId, processoId, orcamentoId])
 
   // Baseline: capturada uma unica vez quando a obra e iniciada (RPC
   // iniciar_obra_por_orcamento) — leitura apenas, nunca escrita por aqui.
@@ -500,7 +504,7 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
       if (error) throw error
       return node.plan.id
     } else {
-      if (!etapaContexto) throw new Error('Obra ou projeto nao identificado para criar o planejamento.')
+      if (!etapaContexto) throw new Error('Obra, projeto ou processo nao identificado para criar o planejamento.')
       const { data, error } = await supabase
         .from('planejamento_itens')
         .insert({
@@ -578,7 +582,7 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
 
   async function ensurePlanId(node: TreeNode): Promise<string> {
     if (node.plan) return node.plan.id
-    if (!etapaContexto) throw new Error('Obra ou projeto nao identificado para criar o planejamento.')
+    if (!etapaContexto) throw new Error('Obra, projeto ou processo nao identificado para criar o planejamento.')
     const { data, error } = await supabase
       .from('planejamento_itens')
       .insert({
@@ -598,8 +602,8 @@ export function ObraPlanejamento2({ obraId, projetoId, orcamentoId, orcamentoIds
       await supabase.from('planejamento_dependencias').delete().eq('item_id', itemId)
 
       if (predecessorNodes.length > 0) {
-        if (!etapaContexto) throw new Error('Obra ou projeto nao identificado para criar dependencias.')
-        const rows: { obra_id: string | null; projeto_id: string | null; orcamento_id: string; item_id: string; predecessor_id: string; tipo: string }[] = []
+        if (!etapaContexto) throw new Error('Obra, projeto ou processo nao identificado para criar dependencias.')
+        const rows: { obra_id: string | null; projeto_id: string | null; processo_id: string | null; orcamento_id: string; item_id: string; predecessor_id: string; tipo: string }[] = []
         for (const pred of predecessorNodes) {
           const predId = await ensurePlanId(pred)
           rows.push({ ...etapaContexto.fk, orcamento_id: orcamentoId, item_id: itemId, predecessor_id: predId, tipo: 'FS' })

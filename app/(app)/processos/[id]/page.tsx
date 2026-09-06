@@ -9,7 +9,7 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
@@ -25,6 +25,7 @@ import {
 import { ProcessProvider } from '@/lib/processo/context'
 import { getOrCreateOrcamentoDoProcesso } from '@/lib/processo/orcamento'
 import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
+import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
@@ -36,7 +37,7 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'modulos' | 'orcamento'
+type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento'
 
 export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -71,11 +72,14 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
   }, [id])
 
   useEffect(() => {
-    if (tab !== 'orcamento' || orcamentoId) return
-    setResolvendoOrcamento(true)
-    getOrCreateOrcamentoDoProcesso(supabase, id)
-      .then(setOrcamentoId)
-      .finally(() => setResolvendoOrcamento(false))
+    if ((tab !== 'orcamento' && tab !== 'planejamento') || orcamentoId) return
+    const timer = window.setTimeout(() => {
+      setResolvendoOrcamento(true)
+      getOrCreateOrcamentoDoProcesso(supabase, id)
+        .then(setOrcamentoId)
+        .finally(() => setResolvendoOrcamento(false))
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [tab, orcamentoId, supabase, id])
 
   async function handleStatusChange(status: ProcessoStatus) {
@@ -124,6 +128,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
   const tabOptions: TabOption<ProcessoTab>[] = [
     { key: 'modulos', label: 'Módulos', icon: Boxes },
     ...(habilitados.has('orcamento') ? [{ key: 'orcamento' as const, label: 'Orçamento', icon: Calculator }] : []),
+    ...(habilitados.has('planejamento') ? [{ key: 'planejamento' as const, label: 'Planejamento', icon: CalendarDays }] : []),
   ]
 
   return (
@@ -194,13 +199,15 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
           </div>
         )}
 
-        {tab === 'orcamento' && (
+        {(tab === 'orcamento' || tab === 'planejamento') && (
           resolvendoOrcamento || !orcamentoId ? (
             <div className="flex items-center justify-center py-20">
               <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
             </div>
-          ) : (
+          ) : tab === 'orcamento' ? (
             <ObraOrcamento key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} obraName={processo.nome} />
+          ) : (
+            <ObraPlanejamento2 key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} />
           )
         )}
       </div>

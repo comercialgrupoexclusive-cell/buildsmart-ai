@@ -598,6 +598,9 @@ export type PlanejamentoStatus = 'nao_iniciado' | 'em_andamento' | 'concluido' |
 export type PlanejamentoItem = {
   id: string
   obra_id: string
+  // Motor de Processo (P3.4) — terceiro root nullable, mesmo padrão de
+  // obra_id/projeto_id (ver supabase/migrations/20260906140000_processo_planejamento.sql).
+  processo_id?: string | null
   orcamento_id: string
   ref_tipo: 'etapa' | 'subetapa' | 'item'
   etapa_id: string | null
@@ -615,6 +618,7 @@ export type PlanejamentoItem = {
 export type PlanejamentoDependencia = {
   id: string
   obra_id: string
+  processo_id?: string | null
   item_id: string
   predecessor_id: string
   tipo: 'FS' | 'FF' | 'SS' | 'SF'
