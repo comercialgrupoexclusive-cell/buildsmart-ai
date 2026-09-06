@@ -7,44 +7,49 @@ import { Etapa } from '@/lib/types'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { inserirItemOrcamento, type NovoItemOrcamento } from '@/lib/orcamento/inserir-item'
 
 // ─── Tipos compartilhados ───────────────────────────────────────────────────
+// Fase 2a do rebuild de Orçamento: orcamento_templates deixou de guardar um
+// JSONB solto indexado por nome de etapa (sem integridade referencial —
+// causa raiz do bug em que aplicar um template com composição própria
+// sempre caía em "composição não existe mais", porque a query lia
+// composicoes_proprias.custo_unitario, coluna que nunca existiu). Agora as
+// linhas moram em orcamento_template_itens, com FK real para composição, e
+// o preço vigente é resolvido por preco_vigente_composicao() — a mesma
+// função que qualquer outra tela vai usar daqui pra frente.
 
 type TemplateItemRow = {
-  tipo_linha?: 'subetapa' | 'item'
-  etapa_nome: string | null
-  etapa_ordem?: number | null
-  subetapa: string | null
-  ordem?: number | null
-  tipo_composicao?: 'propria' | 'sinapi'
-  composicao_id?: string | null
-  sinapi_composicao_id?: string | null
+  id: string
+  template_id: string
+  grupo_id: string | null
+  tipo_linha: 'subetapa' | 'item'
+  etapa_nome: string
+  composicao_id: string | null
+  sinapi_composicao_id: string | null
+  tipo_item_snapshot: 'COMPOSICAO' | 'INSUMO' | 'ITEM_LIVRE' | null
+  descricao_snapshot: string | null
+  codigo_snapshot: string | null
+  unidade_snapshot: string | null
   quantidade: number | null
-  codigo_snapshot?: string | null
-  descricao_snapshot?: string | null
-  unidade_snapshot?: string | null
-  preco_unitario_snapshot?: number | null
-  classificacao_snapshot?: string | null
-  grupo_snapshot?: string | null
-  tipo_item_snapshot?: string | null
-  subetapa_categoria_snapshot?: string | null
-  subetapa_valor_manual?: number | null
-  subetapa_valor_manual_ativo?: boolean | null
-  valor_total_informado_snapshot?: number | null
-  valor_total_manual_ativo?: boolean | null
+  classificacao_snapshot: 'EQUIPAMENTO' | 'MAO_DE_OBRA' | 'MATERIAL_SERVICOS' | null
+  grupo_snapshot: string | null
+  ordem: number | null
 }
 
 type OrcamentoTemplate = {
   id: string
   nome: string
   descricao: string | null
-  itens: TemplateItemRow[]
   created_at: string
+  quantidade_itens: number
 }
 
 type ItemParaTemplate = {
+  id: string
   tipo_linha?: 'item' | 'subetapa' | null
   etapa_id: string | null
+  grupo_id?: string | null
   subetapa: string | null
   composicao_id: string | null
   sinapi_composicao_id: string | null
@@ -57,11 +62,6 @@ type ItemParaTemplate = {
   classificacao_snapshot?: string | null
   grupo_snapshot?: string | null
   tipo_item_snapshot?: string | null
-  subetapa_categoria_snapshot?: string | null
-  subetapa_valor_manual?: number | null
-  subetapa_valor_manual_ativo?: boolean | null
-  valor_total_informado_snapshot?: number | null
-  valor_total_manual_ativo?: boolean | null
 }
 
 function normalizarNome(nome: string) {
@@ -95,37 +95,63 @@ export function SalvarTemplateOrcamentoModal({
     if (!nome.trim() || quantidadeItens === 0) return
     setSaving(true)
     try {
+      const { data: tmpl, error: tmplError } = await supabase
+        .from('orcamento_templates')
+        .insert({ nome: nome.trim(), descricao: descricao.trim() || null })
+        .select('id')
+        .single()
+      if (tmplError || !tmpl) throw tmplError || new Error('Não foi possível criar o template.')
+
       const etapaNomeById = new Map(etapas.map(e => [e.id, e.nome]))
-      const etapaOrdemById = new Map(etapas.map(e => [e.id, e.ordem]))
-      const rows: TemplateItemRow[] = linhas.map(item => ({
-        tipo_linha: item.tipo_linha === 'subetapa' ? 'subetapa' : 'item',
-        etapa_nome: item.etapa_id ? (etapaNomeById.get(item.etapa_id) || null) : null,
-        etapa_ordem: item.etapa_id ? (etapaOrdemById.get(item.etapa_id) ?? null) : null,
-        subetapa: item.subetapa,
-        ordem: item.ordem ?? null,
-        tipo_composicao: item.composicao_id ? 'propria' : item.sinapi_composicao_id ? 'sinapi' : undefined,
-        composicao_id: item.composicao_id,
-        sinapi_composicao_id: item.sinapi_composicao_id,
-        quantidade: item.quantidade,
-        codigo_snapshot: item.codigo_snapshot ?? null,
-        descricao_snapshot: item.descricao_snapshot ?? null,
-        unidade_snapshot: item.unidade_snapshot ?? null,
-        preco_unitario_snapshot: item.preco_unitario_snapshot ?? 0,
-        classificacao_snapshot: item.classificacao_snapshot ?? null,
-        grupo_snapshot: item.grupo_snapshot ?? null,
-        tipo_item_snapshot: item.tipo_item_snapshot ?? null,
-        subetapa_categoria_snapshot: item.subetapa_categoria_snapshot ?? null,
-        subetapa_valor_manual: item.subetapa_valor_manual ?? null,
-        subetapa_valor_manual_ativo: item.subetapa_valor_manual_ativo ?? null,
-        valor_total_informado_snapshot: item.valor_total_informado_snapshot ?? null,
-        valor_total_manual_ativo: item.valor_total_manual_ativo ?? null,
-      }))
-      const { error } = await supabase.from('orcamento_templates').insert({
-        nome: nome.trim(),
-        descricao: descricao.trim() || null,
-        itens: rows,
-      })
-      if (error) throw error
+
+      // grupo_id de origem (orcamento_itens.id do cabeçalho) → id da linha
+      // recém-criada em orcamento_template_itens — permite que os itens
+      // referenciem seu grupo por id também dentro do template, em vez de
+      // voltar a comparar texto.
+      const grupoIdMap = new Map<string, string>()
+
+      const cabecalhos = linhas.filter(i => i.tipo_linha === 'subetapa')
+      for (const item of cabecalhos) {
+        const etapaNome = item.etapa_id ? etapaNomeById.get(item.etapa_id) : null
+        if (!etapaNome) continue
+        const { data, error } = await supabase
+          .from('orcamento_template_itens')
+          .insert({
+            template_id: tmpl.id,
+            tipo_linha: 'subetapa',
+            etapa_nome: etapaNome,
+            descricao_snapshot: item.descricao_snapshot ?? item.subetapa,
+            ordem: item.ordem ?? 0,
+          })
+          .select('id')
+          .single()
+        if (error) throw error
+        grupoIdMap.set(item.id, data.id as string)
+      }
+
+      const itensLeaf = linhas.filter(i => i.tipo_linha !== 'subetapa')
+      for (const item of itensLeaf) {
+        const etapaNome = item.etapa_id ? etapaNomeById.get(item.etapa_id) : null
+        if (!etapaNome) continue
+        const { error } = await supabase.from('orcamento_template_itens').insert({
+          template_id: tmpl.id,
+          grupo_id: item.grupo_id ? grupoIdMap.get(item.grupo_id) ?? null : null,
+          tipo_linha: 'item',
+          etapa_nome: etapaNome,
+          composicao_id: item.composicao_id,
+          sinapi_composicao_id: item.sinapi_composicao_id,
+          tipo_item_snapshot: item.tipo_item_snapshot ?? (item.composicao_id || item.sinapi_composicao_id ? 'COMPOSICAO' : 'ITEM_LIVRE'),
+          descricao_snapshot: item.descricao_snapshot ?? null,
+          codigo_snapshot: item.codigo_snapshot ?? null,
+          unidade_snapshot: item.unidade_snapshot ?? null,
+          quantidade: item.quantidade,
+          classificacao_snapshot: item.classificacao_snapshot ?? null,
+          grupo_snapshot: item.grupo_snapshot ?? null,
+          ordem: item.ordem ?? 0,
+        })
+        if (error) throw error
+      }
+
       onSaved?.()
       onClose()
     } catch (e: any) {
@@ -184,8 +210,18 @@ export function UsarTemplateOrcamentoModal({
   async function load() {
     setLoading(true)
     setSelectedId(null)
-    const { data } = await supabase.from('orcamento_templates').select('*').order('created_at', { ascending: false })
-    setTemplates((data || []) as OrcamentoTemplate[])
+    const { data } = await supabase
+      .from('orcamento_templates')
+      .select('id, nome, descricao, created_at, orcamento_template_itens(count)')
+      .order('created_at', { ascending: false })
+    type TemplateRow = { id: string; nome: string; descricao: string | null; created_at: string; orcamento_template_itens: { count: number }[] }
+    setTemplates(((data || []) as TemplateRow[]).map(t => ({
+      id: t.id,
+      nome: t.nome,
+      descricao: t.descricao,
+      created_at: t.created_at,
+      quantidade_itens: t.orcamento_template_itens?.[0]?.count ?? 0,
+    })))
     setLoading(false)
   }
 
@@ -196,7 +232,7 @@ export function UsarTemplateOrcamentoModal({
     try {
       const { data: orcamento, error: orcamentoError } = await supabase
         .from('orcamentos')
-        .select('id, obra_id, projeto_id, processo_id')
+        .select('id, obra_id, projeto_id, processo_id, uf')
         .eq('id', orcamentoId)
         .single()
       if (orcamentoError || !orcamento) throw orcamentoError || new Error('Orçamento não encontrado.')
@@ -208,6 +244,15 @@ export function UsarTemplateOrcamentoModal({
       const projetoIdEfetivo = orcamento.projeto_id || projetoId || null
       const processoIdEfetivo = orcamento.processo_id || processoId || null
       if (!obraIdEfetivo && !projetoIdEfetivo && !processoIdEfetivo) throw new Error('O orçamento precisa estar vinculado a um processo, projeto ou obra.')
+      const uf = orcamento.uf || 'SP'
+
+      const { data: linhasTemplateRaw, error: linhasError } = await supabase
+        .from('orcamento_template_itens')
+        .select('*')
+        .eq('template_id', tmpl.id)
+        .order('ordem')
+      if (linhasError) throw linhasError
+      const linhasTemplate = (linhasTemplateRaw || []) as TemplateItemRow[]
 
       const { data: etapasExistentesRaw, error: etapasError } = await supabase
         .from('etapas')
@@ -219,143 +264,93 @@ export function UsarTemplateOrcamentoModal({
       let proximaOrdem = etapasExistentes.reduce((max, e) => Math.max(max, e.ordem || 0), 0) + 1
 
       const avisos: string[] = []
-      const etapaIdPorLinha = new Map<TemplateItemRow, string>()
 
-      const etapasDoTemplate = new Map<string, { nome: string; ordem: number | null }>()
-      for (const row of tmpl.itens) {
-        if (!row.etapa_nome) continue
-        const chave = normalizarNome(row.etapa_nome)
-        const atual = etapasDoTemplate.get(chave)
-        if (!atual || (row.etapa_ordem ?? Number.MAX_SAFE_INTEGER) < (atual.ordem ?? Number.MAX_SAFE_INTEGER)) {
-          etapasDoTemplate.set(chave, { nome: row.etapa_nome, ordem: row.etapa_ordem ?? null })
-        }
+      const etapasDoTemplate = new Set(linhasTemplate.map(l => normalizarNome(l.etapa_nome)))
+      for (const chave of etapasDoTemplate) {
+        if (etapaByNome.has(chave)) continue
+        const original = linhasTemplate.find(l => normalizarNome(l.etapa_nome) === chave)!
+        const { data: nova, error } = await supabase.from('etapas')
+          .insert({
+            obra_id: obraIdEfetivo,
+            projeto_id: projetoIdEfetivo,
+            processo_id: processoIdEfetivo,
+            orcamento_id: orcamentoId,
+            nome: original.etapa_nome,
+            status: 'planejada',
+            ordem: proximaOrdem++,
+          })
+          .select('id, nome, ordem').single()
+        if (error) throw error
+        etapaByNome.set(chave, nova)
       }
 
-      const etapasOrdenadas = [...etapasDoTemplate.entries()].sort(([, a], [, b]) =>
-        (a.ordem ?? Number.MAX_SAFE_INTEGER) - (b.ordem ?? Number.MAX_SAFE_INTEGER))
-      for (const [chave, etapaTemplate] of etapasOrdenadas) {
-        let etapa = etapaByNome.get(chave)
-        if (!etapa) {
-          const { data: nova, error } = await supabase.from('etapas')
-            .insert({
-              obra_id: obraIdEfetivo,
-              projeto_id: projetoIdEfetivo,
-              processo_id: processoIdEfetivo,
-              orcamento_id: orcamentoId,
-              nome: etapaTemplate.nome,
-              status: 'planejada',
-              ordem: proximaOrdem++,
-            })
-            .select('id, nome, ordem').single()
-          if (error) throw error
-          etapa = nova
-          etapaByNome.set(chave, nova)
-        }
-      }
-
-      for (const row of tmpl.itens) {
-        if (!row.etapa_nome) { avisos.push('Uma linha sem etapa foi ignorada.'); continue }
-        const etapaId = etapaByNome.get(normalizarNome(row.etapa_nome))?.id
-        if (!etapaId) { avisos.push(`A etapa "${row.etapa_nome}" não pôde ser criada.`); continue }
-        etapaIdPorLinha.set(row, etapaId)
-      }
-
-      const { data: cabecalhosRaw, error: cabecalhosError } = await supabase
-        .from('orcamento_itens')
-        .select('etapa_id, subetapa')
-        .eq('orcamento_id', orcamentoId)
-        .eq('tipo_linha', 'subetapa')
-      if (cabecalhosError) throw cabecalhosError
-      const cabecalhos = new Set((cabecalhosRaw || []).map((row: { etapa_id: string | null; subetapa: string | null }) =>
-        `${row.etapa_id}:${normalizarNome(row.subetapa || '')}`))
-      const cabecalhosParaInserir: Record<string, unknown>[] = []
-
-      for (const row of tmpl.itens) {
-        const etapaId = etapaIdPorLinha.get(row)
-        if (!etapaId || !row.subetapa) continue
-        const chave = `${etapaId}:${normalizarNome(row.subetapa)}`
-        if (cabecalhos.has(chave)) continue
-        if (row.tipo_linha !== 'subetapa' && tmpl.itens.some(item =>
-          item.tipo_linha === 'subetapa' && item.etapa_nome &&
-          normalizarNome(item.etapa_nome) === normalizarNome(row.etapa_nome || '') &&
-          normalizarNome(item.subetapa || '') === normalizarNome(row.subetapa || ''))) continue
-
-        cabecalhos.add(chave)
-        cabecalhosParaInserir.push({
+      // grupo_id do template → id do cabeçalho recém-criado em
+      // orcamento_itens (mesma técnica do Salvar, na direção inversa).
+      const grupoIdMap = new Map<string, string>()
+      for (const row of linhasTemplate.filter(l => l.tipo_linha === 'subetapa')) {
+        const etapa = etapaByNome.get(normalizarNome(row.etapa_nome))
+        if (!etapa) { avisos.push(`A etapa "${row.etapa_nome}" não pôde ser criada.`); continue }
+        const { data, error } = await supabase.from('orcamento_itens').insert({
           orcamento_id: orcamentoId,
-          etapa_id: etapaId,
-          subetapa: row.subetapa,
+          etapa_id: etapa.id,
+          subetapa: row.descricao_snapshot,
           tipo_linha: 'subetapa',
-          quantidade: row.quantidade || 1,
+          quantidade: 1,
+          preco_unitario_snapshot: 0,
+          descricao_snapshot: row.descricao_snapshot,
+          codigo_snapshot: row.codigo_snapshot,
+          unidade_snapshot: 'VB',
           ordem: row.ordem ?? 0,
-          preco_unitario_snapshot: row.preco_unitario_snapshot ?? 0,
-          descricao_snapshot: row.descricao_snapshot || row.subetapa,
-          codigo_snapshot: row.codigo_snapshot ?? null,
-          unidade_snapshot: row.unidade_snapshot || 'VB',
-          subetapa_categoria_snapshot: row.subetapa_categoria_snapshot ?? null,
-          subetapa_valor_manual: row.subetapa_valor_manual ?? null,
-          subetapa_valor_manual_ativo: row.subetapa_valor_manual_ativo ?? false,
-        })
-      }
-
-      if (cabecalhosParaInserir.length > 0) {
-        const { error } = await supabase.from('orcamento_itens').insert(cabecalhosParaInserir)
+        }).select('id').single()
         if (error) throw error
+        grupoIdMap.set(row.id, data.id as string)
       }
 
-      const paraInserir: Record<string, unknown>[] = []
-      for (const row of tmpl.itens) {
-        if (row.tipo_linha === 'subetapa') continue
-        const etapaId = etapaIdPorLinha.get(row)
-        if (!etapaId) continue
+      for (const row of linhasTemplate.filter(l => l.tipo_linha === 'item')) {
+        const etapa = etapaByNome.get(normalizarNome(row.etapa_nome))
+        if (!etapa) { avisos.push(`A etapa "${row.etapa_nome}" não pôde ser criada.`); continue }
 
-        let descricao = row.descricao_snapshot || ''
-        let codigo = row.codigo_snapshot || ''
-        let unidade = row.unidade_snapshot || ''
-        let preco = Number(row.preco_unitario_snapshot || 0)
-        const composicaoPropriaId = row.tipo_composicao === 'sinapi' ? null : row.composicao_id || null
-        const composicaoSinapiId = row.sinapi_composicao_id || (row.tipo_composicao === 'sinapi' ? row.composicao_id || null : null)
-        if (composicaoPropriaId) {
-          const { data } = await supabase.from('composicoes_proprias').select('descricao, codigo, unidade, custo_unitario').eq('id', composicaoPropriaId).maybeSingle()
-          if (data) {
-            descricao = data.descricao || descricao; codigo = data.codigo || codigo; unidade = data.unidade || unidade; preco = Number(data.custo_unitario ?? preco)
+        let preco = 0
+        const descricao = row.descricao_snapshot || ''
+        const codigo = row.codigo_snapshot || ''
+        const unidade = row.unidade_snapshot || 'UN'
+
+        if (row.composicao_id || row.sinapi_composicao_id) {
+          const { data: precoVigente } = await supabase.rpc('preco_vigente_composicao', {
+            p_composicao_id: row.composicao_id,
+            p_sinapi_composicao_id: row.sinapi_composicao_id,
+            p_uf: uf,
+          })
+          if (precoVigente != null) {
+            preco = Number(precoVigente)
           } else {
-            avisos.push(`Composição própria "${descricao || composicaoPropriaId}" não existe mais; foi usado o snapshot salvo.`)
-          }
-        } else if (composicaoSinapiId) {
-          const { data } = await supabase.from('sinapi_composicoes').select('descricao, codigo, unidade, custo_unitario').eq('id', composicaoSinapiId).maybeSingle()
-          if (data) {
-            descricao = data.descricao || descricao; codigo = data.codigo || codigo; unidade = data.unidade || unidade; preco = Number(data.custo_unitario ?? preco)
-          } else {
-            avisos.push(`Composição SINAPI "${descricao || composicaoSinapiId}" não existe mais; foi usado o snapshot salvo.`)
+            avisos.push(`A composição de "${descricao || codigo}" não existe mais ou está sem preço vigente; foi usado o valor salvo no template.`)
           }
         }
 
-        paraInserir.push({
-          orcamento_id: orcamentoId,
-          etapa_id: etapaId,
-          subetapa: row.subetapa,
-          tipo_linha: 'item',
-          ordem: row.ordem ?? 0,
-          composicao_id: composicaoPropriaId,
-          sinapi_composicao_id: composicaoSinapiId,
+        const grupoId = row.grupo_id ? grupoIdMap.get(row.grupo_id) ?? null : null
+        const base = {
+          orcamentoId,
+          etapaId: etapa.id,
+          grupoId,
+          subetapa: null,
           quantidade: row.quantidade,
-          preco_unitario_snapshot: preco,
-          descricao_snapshot: descricao,
-          codigo_snapshot: codigo,
-          unidade_snapshot: unidade,
-          classificacao_snapshot: row.classificacao_snapshot ?? null,
-          grupo_snapshot: row.grupo_snapshot ?? null,
-          tipo_item_snapshot: row.tipo_item_snapshot ?? null,
-          subetapa_categoria_snapshot: row.subetapa_categoria_snapshot ?? null,
-          valor_total_informado_snapshot: row.valor_total_informado_snapshot ?? null,
-          valor_total_manual_ativo: row.valor_total_manual_ativo ?? false,
-        })
-      }
+          descricao,
+          unidade,
+          classificacao: row.classificacao_snapshot,
+          grupoSnapshot: row.grupo_snapshot,
+          ordem: row.ordem,
+        }
 
-      if (paraInserir.length > 0) {
-        const { error } = await supabase.from('orcamento_itens').insert(paraInserir)
-        if (error) throw error
+        const novoItem: NovoItemOrcamento = row.composicao_id
+          ? { ...base, fonte: 'propria', composicaoId: row.composicao_id, codigo, precoUnitario: preco }
+          : row.sinapi_composicao_id
+            ? { ...base, fonte: 'sinapi', sinapiComposicaoId: row.sinapi_composicao_id, codigo, precoUnitario: preco }
+            : row.tipo_item_snapshot === 'INSUMO'
+              ? { ...base, fonte: 'insumo', codigo, precoUnitario: preco }
+              : { ...base, fonte: 'item_livre', codigo, precoUnitario: preco }
+
+        await inserirItemOrcamento(supabase, novoItem)
       }
 
       if (avisos.length > 0) alert(`Template aplicado com ressalvas:\n\n${avisos.join('\n')}`)
@@ -400,7 +395,7 @@ export function UsarTemplateOrcamentoModal({
                 </div>
                 {t.descricao && <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{t.descricao}</p>}
                 <p className="text-[11px] mt-1" style={{ color: 'var(--text-secondary)', opacity: 0.8 }}>
-                  {t.itens.filter(item => item.tipo_linha !== 'subetapa').length} itens
+                  {t.quantidade_itens} itens
                 </p>
               </button>
             ))}
@@ -410,7 +405,7 @@ export function UsarTemplateOrcamentoModal({
         {selectedId && (
           <div className="flex items-start gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: 'rgba(245,158,11,0.1)', color: '#FBBF24' }}>
             <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
-            <span>Os itens serão adicionados ao orçamento atual. Composições vinculadas usam a base vigente; itens livres e insumos preservam os valores salvos. Etapas com o mesmo nome são reaproveitadas.</span>
+            <span>Os itens serão adicionados ao orçamento atual. Composições vinculadas usam o preço vigente calculado agora; itens livres e insumos preservam os valores salvos. Etapas com o mesmo nome são reaproveitadas.</span>
           </div>
         )}
 
