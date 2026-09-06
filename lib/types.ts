@@ -50,6 +50,9 @@ export type Orcamento = {
   id: string
   obra_id: string | null
   projeto_id?: string | null
+  // Motor de Processo (P3.3) — terceiro root nullable, mesmo padrão de
+  // obra_id/projeto_id (ver supabase/migrations/20260906130000_processo_orcamento.sql).
+  processo_id?: string | null
   tipo: 'executivo' | 'parametrico'
   bdi_percentual: number
   gerenciamento_percentual?: number
@@ -200,6 +203,9 @@ export type Etapa = {
   ordem: number
   is_marco: boolean
   orcamento_id?: string | null
+  // Motor de Processo (P3.3) — terceiro root nullable, mesmo padrão de
+  // obra_id/projeto_id (ver supabase/migrations/20260906130000_processo_orcamento.sql).
+  processo_id?: string | null
   // Conferência do orçamento (QA/revisão) — não é execução física nem afeta cálculos.
   verificado?: boolean | null
   verificado_por?: string | null

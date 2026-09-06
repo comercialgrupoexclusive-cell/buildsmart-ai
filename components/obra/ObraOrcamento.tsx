@@ -376,9 +376,14 @@ function verifTitle(verificado: boolean | null | undefined, por: string | null |
   return quem && quando ? `Conferido por ${quem}\n${quando}` : 'Conferido — clique para reabrir'
 }
 
-export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName, obraUf = 'SP' }: {
+export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, areaM2, obraName, obraUf = 'SP' }: {
   obraId?: string
   projetoId?: string
+  // Motor de Processo (P3.3) — terceiro root, mesmo padrão de obraId/
+  // projetoId: só resolve etapaContexto quando obraId/projetoId ausentes
+  // (ver etapaContexto abaixo). O orçamento em si é sempre resolvido por
+  // orcamentoId, que quem chama já deve ter garantido existir.
+  processoId?: string
   orcamentoId?: string
   areaM2?: number | null
   obraName?: string
@@ -672,7 +677,12 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
     ? { coluna: 'obra_id' as const, id: resolvedObraId, fk: { obra_id: resolvedObraId, orcamento_id: orcamentoId || null }, orcamentoFiltro: null as string | null }
     : projetoId
       ? { coluna: 'projeto_id' as const, id: projetoId, fk: { projeto_id: projetoId, orcamento_id: orcamentoId || null }, orcamentoFiltro: orcamentoId || null }
-      : null
+      // Motor de Processo (P3.3) — mesmo raciocínio do ramo projeto_id: sem
+      // Obra ainda, cada orçamento do Processo tem sua própria hierarquia de
+      // etapas, isolada por orcamento_id.
+      : processoId
+        ? { coluna: 'processo_id' as const, id: processoId, fk: { processo_id: processoId, orcamento_id: orcamentoId || null }, orcamentoFiltro: orcamentoId || null }
+        : null
 
   async function loadEtapas() {
     if (!etapaContexto) { setEtapas([]); return }
@@ -2157,7 +2167,7 @@ export function ObraOrcamento({ obraId, projetoId, orcamentoId, areaM2, obraName
       const novaVersao = orcamento.versao + 1
       const { data: novoOrc } = await supabase
         .from('orcamentos')
-        .insert({ obra_id: resolvedObraId, projeto_id: projetoId || orcamento.projeto_id, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, gerenciamento_percentual: orcamento.gerenciamento_percentual, status: 'em_projeto', versao: novaVersao })
+        .insert({ obra_id: resolvedObraId, projeto_id: projetoId || orcamento.projeto_id, processo_id: processoId || orcamento.processo_id, tipo: orcamento.tipo, bdi_percentual: orcamento.bdi_percentual, gerenciamento_percentual: orcamento.gerenciamento_percentual, status: 'em_projeto', versao: novaVersao })
         .select().single()
       if (novoOrc) {
         let atualizados = 0
