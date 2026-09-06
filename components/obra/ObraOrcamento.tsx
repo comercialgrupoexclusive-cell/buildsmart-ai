@@ -34,6 +34,7 @@ import { OrcamentoEstruturaIAModal } from './OrcamentoEstruturaIAModal'
 import { fetchEtapasPadrao, ETAPAS_PADRAO_CHANGED_EVENT } from '@/lib/settings/etapas-padrao'
 import { finalizarOrcamento } from '@/lib/project-cycle'
 import { sincronizarMateriaisDoOrcamento as sincronizarMateriaisLib } from '@/lib/materiais-sync'
+import { inserirItemOrcamento } from '@/lib/orcamento/inserir-item'
 
 type FonteBusca = 'proprias' | 'insumos' | 'sinapi' | 'livre'
 
@@ -1253,24 +1254,23 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
   async function inserirDraft(draft: AddItemDraft) {
     if (!orcamento) return
     const etapaId = await ensureEtapaPorNome(draft.etapaNome)
-    const isSinapi = draft.fonte === 'sinapi'
-    const { error } = await supabase.from('orcamento_itens').insert({
-      orcamento_id: orcamento.id,
-      etapa_id: etapaId,
+    const base = {
+      orcamentoId: orcamento.id,
+      etapaId,
       subetapa: draft.subetapa,
-      tipo_linha: 'item',
-      composicao_id: draft.fonte === 'proprias' ? draft.item!.id : null,
-      sinapi_composicao_id: isSinapi ? draft.item!.id : null,
       quantidade: draft.quantidade,
-      preco_unitario_snapshot: draft.preco,
-      descricao_snapshot: draft.descricao,
-      codigo_snapshot: draft.codigo,
-      unidade_snapshot: draft.unidade,
-      classificacao_snapshot: draft.classificacao,
-      grupo_snapshot: draft.grupo || null,
-      tipo_item_snapshot: draft.fonte === 'proprias' || draft.fonte === 'sinapi' ? 'COMPOSICAO' : draft.fonte === 'insumos' ? 'INSUMO' : 'ITEM_LIVRE',
-    })
-    if (error) throw error
+      descricao: draft.descricao,
+      unidade: draft.unidade,
+      classificacao: draft.classificacao,
+      grupoSnapshot: draft.grupo || null,
+    }
+    await inserirItemOrcamento(supabase, draft.fonte === 'proprias'
+      ? { ...base, fonte: 'propria', composicaoId: draft.item!.id, codigo: draft.codigo, precoUnitario: draft.preco }
+      : draft.fonte === 'sinapi'
+        ? { ...base, fonte: 'sinapi', sinapiComposicaoId: draft.item!.id, codigo: draft.codigo, precoUnitario: draft.preco }
+        : draft.fonte === 'insumos'
+          ? { ...base, fonte: 'insumo', codigo: draft.codigo, precoUnitario: draft.preco }
+          : { ...base, fonte: 'item_livre', codigo: draft.codigo, precoUnitario: draft.preco })
     // Materiais não são mais atualizados incrementalmente a cada edição do
     // orçamento (isso era a origem dos duplicados — duas chaves de
     // identidade diferentes brigando). Use "Importar p/ Materiais" para
@@ -1312,6 +1312,12 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
   }
 
   // ─── Adicionar item ───────────────────────────────────────────────────────
+  // Fase 2a, bug #3: este fluxo (1 item por vez) e inserirDraft (múltiplos
+  // pendentes) inseriam com conjuntos de colunas diferentes — este não
+  // gravava classificacao_snapshot/grupo_snapshot/tipo_item_snapshot, então
+  // itens visualmente iguais se comportavam diferente no breakdown por
+  // categoria. Os dois agora passam por inserirItemOrcamento (Fase 1),
+  // ponto único de escrita.
   async function handleAddItem(fecharDepois = false) {
     // Hotfix pré-reunião (orçamento preliminar): quantidade em branco não
     // bloqueia mais o cadastro — vira "a conferir" (null), nunca 0.
@@ -1320,9 +1326,6 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
     if (fonte === 'livre' && !livreDescricao.trim()) return
     setSaving(true)
     try {
-      const isSinapi = fonte === 'sinapi'
-      const qtd = quantidade.trim() ? parseFloat(quantidade) : null
-      const codigoLivre = `LIV-${Date.now().toString(36).toUpperCase()}`
       const descricaoFinal = fonte === 'livre' ? livreDescricao.trim() : selectedItem!.descricao
       const unidadeFinal = fonte === 'livre' ? (livreUnidade.trim() || 'UN') : selectedItem!.unidade
       const custoUnitario = fonte === 'livre'
@@ -1330,21 +1333,26 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
         : getItemCost(selectedItem!)
       const etapaId = await ensureEtapaSelecionada()
       const subetapaFinal = subetapaLivre.trim() || null
-
-      const { error } = await supabase.from('orcamento_itens').insert({
-        orcamento_id: orcamento.id,
-        etapa_id: etapaId,
+      const base = {
+        orcamentoId: orcamento.id,
+        etapaId,
         subetapa: subetapaFinal,
-        composicao_id: fonte === 'proprias' ? selectedItem!.id : null,
-        sinapi_composicao_id: isSinapi ? selectedItem!.id : null,
-        quantidade: qtd,
-        preco_unitario_snapshot: custoUnitario,
-        descricao_snapshot: descricaoFinal,
-        codigo_snapshot: fonte === 'livre' ? codigoLivre : selectedItem!.codigo,
-        unidade_snapshot: unidadeFinal,
-      })
+        quantidade: quantidade.trim() ? parseFloat(quantidade) : null,
+        descricao: descricaoFinal,
+        unidade: unidadeFinal,
+        classificacao: fonte === 'insumos' ? (selectedItem as InsumoCatalogo).classificacao : null,
+        grupoSnapshot: fonte === 'livre'
+          ? (livreGrupo.trim() || null)
+          : ('grupo' in selectedItem! && typeof selectedItem!.grupo === 'string' ? selectedItem!.grupo : null),
+      }
+      await inserirItemOrcamento(supabase, fonte === 'livre'
+        ? { ...base, fonte: 'item_livre', precoUnitario: custoUnitario }
+        : fonte === 'proprias'
+          ? { ...base, fonte: 'propria', composicaoId: selectedItem!.id, codigo: selectedItem!.codigo, precoUnitario: custoUnitario }
+          : fonte === 'sinapi'
+            ? { ...base, fonte: 'sinapi', sinapiComposicaoId: selectedItem!.id, codigo: selectedItem!.codigo, precoUnitario: custoUnitario }
+            : { ...base, fonte: 'insumo', codigo: selectedItem!.codigo, precoUnitario: custoUnitario })
 
-      if (error) throw error
       // Materiais não são mais atualizados incrementalmente aqui — use
       // "Importar p/ Materiais" para recalcular a partir do orçamento atual.
 

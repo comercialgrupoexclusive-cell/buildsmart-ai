@@ -30,10 +30,12 @@ export type NovoItemOrcamento = {
   grupoSnapshot?: string | null
   ordem?: number | null
 } & (
-  | { fonte: 'propria'; composicaoId: string; codigo: string; precoUnitario: number }
-  | { fonte: 'sinapi'; sinapiComposicaoId: string; codigo: string; precoUnitario: number }
-  | { fonte: 'insumo'; codigo: string; precoUnitario: number }
-  | { fonte: 'item_livre'; precoUnitario: number; codigo?: string }
+  // precoUnitario aceita null — "a conferir" (hotfix pré-reunião): preço
+  // genuinamente indefinido nunca é forçado a 0, nem aqui.
+  | { fonte: 'propria'; composicaoId: string; codigo: string; precoUnitario: number | null }
+  | { fonte: 'sinapi'; sinapiComposicaoId: string; codigo: string; precoUnitario: number | null }
+  | { fonte: 'insumo'; codigo: string; precoUnitario: number | null }
+  | { fonte: 'item_livre'; precoUnitario: number | null; codigo?: string }
 )
 
 function tipoItemSnapshot(fonte: NovoItemOrcamento['fonte']): TipoItemSnapshot {
