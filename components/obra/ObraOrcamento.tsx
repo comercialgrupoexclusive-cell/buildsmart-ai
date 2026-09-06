@@ -471,6 +471,7 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
   const [subetapaDescricao, setSubetapaDescricao] = useState('')
   const [subetapaValor, setSubetapaValor] = useState('')
   const [subetapaCategoria, setSubetapaCategoria] = useState('')
+  const [subetapaDetalhesAberto, setSubetapaDetalhesAberto] = useState(false)
   const [fonte, setFonte] = useState<FonteBusca>('proprias')
   const [composicoesProprias, setComposicoesProprias] = useState<ComposicaoComCusto[]>([])
   const [insumosCatalogo, setInsumosCatalogo] = useState<InsumoCatalogo[]>([])
@@ -1057,6 +1058,7 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
     setSubetapaDescricao('')
     setSubetapaValor('')
     setSubetapaCategoria('')
+    setSubetapaDetalhesAberto(Boolean(subetapa && subetapa !== 'Sem subetapa'))
     setFonte(usarItemLivre ? 'livre' : 'proprias')
     setSelectedItem(null)
     setBusca('')
@@ -3015,49 +3017,65 @@ export function ObraOrcamento({ obraId, projetoId, processoId, orcamentoId, area
         size="lg"
       >
         <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(180px,0.9fr)_minmax(220px,1.2fr)_150px] gap-3">
-            <div>
-              <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Etapa</label>
-              <div className="flex gap-1.5">
-                <select value={selectedEtapaNome} onChange={e => setSelectedEtapaNome(e.target.value)} className="input-base flex-1">
-                  {etapaOptions.map(etapa => <option key={normalizarNomeEtapa(etapa)} value={etapa}>{etapa}</option>)}
-                </select>
-                <button type="button" onClick={() => { setShowAddItem(false); setShowNovaEtapa(true) }}
-                  className="px-2 rounded-lg text-xs font-medium flex-shrink-0"
-                  style={{ background: 'var(--accent)', color: 'white' }} title="Criar nova etapa">
-                  <Plus size={14} />
-                </button>
-              </div>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Etapa</label>
+            <div className="flex gap-1.5">
+              <select value={selectedEtapaNome} onChange={e => setSelectedEtapaNome(e.target.value)} className="input-base flex-1">
+                {etapaOptions.map(etapa => <option key={normalizarNomeEtapa(etapa)} value={etapa}>{etapa}</option>)}
+              </select>
+              <button type="button" onClick={() => { setShowAddItem(false); setShowNovaEtapa(true) }}
+                className="px-2 rounded-lg text-xs font-medium flex-shrink-0"
+                style={{ background: 'var(--accent)', color: 'white' }} title="Criar nova etapa">
+                <Plus size={14} />
+              </button>
             </div>
-            <Input
-              label="Subetapa / complemento (opcional)"
-              value={subetapaLivre}
-              onChange={e => setSubetapaLivre(e.target.value)}
-              placeholder="Ex: Baldrames, térreo, bloco A..."
-            />
-            <Input
-              label="Valor da subetapa (opcional)"
-              type="text"
-              inputMode="decimal"
-              value={subetapaValor}
-              onChange={e => setSubetapaValor(e.target.value)}
-              onBlur={() => setSubetapaValor(formatCurrencyInput(subetapaValor))}
-              placeholder="R$ 0,00"
-            />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-3">
-            <Input
-              label="Descrição da subetapa (opcional)"
-              value={subetapaDescricao}
-              onChange={e => setSubetapaDescricao(e.target.value)}
-              placeholder="Detalhe resumido da subetapa"
-            />
-            <Input
-              label="Categoria da subetapa (opcional)"
-              value={subetapaCategoria}
-              onChange={e => setSubetapaCategoria(e.target.value)}
-              placeholder="Ex: Estrutura"
-            />
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setSubetapaDetalhesAberto(v => !v)}
+              className="flex items-center gap-1.5 text-xs font-medium"
+              style={{ color: 'var(--accent)' }}
+            >
+              {subetapaDetalhesAberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              {subetapaLivre.trim() ? `Serviço (subetapa): ${subetapaLivre}` : 'Agrupar em um serviço (subetapa opcional)'}
+            </button>
+            {subetapaDetalhesAberto && (
+              <div className="mt-3 flex flex-col gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-[minmax(220px,1.2fr)_150px] gap-3">
+                  <Input
+                    label="Subetapa / complemento (opcional)"
+                    value={subetapaLivre}
+                    onChange={e => setSubetapaLivre(e.target.value)}
+                    placeholder="Ex: Baldrames, térreo, bloco A..."
+                  />
+                  <Input
+                    label="Valor da subetapa (opcional)"
+                    type="text"
+                    inputMode="decimal"
+                    value={subetapaValor}
+                    onChange={e => setSubetapaValor(e.target.value)}
+                    onBlur={() => setSubetapaValor(formatCurrencyInput(subetapaValor))}
+                    placeholder="R$ 0,00"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-3">
+                  <Input
+                    label="Descrição da subetapa (opcional)"
+                    value={subetapaDescricao}
+                    onChange={e => setSubetapaDescricao(e.target.value)}
+                    placeholder="Detalhe resumido da subetapa"
+                  />
+                  <Input
+                    label="Categoria da subetapa (opcional)"
+                    value={subetapaCategoria}
+                    onChange={e => setSubetapaCategoria(e.target.value)}
+                    placeholder="Ex: Estrutura"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {itensPendentes.length > 0 && (
@@ -4372,28 +4390,6 @@ function GrupoEtapa({
                           {grupo.itens.length} {grupo.itens.length === 1 ? 'composicao' : 'composicoes'}
                         </p>
                       </div>
-                      {onRenameSubetapa && !isReadonly && (
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          onClick={e => { e.stopPropagation(); onRenameSubetapa(grupo.nome) }}
-                          className="hidden"
-                          title="Renomear subetapa"
-                        >
-                          <Pencil size={12} style={{ color: 'var(--text-secondary)' }} />
-                        </span>
-                      )}
-                      {onAddItemToSubetapa && !isReadonly && (
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          onClick={e => { e.stopPropagation(); onAddItemToSubetapa(grupo.nome) }}
-                          className="hidden"
-                          title="Adicionar composição"
-                        >
-                          <Plus size={13} style={{ color: 'var(--accent)' }} />
-                        </span>
-                      )}
                       <span className="flex-shrink-0 text-right">
                         <span className="block text-sm font-bold tabular-nums" style={{ color: valorManualComComposicoes ? 'var(--danger)' : 'var(--accent)' }}>{formatCurrency(subtotalSubetapa)}</span>
                       </span>
