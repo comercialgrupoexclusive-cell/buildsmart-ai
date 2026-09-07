@@ -22,6 +22,7 @@ export type LinhaArvore = {
   sinapi_composicao_id: string | null
   subetapa_valor_manual_ativo: boolean | null
   valor_total_manual_ativo: boolean | null
+  preco_unitario_snapshot: number | null
   valor: number
 }
 

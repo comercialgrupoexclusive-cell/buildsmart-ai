@@ -53,14 +53,20 @@ export function OrcamentoResumo({
         <EmptyState icon={Wallet} title="Nenhuma etapa encontrada" description={busca ? 'Ajuste a busca.' : 'Este orçamento ainda não tem etapas.'} />
       ) : (
         <div className="flex flex-col divide-y rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)', '--tw-divide-color': 'var(--border)' } as React.CSSProperties}>
-          {etapasFiltradas.map(etapa => (
+          {etapasFiltradas.map((etapa, i) => (
             <button
               key={etapa.id}
               onClick={() => onAbrirEtapa(etapa.id)}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+              className="flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
               style={{ background: 'var(--bg-card)' }}
             >
-              <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
+              <span
+                className="flex-shrink-0 flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold tabular-nums"
+                style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}
+              >
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              <span className="min-w-0 flex-1 text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{etapa.nome}</span>
               <span className="flex items-center gap-2 flex-shrink-0">
                 <span className="text-sm font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{formatCurrency(etapa.valor)}</span>
                 <ChevronRight size={16} style={{ color: 'var(--text-secondary)' }} />

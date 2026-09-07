@@ -5,22 +5,24 @@
 // (navega direto pra OrcamentoItemDetalhe) — nunca a etapa inteira expandida
 // de uma vez.
 import { useMemo, useState } from 'react'
-import { ArrowLeft, Boxes, ChevronRight, Search } from 'lucide-react'
+import { ArrowLeft, Boxes, ChevronRight, Layers, Package, Plus, Search } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { LinhaArvore } from './types'
+import { Button } from '@/components/ui/Button'
+import { LinhaArvore, calcularTotal } from './types'
 
 type GrupoResumo = { id: string; nome: string; valor: number; quantidadeItens: number }
 type ItemSolto = { id: string; descricao: string; quantidade: number | null; unidade: string | null; valor: number }
 
 export function OrcamentoEtapa({
-  etapaId, linhas, onVoltar, onAbrirGrupo, onAbrirItem,
+  etapaId, linhas, onVoltar, onAbrirGrupo, onAbrirItem, onAdicionarItem,
 }: {
   etapaId: string
   linhas: LinhaArvore[]
   onVoltar: () => void
   onAbrirGrupo: (grupoId: string) => void
   onAbrirItem: (itemId: string) => void
+  onAdicionarItem: () => void
 }) {
   const [busca, setBusca] = useState('')
 
@@ -45,6 +47,8 @@ export function OrcamentoEtapa({
   }, [itensDaEtapa])
 
   const totalEtapa = grupos.reduce((s, g) => s + g.valor, 0) + itensSoltos.reduce((s, i) => s + i.valor, 0)
+  const totalOrcamento = useMemo(() => calcularTotal(linhas), [linhas])
+  const percentualDoOrcamento = totalOrcamento > 0 ? (totalEtapa / totalOrcamento) * 100 : 0
 
   const termo = busca.trim().toLowerCase()
   const gruposFiltrados = termo ? grupos.filter(g => g.nome.toLowerCase().includes(termo)) : grupos
@@ -58,7 +62,13 @@ export function OrcamentoEtapa({
 
       <div>
         <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{etapaNome}</h2>
-        <p className="text-sm font-semibold tabular-nums" style={{ color: 'var(--accent)' }}>{formatCurrency(totalEtapa)}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-base font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatCurrency(totalEtapa)}</p>
+          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>· {percentualDoOrcamento.toFixed(1)}% do orçamento</span>
+        </div>
+        <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+          <div className="h-full rounded-full" style={{ width: `${Math.min(100, percentualDoOrcamento)}%`, background: 'var(--accent)' }} />
+        </div>
       </div>
 
       <div className="relative">
@@ -74,10 +84,13 @@ export function OrcamentoEtapa({
             <button
               key={grupo.id}
               onClick={() => onAbrirGrupo(grupo.id)}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+              className="flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
               style={{ background: 'var(--bg-card)' }}
             >
-              <span className="min-w-0">
+              <span className="flex-shrink-0 flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}>
+                <Layers size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{grupo.nome}</span>
                 <span className="block text-xs" style={{ color: 'var(--text-secondary)' }}>{grupo.quantidadeItens} {grupo.quantidadeItens === 1 ? 'serviço' : 'serviços'}</span>
               </span>
@@ -91,10 +104,13 @@ export function OrcamentoEtapa({
             <button
               key={item.id}
               onClick={() => onAbrirItem(item.id)}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+              className="flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
               style={{ background: 'var(--bg-card)' }}
             >
-              <span className="min-w-0">
+              <span className="flex-shrink-0 flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                <Package size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{item.descricao}</span>
                 {item.quantidade != null && <span className="block text-xs" style={{ color: 'var(--text-secondary)' }}>{item.quantidade} {item.unidade}</span>}
               </span>
@@ -106,6 +122,10 @@ export function OrcamentoEtapa({
           ))}
         </div>
       )}
+
+      <Button variant="secondary" icon={<Plus size={15} />} onClick={onAdicionarItem} className="w-full justify-center">
+        Adicionar serviço
+      </Button>
     </div>
   )
 }

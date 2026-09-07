@@ -1,16 +1,20 @@
 'use client'
 
-// UI canônica do Orçamento no Processo — Fase B (leitura) do rebuild
-// "Processo -> Orçamento -> Actions/Services/Repositories -> dados do
-// Orçamento". Substitui, só na aba Orçamento de /processos/[id], o
-// <ObraOrcamento> legado (concebido para Obra, com Luiza/materiais/tabela
-// densa/drag-and-drop que não fazem sentido aqui). Não toca em
+// UI canônica do Orçamento no Processo — Fase B do rebuild "Processo ->
+// Orçamento -> Actions/Services/Repositories -> dados do Orçamento".
+// Substitui, só na aba Orçamento de /processos/[id], o <ObraOrcamento>
+// legado (concebido para Obra, com Luiza/materiais/tabela densa/
+// drag-and-drop que não fazem sentido aqui). Não toca em
 // components/obra/ObraOrcamento.tsx nem nas rotas /obras e /projetos.
 //
 // Fonte única de valor: orcamento_arvore_valores() (RPC) — nenhum total é
 // recalculado aqui, só agrupado (ver types.ts, calcularTotal/agruparPorEtapa).
+// Escrita (adicionar/editar/excluir item) passa sempre por
+// lib/orcamento/inserir-item.ts ou update/delete direto em orcamento_itens
+// pelas colunas snapshot — nunca uma fórmula paralela de valor.
 // Navegação é uma pilha de telas em memória (Resumo → Etapa → Grupo →
-// Serviço), sem rotas novas — mobile-first, sem tabela desktop comprimida.
+// Serviço/Adicionar), sem rotas novas — mobile-first, sem tabela desktop
+// comprimida.
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { LinhaArvore } from './types'
@@ -18,12 +22,14 @@ import { OrcamentoResumo } from './OrcamentoResumo'
 import { OrcamentoEtapa } from './OrcamentoEtapa'
 import { OrcamentoGrupo } from './OrcamentoGrupo'
 import { OrcamentoItemDetalhe } from './OrcamentoItemDetalhe'
+import { OrcamentoAdicionarItem } from './OrcamentoAdicionarItem'
 
 type Vista =
   | { tipo: 'resumo' }
   | { tipo: 'etapa'; etapaId: string }
   | { tipo: 'grupo'; etapaId: string; grupoId: string }
   | { tipo: 'item'; itemId: string; voltar: Vista }
+  | { tipo: 'adicionar'; etapaId: string; grupoId: string | null; voltar: Vista }
 
 type OrcamentoInfo = {
   id: string
@@ -42,7 +48,6 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
   const [vista, setVista] = useState<Vista>({ tipo: 'resumo' })
 
   const carregar = useCallback(async () => {
-    setLoading(true)
     setErro(null)
     const [{ data: orc, error: orcError }, { data: arvore, error: arvoreError }] = await Promise.all([
       supabase.from('orcamentos').select('id, versao, status, bdi_percentual, uf').eq('id', orcamentoId).single(),
@@ -98,6 +103,7 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
         onVoltar={() => setVista({ tipo: 'resumo' })}
         onAbrirGrupo={grupoId => setVista({ tipo: 'grupo', etapaId: vista.etapaId, grupoId })}
         onAbrirItem={itemId => setVista({ tipo: 'item', itemId, voltar: vista })}
+        onAdicionarItem={() => setVista({ tipo: 'adicionar', etapaId: vista.etapaId, grupoId: null, voltar: vista })}
       />
     )
   }
@@ -110,6 +116,21 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
         linhas={linhas}
         onVoltar={() => setVista({ tipo: 'etapa', etapaId: vista.etapaId })}
         onAbrirItem={itemId => setVista({ tipo: 'item', itemId, voltar: vista })}
+        onAdicionarItem={() => setVista({ tipo: 'adicionar', etapaId: vista.etapaId, grupoId: vista.grupoId, voltar: vista })}
+      />
+    )
+  }
+
+  if (vista.tipo === 'adicionar') {
+    return (
+      <OrcamentoAdicionarItem
+        orcamentoId={orcamentoId}
+        etapaId={vista.etapaId}
+        grupoId={vista.grupoId}
+        linhas={linhas}
+        uf={orcamento.uf}
+        onVoltar={() => setVista(vista.voltar)}
+        onInserido={async () => { await carregar(); setVista(vista.voltar) }}
       />
     )
   }
@@ -119,6 +140,8 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
       itemId={vista.itemId}
       linhas={linhas}
       onVoltar={() => setVista(vista.voltar)}
+      onAtualizado={carregar}
+      onExcluido={async () => { await carregar(); setVista(vista.voltar) }}
     />
   )
 }

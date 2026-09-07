@@ -3,19 +3,21 @@
 // Tela 3 do fluxo de referência: serviços de um grupo/subetapa, de forma
 // compacta (descrição, quantidade, unidade, total) — toque abre o detalhe.
 import { useMemo, useState } from 'react'
-import { ArrowLeft, ChevronRight, PackageSearch, Search } from 'lucide-react'
+import { ArrowLeft, ChevronRight, PackageSearch, Plus, Search, Wrench } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Button } from '@/components/ui/Button'
 import { LinhaArvore } from './types'
 
 export function OrcamentoGrupo({
-  etapaId, grupoId, linhas, onVoltar, onAbrirItem,
+  etapaId, grupoId, linhas, onVoltar, onAbrirItem, onAdicionarItem,
 }: {
   etapaId: string
   grupoId: string
   linhas: LinhaArvore[]
   onVoltar: () => void
   onAbrirItem: (itemId: string) => void
+  onAdicionarItem: () => void
 }) {
   const [busca, setBusca] = useState('')
 
@@ -37,7 +39,7 @@ export function OrcamentoGrupo({
 
       <div>
         <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{grupoHeader?.grupo_nome || grupoHeader?.item_descricao || 'Serviços'}</h2>
-        <p className="text-sm font-semibold tabular-nums" style={{ color: 'var(--accent)' }}>{formatCurrency(totalGrupo)}</p>
+        <p className="text-base font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatCurrency(totalGrupo)}</p>
       </div>
 
       <div className="relative">
@@ -53,10 +55,13 @@ export function OrcamentoGrupo({
             <button
               key={item.item_id}
               onClick={() => onAbrirItem(item.item_id)}
-              className="flex items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
+              className="flex items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[var(--bg-secondary)]"
               style={{ background: 'var(--bg-card)' }}
             >
-              <span className="min-w-0">
+              <span className="flex-shrink-0 flex h-9 w-9 items-center justify-center rounded-lg" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}>
+                <Wrench size={15} />
+              </span>
+              <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{item.item_descricao}</span>
                 {item.quantidade != null && (
                   <span className="block text-xs" style={{ color: 'var(--text-secondary)' }}>{item.quantidade} {item.unidade}</span>
@@ -70,6 +75,10 @@ export function OrcamentoGrupo({
           ))}
         </div>
       )}
+
+      <Button variant="secondary" icon={<Plus size={15} />} onClick={onAdicionarItem} className="w-full justify-center">
+        Adicionar serviço
+      </Button>
     </div>
   )
 }
