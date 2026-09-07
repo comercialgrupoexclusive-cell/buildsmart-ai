@@ -1,9 +1,14 @@
 'use client'
 
 // Motor de Processo — shell do Processo: dados gerais, status, módulos
-// habilitados (P3.2) e, a partir da P3.3, o primeiro módulo com conteúdo
-// real (Orçamento) — reaproveitando 100% de components/obra/ObraOrcamento.tsx
-// sem duplicar o módulo (ver RELATORIO_PROCESSO_P3_P3.3.md).
+// habilitados (P3.2) e o Orçamento com UI própria e nativa do Processo
+// (components/processo/orcamento/ProcessoOrcamento.tsx), sobre o mesmo
+// motor/schema de dados que components/obra/ObraOrcamento.tsx usa —
+// "Processo -> Orçamento -> Actions/Services/Repositories -> dados", não
+// "Processo -> ObraOrcamento -> exceções". A P3.3 tinha reaproveitado o
+// componente de Obra diretamente aqui (ver RELATORIO_PROCESSO_P3_P3.3.md);
+// isso foi trocado por esta UI própria — ObraOrcamento.tsx continua servindo
+// /obras e /projetos sem alteração.
 //
 // UI construída só com os padrões de components/ui/ (ver
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
@@ -24,7 +29,7 @@ import {
 } from '@/lib/processo'
 import { ProcessProvider } from '@/lib/processo/context'
 import { getOrCreateOrcamentoDoProcesso } from '@/lib/processo/orcamento'
-import { ObraOrcamento } from '@/components/obra/ObraOrcamento'
+import { ProcessoOrcamento } from '@/components/processo/orcamento/ProcessoOrcamento'
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -205,7 +210,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
               <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
             </div>
           ) : tab === 'orcamento' ? (
-            <ObraOrcamento key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} obraName={processo.nome} />
+            <ProcessoOrcamento key={orcamentoId} orcamentoId={orcamentoId} processoNome={processo.nome} />
           ) : (
             <ObraPlanejamento2 key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} />
           )
