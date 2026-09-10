@@ -50,7 +50,7 @@ const EMPTY = {
   observacoes: '',
 }
 
-export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?: boolean }) {
+export function ObraRdo({ obraId, processoId, compact = false }: { obraId?: string; processoId?: string; compact?: boolean }) {
   const supabase = createClient()
   const { currentProfile } = useProfile()
   const [rdos, setRdos] = useState<Rdo[]>([])
@@ -65,10 +65,11 @@ export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?:
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const [{ data: rdoData }, { data: orcamentosData }] = await Promise.all([
-      supabase.from('rdo').select('*').eq('obra_id', obraId).order('data', { ascending: false }).order('numero', { ascending: false }),
-      supabase.from('orcamentos').select('id').eq('obra_id', obraId).neq('status', 'template'),
-    ])
+    let rdoQuery = supabase.from('rdo').select('*').order('data', { ascending: false }).order('numero', { ascending: false })
+    rdoQuery = obraId ? rdoQuery.eq('obra_id', obraId) : rdoQuery.eq('processo_id', processoId as string)
+    let orcamentosQuery = supabase.from('orcamentos').select('id').neq('status', 'template')
+    orcamentosQuery = obraId ? orcamentosQuery.eq('obra_id', obraId) : orcamentosQuery.eq('processo_id', processoId as string)
+    const [{ data: rdoData }, { data: orcamentosData }] = await Promise.all([rdoQuery, orcamentosQuery])
     setRdos((rdoData || []) as Rdo[])
 
     const orcamentoIds = ((orcamentosData || []) as { id: string }[]).map(o => o.id)
@@ -87,7 +88,7 @@ export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?:
     })
     setServicos(flat)
     setLoading(false)
-  }, [obraId, supabase])
+  }, [obraId, processoId, supabase])
 
   useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
 
@@ -128,12 +129,15 @@ export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?:
     // Número sequencial por obra (só ao criar)
     let numero = editId ? undefined : 1
     if (!editId) {
-      const { data: max } = await supabase.from('rdo').select('numero').eq('obra_id', obraId).order('numero', { ascending: false }).limit(1)
+      let maxQuery = supabase.from('rdo').select('numero').order('numero', { ascending: false }).limit(1)
+      maxQuery = obraId ? maxQuery.eq('obra_id', obraId) : maxQuery.eq('processo_id', processoId as string)
+      const { data: max } = await maxQuery
       numero = ((max?.[0]?.numero as number) || 0) + 1
     }
     const totalEfetivo = form.efetivo.reduce((a, e) => a + (Number(e.quantidade) || 0), 0)
     const payload = {
-      obra_id: obraId,
+      obra_id: obraId || null,
+      processo_id: processoId || null,
       data: form.data,
       autor_id: currentProfile?.id || null,
       clima_manha: form.clima_manha,
@@ -165,7 +169,7 @@ export function ObraRdo({ obraId, compact = false }: { obraId: string; compact?:
       const item = servicos.find(s => s.id === a.item_id)
       if (!item) return Promise.resolve()
       return setItemProgresso(supabase, {
-        orcamentoId: item.orcamentoId, obraId,
+        orcamentoId: item.orcamentoId, obraId, processoId,
         orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
         percentual: a.percentual as number,
       })

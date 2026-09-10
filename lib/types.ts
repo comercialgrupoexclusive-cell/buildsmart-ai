@@ -547,7 +547,8 @@ export type RdoAtividade = {
 
 export type Rdo = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   data: string
   numero: number | null
   autor_id: string | null

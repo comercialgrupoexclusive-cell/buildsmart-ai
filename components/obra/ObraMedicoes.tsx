@@ -38,12 +38,13 @@ const TABS_OBRA: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { id: 'diario', label: 'Diário (RDO)', icon: NotebookPen },
 ]
 
-// No Processo (P4.2), só Avanço físico + Boletins estão de fato integrados.
-// Mão de obra/Gerenciamento (ObraMedicaoMaoObra) e Diário (RDO, módulo 4)
-// continuam presos a obraId — omitidos aqui em vez de mostrados quebrados.
+// No Processo (P4.2), Avanço físico + Boletins + Diário (RDO) estão
+// integrados. Mão de obra/Gerenciamento (ObraMedicaoMaoObra) continua preso
+// a obraId — omitido aqui em vez de mostrado quebrado.
 const TABS_PROCESSO: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
   { id: 'boletins', label: 'Boletins', icon: FileBarChart },
+  { id: 'diario', label: 'Diário (RDO)', icon: NotebookPen },
 ]
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
@@ -208,7 +209,7 @@ export function ObraMedicoes({ obraId, processoId, orcamentoId, orcamentoIds }: 
         })}
       </div>
 
-      {subTab === 'diario' && obraId && <ObraRdo obraId={obraId} />}
+      {subTab === 'diario' && <ObraRdo obraId={obraId} processoId={processoId} />}
       {subTab === 'boletins' && <ObraBoletins obraId={obraId} processoId={processoId} prog={prog} onMedicaoFechada={carregar} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
       {subTab === 'mao-obra' && obraId && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />}
       {subTab === 'gerenciamento' && obraId && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} eixo="gerenciamento" />}
