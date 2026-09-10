@@ -201,13 +201,18 @@ export async function setItemProgresso(
   supabase: SupabaseClient,
   params: {
     orcamentoId: string
-    obraId: string
+    obraId?: string
+    projetoId?: string
+    processoId?: string
     orcamentoItemId: string
     etapaId: string
     subetapaKey: string | null
     percentual: number
   },
 ): Promise<void> {
+  if (!params.obraId && !params.projetoId && !params.processoId) {
+    throw new Error('Obra, projeto ou processo nao identificado para registrar o avanco.')
+  }
   const pct = clampPct(params.percentual)
   const { data: existente } = await supabase
     .from('planejamento_itens')
@@ -234,7 +239,9 @@ export async function setItemProgresso(
     const { error } = await supabase
       .from('planejamento_itens')
       .insert({
-        obra_id: params.obraId,
+        obra_id: params.obraId ?? null,
+        projeto_id: params.projetoId ?? null,
+        processo_id: params.processoId ?? null,
         orcamento_id: params.orcamentoId,
         ref_tipo: 'item',
         etapa_id: params.etapaId,
@@ -251,13 +258,18 @@ export async function setItemProximaMedicao(
   supabase: SupabaseClient,
   params: {
     orcamentoId: string
-    obraId: string
+    obraId?: string
+    projetoId?: string
+    processoId?: string
     orcamentoItemId: string
     etapaId: string
     subetapaKey: string | null
     percentual: number
   },
 ): Promise<void> {
+  if (!params.obraId && !params.projetoId && !params.processoId) {
+    throw new Error('Obra, projeto ou processo nao identificado para registrar a previsao.')
+  }
   const { data: existente, error: loadError } = await supabase
     .from('planejamento_itens')
     .select('id, progresso_executado')
@@ -279,7 +291,9 @@ export async function setItemProximaMedicao(
   }
 
   const { error } = await supabase.from('planejamento_itens').insert({
-    obra_id: params.obraId,
+    obra_id: params.obraId ?? null,
+    projeto_id: params.projetoId ?? null,
+    processo_id: params.processoId ?? null,
     orcamento_id: params.orcamentoId,
     ref_tipo: 'item',
     etapa_id: params.etapaId,

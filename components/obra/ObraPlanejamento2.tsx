@@ -534,22 +534,18 @@ export function ObraPlanejamento2({ obraId, projetoId, processoId, orcamentoId, 
     }
   }
 
-  // % executado só existe no item (folha) — grava pelo mesmo caminho único
-  // usado por Medições e RDO (lib/planejamento-progresso.ts), quando já
-  // existe obra. Na fase de Projeto (antes de "Iniciar Obra") ainda não há
-  // Medições/RDO para unificar, então segue pelo upsert local.
+  // % executado só existe no item (folha) — grava sempre pelo mesmo caminho
+  // único usado por Medições e RDO (lib/planejamento-progresso.ts), qualquer
+  // que seja a raiz (Obra/Projeto/Processo) — setItemProgresso aceita os
+  // três discriminadores e só exige que pelo menos um esteja presente.
   async function saveExecPct(node: TreeNode, value: number) {
     if (node.level !== 2 || !node.orcItemId || !node.etapaId) return
     setSaving(node.key)
     try {
-      if (obraId) {
-        await setItemProgresso(supabase, {
-          orcamentoId, obraId, orcamentoItemId: node.orcItemId,
-          etapaId: node.etapaId, subetapaKey: node.subetapaKey, percentual: value,
-        })
-      } else {
-        await upsertPlan(node, { progresso_executado: value })
-      }
+      await setItemProgresso(supabase, {
+        orcamentoId, obraId, projetoId, processoId, orcamentoItemId: node.orcItemId,
+        etapaId: node.etapaId, subetapaKey: node.subetapaKey, percentual: value,
+      })
       showSuccess(node.key)
       await load()
     } catch (e: any) {
