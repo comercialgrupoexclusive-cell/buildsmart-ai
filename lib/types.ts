@@ -288,7 +288,8 @@ export type Material = {
 // do quanto avançou por item — base para saldo, acumulado e Curva S.
 export type Medicao = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   orcamento_id?: string | null
   eixo?: 'fisico' | 'mao_obra' | 'gerenciamento'
   etapa_id: string | null

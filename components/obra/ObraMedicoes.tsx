@@ -30,12 +30,20 @@ import { Modal } from '@/components/ui/Modal'
 
 type SubTab = 'fisico' | 'mao-obra' | 'gerenciamento' | 'boletins' | 'diario'
 
-const TABS: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
+const TABS_OBRA: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
   { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
   { id: 'mao-obra', label: 'Mão de obra', icon: BriefcaseBusiness },
   { id: 'gerenciamento', label: 'Gerenciamento', icon: WalletCards },
   { id: 'boletins', label: 'Boletins', icon: FileBarChart },
   { id: 'diario', label: 'Diário (RDO)', icon: NotebookPen },
+]
+
+// No Processo (P4.2), só Avanço físico + Boletins estão de fato integrados.
+// Mão de obra/Gerenciamento (ObraMedicaoMaoObra) e Diário (RDO, módulo 4)
+// continuam presos a obraId — omitidos aqui em vez de mostrados quebrados.
+const TABS_PROCESSO: { id: SubTab; label: string; icon: typeof ClipboardList }[] = [
+  { id: 'fisico', label: 'Avanço físico', icon: ClipboardList },
+  { id: 'boletins', label: 'Boletins', icon: FileBarChart },
 ]
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
@@ -48,7 +56,7 @@ type HistoricoMedicaoItem = {
   percentual: number
 }
 
-export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
+export function ObraMedicoes({ obraId, processoId, orcamentoId, orcamentoIds }: { obraId?: string; processoId?: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = useMemo(() => createClient(), [])
   const [subTab, setSubTab] = useState<SubTab>('fisico')
   const [prog, setProg] = useState<PlanejamentoProgresso | null>(null)
@@ -105,7 +113,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   async function setItemPct(item: PlanItemNode, pct: number) {
     setSaving(true)
     await setItemProgresso(supabase, {
-      orcamentoId: item.orcamentoId, obraId,
+      orcamentoId: item.orcamentoId, obraId, processoId,
       orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
       percentual: pct,
     })
@@ -115,7 +123,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
   async function setItemProximaPct(item: PlanItemNode, pct: number) {
     setSaving(true)
     await setItemProximaMedicao(supabase, {
-      orcamentoId: item.orcamentoId, obraId,
+      orcamentoId: item.orcamentoId, obraId, processoId,
       orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
       percentual: pct,
     })
@@ -126,13 +134,14 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
     setHistoricoItem(item)
     setHistorico([])
     setHistoricoLoading(true)
-    const { data, error } = await supabase
+    let query = supabase
       .from('medicao_itens')
-      .select('medicao_id, pct_atual, medicoes!inner(nome, periodo_fim, status, eixo, obra_id)')
+      .select('medicao_id, pct_atual, medicoes!inner(nome, periodo_fim, status, eixo, obra_id, processo_id)')
       .eq('orcamento_item_id', item.id)
-      .eq('medicoes.obra_id', obraId)
       .eq('medicoes.eixo', 'fisico')
       .eq('medicoes.status', 'fechada')
+    query = obraId ? query.eq('medicoes.obra_id', obraId) : query.eq('medicoes.processo_id', processoId as string)
+    const { data, error } = await query
 
     if (!error) {
       type Row = {
@@ -158,7 +167,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
     setSaving(true)
     const v = clampPct(pct)
     await Promise.all(sub.itens.map(item => setItemProgresso(supabase, {
-      orcamentoId: item.orcamentoId, obraId,
+      orcamentoId: item.orcamentoId, obraId, processoId,
       orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
       percentual: v,
     })))
@@ -170,7 +179,7 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
     const v = clampPct(pct)
     const itens = [...etapa.subetapas.flatMap(s => s.itens), ...etapa.itensSoltos]
     await Promise.all(itens.map(item => setItemProgresso(supabase, {
-      orcamentoId: item.orcamentoId, obraId,
+      orcamentoId: item.orcamentoId, obraId, processoId,
       orcamentoItemId: item.id, etapaId: item.etapaId, subetapaKey: item.subetapaKey,
       percentual: v,
     })))
@@ -181,11 +190,13 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
     return <div className="flex justify-center py-12"><div className="w-6 h-6 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>
   }
 
+  const tabs = processoId ? TABS_PROCESSO : TABS_OBRA
+
   return (
     <div className="flex flex-col gap-4">
       {/* Sub-abas */}
       <div className="flex items-center gap-1.5 p-1 rounded-lg w-fit overflow-x-auto max-w-full" style={{ background: 'var(--bg-secondary)' }}>
-        {TABS.map(t => {
+        {tabs.map(t => {
           const Ic = t.icon
           return (
             <button key={t.id} onClick={() => setSubTab(t.id)}
@@ -197,10 +208,10 @@ export function ObraMedicoes({ obraId, orcamentoId, orcamentoIds }: { obraId: st
         })}
       </div>
 
-      {subTab === 'diario' && <ObraRdo obraId={obraId} />}
-      {subTab === 'boletins' && <ObraBoletins obraId={obraId} prog={prog} onMedicaoFechada={carregar} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
-      {subTab === 'mao-obra' && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />}
-      {subTab === 'gerenciamento' && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} eixo="gerenciamento" />}
+      {subTab === 'diario' && obraId && <ObraRdo obraId={obraId} />}
+      {subTab === 'boletins' && <ObraBoletins obraId={obraId} processoId={processoId} prog={prog} onMedicaoFechada={carregar} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} />}
+      {subTab === 'mao-obra' && obraId && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} />}
+      {subTab === 'gerenciamento' && obraId && <ObraMedicaoMaoObra obraId={obraId} orcamentoId={orcamentoId} eixo="gerenciamento" />}
 
       {subTab === 'fisico' && prog && (
         <>

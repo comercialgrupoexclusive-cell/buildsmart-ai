@@ -14,7 +14,7 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
@@ -32,6 +32,7 @@ import { getOrCreateOrcamentoDoProcesso } from '@/lib/processo/orcamento'
 import { ProcessoOrcamento } from '@/components/processo/orcamento/ProcessoOrcamento'
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
 import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
+import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
@@ -43,7 +44,7 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas'
+type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes'
 
 export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -78,7 +79,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
   }, [id])
 
   useEffect(() => {
-    if ((tab !== 'orcamento' && tab !== 'planejamento') || orcamentoId) return
+    if ((tab !== 'orcamento' && tab !== 'planejamento' && tab !== 'medicoes') || orcamentoId) return
     const timer = window.setTimeout(() => {
       setResolvendoOrcamento(true)
       getOrCreateOrcamentoDoProcesso(supabase, id)
@@ -136,6 +137,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     ...(habilitados.has('orcamento') ? [{ key: 'orcamento' as const, label: 'Orçamento', icon: Calculator }] : []),
     ...(habilitados.has('planejamento') ? [{ key: 'planejamento' as const, label: 'Planejamento', icon: CalendarDays }] : []),
     ...(habilitados.has('tarefas') ? [{ key: 'tarefas' as const, label: 'Tarefas', icon: ClipboardList }] : []),
+    ...(habilitados.has('medicoes') ? [{ key: 'medicoes' as const, label: 'Medições', icon: FileBarChart }] : []),
   ]
 
   return (
@@ -206,15 +208,17 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
           </div>
         )}
 
-        {(tab === 'orcamento' || tab === 'planejamento') && (
+        {(tab === 'orcamento' || tab === 'planejamento' || tab === 'medicoes') && (
           resolvendoOrcamento || !orcamentoId ? (
             <div className="flex items-center justify-center py-20">
               <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
             </div>
           ) : tab === 'orcamento' ? (
             <ProcessoOrcamento key={orcamentoId} orcamentoId={orcamentoId} processoNome={processo.nome} />
-          ) : (
+          ) : tab === 'planejamento' ? (
             <ObraPlanejamento2 key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} />
+          ) : (
+            <ObraMedicoes key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} orcamentoIds={[orcamentoId]} />
           )
         )}
 

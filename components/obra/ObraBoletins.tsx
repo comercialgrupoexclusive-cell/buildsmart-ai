@@ -19,8 +19,9 @@ const brl = (v: number) => (v || 0).toLocaleString('pt-BR', { style: 'currency',
 const fmt = (d: string) => new Date(d + 'T12:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' })
 const hoje = () => new Date().toISOString().slice(0, 10)
 
-export function ObraBoletins({ obraId, prog, onMedicaoFechada, orcamentoId, orcamentoIds }: {
-  obraId: string
+export function ObraBoletins({ obraId, processoId, prog, onMedicaoFechada, orcamentoId, orcamentoIds }: {
+  obraId?: string
+  processoId?: string
   prog: PlanejamentoProgresso | null
   onMedicaoFechada: () => void
   orcamentoId: string
@@ -38,13 +39,15 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada, orcamentoId, orca
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('medicoes').select('*').eq('obra_id', obraId).eq('eixo', 'fisico').order('numero', { ascending: false, nullsFirst: false }).order('periodo_fim', { ascending: false })
+    let query = supabase.from('medicoes').select('*').eq('eixo', 'fisico').order('numero', { ascending: false, nullsFirst: false }).order('periodo_fim', { ascending: false })
+    query = obraId ? query.eq('obra_id', obraId) : query.eq('processo_id', processoId as string)
+    const { data } = await query
     const todos = (data || []) as Medicao[]
     setBoletins(todos.filter(b => consolidado
       ? (!b.orcamento_id || orcamentoIds.includes(b.orcamento_id))
       : b.orcamento_id === orcamentoId))
     setLoading(false)
-  }, [obraId, supabase, orcamentoId, orcamentoIds, consolidado])
+  }, [obraId, processoId, supabase, orcamentoId, orcamentoIds, consolidado])
 
   useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
 
@@ -64,10 +67,12 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada, orcamentoId, orca
   async function criar() {
     if (consolidado || !orcamentoId) return
     setSaving(true)
-    const { data: max } = await supabase.from('medicoes').select('numero').eq('obra_id', obraId).eq('orcamento_id', orcamentoId).eq('eixo', 'fisico').order('numero', { ascending: false, nullsFirst: false }).limit(1)
+    let maxQuery = supabase.from('medicoes').select('numero').eq('orcamento_id', orcamentoId).eq('eixo', 'fisico').order('numero', { ascending: false, nullsFirst: false }).limit(1)
+    maxQuery = obraId ? maxQuery.eq('obra_id', obraId) : maxQuery.eq('processo_id', processoId as string)
+    const { data: max } = await maxQuery
     const numero = ((max?.[0]?.numero as number) || 0) + 1
     const { error } = await supabase.from('medicoes').insert({
-      obra_id: obraId, orcamento_id: orcamentoId, eixo: 'fisico', numero, status: 'rascunho',
+      obra_id: obraId || null, processo_id: processoId || null, orcamento_id: orcamentoId, eixo: 'fisico', numero, status: 'rascunho',
       nome: form.nome.trim() || `Medição ${numero}`,
       periodo_inicio: form.periodo_inicio, periodo_fim: form.periodo_fim,
       percentual_executado: 0, fotos: [], updated_at: new Date().toISOString(),
@@ -92,14 +97,15 @@ export function ObraBoletins({ obraId, prog, onMedicaoFechada, orcamentoId, orca
     const folhas = itensFolha()
 
     // % acumulado anterior por item do orçamento = pct_atual do último boletim fechado
-    const { data: anterioresRows } = await supabase
+    let anterioresQuery = supabase
       .from('medicao_itens')
-      .select('orcamento_item_id, pct_atual, medicao_id, medicoes!inner(obra_id, orcamento_id, eixo, status)')
-      .eq('medicoes.obra_id', obraId)
+      .select('orcamento_item_id, pct_atual, medicao_id, medicoes!inner(obra_id, processo_id, orcamento_id, eixo, status)')
       .eq('medicoes.orcamento_id', orcamentoId)
       .eq('medicoes.eixo', 'fisico')
       .eq('medicoes.status', 'fechada')
       .not('orcamento_item_id', 'is', null)
+    anterioresQuery = obraId ? anterioresQuery.eq('medicoes.obra_id', obraId) : anterioresQuery.eq('medicoes.processo_id', processoId as string)
+    const { data: anterioresRows } = await anterioresQuery
     const anteriorPorItem: Record<string, number> = {}
     ;((anterioresRows || []) as { orcamento_item_id: string; pct_atual: number }[]).forEach(r => {
       // mantém o maior acumulado já registrado por item
