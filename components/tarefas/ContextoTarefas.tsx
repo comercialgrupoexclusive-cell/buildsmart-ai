@@ -21,11 +21,12 @@ const STATUS_COLUNAS: { id: Tarefa['status']; label: string }[] = [
 type Filtro = 'pendentes' | 'concluidas'
 type Visualizacao = 'lista' | 'kanban'
 
-// Painel de tarefas de um contexto (Obra ou Projeto — exatamente um dos dois
-// ids é passado). Tarefas criadas aqui herdam automaticamente esse contexto;
-// as mesmas linhas também aparecem em Tarefas > Minhas/Hoje/Próximas/etc,
-// sem nenhuma duplicação — é a mesma tabela `tarefas`, só outra consulta.
-export function ContextoTarefas({ obraId, projetoId }: { obraId?: string; projetoId?: string }) {
+// Painel de tarefas de um contexto (Obra, Projeto ou Processo — exatamente
+// um dos três ids é passado). Tarefas criadas aqui herdam automaticamente
+// esse contexto; as mesmas linhas também aparecem em Tarefas >
+// Minhas/Hoje/Próximas/etc, sem nenhuma duplicação — é a mesma tabela
+// `tarefas`, só outra consulta.
+export function ContextoTarefas({ obraId, projetoId, processoId }: { obraId?: string; projetoId?: string; processoId?: string }) {
   const supabase = createClient()
   const [tarefas, setTarefas] = useState<Tarefa[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,13 +46,17 @@ export function ContextoTarefas({ obraId, projetoId }: { obraId?: string; projet
 
   useEffect(() => {
     let query = supabase.from('tarefas').select('*').order('data_prazo', { ascending: true, nullsFirst: false })
-    query = obraId ? query.eq('obra_id', obraId) : query.eq('projeto_id', projetoId as string)
+    query = obraId
+      ? query.eq('obra_id', obraId)
+      : projetoId
+        ? query.eq('projeto_id', projetoId)
+        : query.eq('processo_id', processoId as string)
     query.then(({ data }: { data: Tarefa[] | null }) => {
       setTarefas(data || [])
       setLoading(false)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [obraId, projetoId, refreshKey])
+  }, [obraId, projetoId, processoId, refreshKey])
 
   function openNew() {
     setEditando(null)
@@ -183,6 +188,7 @@ export function ContextoTarefas({ obraId, projetoId }: { obraId?: string; projet
         editando={editando}
         obraId={obraId}
         projetoId={projetoId}
+        processoId={processoId}
         onSaved={onSaved}
       />
     </div>

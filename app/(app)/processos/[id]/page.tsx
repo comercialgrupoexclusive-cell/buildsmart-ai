@@ -14,7 +14,7 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator, CalendarDays } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
@@ -31,6 +31,7 @@ import { ProcessProvider } from '@/lib/processo/context'
 import { getOrCreateOrcamentoDoProcesso } from '@/lib/processo/orcamento'
 import { ProcessoOrcamento } from '@/components/processo/orcamento/ProcessoOrcamento'
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
+import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
@@ -42,7 +43,7 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento'
+type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas'
 
 export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -134,6 +135,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     { key: 'modulos', label: 'Módulos', icon: Boxes },
     ...(habilitados.has('orcamento') ? [{ key: 'orcamento' as const, label: 'Orçamento', icon: Calculator }] : []),
     ...(habilitados.has('planejamento') ? [{ key: 'planejamento' as const, label: 'Planejamento', icon: CalendarDays }] : []),
+    ...(habilitados.has('tarefas') ? [{ key: 'tarefas' as const, label: 'Tarefas', icon: ClipboardList }] : []),
   ]
 
   return (
@@ -215,6 +217,8 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
             <ObraPlanejamento2 key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} />
           )
         )}
+
+        {tab === 'tarefas' && <ContextoTarefas processoId={processo.id} />}
       </div>
     </ProcessProvider>
   )

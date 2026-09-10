@@ -509,6 +509,7 @@ export type Tarefa = {
   descricao: string | null
   obra_id: string | null
   projeto_id: string | null
+  processo_id: string | null
   responsavel_id: string | null
   responsavel_nome: string | null
   status: 'pendente' | 'em_andamento' | 'aguardando' | 'concluida' | 'cancelada'

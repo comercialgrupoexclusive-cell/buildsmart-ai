@@ -26,13 +26,14 @@ function formVazio(): FormState {
 // obra_id/projeto_id são herdados automaticamente do contexto (se houver) e
 // nunca aparecem como campo — o usuário não escolhe "onde" a tarefa mora.
 export function TarefaModal({
-  open, onClose, editando, obraId, projetoId, onSaved,
+  open, onClose, editando, obraId, projetoId, processoId, onSaved,
 }: {
   open: boolean
   onClose: () => void
   editando: Tarefa | null
   obraId?: string | null
   projetoId?: string | null
+  processoId?: string | null
   onSaved: (t: Tarefa) => void
 }) {
   return (
@@ -43,6 +44,7 @@ export function TarefaModal({
           editando={editando}
           obraId={obraId}
           projetoId={projetoId}
+          processoId={processoId}
           onSaved={onSaved}
           onClose={onClose}
         />
@@ -55,11 +57,12 @@ export function TarefaModal({
 // quando fecha), o que permite inicializar o form direto no useState sem
 // precisar de um efeito só para sincronizar com a prop `editando`.
 function TarefaModalForm({
-  editando, obraId, projetoId, onSaved, onClose,
+  editando, obraId, projetoId, processoId, onSaved, onClose,
 }: {
   editando: Tarefa | null
   obraId?: string | null
   projetoId?: string | null
+  processoId?: string | null
   onSaved: (t: Tarefa) => void
   onClose: () => void
 }) {
@@ -105,6 +108,7 @@ function TarefaModalForm({
           ...payload,
           obra_id: obraId || null,
           projeto_id: projetoId || null,
+          processo_id: processoId || null,
           status: 'pendente',
           concluida: false,
         }).select(embed).single()
