@@ -8,7 +8,7 @@ import { loadFinanceiroResumo, type FinanceiroResumo } from '@/lib/financeiro'
 
 type Visao = 'etapa' | 'tipo_custo'
 
-export function ObraAvancoFinanceiro({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
+export function ObraAvancoFinanceiro({ obraId, processoId, orcamentoId, orcamentoIds }: { obraId?: string; processoId?: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = createClient()
   const [loading, setLoading] = useState(true)
   const [resumo, setResumo] = useState<FinanceiroResumo | null>(null)
@@ -17,13 +17,13 @@ export function ObraAvancoFinanceiro({ obraId, orcamentoId, orcamentoIds }: { ob
   useEffect(() => {
     let cancelado = false
     setLoading(true)
-    loadFinanceiroResumo(supabase, { obraId, orcamentoId, orcamentoIds }).then(r => {
+    loadFinanceiroResumo(supabase, { obraId, processoId, orcamentoId, orcamentoIds }).then(r => {
       if (cancelado) return
       setResumo(r)
       setLoading(false)
     })
     return () => { cancelado = true }
-  }, [obraId, orcamentoId, orcamentoIds, supabase])
+  }, [obraId, processoId, orcamentoId, orcamentoIds, supabase])
 
   if (loading || !resumo) {
     return <div className="flex justify-center py-12"><div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>

@@ -57,9 +57,27 @@ type OrcRow = { id: string; bdi_percentual: number | null }
 type OrcItemRow = { orcamento_id: string; etapa_id: string | null; quantidade: number; preco_unitario_snapshot: number }
 type BaselineItemRow = { orcamento_id: string; quantidade: number; preco_unitario_snapshot: number }
 type CompraRow = {
-  orcamento_id: string | null; etapa_id: string | null
+  id: string; orcamento_id: string | null; etapa_id: string | null
   valor_total: number | null; status_valor: 'confirmado' | 'estimado'
   status_pagamento: 'pendente' | 'pago'; tipo_custo: TipoCusto | null
+}
+type PagamentoRow = { compra_item_id: string; valor_pago: number }
+
+// Pago acumulado por compra_item: soma do histórico de pagamentos quando
+// existe (nunca sobrescrito por data — decisão 5, P4.3); cai para o flag
+// binário legado (status_pagamento) só para itens que nunca tiveram um
+// pagamento registrado na tabela nova, preservando dados antigos de /obras.
+function pagoPorItem(compras: CompraRow[], pagamentos: PagamentoRow[]): Map<string, number> {
+  const somaPorItem = new Map<string, number>()
+  pagamentos.forEach(p => somaPorItem.set(p.compra_item_id, (somaPorItem.get(p.compra_item_id) || 0) + Number(p.valor_pago || 0)))
+  const resultado = new Map<string, number>()
+  compras.forEach(c => {
+    const total = Number(c.valor_total || 0)
+    const registrado = somaPorItem.get(c.id)
+    const pago = registrado !== undefined ? Math.min(registrado, total) : (c.status_pagamento === 'pago' ? total : 0)
+    resultado.set(c.id, pago)
+  })
+  return resultado
 }
 
 function valorComBdi(itens: { quantidade: number; preco_unitario_snapshot: number }[], bdiPercentual: number) {
@@ -69,18 +87,23 @@ function valorComBdi(itens: { quantidade: number; preco_unitario_snapshot: numbe
 
 export async function loadFinanceiroResumo(
   supabase: SupabaseClient,
-  params: { obraId: string; orcamentoId: string; orcamentoIds: string[] },
+  params: { obraId?: string; processoId?: string; orcamentoId: string; orcamentoIds: string[] },
 ): Promise<FinanceiroResumo> {
-  const { obraId, orcamentoId, orcamentoIds } = params
+  const { obraId, processoId, orcamentoId, orcamentoIds } = params
   const consolidado = orcamentoId === TODOS_ORCAMENTOS
   const idsAtivos = consolidado ? orcamentoIds : orcamentoIds.filter(id => id === orcamentoId)
+
+  let etapasQuery = supabase.from('etapas').select('id, nome')
+  etapasQuery = obraId ? etapasQuery.eq('obra_id', obraId) : etapasQuery.eq('processo_id', processoId as string)
+  let comprasQuery = supabase.from('compra_itens').select('id, orcamento_id, etapa_id, valor_total, status_valor, status_pagamento, tipo_custo')
+  comprasQuery = obraId ? comprasQuery.eq('obra_id', obraId) : comprasQuery.eq('processo_id', processoId as string)
 
   const [orcRes, orcItensRes, baselineRes, etapasRes, comprasRes, progresso] = await Promise.all([
     idsAtivos.length ? supabase.from('orcamentos').select('id, bdi_percentual').in('id', idsAtivos) : Promise.resolve({ data: [] }),
     idsAtivos.length ? supabase.from('orcamento_itens').select('orcamento_id, etapa_id, quantidade, preco_unitario_snapshot').in('orcamento_id', idsAtivos) : Promise.resolve({ data: [] }),
     idsAtivos.length ? supabase.from('orcamento_itens_baseline').select('orcamento_id, quantidade, preco_unitario_snapshot').in('orcamento_id', idsAtivos) : Promise.resolve({ data: [] }),
-    supabase.from('etapas').select('id, nome').eq('obra_id', obraId),
-    supabase.from('compra_itens').select('orcamento_id, etapa_id, valor_total, status_valor, status_pagamento, tipo_custo').eq('obra_id', obraId),
+    etapasQuery,
+    comprasQuery,
     loadPlanejamentoProgresso(supabase, idsAtivos),
   ])
 
@@ -94,6 +117,10 @@ export async function loadFinanceiroResumo(
   const compras = todasCompras.filter(c => consolidado
     ? (!c.orcamento_id || orcamentoIds.includes(c.orcamento_id))
     : c.orcamento_id === orcamentoId)
+
+  const compraIds = compras.map(c => c.id)
+  const pagamentosRes = compraIds.length ? await supabase.from('compra_pagamentos').select('compra_item_id, valor_pago').in('compra_item_id', compraIds) : { data: [] }
+  const pagoPorId = pagoPorItem(compras, (pagamentosRes.data || []) as PagamentoRow[])
 
   // Planejado atual: orçamento(s) ativo(s), com BDI, sempre a partir de
   // orcamento_itens (nunca valor_contrato — essa é outra métrica).
@@ -115,7 +142,7 @@ export async function loadFinanceiroResumo(
   // lançamento confirmado é um compromisso, não necessariamente dinheiro
   // que já saiu do caixa.
   const comprometido = compras.filter(c => c.status_valor === 'confirmado').reduce((s, c) => s + Number(c.valor_total || 0), 0)
-  const pago = compras.filter(c => c.status_valor === 'confirmado' && c.status_pagamento === 'pago').reduce((s, c) => s + Number(c.valor_total || 0), 0)
+  const pago = compras.filter(c => c.status_valor === 'confirmado').reduce((s, c) => s + (pagoPorId.get(c.id) || 0), 0)
   const aPagar = Math.max(0, comprometido - pago)
   const saldoOrcamentoAtual = planejadoAtual - comprometido
 
@@ -134,7 +161,7 @@ export async function loadFinanceiroResumo(
       etapaNome: etapaNomePorId.get(etapaId) || 'Etapa',
       planejadoAtual: planejadoAtualEtapa,
       comprometido: comprasDaEtapa.filter(c => c.status_valor === 'confirmado').reduce((s, c) => s + Number(c.valor_total || 0), 0),
-      pago: comprasDaEtapa.filter(c => c.status_valor === 'confirmado' && c.status_pagamento === 'pago').reduce((s, c) => s + Number(c.valor_total || 0), 0),
+      pago: comprasDaEtapa.filter(c => c.status_valor === 'confirmado').reduce((s, c) => s + (pagoPorId.get(c.id) || 0), 0),
     }
   }).sort((a, b) => b.planejadoAtual - a.planejadoAtual)
   const comprasSemEtapa = compras.filter(c => !c.etapa_id)
@@ -144,7 +171,7 @@ export async function loadFinanceiroResumo(
       etapaNome: 'Sem etapa',
       planejadoAtual: 0,
       comprometido: comprasSemEtapa.filter(c => c.status_valor === 'confirmado').reduce((s, c) => s + Number(c.valor_total || 0), 0),
-      pago: comprasSemEtapa.filter(c => c.status_valor === 'confirmado' && c.status_pagamento === 'pago').reduce((s, c) => s + Number(c.valor_total || 0), 0),
+      pago: comprasSemEtapa.filter(c => c.status_valor === 'confirmado').reduce((s, c) => s + (pagoPorId.get(c.id) || 0), 0),
     })
   }
 
@@ -155,7 +182,7 @@ export async function loadFinanceiroResumo(
     return {
       tipo,
       comprometido: comprasDoTipo.filter(c => c.status_valor === 'confirmado').reduce((s, c) => s + Number(c.valor_total || 0), 0),
-      pago: comprasDoTipo.filter(c => c.status_valor === 'confirmado' && c.status_pagamento === 'pago').reduce((s, c) => s + Number(c.valor_total || 0), 0),
+      pago: comprasDoTipo.filter(c => c.status_valor === 'confirmado').reduce((s, c) => s + (pagoPorId.get(c.id) || 0), 0),
     }
   }).sort((a, b) => b.comprometido - a.comprometido)
 

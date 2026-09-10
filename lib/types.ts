@@ -268,7 +268,8 @@ export type CronogramaDependencia = {
 // ─── Material ─────────────────────────────────────────────────────────────────
 export type Material = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   etapa_id: string | null
   subetapa: string | null
   sinapi_codigo: string
@@ -323,6 +324,12 @@ export type MedicaoItem = {
   pct_atual: number
   valor_periodo: number
   valor_pago?: number
+  // P4.3 — granularidade completa do item de medição: de onde veio o dado,
+  // peso quando aplicável (ex.: item bancário ponderado) e previsão do
+  // próximo período, quando já houver uma expectativa registrada.
+  origem?: 'interna' | 'vistoria' | 'documento_bancario' | 'estimativa'
+  peso?: number | null
+  previsao_proxima_pct?: number | null
   created_at: string
 }
 
@@ -371,7 +378,8 @@ export type TipoCusto =
 // preservam o texto histórico dos 105 lançamentos migrados.
 export type CompraItem = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   orcamento_id: string | null
   etapa_id: string | null
   subetapa_orcamento_item_id: string | null   // FK orcamento_itens (tipo_linha='subetapa')
@@ -405,6 +413,17 @@ export type CompraItem = {
   fornecedor?: Fornecedor | null
 }
 
+// Histórico de pagamentos de um compra_item — nunca sobrescrito; o "pago
+// acumulado" é sempre a soma destas linhas (P4.3, decisão 5).
+export type CompraPagamento = {
+  id: string
+  compra_item_id: string
+  data_pagamento: string
+  valor_pago: number
+  observacao: string | null
+  created_at: string
+}
+
 // ─── Caixa por Etapa (teto de reembolso — aba "Orçamento x Reembolso Caixa") ──
 export type EtapaCaixa = {
   id: string
@@ -422,7 +441,8 @@ export type FonteRecursoTipo = 'recursos_proprios' | 'financiamento' | 'fgts'
 
 export type ObraFonteRecurso = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   orcamento_id: string | null
   tipo: FonteRecursoTipo
   valor_previsto: number
@@ -435,7 +455,8 @@ export type ReembolsoStatus = 'rascunho' | 'solicitado' | 'aprovado' | 'recebido
 
 export type ObraReembolso = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   orcamento_id: string | null
   fonte_id: string | null
   medicao_id: string | null
@@ -456,7 +477,8 @@ export type ObraReembolso = {
 // ─── Financiamento — Árvore + Medições ──────────────────────────────────────
 export type FinanciamentoItem = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   orcamento_id: string | null
   parent_id: string | null
   codigo: string | null
@@ -467,6 +489,9 @@ export type FinanciamentoItem = {
   nivel: 1 | 2 | 3
   origem: 'sistema' | 'manual'
   etapa_ref_id: string | null
+  // EAP bancária x EAP canônica: mapeamento por item, alternativa a
+  // etapa_ref_id quando a operação precisa de granularidade de item (P4.3).
+  orcamento_item_id?: string | null
   data_inicio: string | null
   data_fim: string | null
   created_at: string
@@ -476,7 +501,8 @@ export type FinanciamentoItem = {
 
 export type FinanciamentoCronogramaBanco = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   orcamento_id: string | null
   mes: number
   pct_acumulado_previsto: number
@@ -485,7 +511,8 @@ export type FinanciamentoCronogramaBanco = {
 
 export type FinanciamentoMedicao = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   orcamento_id: string | null
   numero: number
   data_medicao: string
@@ -500,6 +527,8 @@ export type FinanciamentoMedicaoItem = {
   medicao_id: string
   item_id: string
   pct_executado: number
+  previsao_proxima_pct?: number | null
+  origem?: 'interna' | 'vistoria' | 'documento_bancario' | 'estimativa'
   created_at: string
 }
 

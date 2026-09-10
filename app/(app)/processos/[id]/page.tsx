@@ -14,7 +14,7 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart, ShoppingCart, Wallet, Landmark } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
@@ -33,6 +33,9 @@ import { ProcessoOrcamento } from '@/components/processo/orcamento/ProcessoOrcam
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
 import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
+import { ProcessoCompras } from '@/components/processo/compras/ProcessoCompras'
+import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
+import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
@@ -44,7 +47,7 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes'
+type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento'
 
 export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -79,7 +82,8 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
   }, [id])
 
   useEffect(() => {
-    if ((tab !== 'orcamento' && tab !== 'planejamento' && tab !== 'medicoes') || orcamentoId) return
+    const precisaOrcamento = tab === 'orcamento' || tab === 'planejamento' || tab === 'medicoes' || tab === 'compras' || tab === 'financeiro' || tab === 'financiamento'
+    if (!precisaOrcamento || orcamentoId) return
     const timer = window.setTimeout(() => {
       setResolvendoOrcamento(true)
       getOrCreateOrcamentoDoProcesso(supabase, id)
@@ -138,6 +142,9 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     ...(habilitados.has('planejamento') ? [{ key: 'planejamento' as const, label: 'Planejamento', icon: CalendarDays }] : []),
     ...(habilitados.has('tarefas') ? [{ key: 'tarefas' as const, label: 'Tarefas', icon: ClipboardList }] : []),
     ...(habilitados.has('medicoes') ? [{ key: 'medicoes' as const, label: 'Medições', icon: FileBarChart }] : []),
+    ...(habilitados.has('compras') ? [{ key: 'compras' as const, label: 'Compras', icon: ShoppingCart }] : []),
+    ...(habilitados.has('financeiro') ? [{ key: 'financeiro' as const, label: 'Financeiro', icon: Wallet }] : []),
+    ...(habilitados.has('financiamento') ? [{ key: 'financiamento' as const, label: 'Financiamento', icon: Landmark }] : []),
   ]
 
   return (
@@ -176,8 +183,9 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
               <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Módulos</h2>
             </div>
             <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
-              Só o Orçamento tem tela própria por enquanto (P3.3) — os demais módulos ainda são só o vínculo
-              habilitado/desabilitado, sem conteúdo. A migração continua módulo a módulo.
+              Orçamento, Planejamento, Tarefas, Medições, Compras, Financeiro e Financiamento já têm tela própria.
+              Projeto Técnico/Arquivos e Relatórios ainda são só o vínculo habilitado/desabilitado, sem conteúdo —
+              a migração continua módulo a módulo.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {registry.map(mod => {
@@ -208,7 +216,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
           </div>
         )}
 
-        {(tab === 'orcamento' || tab === 'planejamento' || tab === 'medicoes') && (
+        {(tab === 'orcamento' || tab === 'planejamento' || tab === 'medicoes' || tab === 'compras' || tab === 'financeiro' || tab === 'financiamento') && (
           resolvendoOrcamento || !orcamentoId ? (
             <div className="flex items-center justify-center py-20">
               <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
@@ -217,8 +225,14 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
             <ProcessoOrcamento key={orcamentoId} orcamentoId={orcamentoId} processoNome={processo.nome} />
           ) : tab === 'planejamento' ? (
             <ObraPlanejamento2 key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} />
-          ) : (
+          ) : tab === 'medicoes' ? (
             <ObraMedicoes key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} orcamentoIds={[orcamentoId]} />
+          ) : tab === 'compras' ? (
+            <ProcessoCompras key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} />
+          ) : tab === 'financeiro' ? (
+            <ObraAvancoFinanceiro key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} orcamentoIds={[orcamentoId]} />
+          ) : (
+            <ObraFinanciamento key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} orcamentoIds={[orcamentoId]} />
           )
         )}
 

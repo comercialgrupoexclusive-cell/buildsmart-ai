@@ -44,7 +44,7 @@ function fmtInput(v: number | string | null | undefined): string {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraId: string; orcamentoId: string; orcamentoIds: string[] }) {
+export function ObraFinanciamento({ obraId, processoId, orcamentoId, orcamentoIds }: { obraId?: string; processoId?: string; orcamentoId: string; orcamentoIds: string[] }) {
   const supabase = createClient()
   const [innerTab, setInnerTab] = useState<InnerTab>('visao')
   const [fontes, setFontes] = useState<ObraFonteRecurso[]>([])
@@ -58,18 +58,21 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const [fontesRes, reembolsosRes, etapasRes, medicoesRes] = await Promise.all([
-      supabase.from('obra_fontes_recursos').select('*').eq('obra_id', obraId).order('tipo'),
-      supabase.from('obra_reembolsos').select('*').eq('obra_id', obraId).order('created_at', { ascending: false }),
-      supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem'),
-      supabase.from('medicoes').select('*').eq('obra_id', obraId).order('periodo_fim', { ascending: false }),
-    ])
+    let fontesQuery = supabase.from('obra_fontes_recursos').select('*').order('tipo')
+    fontesQuery = obraId ? fontesQuery.eq('obra_id', obraId) : fontesQuery.eq('processo_id', processoId as string)
+    let reembolsosQuery = supabase.from('obra_reembolsos').select('*').order('created_at', { ascending: false })
+    reembolsosQuery = obraId ? reembolsosQuery.eq('obra_id', obraId) : reembolsosQuery.eq('processo_id', processoId as string)
+    let etapasQuery = supabase.from('etapas').select('*').order('ordem')
+    etapasQuery = obraId ? etapasQuery.eq('obra_id', obraId) : etapasQuery.eq('processo_id', processoId as string)
+    let medicoesQuery = supabase.from('medicoes').select('*').order('periodo_fim', { ascending: false })
+    medicoesQuery = obraId ? medicoesQuery.eq('obra_id', obraId) : medicoesQuery.eq('processo_id', processoId as string)
+    const [fontesRes, reembolsosRes, etapasRes, medicoesRes] = await Promise.all([fontesQuery, reembolsosQuery, etapasQuery, medicoesQuery])
     setFontes((fontesRes.data || []) as ObraFonteRecurso[])
     setReembolsos((reembolsosRes.data || []) as ObraReembolso[])
     setEtapas((etapasRes.data || []) as Etapa[])
     setMedicoes((medicoesRes.data || []) as Medicao[])
     setLoading(false)
-  }, [obraId, supabase])
+  }, [obraId, processoId, supabase])
 
   useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
 
@@ -87,7 +90,7 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
     const cleaned = value.replace(/\./g, '').replace(',', '.')
     const valor = Math.max(0, Number(cleaned) || 0)
     const existente = fontePorTipo.get(tipo)
-    const payload = { obra_id: obraId, orcamento_id: orcamentoId || null, tipo, valor_previsto: valor, updated_at: new Date().toISOString() }
+    const payload = { obra_id: obraId || null, processo_id: processoId || null, orcamento_id: orcamentoId || null, tipo, valor_previsto: valor, updated_at: new Date().toISOString() }
     const query = existente
       ? supabase.from('obra_fontes_recursos').update(payload).eq('id', existente.id)
       : supabase.from('obra_fontes_recursos').insert(payload)
@@ -101,7 +104,7 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
     if (isTodos || !orcamentoId || !form.descricao.trim() || !(Number(form.valor_solicitado) > 0)) return
     setSaving(true)
     const { data, error } = await supabase.from('obra_reembolsos').insert({
-      obra_id: obraId, orcamento_id: orcamentoId || null,
+      obra_id: obraId || null, processo_id: processoId || null, orcamento_id: orcamentoId || null,
       descricao: form.descricao.trim(), fonte_id: form.fonte_id || null,
       etapa_id: form.etapa_id || null, medicao_id: form.medicao_id || null,
       valor_solicitado: Number(form.valor_solicitado),
@@ -152,7 +155,7 @@ export function ObraFinanciamento({ obraId, orcamentoId, orcamentoIds }: { obraI
       </div>
 
       {(delegatedViews as readonly string[]).includes(innerTab) && (
-        <ObraFinanciamentoMedicao obraId={obraId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} view={innerTab as 'visao' | 'orcamento' | 'cronograma' | 'execucao' | 'acompanhamento'} />
+        <ObraFinanciamentoMedicao obraId={obraId} processoId={processoId} orcamentoId={orcamentoId} orcamentoIds={orcamentoIds} view={innerTab as 'visao' | 'orcamento' | 'cronograma' | 'execucao' | 'acompanhamento'} />
       )}
 
       {innerTab === 'fontes' && <>

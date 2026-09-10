@@ -14,7 +14,8 @@ import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 
 type Requisicao = {
   id: string
-  obra_id: string
+  obra_id: string | null
+  processo_id?: string | null
   orcamento_id: string | null
   numero: string | null
   data_solicitacao: string
@@ -61,9 +62,10 @@ const EMPTY_ITEM = { descricao: '', quantidade: '', unidade: '', urgente: false,
 const EMPTY_COT = { fornecedor_id: '', fornecedor_nome: '', data_cotacao: new Date().toISOString().slice(0, 10), validade: '', valor_total: '', observacao: '' }
 
 export function ObraRequisicoes({
-  obraId, orcamentoId, orcamentoIds, onLancarComoCompra,
+  obraId, processoId, orcamentoId, orcamentoIds, onLancarComoCompra,
 }: {
-  obraId: string
+  obraId?: string
+  processoId?: string
   orcamentoId: string
   orcamentoIds: string[]
   onLancarComoCompra?: (dados: { fornecedorNome?: string; valorTotal?: number; descricao?: string }) => void
@@ -89,11 +91,16 @@ export function ObraRequisicoes({
 
   async function loadData() {
     setLoading(true)
+    let reqQuery = supabase.from('requisicoes_compra').select('*').order('created_at', { ascending: false })
+    reqQuery = obraId ? reqQuery.eq('obra_id', obraId) : reqQuery.eq('processo_id', processoId as string)
+    const fornecedoresQuery = obraId
+      ? supabase.from('fornecedores').select('id, nome').or(`obra_id.is.null,obra_id.eq.${obraId}`).order('nome')
+      : supabase.from('fornecedores').select('id, nome').is('obra_id', null).order('nome')
     const [{ data: reqs }, { data: its }, { data: cots }, { data: fors }] = await Promise.all([
-      supabase.from('requisicoes_compra').select('*').eq('obra_id', obraId).order('created_at', { ascending: false }),
+      reqQuery,
       supabase.from('requisicao_itens').select('*').order('descricao'),
       supabase.from('cotacoes').select('*').order('created_at', { ascending: false }),
-      supabase.from('fornecedores').select('id, nome').or(`obra_id.is.null,obra_id.eq.${obraId}`).order('nome'),
+      fornecedoresQuery,
     ])
     const requisicoesVisiveis = ((reqs ?? []) as Requisicao[]).filter(req => consolidado
       ? (!req.orcamento_id || orcamentoIds.includes(req.orcamento_id))
@@ -110,7 +117,7 @@ export function ObraRequisicoes({
   useEffect(() => {
     void Promise.resolve().then(loadData)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [obraId, orcamentoId, orcamentoIds])
+  }, [obraId, processoId, orcamentoId, orcamentoIds])
 
   // ── Requisição ────────────────────────────────────────────────────────────
 
@@ -124,7 +131,8 @@ export function ObraRequisicoes({
     setSavingReq(true)
     const numero = reqForm.numero.trim() || gerarNumero()
     const { data: req, error } = await supabase.from('requisicoes_compra').insert({
-      obra_id: obraId,
+      obra_id: obraId || null,
+      processo_id: processoId || null,
       orcamento_id: orcamentoId,
       numero,
       data_solicitacao: reqForm.data_solicitacao,
@@ -212,7 +220,8 @@ export function ObraRequisicoes({
           ? reqItens.map(i => i.descricao).filter(Boolean).join(', ')
           : `Requisição ${req?.numero || ''}`
         await supabase.from('compra_itens').insert({
-          obra_id: obraId,
+          obra_id: obraId || null,
+          processo_id: processoId || null,
           orcamento_id: orcamentoId === TODOS_ORCAMENTOS ? null : orcamentoId,
           requisicao_id: cot.requisicao_id,
           cotacao_id: cot.id,

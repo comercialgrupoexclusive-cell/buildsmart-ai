@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ShoppingCart, Plus, Pencil, Trash2, ChevronDown, ChevronRight,
-  CheckSquare, Square, Scale, FileText, X, Building2, Link2,
+  CheckSquare, Square, Scale, FileText, X, Building2, Link2, Wallet,
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { adminRpc } from '@/lib/portal-admin-client'
 import { formatCurrency, FORMA_PAGAMENTO_LABEL, TIPO_CUSTO_LABEL, TIPO_CUSTO_COLOR } from '@/lib/utils'
-import { CompraItem, Etapa, Fornecedor, TipoCusto } from '@/lib/types'
+import { CompraItem, CompraPagamento, Etapa, Fornecedor, TipoCusto } from '@/lib/types'
 import type { ObraPrevisao } from '@/lib/previsoes'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
@@ -53,9 +53,10 @@ export type PrefillLancamento = {
  * registra somente lançamentos efetivamente confirmados.
  */
 export function ComprasLancamentos({
-  obraId, orcamentoId, orcamentoIds, prefill, onPrefillConsumed,
+  obraId, processoId, orcamentoId, orcamentoIds, prefill, onPrefillConsumed,
 }: {
-  obraId: string
+  obraId?: string
+  processoId?: string
   orcamentoId: string
   orcamentoIds: string[]
   prefill?: PrefillLancamento
@@ -96,13 +97,25 @@ export function ComprasLancamentos({
   const [cotacaoLinhas, setCotacaoLinhas] = useState<CotacaoLinha[]>([])
   const consolidado = orcamentoId === TODOS_ORCAMENTOS
 
+  // Histórico de pagamentos — nunca sobrescreve um pagamento anterior com
+  // um valor acumulado novo (P4.3, decisão 5): cada pagamento é uma linha
+  // com sua própria data, "pago acumulado" é sempre a soma delas.
+  const [pagamentoItem, setPagamentoItem] = useState<CompraItem | null>(null)
+  const [pagamentos, setPagamentos] = useState<CompraPagamento[]>([])
+  const [novoPagamentoValor, setNovoPagamentoValor] = useState('')
+  const [novoPagamentoData, setNovoPagamentoData] = useState(new Date().toISOString().slice(0, 10))
+  const [salvandoPagamento, setSalvandoPagamento] = useState(false)
+
   const loadDados = useCallback(async () => {
     setLoading(true)
-    const [itensRes, etapasRes, fornecedoresRes] = await Promise.all([
-      supabase.from('compra_itens').select('*, etapa:etapas(*), fornecedor:fornecedores(*)').eq('obra_id', obraId).order('created_at', { ascending: false }),
-      supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem'),
-      supabase.from('fornecedores').select('*').or(`obra_id.is.null,obra_id.eq.${obraId}`).order('nome'),
-    ])
+    let itensQuery = supabase.from('compra_itens').select('*, etapa:etapas(*), fornecedor:fornecedores(*)').order('created_at', { ascending: false })
+    itensQuery = obraId ? itensQuery.eq('obra_id', obraId) : itensQuery.eq('processo_id', processoId as string)
+    let etapasQuery = supabase.from('etapas').select('*').order('ordem')
+    etapasQuery = obraId ? etapasQuery.eq('obra_id', obraId) : etapasQuery.eq('processo_id', processoId as string)
+    const fornecedoresQuery = obraId
+      ? supabase.from('fornecedores').select('*').or(`obra_id.is.null,obra_id.eq.${obraId}`).order('nome')
+      : supabase.from('fornecedores').select('*').is('obra_id', null).order('nome')
+    const [itensRes, etapasRes, fornecedoresRes] = await Promise.all([itensQuery, etapasQuery, fornecedoresQuery])
     const todos = (itensRes.data || []) as CompraItem[]
     setItens(todos.filter(item => consolidado
       ? (!item.orcamento_id || orcamentoIds.includes(item.orcamento_id))
@@ -139,7 +152,7 @@ export function ComprasLancamentos({
       setSubetapas([])
       setItensOrcamento([])
     }
-  }, [consolidado, obraId, orcamentoId, orcamentoIds, supabase])
+  }, [consolidado, obraId, processoId, orcamentoId, orcamentoIds, supabase])
 
   useEffect(() => {
     void Promise.resolve().then(loadDados)
@@ -147,7 +160,10 @@ export function ComprasLancamentos({
 
   // Materiais previstos (obra_previsoes) para o seletor "Vincular ao
   // material previsto" -- mesma fonte da tela de Previsões, sem motor novo.
+  // obra_previsoes é exclusivo de /obras (decisão E) — no Processo o
+  // seletor simplesmente fica vazio, sem vínculo.
   useEffect(() => {
+    if (!obraId) return
     void adminRpc<ObraPrevisao[]>('obra_previsoes_list', { p_obra_id: obraId, p_orcamento_id: TODOS_ORCAMENTOS })
       .then(({ data }) => setPrevisoesMaterial((data || []) as ObraPrevisao[]))
   }, [obraId])
@@ -208,7 +224,8 @@ export function ComprasLancamentos({
     if (!form.descricao.trim() || !form.valor_total) return
     setSaving(true)
     const payload = {
-      obra_id: obraId,
+      obra_id: obraId || null,
+      processo_id: processoId || null,
       orcamento_id: editando?.orcamento_id || orcamentoId,
       etapa_id: form.etapa_id || null,
       subetapa_orcamento_item_id: form.subetapa_orcamento_item_id || null,
@@ -280,6 +297,38 @@ export function ComprasLancamentos({
     const dataReceb = recebido ? null : new Date().toISOString().slice(0, 10)
     await supabase.from('compra_itens').update({ status_recebimento: novoStatus, data_recebimento: dataReceb, updated_at: new Date().toISOString() }).eq('id', item.id)
     setItens(prev => prev.map(i => i.id === item.id ? { ...i, status_recebimento: novoStatus, data_recebimento: dataReceb } as CompraItem : i))
+  }
+
+  async function abrirPagamentos(item: CompraItem) {
+    setPagamentoItem(item)
+    setNovoPagamentoValor('')
+    setNovoPagamentoData(new Date().toISOString().slice(0, 10))
+    const { data } = await supabase.from('compra_pagamentos').select('*').eq('compra_item_id', item.id).order('data_pagamento', { ascending: false })
+    setPagamentos((data || []) as CompraPagamento[])
+  }
+
+  async function registrarPagamento() {
+    if (!pagamentoItem || !novoPagamentoValor || Number(novoPagamentoValor) <= 0) return
+    setSalvandoPagamento(true)
+    const { data, error } = await supabase.from('compra_pagamentos').insert({
+      compra_item_id: pagamentoItem.id,
+      data_pagamento: novoPagamentoData,
+      valor_pago: Number(novoPagamentoValor),
+    }).select().single()
+    if (error) { setSalvandoPagamento(false); alert(`Não foi possível registrar o pagamento.\n\n${error.message}`); return }
+    const novaLista = [data as CompraPagamento, ...pagamentos]
+    setPagamentos(novaLista)
+    const totalPago = novaLista.reduce((s, p) => s + Number(p.valor_pago), 0)
+    // status_pagamento continua o flag rápido para telas/relatórios legados
+    // que só leem pendente/pago — o histórico real vive em compra_pagamentos.
+    const novoStatus = totalPago >= Number(pagamentoItem.valor_total || 0) ? 'pago' : 'pendente'
+    if (novoStatus !== pagamentoItem.status_pagamento) {
+      await supabase.from('compra_itens').update({ status_pagamento: novoStatus, updated_at: new Date().toISOString() }).eq('id', pagamentoItem.id)
+      setItens(prev => prev.map(i => i.id === pagamentoItem.id ? { ...i, status_pagamento: novoStatus } : i))
+      setPagamentoItem(prev => prev ? { ...prev, status_pagamento: novoStatus } : prev)
+    }
+    setNovoPagamentoValor('')
+    setSalvandoPagamento(false)
   }
 
   function abrirCotacao(item: CompraItem) {
@@ -373,9 +422,11 @@ export function ComprasLancamentos({
               {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
             </select>
           )}
-          <Link href={`/obras/${obraId}/compras/relatorio`}>
-            <Button size="sm" variant="secondary" icon={<FileText size={14} />}>Relatório</Button>
-          </Link>
+          {obraId && (
+            <Link href={`/obras/${obraId}/compras/relatorio`}>
+              <Button size="sm" variant="secondary" icon={<FileText size={14} />}>Relatório</Button>
+            </Link>
+          )}
           <Button size="sm" icon={<Plus size={14} />} onClick={openNew} disabled={consolidado}>Novo lançamento</Button>
         </div>
       </div>
@@ -402,6 +453,7 @@ export function ComprasLancamentos({
               onTogglePago={alternarPago}
               onToggleRecebido={alternarRecebido}
               onCotacao={abrirCotacao}
+              onPagamentos={abrirPagamentos}
               materialTituloPorInsumoId={materialTituloPorInsumoId}
             />
           )}
@@ -421,6 +473,7 @@ export function ComprasLancamentos({
                 onTogglePago={alternarPago}
                 onToggleRecebido={alternarRecebido}
                 onCotacao={abrirCotacao}
+                onPagamentos={abrirPagamentos}
                 materialTituloPorInsumoId={materialTituloPorInsumoId}
               />
             )
@@ -626,6 +679,76 @@ export function ComprasLancamentos({
           <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={adicionarLinhaCotacao}>
             Adicionar fornecedor
           </Button>
+        </div>
+      </Modal>
+
+      {/* Histórico de pagamentos — cada linha é um pagamento com sua data;
+          o acumulado é a soma, nunca um valor que substitui o anterior. */}
+      <Modal
+        open={!!pagamentoItem}
+        onClose={() => { setPagamentoItem(null); setPagamentos([]) }}
+        title={`Pagamentos — ${pagamentoItem?.descricao ?? ''}`}
+        size="md"
+      >
+        <div className="flex flex-col gap-4">
+          {pagamentoItem && (
+            <div className="flex items-center justify-between text-sm rounded-lg px-3 py-2" style={{ background: 'var(--bg-secondary)' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>Contratado</span>
+              <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(pagamentoItem.valor_total)}</span>
+            </div>
+          )}
+          {pagamentoItem && (() => {
+            const totalPago = pagamentos.reduce((s, p) => s + Number(p.valor_pago), 0)
+            const saldo = Math.max(0, Number(pagamentoItem.valor_total || 0) - totalPago)
+            return (
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-lg px-3 py-2" style={{ background: 'var(--bg-secondary)' }}>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Pago acumulado</p>
+                  <p className="font-semibold" style={{ color: 'var(--success)' }}>{formatCurrency(totalPago)}</p>
+                </div>
+                <div className="rounded-lg px-3 py-2" style={{ background: 'var(--bg-secondary)' }}>
+                  <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Saldo</p>
+                  <p className="font-semibold" style={{ color: 'var(--warning)' }}>{formatCurrency(saldo)}</p>
+                </div>
+              </div>
+            )
+          })()}
+
+          {pagamentos.length === 0 ? (
+            <p className="text-xs py-2 text-center" style={{ color: 'var(--text-secondary)' }}>Nenhum pagamento registrado ainda.</p>
+          ) : (
+            <div className="flex flex-col">
+              {pagamentos.map(p => (
+                <div key={p.id} className="flex items-center justify-between gap-3 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
+                  <span className="text-sm" style={{ color: 'var(--text-primary)' }}>{formatDataCurta(p.data_pagamento)}</span>
+                  <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(p.valor_pago)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-end gap-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+            <Input
+              label="Data"
+              type="date"
+              value={novoPagamentoData}
+              onChange={e => setNovoPagamentoData(e.target.value)}
+              className="w-36"
+            />
+            <Input
+              label="Valor (R$)"
+              type="number"
+              min="0"
+              step="0.01"
+              value={novoPagamentoValor}
+              onChange={e => setNovoPagamentoValor(e.target.value)}
+              placeholder="0,00"
+              className="flex-1"
+            />
+            <Button size="sm" loading={salvandoPagamento} disabled={!novoPagamentoValor || Number(novoPagamentoValor) <= 0} onClick={registrarPagamento}>
+              Registrar
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>
@@ -856,7 +979,7 @@ export function LancamentoRapidoForm({
 */
 
 function GrupoEtapaCompra({
-  chave, nome, itens, collapsed, onToggle, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, materialTituloPorInsumoId,
+  chave, nome, itens, collapsed, onToggle, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, onPagamentos, materialTituloPorInsumoId,
 }: {
   chave: string
   nome: string
@@ -868,6 +991,7 @@ function GrupoEtapaCompra({
   onTogglePago: (item: CompraItem) => void
   onToggleRecebido: (item: CompraItem) => void
   onCotacao: (item: CompraItem) => void
+  onPagamentos: (item: CompraItem) => void
   materialTituloPorInsumoId: Record<string, string>
 }) {
   const subtotal = itens.reduce((s, i) => s + (i.valor_total || 0), 0)
@@ -895,7 +1019,7 @@ function GrupoEtapaCompra({
       {!collapsed && (
         <div className="flex flex-col">
           {itens.map(item => (
-            <LinhaCompra key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onTogglePago={onTogglePago} onToggleRecebido={onToggleRecebido} onCotacao={onCotacao} materialVinculado={item.orcamento_item_insumo_id ? materialTituloPorInsumoId[item.orcamento_item_insumo_id] : undefined} />
+            <LinhaCompra key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onTogglePago={onTogglePago} onToggleRecebido={onToggleRecebido} onCotacao={onCotacao} onPagamentos={onPagamentos} materialVinculado={item.orcamento_item_insumo_id ? materialTituloPorInsumoId[item.orcamento_item_insumo_id] : undefined} />
           ))}
         </div>
       )}
@@ -904,7 +1028,7 @@ function GrupoEtapaCompra({
 }
 
 function LinhaCompra({
-  item, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, materialVinculado,
+  item, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, onPagamentos, materialVinculado,
 }: {
   item: CompraItem
   onEdit: (item: CompraItem) => void
@@ -912,6 +1036,7 @@ function LinhaCompra({
   onTogglePago: (item: CompraItem) => void
   onToggleRecebido: (item: CompraItem) => void
   onCotacao: (item: CompraItem) => void
+  onPagamentos: (item: CompraItem) => void
   materialVinculado?: string
 }) {
   const pago = item.status_pagamento === 'pago'
@@ -982,6 +1107,9 @@ function LinhaCompra({
         </button>
         <button onClick={() => onCotacao(item)} title="Comparar cotações" className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
           <Scale size={14} style={{ color: 'var(--text-secondary)' }} />
+        </button>
+        <button onClick={() => onPagamentos(item)} title="Histórico de pagamentos" className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
+          <Wallet size={14} style={{ color: 'var(--text-secondary)' }} />
         </button>
         <button onClick={() => onEdit(item)} title="Editar" className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
           <Pencil size={14} style={{ color: 'var(--text-secondary)' }} />

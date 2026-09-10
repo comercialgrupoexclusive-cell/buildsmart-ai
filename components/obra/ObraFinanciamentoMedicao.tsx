@@ -58,7 +58,7 @@ function fmtPct(v: number): string {
 
 type OrcSubetapa = { subetapa: string; valor: number }
 
-export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, view }: { obraId: string; orcamentoId: string; orcamentoIds: string[]; view: ViewTab }) {
+export function ObraFinanciamentoMedicao({ obraId, processoId, orcamentoId, orcamentoIds, view }: { obraId?: string; processoId?: string; orcamentoId: string; orcamentoIds: string[]; view: ViewTab }) {
   const supabase = createClient()
   const isTodos = orcamentoId === TODOS_ORCAMENTOS
 
@@ -85,11 +85,24 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
     setLoading(true)
     const orcId = orcamentoId === TODOS_ORCAMENTOS ? null : orcamentoId
     const idsProgresso = orcId ? [orcId] : orcamentoIds
+    let itensQuery = supabase.from('financiamento_itens').select('*').order('ordem')
+    itensQuery = obraId ? itensQuery.eq('obra_id', obraId) : itensQuery.eq('processo_id', processoId as string)
+    let medQuery = supabase.from('financiamento_medicoes').select('*').order('numero', { ascending: false })
+    medQuery = obraId ? medQuery.eq('obra_id', obraId) : medQuery.eq('processo_id', processoId as string)
+    let cronoQuery = supabase.from('financiamento_cronograma_banco').select('*').order('mes')
+    cronoQuery = obraId ? cronoQuery.eq('obra_id', obraId) : cronoQuery.eq('processo_id', processoId as string)
+    let etapasQuery = supabase.from('etapas').select('*').order('ordem')
+    etapasQuery = obraId ? etapasQuery.eq('obra_id', obraId) : etapasQuery.eq('processo_id', processoId as string)
+    let fontesQuery = supabase.from('obra_fontes_recursos').select('*')
+    fontesQuery = obraId ? fontesQuery.eq('obra_id', obraId) : fontesQuery.eq('processo_id', processoId as string)
+    let reembQuery = supabase.from('obra_reembolsos').select('*')
+    reembQuery = obraId ? reembQuery.eq('obra_id', obraId) : reembQuery.eq('processo_id', processoId as string)
+
     const [itensRes, medRes, cronoRes, etapasRes, progresso, orcItensRes, orcRes, fontesRes, reembRes] = await Promise.all([
-      supabase.from('financiamento_itens').select('*').eq('obra_id', obraId).order('ordem'),
-      supabase.from('financiamento_medicoes').select('*').eq('obra_id', obraId).order('numero', { ascending: false }),
-      supabase.from('financiamento_cronograma_banco').select('*').eq('obra_id', obraId).order('mes'),
-      supabase.from('etapas').select('*').eq('obra_id', obraId).order('ordem'),
+      itensQuery,
+      medQuery,
+      cronoQuery,
+      etapasQuery,
       loadPlanejamentoProgresso(supabase, idsProgresso),
       orcId
         ? supabase.from('orcamento_itens').select('id,etapa_id,subetapa,quantidade,preco_unitario_snapshot,valor_total_informado_snapshot,valor_total_manual_ativo').eq('orcamento_id', orcId)
@@ -97,8 +110,8 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
       orcId
         ? supabase.from('orcamentos').select('gerenciamento_percentual').eq('id', orcId).single()
         : Promise.resolve({ data: null }),
-      supabase.from('obra_fontes_recursos').select('*').eq('obra_id', obraId),
-      supabase.from('obra_reembolsos').select('*').eq('obra_id', obraId),
+      fontesQuery,
+      reembQuery,
     ])
     setItens((itensRes.data || []) as FinanciamentoItem[])
     setMedicoes((medRes.data || []) as FinanciamentoMedicao[])
@@ -116,7 +129,7 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
     setFontes((fontesRes.data || []) as ObraFonteRecurso[])
     setReembolsos((reembRes.data || []) as ObraReembolso[])
     setLoading(false)
-  }, [obraId, orcamentoId, orcamentoIds, supabase])
+  }, [obraId, processoId, orcamentoId, orcamentoIds, supabase])
 
   useEffect(() => { Promise.resolve().then(carregar) }, [carregar])
 
@@ -223,7 +236,8 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
     if (!editForm || !editForm.nome.trim() || isTodos) return
     setSaving(true)
     const payload = {
-      obra_id: obraId,
+      obra_id: obraId || null,
+      processo_id: processoId || null,
       orcamento_id: orcamentoId === TODOS_ORCAMENTOS ? null : orcamentoId,
       parent_id: editForm.parent_id || null,
       codigo: editForm.codigo.trim() || null,
@@ -258,17 +272,15 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
   async function registrarMedicao() {
     if (Object.keys(pctSim).length === 0 || registrando) return
     setRegistrando(true)
-    const { data: maxRes } = await supabase
-      .from('financiamento_medicoes')
-      .select('numero')
-      .eq('obra_id', obraId)
-      .order('numero', { ascending: false })
-      .limit(1)
+    let maxQuery = supabase.from('financiamento_medicoes').select('numero').order('numero', { ascending: false }).limit(1)
+    maxQuery = obraId ? maxQuery.eq('obra_id', obraId) : maxQuery.eq('processo_id', processoId as string)
+    const { data: maxRes } = await maxQuery
     const maxNumero = (maxRes && maxRes.length > 0) ? (maxRes[0] as FinanciamentoMedicao).numero : 0
     const numero = maxNumero + 1
     const hoje = new Date().toISOString().split('T')[0]
     const { data: novaMed } = await supabase.from('financiamento_medicoes').insert({
-      obra_id: obraId,
+      obra_id: obraId || null,
+      processo_id: processoId || null,
       orcamento_id: orcamentoId === TODOS_ORCAMENTOS ? null : orcamentoId,
       numero, data_medicao: hoje, status: 'fechada',
     }).select().single()
@@ -375,7 +387,7 @@ export function ObraFinanciamentoMedicao({ obraId, orcamentoId, orcamentoIds, vi
   return (
     <AcompanhamentoView medicoes={medicoes} cronoBanco={cronoBanco} acumuladoAtual={acumuladoAtual}
       excluirMedicao={excluirMedicao} editarMedicao={editarMedicao}
-      itens={itens} obraId={obraId} />
+      itens={itens} />
   )
 }
 
@@ -1185,10 +1197,10 @@ function TreeRowExec({ node, depth, collapsed, setCollapsed, pctLocal, pctSim, s
 // ════════════════════════════════════════════════════════════════════════════════
 // ACOMPANHAMENTO VIEW — com detalhes da medição
 // ════════════════════════════════════════════════════════════════════════════════
-function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual, excluirMedicao, editarMedicao, itens, obraId }: {
+function AcompanhamentoView({ medicoes, cronoBanco, acumuladoAtual, excluirMedicao, editarMedicao, itens }: {
   medicoes: FinanciamentoMedicao[]; cronoBanco: FinanciamentoCronogramaBanco[]; acumuladoAtual: number
   excluirMedicao: (id: string) => void; editarMedicao: (id: string, patch: Partial<FinanciamentoMedicao>) => void
-  itens: FinanciamentoItem[]; obraId: string
+  itens: FinanciamentoItem[]
 }) {
   const supabase = createClient()
   const fechadas = medicoes.filter(m => m.status === 'fechada').sort((a, b) => a.numero - b.numero)
