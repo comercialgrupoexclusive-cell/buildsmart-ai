@@ -16,10 +16,19 @@ function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
 }
 
-export async function GET(req: NextRequest) {
-  const token = req.nextUrl.searchParams.get('token')
-  const password = req.nextUrl.searchParams.get('password')
-  if (!token || !password) {
+// POST com token/password só no corpo JSON — nunca em querystring (GET),
+// onde senha/token ficam expostos em logs de acesso, histórico do
+// navegador e Referer de terceiros. Nunca logar `token`/`password` em
+// nenhum branch deste handler (nem em erro).
+export async function POST(req: NextRequest) {
+  let body: unknown
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Corpo da requisição precisa ser JSON.' }, { status: 400 })
+  }
+  const { token, password } = (body ?? {}) as { token?: unknown; password?: unknown }
+  if (typeof token !== 'string' || typeof password !== 'string' || !token || !password) {
     return NextResponse.json({ error: 'token e password são obrigatórios.' }, { status: 400 })
   }
   if (password.length < 6) {
