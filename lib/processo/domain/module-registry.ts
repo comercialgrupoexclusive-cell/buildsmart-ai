@@ -16,6 +16,7 @@ export type ProcessoModuleKey =
   | 'financiamento'
   | 'rdo'
   | 'relatorios'
+  | 'planta_baixa'
 
 export type ProcessoModuleDefinition = {
   key: ProcessoModuleKey
@@ -39,6 +40,9 @@ export const PROCESSO_MODULES: readonly ProcessoModuleDefinition[] = [
   { key: 'financiamento', label: 'Financiamento' },
   { key: 'rdo', label: 'RDO' },
   { key: 'relatorios', label: 'Relatórios' },
+  // P4.6 Bloco B — não habilitado por padrão: é o editor de Planta Baixa
+  // 2D (Axonometra vendorizado), só faz sentido em Processos que precisam.
+  { key: 'planta_baixa', label: 'Planta Baixa' },
 ]
 
 export function getProcessoModuleDefinition(key: string): ProcessoModuleDefinition | undefined {

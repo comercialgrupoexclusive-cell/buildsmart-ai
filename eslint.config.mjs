@@ -12,6 +12,13 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // P4.6 Bloco B — vendor/axonometra é um sub-projeto vendorizado com seu
+    // próprio eslint.config.js/node_modules, já lintado isoladamente ali
+    // dentro; não é código do app Next.js. public/axonometra é o build
+    // minificado desse mesmo sub-projeto (gerado por
+    // scripts/build-axonometra.mjs) — asset estático, não código-fonte.
+    "vendor/**",
+    "public/axonometra/**",
   ]),
 ]);
 

@@ -4,6 +4,11 @@
 /node_modules
 /.pnp
 .pnp.*
+
+# P4.6 Bloco B — vendored Axonometra tem seu próprio build Vite/node_modules;
+# só o resultado final (public/axonometra/) é versionado, não este rascunho.
+/vendor/axonometra/node_modules
+/vendor/axonometra/dist
 .yarn/*
 !.yarn/patches
 !.yarn/plugins

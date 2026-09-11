@@ -1,0 +1,40 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  // BuildSmart P4.6 Bloco B — esta cópia vendorizada é servida como asset
+  // estático do Next.js sob /axonometra/ (ver public/axonometra/ e
+  // scripts/build-axonometra.mjs), não na raiz do domínio. Sem `base`, todo
+  // asset do build referenciaria /assets/... na raiz e colidiria com os
+  // assets do próprio app Next.js (inclusive favicon.ico/manifest.json).
+  base: '/axonometra/',
+  server: { host: '0.0.0.0', port: 4891, strictPort: true },
+  preview: { host: '0.0.0.0', port: 4891, strictPort: true },
+  build: {
+    outDir: 'dist',
+    // Source maps stay off until error tracking (e.g. Sentry) is wired up;
+    // switch to 'hidden' then so maps upload but aren't served. (#53)
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Function form: the array form leaves react/react-dom absorbed into
+        // the mantine chunk (and emits an empty `react` chunk), so match the
+        // vendor packages by resolved path instead.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('/pixi.js/') || id.includes('/pixi-viewport/'))
+            return 'pixi';
+          if (id.includes('/@pixi/')) return 'pixi';
+          if (id.includes('/@mantine/')) return 'mantine';
+          if (
+            id.includes('/react/') ||
+            id.includes('/react-dom/') ||
+            id.includes('/scheduler/')
+          )
+            return 'react';
+        }
+      }
+    }
+  }
+});
