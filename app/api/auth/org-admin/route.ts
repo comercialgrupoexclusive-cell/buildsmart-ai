@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient as createServerAuthClient } from '@/lib/supabase/server'
+import { technicalEmail } from '@/lib/supabase/technical-email'
 
 // P4.6 Bloco A — administração de usuários DENTRO da Organização (OWNER/
 // ADMIN): listar, criar, definir username/senha/papel/ativo, conceder
@@ -9,12 +10,10 @@ import { createClient as createServerAuthClient } from '@/lib/supabase/server'
 // cada ação abaixo reconfirma no servidor, antes de tocar o banco, que quem
 // está chamando é realmente owner/admin da organização-alvo (nunca confia
 // em organizationId/memberId isolado vindo do corpo da requisição sem essa
-// checagem).
-
-const EMAIL_DOMAIN = 'users.buildsmart.internal'
-function technicalEmail(profileId: string) {
-  return `p-${profileId}@${EMAIL_DOMAIN}`
-}
+// checagem). Só serve o OWNER/ADMIN já autenticado gerenciando OUTROS
+// membros — o bootstrap do primeiro owner de uma organização (que ainda
+// não tem sessão nenhuma para chamar esta rota) é feito por
+// app/api/auth/bootstrap-owner.
 
 async function callerProfileId(): Promise<string | null> {
   const supabase = await createServerAuthClient()
