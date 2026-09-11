@@ -5,6 +5,7 @@ import { Moon, Sun, LogOut, Pencil, ChevronDown, Menu } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -46,6 +47,10 @@ export function Header({ hasSidebar = false, onOpenMobileNav }: { hasSidebar?: b
   function handleSwitchProfile() {
     setCurrentProfile(null)
     fetch('/api/session', { method: 'DELETE' }).catch(() => {})
+    // P4.5: encerra também a sessão real do Supabase Auth — sem isso o
+    // middleware deixaria a próxima pessoa que abrir o app continuar
+    // autenticada como o perfil anterior, mesmo depois de "trocar perfil".
+    createClient().auth.signOut().catch(() => {})
     router.push('/')
   }
 

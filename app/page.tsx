@@ -9,6 +9,7 @@ import { useProfile } from '@/lib/profile-context'
 import { Profile } from '@/lib/types'
 import { APP_VERSION } from '@/lib/version'
 import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
+import { createClient } from '@/lib/supabase/client'
 
 const ACCENT_OPTIONS = [
   '#3B7BF8', '#10B981', '#F59E0B', '#EF4444',
@@ -36,11 +37,18 @@ function ProfileSelectionPage() {
     password: '',
   })
   const [saving, setSaving] = useState(false)
-  // Estado para perfil que requer senha
+  // P4.5 — autenticação real (Supabase Auth). `signin` = perfil já migrado,
+  // pede a senha real; `claim-old` = perfil ainda no gate antigo (senha em
+  // texto plano), confirma a senha atual antes de configurar o acesso real;
+  // `claim-setup` = define e-mail + senha real e cria a credencial.
   const [pendingProfile, setPendingProfile] = useState<Profile | null>(null)
+  const [authMode, setAuthMode] = useState<'signin' | 'claim-old' | 'claim-setup'>('signin')
   const [passwordInput, setPasswordInput] = useState('')
-  const [passwordError, setPasswordError] = useState(false)
+  const [passwordError, setPasswordError] = useState<string | null>(null)
   const [showPw, setShowPw] = useState(false)
+  const [claimEmail, setClaimEmail] = useState('')
+  const [claimPassword, setClaimPassword] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
 
   useEffect(() => {
     loadProfiles()
@@ -74,15 +82,22 @@ function ProfileSelectionPage() {
     }
   }
 
-  async function handleSelectProfile(profile: Profile) {
-    if (profile.password_hash) {
-      // Tem senha — pedir antes de entrar
-      setPendingProfile(profile)
-      setPasswordInput('')
-      setPasswordError(false)
-      return
+  function handleSelectProfile(profile: Profile) {
+    // P4.5: todo perfil agora precisa de uma sessão real do Supabase Auth
+    // (RLS depende de auth.uid()) — perfis sem senha antes entravam direto;
+    // agora fazem a configuração de acesso (claim-setup) na primeira vez.
+    setPendingProfile(profile)
+    setPasswordInput('')
+    setPasswordError(null)
+    setClaimEmail(profile.email || '')
+    setClaimPassword('')
+    if (profile.auth_user_id) {
+      setAuthMode('signin')
+    } else if (profile.password_hash) {
+      setAuthMode('claim-old')
+    } else {
+      setAuthMode('claim-setup')
     }
-    enterProfile(profile)
   }
 
   function enterProfile(profile: Profile, password?: string) {
@@ -101,14 +116,59 @@ function ProfileSelectionPage() {
     }
   }
 
-  async function handlePasswordSubmit() {
+  async function handleSignIn() {
+    if (!pendingProfile?.email) return
+    setAuthBusy(true)
+    setPasswordError(null)
+    const supabase = createClient()
+    const { error } = await supabase.auth.signInWithPassword({ email: pendingProfile.email, password: passwordInput })
+    setAuthBusy(false)
+    if (error) { setPasswordError('Senha incorreta.'); return }
+    enterProfile(pendingProfile, passwordInput)
+    setPendingProfile(null)
+  }
+
+  function handleClaimOldSubmit() {
     if (!pendingProfile) return
-    // Comparação simples (sem hash real para MVP — melhorar depois)
-    if (passwordInput === pendingProfile.password_hash) {
-      enterProfile(pendingProfile, passwordInput)
+    if (passwordInput !== pendingProfile.password_hash) { setPasswordError('Senha incorreta.'); return }
+    setPasswordError(null)
+    setAuthMode('claim-setup')
+  }
+
+  async function handleClaimSetup() {
+    if (!pendingProfile) return
+    if (!claimEmail.trim() || !claimPassword.trim()) { setPasswordError('Preencha e-mail e senha.'); return }
+    setAuthBusy(true)
+    setPasswordError(null)
+    try {
+      const res = await fetch('/api/auth/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profileId: pendingProfile.id,
+          oldPassword: pendingProfile.password_hash ? passwordInput : undefined,
+          email: claimEmail.trim(),
+          newPassword: claimPassword,
+        }),
+      })
+      const data = await res.json().catch(() => ({} as { error?: string }))
+      if (!res.ok) {
+        setPasswordError(data.error || 'Não foi possível configurar o acesso.')
+        setAuthBusy(false)
+        return
+      }
+      const supabase = createClient()
+      const { error } = await supabase.auth.signInWithPassword({ email: claimEmail.trim(), password: claimPassword })
+      setAuthBusy(false)
+      if (error) {
+        setPasswordError('Acesso criado, mas não foi possível entrar automaticamente. Tente selecionar o perfil de novo.')
+        return
+      }
+      enterProfile({ ...pendingProfile, email: claimEmail.trim() }, claimPassword)
       setPendingProfile(null)
-    } else {
-      setPasswordError(true)
+    } catch {
+      setAuthBusy(false)
+      setPasswordError('Falha de conexão. Tente novamente.')
     }
   }
 
@@ -282,10 +342,11 @@ function ProfileSelectionPage() {
         )}
       </div>
 
-      {/* Modal de senha */}
+      {/* Modal de acesso — signin (perfil já migrado), claim-old (confirma
+          senha antiga) ou claim-setup (configura e-mail + senha reais) */}
       {pendingProfile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPendingProfile(null)} />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !authBusy && setPendingProfile(null)} />
           <div className="card relative w-full max-w-xs p-6 animate-enter" style={{ background: 'var(--bg-card)' }}>
             <div className="flex flex-col items-center gap-3 mb-5">
               {pendingProfile.photo_url ? (
@@ -298,48 +359,114 @@ function ProfileSelectionPage() {
               <div className="text-center">
                 <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>{pendingProfile.name}</p>
                 <p className="text-xs flex items-center gap-1 justify-center mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                  <Lock size={11} /> Perfil protegido por senha
+                  <Lock size={11} />
+                  {authMode === 'claim-setup' ? 'Configure seu acesso seguro' : 'Perfil protegido por senha'}
                 </p>
               </div>
             </div>
-            <div className="relative mb-3">
-              <input
-                type={showPw ? 'text' : 'password'}
-                value={passwordInput}
-                onChange={e => { setPasswordInput(e.target.value); setPasswordError(false) }}
-                onKeyDown={e => e.key === 'Enter' && handlePasswordSubmit()}
-                placeholder="Digite sua senha"
-                className="input-base pr-10"
-                autoFocus
-                style={passwordError ? { borderColor: 'var(--danger)' } : {}}
-              />
-              <button
-                onClick={() => setShowPw(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-                style={{ color: 'var(--text-secondary)' }}
-              >
-                {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-            {passwordError && (
-              <p className="text-xs mb-3 text-center" style={{ color: 'var(--danger)' }}>Senha incorreta</p>
+
+            {(authMode === 'signin' || authMode === 'claim-old') && (
+              <>
+                <div className="relative mb-3">
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={passwordInput}
+                    onChange={e => { setPasswordInput(e.target.value); setPasswordError(null) }}
+                    onKeyDown={e => e.key === 'Enter' && (authMode === 'signin' ? handleSignIn() : handleClaimOldSubmit())}
+                    placeholder="Digite sua senha"
+                    className="input-base pr-10"
+                    autoFocus
+                    style={passwordError ? { borderColor: 'var(--danger)' } : {}}
+                  />
+                  <button
+                    onClick={() => setShowPw(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                {passwordError && (
+                  <p className="text-xs mb-3 text-center" style={{ color: 'var(--danger)' }}>{passwordError}</p>
+                )}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setPendingProfile(null)}
+                    disabled={authBusy}
+                    className="flex-1 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={authMode === 'signin' ? handleSignIn : handleClaimOldSubmit}
+                    disabled={authBusy}
+                    className="flex-1 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+                    style={{ background: 'var(--accent)' }}
+                  >
+                    {authBusy ? 'Entrando...' : 'Entrar'}
+                  </button>
+                </div>
+              </>
             )}
-            <div className="flex gap-3">
-              <button
-                onClick={() => setPendingProfile(null)}
-                className="flex-1 py-2 rounded-lg text-sm font-medium"
-                style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handlePasswordSubmit}
-                className="flex-1 py-2 rounded-lg text-sm font-medium text-white"
-                style={{ background: 'var(--accent)' }}
-              >
-                Entrar
-              </button>
-            </div>
+
+            {authMode === 'claim-setup' && (
+              <>
+                <p className="text-xs mb-3 text-center" style={{ color: 'var(--text-secondary)' }}>
+                  Primeira vez depois da atualização de segurança — defina um e-mail e uma senha para este perfil.
+                </p>
+                <div className="flex flex-col gap-3 mb-3">
+                  <input
+                    type="email"
+                    value={claimEmail}
+                    onChange={e => { setClaimEmail(e.target.value); setPasswordError(null) }}
+                    placeholder="E-mail"
+                    className="input-base"
+                    autoFocus
+                    style={passwordError ? { borderColor: 'var(--danger)' } : {}}
+                  />
+                  <div className="relative">
+                    <input
+                      type={showPw ? 'text' : 'password'}
+                      value={claimPassword}
+                      onChange={e => { setClaimPassword(e.target.value); setPasswordError(null) }}
+                      onKeyDown={e => e.key === 'Enter' && handleClaimSetup()}
+                      placeholder="Nova senha (mín. 6 caracteres)"
+                      className="input-base pr-10"
+                      style={passwordError ? { borderColor: 'var(--danger)' } : {}}
+                    />
+                    <button
+                      onClick={() => setShowPw(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {showPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
+                {passwordError && (
+                  <p className="text-xs mb-3 text-center" style={{ color: 'var(--danger)' }}>{passwordError}</p>
+                )}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setPendingProfile(null)}
+                    disabled={authBusy}
+                    className="flex-1 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleClaimSetup}
+                    disabled={authBusy}
+                    className="flex-1 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+                    style={{ background: 'var(--accent)' }}
+                  >
+                    {authBusy ? 'Configurando...' : 'Ativar acesso'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -14,6 +14,10 @@ export type Profile = {
   cidade: string | null
   estado: string | null          // CHAR(2) UF — usado para previsão do tempo
   created_at: string
+  // P4.5 — vínculo com Supabase Auth (auth.users). Null = perfil ainda não
+  // migrou do gate por senha em texto plano para autenticação real.
+  auth_user_id?: string | null
+  email?: string | null
 }
 
 // ─── Vínculo Obra ↔ Usuário ───────────────────────────────────────────────────
