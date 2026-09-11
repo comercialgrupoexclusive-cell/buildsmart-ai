@@ -48,6 +48,19 @@ const ACCENT_OPTIONS = [
 
 const WELCOME_HIDDEN_KEY = 'buildsmart-welcome-hidden'
 
+// P4.6 Bloco A — formas de retorno do endpoint /api/auth/org-admin (GET),
+// que embute o profile via join do PostgREST (por isso profiles pode vir
+// como objeto único ou array de 1, dependendo da versão do driver).
+type OrgMembroRow = {
+  id: string
+  papel: 'owner' | 'admin' | 'membro' | 'convidado'
+  username: string | null
+  ativo: boolean
+  created_at: string
+  profiles: Profile | Profile[]
+}
+type OrgConvidadoRow = { processo_id: string; profile_id: string }
+
 export default function ConfiguracoesPage() {
   const { currentProfile, setCurrentProfile, theme, toggleTheme } = useProfile()
   const supabase = createClient()
@@ -86,6 +99,27 @@ export default function ConfiguracoesPage() {
   const [userSaving, setUserSaving] = useState(false)
   const [userError, setUserError] = useState('')
 
+  // P4.6 Bloco A — RBAC por Organização (owner/admin/membro/convidado),
+  // separado de `profiles.tipo` (admin/usuario/cliente/prestador, conceito
+  // pré-existente e não relacionado). Gate próprio: só quem é owner/admin
+  // NA ORGANIZAÇÃO pode administrar username/senha/papel/Processos — RLS já
+  // impõe isso no banco, esta checagem é só para não mostrar a UI à toa.
+  const [orgId, setOrgId] = useState<string | null>(null)
+  const [orgPapel, setOrgPapel] = useState<string | null>(null)
+  const isOrgAdmin = orgPapel === 'owner' || orgPapel === 'admin'
+  const [orgMembros, setOrgMembros] = useState<OrgMembroRow[]>([])
+  const [orgConvidados, setOrgConvidados] = useState<OrgConvidadoRow[]>([])
+  const [orgProcessos, setOrgProcessos] = useState<{ id: string; nome: string }[]>([])
+  const [orgMembrosLoading, setOrgMembrosLoading] = useState(false)
+  const [orgError, setOrgError] = useState('')
+  const [orgBusyId, setOrgBusyId] = useState<string | null>(null)
+  const [novoMembroOpen, setNovoMembroOpen] = useState(false)
+  const [novoMembroForm, setNovoMembroForm] = useState({ name: '', username: '', password: '', papel: 'membro' as 'owner' | 'admin' | 'membro' | 'convidado' })
+  const [novoMembroSaving, setNovoMembroSaving] = useState(false)
+  const [bootstrapAlvo, setBootstrapAlvo] = useState<OrgMembroRow | null>(null)
+  const [bootstrapForm, setBootstrapForm] = useState({ username: '', password: '' })
+  const [convidadoAberto, setConvidadoAberto] = useState<string | null>(null)
+
   useEffect(() => {
     setNome(currentProfile?.name || '')
     setApelido(currentProfile?.apelido || '')
@@ -99,6 +133,153 @@ export default function ConfiguracoesPage() {
   useEffect(() => {
     if (isAdmin) loadUsers()
   }, [isAdmin])
+
+  useEffect(() => {
+    if (!currentProfile?.id) return
+    supabase
+      .from('organization_members')
+      .select('organization_id, papel')
+      .eq('profile_id', currentProfile.id)
+      .maybeSingle()
+      .then((res: { data: { organization_id: string; papel: string } | null }) => {
+        setOrgId(res.data?.organization_id || null)
+        setOrgPapel(res.data?.papel || null)
+      })
+  }, [currentProfile?.id])
+
+  useEffect(() => {
+    if (orgId && isOrgAdmin) {
+      loadOrgMembros()
+      supabase.from('processos').select('id, nome').eq('organization_id', orgId).order('nome')
+        .then((res: { data: { id: string; nome: string }[] | null }) => setOrgProcessos(res.data || []))
+    }
+  }, [orgId, isOrgAdmin])
+
+  async function loadOrgMembros() {
+    if (!orgId) return
+    setOrgMembrosLoading(true)
+    setOrgError('')
+    try {
+      const res = await fetch(`/api/auth/org-admin?organizationId=${orgId}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setOrgError(data.error || 'Não foi possível carregar os membros.'); return }
+      setOrgMembros(data.membros || [])
+      setOrgConvidados(data.convidados || [])
+    } finally {
+      setOrgMembrosLoading(false)
+    }
+  }
+
+  function membroProfile(membro: OrgMembroRow): Profile {
+    return Array.isArray(membro.profiles) ? membro.profiles[0] : membro.profiles
+  }
+
+  async function orgAdminAction(action: string, payload: Record<string, unknown>) {
+    const res = await fetch('/api/auth/org-admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, organizationId: orgId, ...payload }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || 'Ação falhou.')
+    return data
+  }
+
+  async function handleSetPapel(membroId: string, papel: string) {
+    setOrgBusyId(membroId)
+    setOrgError('')
+    try {
+      await orgAdminAction('set_papel', { memberId: membroId, papel })
+      await loadOrgMembros()
+    } catch (e) {
+      setOrgError(e instanceof Error ? e.message : 'Erro ao alterar papel.')
+    } finally {
+      setOrgBusyId(null)
+    }
+  }
+
+  async function handleSetAtivo(membroId: string, ativo: boolean) {
+    setOrgBusyId(membroId)
+    setOrgError('')
+    try {
+      await orgAdminAction('set_ativo', { memberId: membroId, ativo })
+      await loadOrgMembros()
+    } catch (e) {
+      setOrgError(e instanceof Error ? e.message : 'Erro ao alterar acesso.')
+    } finally {
+      setOrgBusyId(null)
+    }
+  }
+
+  async function handleResetSenhaOrg(membroId: string) {
+    const senha = prompt('Nova senha (mínimo 6 caracteres):')
+    if (!senha) return
+    if (senha.length < 6) { setOrgError('A senha precisa ter pelo menos 6 caracteres.'); return }
+    setOrgBusyId(membroId)
+    setOrgError('')
+    try {
+      await orgAdminAction('reset_password', { memberId: membroId, newPassword: senha })
+      alert('Senha redefinida.')
+    } catch (e) {
+      setOrgError(e instanceof Error ? e.message : 'Erro ao redefinir senha.')
+    } finally {
+      setOrgBusyId(null)
+    }
+  }
+
+  async function handleBootstrap() {
+    if (!bootstrapAlvo || !bootstrapForm.username.trim() || bootstrapForm.password.length < 6) {
+      setOrgError('Preencha usuário e uma senha com pelo menos 6 caracteres.')
+      return
+    }
+    setOrgBusyId(bootstrapAlvo.id)
+    setOrgError('')
+    try {
+      const profile = membroProfile(bootstrapAlvo)
+      await orgAdminAction('bootstrap', { profileId: profile.id, username: bootstrapForm.username.trim(), initialPassword: bootstrapForm.password })
+      setBootstrapAlvo(null)
+      setBootstrapForm({ username: '', password: '' })
+      await loadOrgMembros()
+    } catch (e) {
+      setOrgError(e instanceof Error ? e.message : 'Erro ao configurar acesso.')
+    } finally {
+      setOrgBusyId(null)
+    }
+  }
+
+  async function handleCriarMembro() {
+    if (!novoMembroForm.name.trim() || !novoMembroForm.username.trim() || novoMembroForm.password.length < 6) {
+      setOrgError('Preencha nome, usuário e uma senha com pelo menos 6 caracteres.')
+      return
+    }
+    setNovoMembroSaving(true)
+    setOrgError('')
+    try {
+      await orgAdminAction('create_member', {
+        name: novoMembroForm.name.trim(),
+        username: novoMembroForm.username.trim(),
+        initialPassword: novoMembroForm.password,
+        papel: novoMembroForm.papel,
+      })
+      setNovoMembroOpen(false)
+      setNovoMembroForm({ name: '', username: '', password: '', papel: 'membro' })
+      await loadOrgMembros()
+    } catch (e) {
+      setOrgError(e instanceof Error ? e.message : 'Erro ao criar usuário.')
+    } finally {
+      setNovoMembroSaving(false)
+    }
+  }
+
+  async function handleToggleProcessoConvidado(profileId: string, processoId: string, concedido: boolean) {
+    setOrgError('')
+    try {
+      await orgAdminAction(concedido ? 'revoke_processo' : 'grant_processo', { processoId, profileId })
+      await loadOrgMembros()
+    } catch (e) {
+      setOrgError(e instanceof Error ? e.message : 'Erro ao alterar concessão.')
+    }
+  }
 
   async function carregarCidades(uf: string, setter: (cidades: string[]) => void, setLoadingFn: (loading: boolean) => void) {
     const cleanUf = uf.trim().toUpperCase()
@@ -796,6 +977,130 @@ export default function ConfiguracoesPage() {
         </div>
       )}
 
+      {/* Organização · Acessos (P4.6) — RBAC por Organização: username, papel
+          (owner/admin/membro/convidado), ativo/desativado, concessão de
+          Processo ao convidado. Independente do painel legado acima (que
+          continua controlando profiles.tipo, um conceito à parte). */}
+      {isOrgAdmin && orgId && (
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(59,123,248,0.15)' }}>
+                <ShieldCheck size={14} style={{ color: 'var(--accent)' }} />
+              </div>
+              Organização · Acessos
+            </h2>
+            <Button size="sm" icon={<Plus size={16} />} onClick={() => setNovoMembroOpen(true)}>
+              Novo acesso
+            </Button>
+          </div>
+
+          <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
+            Usuário e senha de login desta organização, papel de acesso e concessão de Processos a convidados.
+          </p>
+
+          {orgError && (
+            <p className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.08)' }}>{orgError}</p>
+          )}
+
+          {orgMembrosLoading ? (
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Carregando...</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {orgMembros.map(membro => {
+                const profile = membroProfile(membro)
+                const configurado = !!profile?.auth_user_id
+                const concedidos = orgConvidados.filter(c => c.profile_id === profile?.id).map(c => c.processo_id)
+                return (
+                  <div key={membro.id} className="p-3 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                          {profile?.apelido || profile?.name}
+                          {profile?.id === currentProfile?.id && <span className="text-xs ml-1.5" style={{ color: 'var(--text-secondary)' }}>(você)</span>}
+                        </p>
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                          {membro.username ? `usuário: ${membro.username}` : 'usuário não definido'} · {configurado ? 'acesso configurado' : 'acesso pendente'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <select
+                          value={membro.papel}
+                          onChange={e => handleSetPapel(membro.id, e.target.value)}
+                          disabled={orgBusyId === membro.id || profile?.id === currentProfile?.id}
+                          className="input-base text-xs py-1.5"
+                        >
+                          <option value="owner">Owner</option>
+                          <option value="admin">Admin</option>
+                          <option value="membro">Membro</option>
+                          <option value="convidado">Convidado</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleSetAtivo(membro.id, !membro.ativo)}
+                          disabled={orgBusyId === membro.id || profile?.id === currentProfile?.id}
+                          className="w-10 h-5 rounded-full relative transition-colors flex-shrink-0 disabled:opacity-40"
+                          style={{ background: membro.ativo ? 'var(--accent)' : 'var(--border)' }}
+                          title={membro.ativo ? 'Desativar acesso' : 'Ativar acesso'}
+                        >
+                          <div className="w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform" style={{ transform: membro.ativo ? 'translateX(20px)' : 'translateX(2px)' }} />
+                        </button>
+                        {configurado ? (
+                          <button
+                            onClick={() => handleResetSenhaOrg(membro.id)}
+                            disabled={orgBusyId === membro.id}
+                            className="p-2 rounded-lg hover:bg-[var(--bg-card)] transition-colors disabled:opacity-30"
+                            title="Redefinir senha"
+                          >
+                            <KeyRound size={14} style={{ color: 'var(--text-secondary)' }} />
+                          </button>
+                        ) : (
+                          <Button size="sm" variant="secondary" onClick={() => { setBootstrapAlvo(membro); setBootstrapForm({ username: membro.username || '', password: '' }) }}>
+                            Configurar acesso
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {membro.papel === 'convidado' && (
+                      <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+                        <button
+                          type="button"
+                          onClick={() => setConvidadoAberto(v => v === membro.id ? null : membro.id)}
+                          className="text-xs underline"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          Processos concedidos ({concedidos.length}) {convidadoAberto === membro.id ? '▲' : '▼'}
+                        </button>
+                        {convidadoAberto === membro.id && (
+                          <div className="mt-2 flex flex-col gap-1.5 max-h-40 overflow-y-auto">
+                            {orgProcessos.length === 0 ? (
+                              <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Nenhum Processo nesta organização.</p>
+                            ) : orgProcessos.map(processo => {
+                              const concedido = concedidos.includes(processo.id)
+                              return (
+                                <label key={processo.id} className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-primary)' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={concedido}
+                                    onChange={() => handleToggleProcessoConvidado(profile.id, processo.id, concedido)}
+                                  />
+                                  {processo.nome}
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Clima e alertas */}
       <div className="card p-6">
         <h2 className="text-base font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
@@ -1104,6 +1409,71 @@ export default function ConfiguracoesPage() {
           BuildSmart AI v{APP_VERSION} — Next.js 16 + Supabase + Claude API (claude-sonnet-4-6)
         </p>
       </div>
+
+      {/* Novo acesso de Organização (P4.6) — cria perfil + username + senha
+          inicial + papel num único passo (create_member no servidor). */}
+      {novoMembroOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !novoMembroSaving && setNovoMembroOpen(false)} />
+          <div className="card relative w-full max-w-xs p-6 animate-enter" style={{ background: 'var(--bg-card)' }}>
+            <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Novo acesso</h2>
+            <div className="flex flex-col gap-3">
+              <Input label="Nome" value={novoMembroForm.name} onChange={e => setNovoMembroForm(f => ({ ...f, name: e.target.value }))} autoFocus />
+              <Input label="Usuário (login)" value={novoMembroForm.username} onChange={e => setNovoMembroForm(f => ({ ...f, username: e.target.value }))} />
+              <Input label="Senha inicial" type="password" value={novoMembroForm.password} onChange={e => setNovoMembroForm(f => ({ ...f, password: e.target.value }))} hint="Mínimo 6 caracteres" />
+              <div>
+                <label className="text-sm font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>Papel</label>
+                <select
+                  className="input-base"
+                  value={novoMembroForm.papel}
+                  onChange={e => setNovoMembroForm(f => ({ ...f, papel: e.target.value as typeof f.papel }))}
+                >
+                  <option value="owner">Owner</option>
+                  <option value="admin">Admin</option>
+                  <option value="membro">Membro</option>
+                  <option value="convidado">Convidado</option>
+                </select>
+              </div>
+              {orgError && <p className="text-xs" style={{ color: 'var(--danger)' }}>{orgError}</p>}
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setNovoMembroOpen(false)} disabled={novoMembroSaving} className="flex-1 py-2 rounded-lg text-sm font-medium disabled:opacity-50" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                  Cancelar
+                </button>
+                <Button loading={novoMembroSaving} onClick={handleCriarMembro} className="flex-1">
+                  Criar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Configurar acesso — bootstrap de um membro existente (dos 5 perfis
+          da migração P4.5, ou qualquer novo membro criado sem senha ainda):
+          define username + senha inicial e cria a credencial real. */}
+      {bootstrapAlvo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => orgBusyId !== bootstrapAlvo.id && setBootstrapAlvo(null)} />
+          <div className="card relative w-full max-w-xs p-6 animate-enter" style={{ background: 'var(--bg-card)' }}>
+            <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+              Configurar acesso — {membroProfile(bootstrapAlvo)?.name}
+            </h2>
+            <div className="flex flex-col gap-3">
+              <Input label="Usuário (login)" value={bootstrapForm.username} onChange={e => setBootstrapForm(f => ({ ...f, username: e.target.value }))} autoFocus />
+              <Input label="Senha inicial" type="password" value={bootstrapForm.password} onChange={e => setBootstrapForm(f => ({ ...f, password: e.target.value }))} hint="Mínimo 6 caracteres" />
+              {orgError && <p className="text-xs" style={{ color: 'var(--danger)' }}>{orgError}</p>}
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setBootstrapAlvo(null)} disabled={orgBusyId === bootstrapAlvo.id} className="flex-1 py-2 rounded-lg text-sm font-medium disabled:opacity-50" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                  Cancelar
+                </button>
+                <Button loading={orgBusyId === bootstrapAlvo.id} onClick={handleBootstrap} className="flex-1">
+                  Ativar acesso
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <BackupRestauracaoModal open={showBackup} onClose={() => setShowBackup(false)} />
     </div>

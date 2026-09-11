@@ -40,10 +40,12 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Tudo exceto: seletor de perfil (/, casamento via "$" no lookahead —
-    // representa o restante vazio depois da barra inicial), onboarding
-    // (fluxo pós-cadastro que ainda não tem sessão), API, portal público
-    // por token, e assets estáticos/imagens/favicon.
-    '/((?!$|onboarding|api|portal|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    // Tudo exceto: seletor de organização (/, casamento via "$" no
+    // lookahead — representa o restante vazio depois da barra inicial),
+    // login tematizado por Organização (/o/[slug] — P4.6, roda antes de
+    // qualquer sessão existir), onboarding (fluxo pós-cadastro que ainda
+    // não tem sessão), API, portal público por token, e assets estáticos/
+    // imagens/favicon.
+    '/((?!$|o/|onboarding|api|portal|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }
