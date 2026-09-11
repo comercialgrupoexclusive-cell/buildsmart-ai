@@ -4,6 +4,12 @@
 // do componente components/obra/ObraOrcamento.tsx (que já resolve tudo por
 // `orcamentoId`) — só decide qual linha usar/criar quando o Processo ainda
 // não tem nenhuma.
+//
+// P4.4 (validação real Allegra, seção 6): quando um Processo acumula mais de
+// um orçamento (ex.: reabertura/nova versão), a tela principal deve mostrar
+// só o primeiro da sequência por enquanto — os demais continuam no banco,
+// intactos, só fora da visão principal. Por isso versao ASCENDING (pega o
+// mais antigo), nunca DESCENDING (que pegaria o mais novo).
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export async function getOrCreateOrcamentoDoProcesso(supabase: SupabaseClient, processoId: string): Promise<string> {
@@ -11,7 +17,7 @@ export async function getOrCreateOrcamentoDoProcesso(supabase: SupabaseClient, p
     .from('orcamentos')
     .select('id')
     .eq('processo_id', processoId)
-    .order('versao', { ascending: false })
+    .order('versao', { ascending: true })
     .limit(1)
     .maybeSingle()
   if (existente) return existente.id as string

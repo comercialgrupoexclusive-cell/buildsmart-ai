@@ -26,6 +26,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadPlanejamentoProgresso } from './planejamento-progresso'
 import { TODOS_ORCAMENTOS } from './obra-orcamento-context'
 import type { TipoCusto } from './types'
+import { carregarArvoreValores, calcularTotal, calcularTotalOperacional } from './orcamento/arvore'
 
 export type FinanceiroPorEtapa = {
   etapaId: string | null
@@ -53,8 +54,7 @@ export type FinanceiroResumo = {
   porTipoCusto: FinanceiroPorTipoCusto[]
 }
 
-type OrcRow = { id: string; bdi_percentual: number | null }
-type OrcItemRow = { orcamento_id: string; etapa_id: string | null; quantidade: number; preco_unitario_snapshot: number }
+type OrcRow = { id: string; bdi_percentual: number | null; gerenciamento_percentual: number | null; gerenciamento_valor_fixo: number | null }
 type BaselineItemRow = { orcamento_id: string; quantidade: number; preco_unitario_snapshot: number }
 type CompraRow = {
   id: string; orcamento_id: string | null; etapa_id: string | null
@@ -80,11 +80,6 @@ function pagoPorItem(compras: CompraRow[], pagamentos: PagamentoRow[]): Map<stri
   return resultado
 }
 
-function valorComBdi(itens: { quantidade: number; preco_unitario_snapshot: number }[], bdiPercentual: number) {
-  const subtotal = itens.reduce((s, i) => s + Number(i.quantidade || 0) * Number(i.preco_unitario_snapshot || 0), 0)
-  return subtotal * (1 + Number(bdiPercentual || 0) / 100)
-}
-
 export async function loadFinanceiroResumo(
   supabase: SupabaseClient,
   params: { obraId?: string; processoId?: string; orcamentoId: string; orcamentoIds: string[] },
@@ -98,9 +93,9 @@ export async function loadFinanceiroResumo(
   let comprasQuery = supabase.from('compra_itens').select('id, orcamento_id, etapa_id, valor_total, status_valor, status_pagamento, tipo_custo')
   comprasQuery = obraId ? comprasQuery.eq('obra_id', obraId) : comprasQuery.eq('processo_id', processoId as string)
 
-  const [orcRes, orcItensRes, baselineRes, etapasRes, comprasRes, progresso] = await Promise.all([
-    idsAtivos.length ? supabase.from('orcamentos').select('id, bdi_percentual').in('id', idsAtivos) : Promise.resolve({ data: [] }),
-    idsAtivos.length ? supabase.from('orcamento_itens').select('orcamento_id, etapa_id, quantidade, preco_unitario_snapshot').in('orcamento_id', idsAtivos) : Promise.resolve({ data: [] }),
+  const [orcRes, arvore, baselineRes, etapasRes, comprasRes, progresso] = await Promise.all([
+    idsAtivos.length ? supabase.from('orcamentos').select('id, bdi_percentual, gerenciamento_percentual, gerenciamento_valor_fixo').in('id', idsAtivos) : Promise.resolve({ data: [] }),
+    carregarArvoreValores(supabase, idsAtivos),
     idsAtivos.length ? supabase.from('orcamento_itens_baseline').select('orcamento_id, quantidade, preco_unitario_snapshot').in('orcamento_id', idsAtivos) : Promise.resolve({ data: [] }),
     etapasQuery,
     comprasQuery,
@@ -108,8 +103,7 @@ export async function loadFinanceiroResumo(
   ])
 
   const orcs = (orcRes.data || []) as OrcRow[]
-  const bdiPorOrcamento = new Map(orcs.map(o => [o.id, Number(o.bdi_percentual ?? 0)]))
-  const orcItens = (orcItensRes.data || []) as OrcItemRow[]
+  const gerenciamentoPorOrcamento = new Map(orcs.map(o => [o.id, { pct: Number(o.gerenciamento_percentual ?? 0), fixo: o.gerenciamento_valor_fixo != null ? Number(o.gerenciamento_valor_fixo) : null }]))
   const baselineItens = (baselineRes.data || []) as BaselineItemRow[]
   const etapaNomePorId = new Map(((etapasRes.data || []) as { id: string; nome: string }[]).map(e => [e.id, e.nome]))
 
@@ -122,20 +116,34 @@ export async function loadFinanceiroResumo(
   const pagamentosRes = compraIds.length ? await supabase.from('compra_pagamentos').select('compra_item_id, valor_pago').in('compra_item_id', compraIds) : { data: [] }
   const pagoPorId = pagoPorItem(compras, (pagamentosRes.data || []) as PagamentoRow[])
 
-  // Planejado atual: orçamento(s) ativo(s), com BDI, sempre a partir de
-  // orcamento_itens (nunca valor_contrato — essa é outra métrica).
+  // Planejado atual: custo direto sempre a partir da árvore canônica do
+  // orçamento (orcamento_arvore_valores — respeita valor manual/informado e
+  // composição, nunca quantidade × preço em paralelo), + BDI + gerenciamento
+  // (valor fixo contratado quando definido, senão percentual sobre o
+  // direto) — mesmo total que o Orçamento mostra como "Valor total".
   const planejadoAtual = orcs.reduce((total, orc) => {
-    const itensDoOrc = orcItens.filter(i => i.orcamento_id === orc.id)
-    return total + valorComBdi(itensDoOrc, bdiPorOrcamento.get(orc.id) ?? 0)
+    const linhasDoOrc = arvore.filter(l => l.orcamento_id === orc.id)
+    const custoDireto = calcularTotal(linhasDoOrc)
+    const ger = gerenciamentoPorOrcamento.get(orc.id)
+    const { total: totalOrc } = calcularTotalOperacional({
+      custoDireto,
+      bdiPercentual: Number(orc.bdi_percentual ?? 0),
+      gerenciamentoPercentual: ger?.pct ?? 0,
+      gerenciamentoValorFixo: ger?.fixo ?? null,
+    })
+    return total + totalOrc
   }, 0)
 
   // Planejado original: baseline. Se nenhum dos orçamentos ativos tem
   // baseline capturada, o valor é null (não é a mesma coisa que R$ 0).
+  // Baseline é snapshot imutável (não passa pelo motor canônico vivo) —
+  // mantém quantidade × preço, igual sempre foi.
   const orcamentosComBaseline = new Set(baselineItens.map(i => i.orcamento_id))
   const planejadoOriginal = orcamentosComBaseline.size === 0 ? null : orcs.reduce((total, orc) => {
     if (!orcamentosComBaseline.has(orc.id)) return total
     const itensBaseline = baselineItens.filter(i => i.orcamento_id === orc.id)
-    return total + valorComBdi(itensBaseline, bdiPorOrcamento.get(orc.id) ?? 0)
+    const subtotal = itensBaseline.reduce((s, i) => s + Number(i.quantidade || 0) * Number(i.preco_unitario_snapshot || 0), 0)
+    return total + subtotal * (1 + Number(orc.bdi_percentual ?? 0) / 100)
   }, 0)
 
   // Comprometido/Contratado e Pago — nunca chamados de "realizado": um
@@ -146,14 +154,18 @@ export async function loadFinanceiroResumo(
   const aPagar = Math.max(0, comprometido - pago)
   const saldoOrcamentoAtual = planejadoAtual - comprometido
 
+  const itensArvore = arvore.filter(l => l.tipo_linha === 'item')
   const etapaIds = new Set<string>()
-  orcItens.forEach(i => { if (i.etapa_id) etapaIds.add(i.etapa_id) })
+  itensArvore.forEach(i => { if (i.etapa_id) etapaIds.add(i.etapa_id) })
   compras.forEach(c => { if (c.etapa_id) etapaIds.add(c.etapa_id) })
   const porEtapa: FinanceiroPorEtapa[] = [...etapaIds].map(etapaId => {
-    const itensDaEtapa = orcItens.filter(i => i.etapa_id === etapaId)
+    // Por etapa: só custo direto + BDI (gerenciamento é global do orçamento,
+    // não distribuído aqui — ver gerenciamento_distribuicao em Ajuste de
+    // Distribuição, fora do escopo desta correção).
     const planejadoAtualEtapa = orcs.reduce((total, orc) => {
-      const itens = itensDaEtapa.filter(i => i.orcamento_id === orc.id)
-      return total + valorComBdi(itens, bdiPorOrcamento.get(orc.id) ?? 0)
+      const itens = itensArvore.filter(i => i.orcamento_id === orc.id && i.etapa_id === etapaId)
+      const subtotal = itens.reduce((s, i) => s + i.valor, 0)
+      return total + subtotal * (1 + Number(orc.bdi_percentual ?? 0) / 100)
     }, 0)
     const comprasDaEtapa = compras.filter(c => c.etapa_id === etapaId)
     return {

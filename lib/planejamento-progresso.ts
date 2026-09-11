@@ -16,6 +16,7 @@
 // módulo nunca lê nem escreve nessas tabelas.
 // ═══════════════════════════════════════════════════════════════════════════
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { carregarArvoreValores } from './orcamento/arvore'
 
 export type PlanItemNode = {
   id: string                 // orcamento_itens.id (tipo_linha='item')
@@ -80,7 +81,7 @@ export async function loadPlanejamentoProgresso(
     return { etapas: [], valorTotal: 0, avancoPonderado: 0, avancoSimples: 0, temValores: false }
   }
 
-  const [{ data: etapasData }, { data: itensData }, { data: planData }] = await Promise.all([
+  const [{ data: etapasData }, { data: itensData }, { data: planData }, arvore] = await Promise.all([
     supabase.from('etapas').select('id, nome, ordem, orcamento_id').in('orcamento_id', orcamentoIds).order('ordem'),
     supabase.from('orcamento_itens')
       .select('id, orcamento_id, etapa_id, subetapa, tipo_linha, descricao_snapshot, codigo_snapshot, quantidade, preco_unitario_snapshot, subetapa_valor_manual, subetapa_valor_manual_ativo')
@@ -89,6 +90,7 @@ export async function loadPlanejamentoProgresso(
       .select('id, orcamento_item_id, ref_tipo, progresso_executado, progresso_planejado, proxima_medicao_percentual')
       .in('orcamento_id', orcamentoIds)
       .eq('ref_tipo', 'item'),
+    carregarArvoreValores(supabase, orcamentoIds),
   ])
 
   type RawEtapa = { id: string; nome: string; ordem: number; orcamento_id: string }
@@ -110,6 +112,10 @@ export async function loadPlanejamentoProgresso(
   const itens = (itensData || []) as RawItem[]
   const planByOrcItem = new Map<string, RawPlan>()
   ;((planData || []) as RawPlan[]).forEach(p => { if (p.orcamento_item_id) planByOrcItem.set(p.orcamento_item_id, p) })
+  // Valor canônico por linha (orcamento_item_valor via RPC) — nunca mais
+  // quantidade × preco_unitario_snapshot em paralelo (P4.4, bug confirmado
+  // em teste real: ignorava valor manual/informado do orçamento).
+  const valorPorItemId = new Map(arvore.map(l => [l.item_id, l.valor]))
 
   const headersPorEtapa = new Map<string, Map<string, RawItem>>() // etapaId -> subetapaNome -> header row
   itens.filter(it => it.tipo_linha === 'subetapa' && it.etapa_id).forEach(h => {
@@ -134,7 +140,7 @@ export async function loadPlanejamentoProgresso(
       codigo: it.codigo_snapshot || '—',
       etapaId: it.etapa_id!,
       subetapaKey: it.subetapa?.trim() || null,
-      valorContratado: num(it.quantidade) * num(it.preco_unitario_snapshot),
+      valorContratado: valorPorItemId.get(it.id) ?? (num(it.quantidade) * num(it.preco_unitario_snapshot)),
       progressoExecutado: clampPct(num(plan?.progresso_executado)),
       progressoPlanejado: clampPct(num(plan?.progresso_planejado)),
       proximaMedicaoPercentual: plan?.proxima_medicao_percentual == null

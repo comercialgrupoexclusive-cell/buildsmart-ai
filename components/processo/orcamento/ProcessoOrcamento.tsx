@@ -36,6 +36,8 @@ type OrcamentoInfo = {
   versao: number
   status: string
   bdi_percentual: number
+  gerenciamento_percentual: number
+  gerenciamento_valor_fixo: number | null
   uf: string
 }
 
@@ -50,7 +52,7 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
   const carregar = useCallback(async () => {
     setErro(null)
     const [{ data: orc, error: orcError }, { data: arvore, error: arvoreError }] = await Promise.all([
-      supabase.from('orcamentos').select('id, versao, status, bdi_percentual, uf').eq('id', orcamentoId).single(),
+      supabase.from('orcamentos').select('id, versao, status, bdi_percentual, gerenciamento_percentual, gerenciamento_valor_fixo, uf').eq('id', orcamentoId).single(),
       supabase.rpc('orcamento_arvore_valores', { p_orcamento_ids: [orcamentoId] }),
     ])
     if (orcError || arvoreError) {
@@ -89,6 +91,7 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
       <OrcamentoResumo
         processoNome={processoNome}
         orcamento={orcamento}
+        onAtualizarOrcamento={carregar}
         linhas={linhas}
         onAbrirEtapa={etapaId => setVista({ tipo: 'etapa', etapaId })}
       />
@@ -104,6 +107,7 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
         onAbrirGrupo={grupoId => setVista({ tipo: 'grupo', etapaId: vista.etapaId, grupoId })}
         onAbrirItem={itemId => setVista({ tipo: 'item', itemId, voltar: vista })}
         onAdicionarItem={() => setVista({ tipo: 'adicionar', etapaId: vista.etapaId, grupoId: null, voltar: vista })}
+        onAtualizado={carregar}
       />
     )
   }
@@ -117,6 +121,7 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
         onVoltar={() => setVista({ tipo: 'etapa', etapaId: vista.etapaId })}
         onAbrirItem={itemId => setVista({ tipo: 'item', itemId, voltar: vista })}
         onAdicionarItem={() => setVista({ tipo: 'adicionar', etapaId: vista.etapaId, grupoId: vista.grupoId, voltar: vista })}
+        onAtualizado={carregar}
       />
     )
   }
@@ -137,6 +142,7 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
 
   return (
     <OrcamentoItemDetalhe
+      key={vista.itemId}
       itemId={vista.itemId}
       linhas={linhas}
       onVoltar={() => setVista(vista.voltar)}

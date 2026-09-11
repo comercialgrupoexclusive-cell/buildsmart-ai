@@ -1,21 +1,22 @@
 'use client'
 
-// Telas 4 e 5 do fluxo de referência (aqui juntas numa tela com toggle, não
-// duas telas separadas — o conteúdo é pequeno o suficiente pra caber sem
-// densidade excessiva): detalhe do serviço + composição por categoria +
-// lista de insumos, com edição/exclusão do serviço. Insumos vêm de
-// orcamento_item_insumos_detalhe() — nunca recalculados aqui; classificação/
-// rollup por categoria é só agrupamento dos valores que a função já devolve.
+// Tela de item do BOQ — abre direto em edição (P4.4, seção 6: "remover o
+// passo intermediário Detalhe → Editar"). Descrição/unidade/quantidade
+// sempre editáveis (gravam direto nas colunas snapshot que o motor lê).
+// Valor unitário só é editável quando o item NÃO tem composição — quando
+// tem, o valor vem sempre da soma ao vivo dos insumos da composição
+// (orcamento_item_valor), editar um número aqui não mudaria nada de
+// verdade e criaria a falsa impressão de que mudou; a seção de composição
+// abaixo explica a origem do valor e permite chegar aos insumos.
 //
-// Edição: descrição/unidade/quantidade sempre editáveis (gravam direto nas
-// colunas snapshot que o motor lê). Valor unitário só é editável quando o
-// item NÃO tem composicao_id — quando tem, o valor vem sempre da soma ao
-// vivo dos insumos da composição (orcamento_item_valor), editar um número
-// aqui não mudaria nada de verdade e criaria a falsa impressão de que mudou.
+// Exclusão passa por lib/orcamento/vinculos.ts: bloqueia com mensagem clara
+// quando há avanço físico registrado, compra ou material vinculado — nunca
+// apaga histórico em cascata silenciosamente.
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ChevronDown, ChevronUp, Pencil, Trash2 } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, MoreVertical, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
+import { excluirItemComVinculo } from '@/lib/orcamento/vinculos'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -40,17 +41,23 @@ export function OrcamentoItemDetalhe({
   const [insumos, setInsumos] = useState<InsumoDetalhe[] | null>(null)
   const [carregandoInsumos, setCarregandoInsumos] = useState(false)
   const [mostrarInsumos, setMostrarInsumos] = useState(false)
-  const [editando, setEditando] = useState(false)
+  const [menuAberto, setMenuAberto] = useState(false)
   const [confirmandoExclusao, setConfirmandoExclusao] = useState(false)
   const [salvando, setSalvando] = useState(false)
-  const [erroEdicao, setErroEdicao] = useState<string | null>(null)
-  const [descricao, setDescricao] = useState('')
-  const [unidade, setUnidade] = useState('')
-  const [quantidade, setQuantidade] = useState('')
-  const [precoUnitarioEdit, setPrecoUnitarioEdit] = useState('')
+  const [excluindo, setExcluindo] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
 
   const item = useMemo(() => linhas.find(l => l.item_id === itemId), [linhas, itemId])
   const temComposicao = Boolean(item?.composicao_id)
+
+  // Inicialização "preguiçosa" a partir do item encontrado no primeiro
+  // render — o componente é montado com key={itemId} em ProcessoOrcamento.tsx,
+  // então trocar de item sempre remonta (nunca reaproveita este estado com
+  // dados do item anterior), sem precisar de um efeito com setState.
+  const [descricao, setDescricao] = useState(() => item?.item_descricao || '')
+  const [unidade, setUnidade] = useState(() => item?.unidade || '')
+  const [quantidade, setQuantidade] = useState(() => (item?.quantidade != null ? String(item.quantidade) : ''))
+  const [precoUnitarioEdit, setPrecoUnitarioEdit] = useState(() => (item?.preco_unitario_snapshot != null ? String(item.preco_unitario_snapshot) : ''))
 
   useEffect(() => {
     if (!temComposicao || insumos !== null) return
@@ -83,27 +90,11 @@ export function OrcamentoItemDetalhe({
     )
   }
 
-  // Composição própria: preço vem sempre da soma ao vivo dos insumos, só dá
-  // pra mostrar como valor/quantidade. Fora isso (item livre/insumo/SINAPI),
-  // o preço é o snapshot gravado — mostrar ele direto, não valor/quantidade,
-  // senão "a conferir" na quantidade esconde um preço que já é conhecido.
-  const precoUnitario = temComposicao
-    ? (item.quantidade && item.quantidade > 0 ? item.valor / item.quantidade : null)
-    : item.preco_unitario_snapshot
   const totalCategorias = porCategoria.MATERIAL_SERVICOS + porCategoria.MAO_DE_OBRA + porCategoria.EQUIPAMENTO
 
-  function iniciarEdicao() {
-    setDescricao(item!.item_descricao || '')
-    setUnidade(item!.unidade || '')
-    setQuantidade(item!.quantidade != null ? String(item!.quantidade) : '')
-    setPrecoUnitarioEdit(item!.preco_unitario_snapshot != null ? String(item!.preco_unitario_snapshot) : '')
-    setErroEdicao(null)
-    setEditando(true)
-  }
-
-  async function salvarEdicao() {
-    setErroEdicao(null)
-    if (!descricao.trim()) { setErroEdicao('Descrição obrigatória.'); return }
+  async function salvar() {
+    setErro(null)
+    if (!descricao.trim()) { setErro('Descrição obrigatória.'); return }
     setSalvando(true)
     try {
       const qtdNormalizada = quantidade.trim().replace(',', '.')
@@ -120,111 +111,99 @@ export function OrcamentoItemDetalhe({
       }
       const { error } = await supabase.from('orcamento_itens').update(patch).eq('id', itemId)
       if (error) throw error
-      setEditando(false)
       await onAtualizado()
+      onVoltar()
     } catch (e) {
-      setErroEdicao(e instanceof Error ? e.message : 'Não foi possível salvar.')
+      setErro(e instanceof Error ? e.message : 'Não foi possível salvar.')
     } finally {
       setSalvando(false)
     }
   }
 
   async function excluir() {
-    setSalvando(true)
+    setExcluindo(true)
+    setErro(null)
     try {
-      const { error } = await supabase.from('orcamento_itens').delete().eq('id', itemId)
-      if (error) throw error
+      await excluirItemComVinculo(supabase, itemId)
       await onExcluido()
     } catch (e) {
-      setErroEdicao(e instanceof Error ? e.message : 'Não foi possível excluir.')
-      setSalvando(false)
+      setErro(e instanceof Error ? e.message : 'Não foi possível excluir.')
+      setExcluindo(false)
       setConfirmandoExclusao(false)
+      setMenuAberto(false)
     }
-  }
-
-  if (editando) {
-    return (
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <button onClick={() => setEditando(false)} className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            <ArrowLeft size={16} /> Cancelar
-          </button>
-          <Button size="sm" onClick={salvarEdicao} loading={salvando}>Salvar</Button>
-        </div>
-
-        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Editar serviço</h2>
-
-        <Input label="Descrição" value={descricao} onChange={e => setDescricao(e.target.value)} autoFocus />
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Quantidade" type="text" inputMode="decimal" value={quantidade} onChange={e => setQuantidade(e.target.value)} placeholder="A conferir" />
-          <Input label="Unidade" value={unidade} onChange={e => setUnidade(e.target.value)} />
-        </div>
-        {temComposicao ? (
-          <p className="text-xs rounded-lg px-3 py-2" style={{ color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}>
-            Valor unitário calculado a partir dos insumos da composição — para mudar, ajuste os insumos ou a quantidade.
-          </p>
-        ) : (
-          <Input label="Valor unitário" type="text" inputMode="decimal" value={precoUnitarioEdit} onChange={e => setPrecoUnitarioEdit(e.target.value)} placeholder="A conferir" />
-        )}
-
-        {erroEdicao && (
-          <p className="text-sm rounded-lg px-3 py-2" style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.08)' }}>{erroEdicao}</p>
-        )}
-
-        <div className="pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-          {confirmandoExclusao ? (
-            <div className="flex flex-col gap-2">
-              <p className="text-sm" style={{ color: 'var(--danger)' }}>Excluir este serviço? Não pode ser desfeito.</p>
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" className="flex-1" onClick={() => setConfirmandoExclusao(false)}>Cancelar</Button>
-                <Button variant="danger" size="sm" className="flex-1" onClick={excluir} loading={salvando}>Confirmar exclusão</Button>
-              </div>
-            </div>
-          ) : (
-            <button onClick={() => setConfirmandoExclusao(true)} className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--danger)' }}>
-              <Trash2 size={14} /> Excluir serviço
-            </button>
-          )}
-        </div>
-      </div>
-    )
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <button onClick={onVoltar} className="inline-flex items-center gap-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-          <ArrowLeft size={16} /> Voltar
+          <ArrowLeft size={16} /> Cancelar
         </button>
-        <button onClick={iniciarEdicao} className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--accent)' }}>
-          <Pencil size={14} /> Editar
-        </button>
+        <div className="flex items-center gap-1">
+          <div className="relative">
+            <button
+              onClick={() => setMenuAberto(v => !v)}
+              className="p-2 rounded-lg hover:bg-[var(--bg-secondary)]"
+              aria-label="Mais ações"
+            >
+              <MoreVertical size={16} style={{ color: 'var(--text-secondary)' }} />
+            </button>
+            {menuAberto && !confirmandoExclusao && (
+              <div
+                className="absolute right-0 top-full mt-1.5 z-20 w-48 rounded-xl py-1.5 shadow-lg"
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
+              >
+                <button
+                  onClick={() => setConfirmandoExclusao(true)}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm"
+                  style={{ color: 'var(--danger)' }}
+                >
+                  <Trash2 size={14} /> Excluir serviço
+                </button>
+              </div>
+            )}
+          </div>
+          <Button size="sm" onClick={salvar} loading={salvando}>Salvar</Button>
+        </div>
       </div>
 
-      <div className="card p-4 flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{item.item_descricao}</h2>
-          {item.item_codigo && <Badge variant="default">{item.item_codigo}</Badge>}
-        </div>
-        <div className="grid grid-cols-3 gap-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-          <div>
-            <p className="text-[11px] uppercase font-semibold" style={{ color: 'var(--text-secondary)' }}>Quantidade</p>
-            <p className="text-sm font-semibold tabular-nums" style={{ color: item.quantidade != null ? 'var(--text-primary)' : 'var(--warning)' }}>
-              {item.quantidade != null ? `${item.quantidade} ${item.unidade || ''}` : 'A conferir'}
-            </p>
-          </div>
-          <div>
-            <p className="text-[11px] uppercase font-semibold" style={{ color: 'var(--text-secondary)' }}>Valor unitário</p>
-            <p className="text-sm font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>
-              {precoUnitario != null ? `${formatCurrency(precoUnitario)}/${item.unidade}` : '—'}
-            </p>
-          </div>
-          <div>
-            <p className="text-[11px] uppercase font-semibold" style={{ color: 'var(--text-secondary)' }}>Total</p>
-            <p className="text-sm font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatCurrency(item.valor)}</p>
+      {confirmandoExclusao && (
+        <div className="card p-4 flex flex-col gap-3" style={{ border: '1px solid var(--danger)' }}>
+          <p className="text-sm font-medium" style={{ color: 'var(--danger)' }}>Excluir este serviço? Não pode ser desfeito.</p>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" className="flex-1" onClick={() => { setConfirmandoExclusao(false); setMenuAberto(false) }}>Cancelar</Button>
+            <Button variant="danger" size="sm" className="flex-1" onClick={excluir} loading={excluindo}>Confirmar exclusão</Button>
           </div>
         </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        {item.item_codigo && <Badge variant="default">{item.item_codigo}</Badge>}
+        {item.classificacao && <Badge variant="default">{LABEL_CATEGORIA[item.classificacao] || item.classificacao}</Badge>}
       </div>
+
+      <Input label="Descrição" value={descricao} onChange={e => setDescricao(e.target.value)} />
+      <div className="grid grid-cols-2 gap-3">
+        <Input label="Quantidade" type="text" inputMode="decimal" value={quantidade} onChange={e => setQuantidade(e.target.value)} placeholder="A conferir" />
+        <Input label="Unidade" value={unidade} onChange={e => setUnidade(e.target.value)} />
+      </div>
+      {temComposicao ? (
+        <p className="text-xs rounded-lg px-3 py-2" style={{ color: 'var(--text-secondary)', background: 'var(--bg-secondary)' }}>
+          Valor unitário calculado a partir dos insumos da composição — para mudar, ajuste os insumos ou a quantidade.
+        </p>
+      ) : (
+        <Input label="Valor unitário" type="text" inputMode="decimal" value={precoUnitarioEdit} onChange={e => setPrecoUnitarioEdit(e.target.value)} placeholder="A conferir" />
+      )}
+
+      <div className="flex items-center justify-between rounded-xl px-4 py-3" style={{ background: 'var(--bg-secondary)' }}>
+        <span className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Total do serviço</span>
+        <span className="text-base font-bold tabular-nums" style={{ color: 'var(--accent)' }}>{formatCurrency(item.valor)}</span>
+      </div>
+
+      {erro && (
+        <p className="text-sm rounded-lg px-3 py-2" style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.08)' }}>{erro}</p>
+      )}
 
       {temComposicao && (
         <div className="card p-4 flex flex-col gap-3">
@@ -257,9 +236,9 @@ export function OrcamentoItemDetalhe({
           </button>
 
           {mostrarInsumos && (
-            <div className="flex flex-col divide-y" style={{ borderColor: 'var(--border)', '--tw-divide-color': 'var(--border)' } as React.CSSProperties}>
+            <div className="flex flex-col gap-2.5">
               {(insumos || []).map((ins, i) => (
-                <div key={`${ins.codigo}-${i}`} className="py-2.5 flex items-start justify-between gap-3">
+                <div key={`${ins.codigo}-${i}`} className="flex items-start justify-between gap-3 rounded-lg px-3 py-2" style={{ background: 'var(--bg-secondary)' }}>
                   <div className="min-w-0">
                     <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{ins.descricao}</p>
                     <p className="text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>

@@ -56,6 +56,10 @@ export type Orcamento = {
   tipo: 'executivo' | 'parametrico'
   bdi_percentual: number
   gerenciamento_percentual?: number
+  // P4.4: valor fixo contratado de gerenciamento, vence o percentual quando
+  // definido (evita erro de arredondamento de converter valor fixo real em
+  // percentual — ver lib/orcamento/arvore.ts calcularGerenciamento).
+  gerenciamento_valor_fixo?: number | null
   is_principal?: boolean
   travado_em?: string | null
   status: 'em_projeto' | 'ativo' | 'finalizado' | 'arquivado'
