@@ -9,6 +9,14 @@
 # só o resultado final (public/axonometra/) é versionado, não este rascunho.
 /vendor/axonometra/node_modules
 /vendor/axonometra/dist
+
+# PoC OpenPlan3D — mesmo padrão: vendored SvelteKit app tem seu próprio
+# node_modules/build; só public/labs/openplan3d/ é versionado.
+/vendor/openplan3d/node_modules
+/vendor/openplan3d/build
+/vendor/openplan3d/.svelte-kit
+/vendor/openplan3d/test-results
+/vendor/openplan3d/playwright-report
 .yarn/*
 !.yarn/patches
 !.yarn/plugins

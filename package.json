@@ -8,6 +8,7 @@
     "dev": "next dev -p 3000",
     "build": "npm run copy:assets && next build",
     "build:axonometra": "node scripts/build-axonometra.mjs",
+    "build:openplan3d": "node scripts/build-openplan3d.mjs",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run"
