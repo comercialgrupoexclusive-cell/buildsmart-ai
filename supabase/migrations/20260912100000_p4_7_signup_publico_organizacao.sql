@@ -159,5 +159,11 @@ begin
   return query select v_org_id, v_slug, v_profile_id;
 end;
 $$;
+-- Este projeto tem ALTER DEFAULT PRIVILEGES concedendo EXECUTE em toda
+-- função nova do schema public direto para anon/authenticated/service_role
+-- (não passa por PUBLIC) — "revoke all ... from public" sozinho não tira
+-- esse acesso default de anon. Como esta função só deve rodar com sessão
+-- real (auth.uid() não nulo), o revoke explícito de anon é necessário.
 revoke all on function public.criar_organizacao_publica(text, text, text) from public;
+revoke execute on function public.criar_organizacao_publica(text, text, text) from anon;
 grant execute on function public.criar_organizacao_publica(text, text, text) to authenticated;
