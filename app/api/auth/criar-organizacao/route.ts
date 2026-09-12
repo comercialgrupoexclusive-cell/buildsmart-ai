@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { createClient as createServerAuthClient } from '@/lib/supabase/server'
 import { responderSessaoOrganizacao } from '@/lib/auth/organizacao-session'
+import { technicalEmail } from '@/lib/supabase/technical-email'
 
 type CriarOrganizacaoResultado = {
   organization_id: string
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createServerAuthClient()
 
-  const email = `p-${randomUUID()}@users.buildsmart.internal`
+  const email = technicalEmail(randomUUID())
   const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password })
   if (signUpError) {
     return NextResponse.json({ error: signUpError.message }, { status: 500 })
