@@ -37,20 +37,33 @@ Axonometra (`vendor/axonometra/`):
   produção, com SSR) para `adapter-static` (SPA, `fallback: 'index.html'`) —
   única mudança de configuração; **nenhuma linha de lógica de domínio foi
   tocada**.
+- **Duas URLs distintas, deliberadamente separadas:**
+  - `/labs/openplan3d` — rota wrapper do Next.js (só embute o iframe);
+  - `/labs/openplan3d-runtime` — raiz pública da SPA vendorizada.
+
+  As duas não podem ocupar o mesmo caminho: o SvelteKit é compilado com
+  `base` igual à raiz do runtime e trata tudo além dessa base como rota
+  interna. Com os dois no mesmo caminho, o iframe abria
+  `/labs/openplan3d/index.html`, o router do Svelte lia `/index.html` como
+  rota interna inexistente e renderizava o `+error.svelte` ("Page not
+  found").
 - `npm run build:openplan3d` (novo script, espelha `build:axonometra`)
-  builda `vendor/openplan3d/` e copia o resultado para
-  `public/labs/openplan3d/`.
+  builda `vendor/openplan3d/` com `OPENPLAN3D_BASE_PATH=/labs/openplan3d-runtime`
+  e copia o resultado para `public/labs/openplan3d-runtime/`.
 - `app/(app)/labs/openplan3d/page.tsx`: rota autenticada (mesmo grupo
   `(app)` de todas as outras telas — não abre um buraco novo na autenticação)
-  que embute `<iframe src="/labs/openplan3d/index.html">` em tela cheia. Sem
-  contrato `postMessage` — o app vendorizado é autocontido (salva/carrega no
-  IndexedDB do próprio navegador).
-- `next.config.ts`: uma regra `rewrites().fallback` faz qualquer sub-rota não
-  estática sob `/labs/openplan3d/*` (ex.: `/labs/openplan3d/editor?id=...`,
-  que só existe client-side dentro da SPA) cair de volta no `index.html`
-  dessa mesma SPA — necessário para que um reload direto em `/editor` não dê
-  404. Só entra em jogo quando nenhum arquivo estático real nem rota do
-  Next.js casou primeiro, então não interfere com o resto do app.
+  que embute `<iframe src="/labs/openplan3d-runtime">` em tela cheia —
+  a **raiz** da SPA, nunca um `/index.html`. Sem contrato `postMessage` — o
+  app vendorizado é autocontido (salva/carrega no IndexedDB do próprio
+  navegador).
+- `next.config.ts`: duas regras `rewrites().fallback` (`/labs/openplan3d-runtime`
+  e `/labs/openplan3d-runtime/:path*`) fazem a raiz da SPA e qualquer
+  sub-rota não estática dela (ex.: `/labs/openplan3d-runtime/editor?id=...`,
+  que só existe client-side) caírem no `index.html` da própria SPA —
+  necessário para que a raiz e um reload direto em `/editor` não deem 404.
+  Só entram em jogo quando nenhum arquivo estático real (`_app/**`,
+  `models/**`, `textures/**`) nem rota do Next.js casou primeiro, então não
+  interferem com o resto do app.
 - Teste de build confirmado: `npm run build` do BuildSmart gera a rota
   `/labs/openplan3d` normalmente, junto com todas as outras 60+ rotas
   existentes, sem erro.

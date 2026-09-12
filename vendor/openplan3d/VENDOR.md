@@ -40,8 +40,8 @@ Firebase Storage do projeto `openplan3d`). Para a PoC:
 - **Adapter trocado de `adapter-node` para `adapter-static`** (SPA, com
   `fallback: 'index.html'`) — o upstream roda como servidor Node com SSR
   (Firebase App Hosting); a PoC precisa de um bundle 100% estático para
-  servir de `public/labs/openplan3d/` como asset do Next.js, igual ao padrão
-  do Axonometra. Isso desativa a única rota de servidor real do projeto,
+  servir de `public/labs/openplan3d-runtime/` como asset do Next.js, igual
+  ao padrão do Axonometra. Isso desativa a única rota de servidor real do projeto,
   `src/routes/api/handoffs/+server.ts` (import de scan do app iOS via
   Firebase Storage) — não usada por esta PoC.
 - **Um ponto residual não neutralizado:** `src/routes/editor/+page.svelte`
@@ -64,8 +64,12 @@ Extensão mínima, só de configuração de build — **nenhuma linha de lógica
 domínio (paredes/portas/janelas/ambientes/3D) foi alterada**:
 
 - `svelte.config.js`: `adapter-node` → `adapter-static` com
-  `fallback: 'index.html'` e `paths.base = '/labs/openplan3d'` (para servir
-  sob um subcaminho do Next.js).
+  `fallback: 'index.html'` e `paths.base` vindo de `OPENPLAN3D_BASE_PATH`
+  (`/labs/openplan3d-runtime` no build da PoC — ver
+  `scripts/build-openplan3d.mjs`). Esse caminho é **diferente** da rota
+  wrapper do BuildSmart (`/labs/openplan3d`): como o router do SvelteKit
+  trata tudo além da `base` como rota interna, os dois no mesmo caminho
+  faziam o iframe cair no `+error.svelte` ("Page not found").
 - `package.json`: adicionado `@sveltejs/adapter-static` como devDependency.
 
 ## Não atualizar automaticamente

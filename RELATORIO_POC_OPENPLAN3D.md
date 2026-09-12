@@ -100,3 +100,27 @@ acima (desktop, mobile, save/load, 2D/3D) rodou contra o **mesmo commit,
 mesmo `vite build`** localmente, via um servidor estático próprio que
 replica o comportamento de fallback de SPA do Next.js — a mesma verificação
 que teria sido feita na URL ao vivo, só que fora do sandbox de rede.
+
+## Correção de acesso (pós-teste humano no celular)
+
+O teste real no celular mostrou o wrapper abrindo normalmente, mas o iframe
+renderizando "Page not found". Causa: a SPA era compilada com
+`base = /labs/openplan3d`, exatamente o mesmo caminho da rota wrapper do
+Next.js, e o iframe apontava para `/labs/openplan3d/index.html` — o router
+do SvelteKit removia a `base` e lia `/index.html` como rota interna
+inexistente, caindo no `+error.svelte`. O erro não apareceu na validação
+anterior porque ela foi feita contra um servidor estático próprio (a SPA
+servida na raiz, sem a rota wrapper existindo), cenário em que a colisão não
+acontece.
+
+Correção: a SPA ganhou raiz pública própria (`/labs/openplan3d-runtime`,
+publicada em `public/labs/openplan3d-runtime/`), o iframe passou a abrir
+essa raiz (nunca `/index.html`), e o `rewrites().fallback` cobre a raiz e as
+sub-rotas internas dela. Nenhuma funcionalidade da PoC foi alterada.
+
+Revalidado contra o **servidor Next.js real** (produção, com os rewrites de
+verdade), em iframe same-origin, desktop 1440×900 e mobile 675×1500 com
+toque: home da SPA carrega sem "Page not found", navegação para `/editor`
+funciona, reload direto em rota interna funciona, assets (`_app/**`,
+`models/**`) continuam servidos direto (não capturados pelo fallback), 3D
+renderiza, zero erros de console.

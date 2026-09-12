@@ -32,8 +32,14 @@ export default function OpenPlan3DLabPage() {
         </div>
       </div>
       <div className="flex-1 relative">
+        {/* Raiz da SPA vendorizada — caminho próprio, separado desta rota
+            wrapper. O SvelteKit é compilado com `base` igual a esta URL
+            (ver scripts/build-openplan3d.mjs); apontar para dentro da
+            própria rota wrapper, ou para /index.html, faz o router do
+            Svelte tratar o resto do caminho como rota interna inexistente
+            e renderizar "Page not found". */}
         <iframe
-          src="/labs/openplan3d/index.html"
+          src="/labs/openplan3d-runtime"
           className="w-full h-full border-0"
           title="PoC OpenPlan3D"
           sandbox="allow-scripts allow-same-origin allow-downloads allow-forms allow-popups"
