@@ -84,6 +84,19 @@ ESFORÇO ESTIMADO PARA PRODUTO: médio. O motor 2D/3D em si já entrega tudo
   lerem área sem reimplementar a detecção de polígono, e (c) uma rodada de
   tradução PT-BR completa da interface (esta PoC deliberadamente não
   traduziu nada, por instrução explícita da tarefa).
-URL PREVIEW: ver commit abaixo — Preview da Vercel para o branch `processo`
-COMMIT BUILDSMART: (preenchido após o commit, ver mensagem de commit)
+URL PREVIEW: https://buildsmart-ai-git-ba68ab-comercialgrupoexclusive-7249s-projects.vercel.app/labs/openplan3d
+  (build READY confirmado via API da Vercel para este commit exato — ver
+  nota abaixo sobre por que não testei interativamente essa URL ao vivo)
+COMMIT BUILDSMART: 0bfbdb445217aa27e63d22d25d8b258d8aae8f0d
 ```
+
+**Nota sobre o teste na URL do Preview:** por dois motivos independentes já
+registrados na rodada anterior (Planta Baixa), não foi possível abrir esse
+Preview interativamente a partir deste sandbox: (1) a política de rede do
+ambiente bloqueia (403) tráfego de saída para `*.vercel.app`; (2) o projeto
+tem Vercel Authentication (SSO) habilitado para qualquer deploy que não seja
+domínio customizado. Como substituto, todo o teste funcional documentado
+acima (desktop, mobile, save/load, 2D/3D) rodou contra o **mesmo commit,
+mesmo `vite build`** localmente, via um servidor estático próprio que
+replica o comportamento de fallback de SPA do Next.js — a mesma verificação
+que teria sido feita na URL ao vivo, só que fora do sandbox de rede.
