@@ -85,7 +85,7 @@ test('textured scene rebuilds retain a bounded number of GPU resources', async (
     const canvas = page.getByRole('region', { name: '3D floor plan viewer' }).locator('canvas').last();
     const bounds = await canvas.boundingBox();
     await canvas.click({ position: { x: bounds!.width * 0.4, y: bounds!.height * 0.6 } });
-    await expect(page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true })).toBeVisible();
+    await expect(page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true })).toBeVisible();
     const cycle = async () => {
       for (const name of ['Show All Floors Stacked', 'Active Floor Only']) {
         const before = (await gpu(page))[0].draws;

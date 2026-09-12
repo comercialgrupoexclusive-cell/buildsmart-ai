@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import type { Project, Floor, Wall, Door, Window as Win, FurnitureItem, Point, Stair, Column, BackgroundImage, GuideLine, ElementGroup, EntourageItem } from '$lib/models/types';
+import type { Project, Floor, Wall, WallStatus, Door, Window as Win, FurnitureItem, Point, Stair, Column, BackgroundImage, GuideLine, ElementGroup, EntourageItem } from '$lib/models/types';
 import { planWallResize, finitePoint, validPositiveDimension, validOpeningPosition, type WallEndpoint } from '$lib/utils/wallEditing';
 import { getOuterWalls } from '$lib/utils/outerWalls';
 import { nextFloorLevel, floorElevations, validFloorElevation, DEFAULT_FLOOR_SPACING } from '$lib/utils/floors';
@@ -39,6 +39,34 @@ export const activeFloor = derived(currentProject, ($p) => {
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'furniture' | 'text' | 'measure' | 'annotate';
 export const selectedTool = writable<Tool>('select');
+
+/**
+ * BuildSmart PoC — estado de reforma aplicado às paredes NOVAS (a barra
+ * BuildSmart deixa escolher antes de desenhar). Não altera paredes já
+ * existentes: para isso existe setWallStatus.
+ */
+export const wallStatusToApply = writable<WallStatus>('EXISTENTE');
+
+/**
+ * BuildSmart PoC — espelha se há uma cadeia de paredes em andamento no
+ * canvas, para a barra mostrar Concluir/Cancelar por toque (no celular não
+ * dá para exigir duplo clique nem Esc). Quem escreve é o FloorPlanCanvas.
+ */
+export const wallChainActive = writable<boolean>(false);
+
+/**
+ * Canal de comando da cadeia de paredes: a barra escreve, o canvas executa e
+ * devolve para null. Evita duplicar no componente de UI a lógica de fechar
+ * laço que já existe no canvas (mesma usada pelo duplo clique).
+ */
+export const wallChainCommand = writable<'finish' | 'cancel' | null>(null);
+
+export function setWallStatus(id: string, status: WallStatus) {
+  mutate((f) => {
+    const wall = f.walls.find((w) => w.id === id);
+    if (wall) wall.status = status;
+  }, 'Changed wall status');
+}
 
 /** Shared activation for the sidebar and keyboard measurement tools. */
 export function activateMeasurementTool(tool: 'measure' | 'annotate') {
@@ -247,8 +275,11 @@ function mutate(fn: (floor: Floor) => void, description?: string, coalesceKey?: 
 
 export function addWall(start: Point, end: Point): string {
   const id = uid();
+  // BuildSmart PoC — a parede nasce já com o estado de reforma escolhido na
+  // barra; é propriedade da mesma parede, não um segundo tipo de parede.
+  const status = get(wallStatusToApply);
   mutate((f) => {
-    f.walls.push({ id, start, end, thickness: 15, height: 280, startHeight: 280, endHeight: 280, color: '#444444' });
+    f.walls.push({ id, start, end, thickness: 15, height: 280, startHeight: 280, endHeight: 280, color: '#444444', status });
   }, 'Added wall');
   if (typeof window !== 'undefined') {
     import('$lib/stores/onboarding.svelte').then(m => m.triggerTip('first-wall', end.x > 400 ? 300 : end.x + 20, 120)).catch(() => {});

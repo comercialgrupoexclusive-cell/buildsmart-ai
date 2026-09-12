@@ -48,7 +48,7 @@ test('import, numeric edit, undo/redo, save/reload and export preserve a multi-f
   await page.getByRole('textbox', { name: 'Project name' }).press('Enter');
   await page.getByRole('button', { name: 'Toggle Layers Panel', exact: true }).click();
   await page.getByRole('button', { name: /Wall 1$/ }).click();
-  const thickness = page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true });
+  const thickness = page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true });
   await expect(thickness).toHaveValue('27.5');
   await thickness.fill('32.5');
   await thickness.press('Tab');
@@ -199,8 +199,8 @@ test('sloped walls preserve heights and openings through edits, reversal, elevat
   await expect(page.getByRole('application')).toContainText('4 walls');
   await page.getByRole('button', { name: 'Toggle Layers Panel', exact: true }).click();
   await page.getByRole('button', { name: /Wall 1$/ }).click();
-  const start = page.getByRole('spinbutton', { name: 'Start Height (cm)', exact: true });
-  const end = page.getByRole('spinbutton', { name: 'End Height (cm)', exact: true });
+  const start = page.getByRole('spinbutton', { name: 'Altura inicial (cm)', exact: true });
+  const end = page.getByRole('spinbutton', { name: 'Altura final (cm)', exact: true });
   await expect(start).toHaveValue('160');
   await expect(end).toHaveValue('340');
   await expect(page.getByRole('status')).toContainText('Some openings do not fit');

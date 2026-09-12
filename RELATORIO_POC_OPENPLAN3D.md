@@ -13,10 +13,9 @@ como ambiente de teste, em vez de desenho livre por coordenada de pixel
 (ver justificativa em `NOTA_POC_OPENPLAN3D.md`).
 
 - **Desktop** (1440×900): `vendor/openplan3d/tests/browser/buildsmart-poc.spec.ts`
-  (novo, roda 3x consecutivas sem flake) — seleção de parede por role
-  (`getByRole('spinbutton', { name: 'Length (cm)' })`), edição numérica,
-  seleção/edição de porta e janela por role, toggle 2D→3D, save, reload,
-  reconfirmação de todos os valores.
+  (novo) — seleção de parede, porta e janela no canvas, edição numérica de
+  comprimento e de largura pelos campos do painel, toggle 2D→3D, save,
+  reload, reconfirmação de todos os valores.
 - **Verificação ao vivo adicional** (fora do spec, via scripts Playwright
   descartáveis): leitura direta do IndexedDB para documentar o formato
   serializado; edição de uma parede que hospeda uma janela confirmando que
@@ -124,3 +123,59 @@ toque: home da SPA carrega sem "Page not found", navegação para `/editor`
 funciona, reload direto em rota interna funciona, assets (`_app/**`,
 `models/**`) continuam servidos direto (não capturados pelo fallback), 3D
 renderiza, zero erros de console.
+
+## Camada de interação BuildSmart mobile (rodada seguinte)
+
+Motor mantido; o que mudou foi a camada de interação principal. Detalhe
+arquitetural em `NOTA_POC_OPENPLAN3D.md` (seção "Camada de interação
+BuildSmart (mobile)").
+
+Teste: `vendor/openplan3d/tests/browser/buildsmart-bar.spec.ts` (novo) roda o
+script obrigatório de 20 passos ponto a ponto, **duas vezes** — desktop
+1440×900 e mobile **675×1500 com toque real** (`hasTouch`/`isMobile`/
+`touchscreen.tap`, sem teclado e sem atalho em nenhum passo do fluxo mobile).
+A cor do status é conferida lendo os pixels do canvas (amarelo DEMOLIR
+aparece de fato depois da troca), e o save/reload é conferido no JSON
+exportado (`status` por parede + geometria preservadas).
+
+```
+BARRA CANÔNICA ACIMA DA LUIZA: PASS — barra é o último filho do flex-col do
+  editor (reserva a própria altura, não flutua); o wrapper reserva a Luiza
+  com o mesmo `pb-24 sm:pb-28` do AppLayout. Luiza intocada: posição, altura
+  e comportamento canônicos preservados, nada essencial atrás dela.
+SELECIONAR: PASS — estado padrão ao abrir; toca parede/porta/janela →
+  seleciona; toca vazio → desmarca; selecionar não inicia nenhuma outra ação;
+  toda inserção volta sozinha para Selecionar.
+PAREDE + CONCLUIR/CANCELAR: PASS — tocar o ícone já inicia o desenho; durante
+  a cadeia aparecem Concluir e Cancelar por toque, os dois voltando para
+  Selecionar sem inventar geometria; trocar de ferramenta encerra o modo;
+  Esc segue funcionando no desktop; nenhum duplo-clique exigido no mobile.
+COTA NUMÉRICA: PASS — campo Comprimento (cm) altera a geometria real
+  (`resizeWallLength`, só move extremidade; cantos ligados acompanham), não
+  o texto da cota. Espessura e status no mesmo painel.
+STATUS EXISTENTE/CONSTRUIR/DEMOLIR: PASS — propriedade da mesma parede
+  (`Wall.status`), sem segundo tipo de parede nem geometria paralela;
+  escolhido na criação, alterado na seleção com recolorização imediata em
+  2D e em 3D (cinza/vermelho/amarelo), 3D reaproveitando a atribuição de
+  material existente (sem duplicar malha).
+PORTA: PASS — ícone → toca a parede → insere UMA → volta para Selecionar;
+  na seleção expõe largura, distância de A/B e altura.
+JANELA: PASS — mesmo fluxo; na seleção expõe largura, distância de A/B,
+  altura e peitoril.
+2D/3D: PASS — toggle direto na barra principal (nunca dentro de "Mais");
+  3D enquadra o modelo, toque orbita, e voltar para 2D preserva modelo e
+  seleção.
+MOBILE TOUCH: PASS — script de 20 passos verde em 675×1500 só com toque.
+SAVE/LOAD COM STATUS: PASS — `status` sobrevive a save/reload (validado no
+  JSON exportado após recarregar); valor inválido é descartado na validação
+  em vez de aceito.
+BUILD: PASS — OpenPlan3D: svelte-check 0 erros (7 avisos de a11y
+  pré-existentes), vitest 647/647, Playwright 95/95 (inclui o
+  `editor.spec.ts:247` que estava flaky nas rodadas anteriores).
+  BuildSmart: `tsc --noEmit` limpo, eslint limpo, vitest 238/238,
+  `npm run build` com `/labs/openplan3d` entre as rotas.
+```
+
+Fora de escopo por instrução e **não feito**: Supabase, `processo_id`,
+substituição do módulo Planta Baixa, Board, Luiza, Axonometra, refatoração
+do OpenPlan3D inteiro.

@@ -12,6 +12,7 @@
   import { createProjectFromRoomPlan, isRoomPlanJson } from '$lib/utils/roomplanImport';
   import TopBar from '$lib/components/toolbar/TopBar.svelte';
   import BuildPanel from '$lib/components/sidebar/BuildPanel.svelte';
+  import BuildSmartBar from '$lib/components/buildsmart/BuildSmartBar.svelte';
   import PropertiesPanel from '$lib/components/sidebar/PropertiesPanel.svelte';
   import LayersPanel from '$lib/components/sidebar/LayersPanel.svelte';
 
@@ -46,6 +47,17 @@
 
   // Mobile (< md): BuildPanel becomes an off-canvas drawer toggled by the Tools FAB.
   let buildPanelOpen = $state(false);
+  // BuildSmart PoC — "Mais" da barra BuildSmart. No celular abre a gaveta de
+  // ferramentas avançadas (mesma BuildPanel do upstream); no desktop, onde
+  // ela já fica fixa, alterna para liberar área de canvas.
+  let buildPanelHiddenDesktop = $state(false);
+  function toggleMore() {
+    if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
+      buildPanelHiddenDesktop = !buildPanelHiddenDesktop;
+    } else {
+      buildPanelOpen = !buildPanelOpen;
+    }
+  }
   // Close the drawer once the user has picked a tool / item so the canvas is usable
   selectedTool.subscribe(() => { if (buildPanelOpen) buildPanelOpen = false; });
   placingFurnitureId.subscribe((id) => { if (id && buildPanelOpen) buildPanelOpen = false; });
@@ -221,7 +233,7 @@
             aria-hidden="true"
           ></div>
         {/if}
-        <div class="h-full max-md:fixed max-md:left-0 max-md:top-12 max-md:bottom-0 max-md:h-auto max-md:z-50 max-md:shadow-2xl max-md:transition-transform max-md:duration-200 {buildPanelOpen ? '' : 'max-md:-translate-x-full'}">
+        <div class="h-full max-md:fixed max-md:left-0 max-md:top-12 max-md:bottom-0 max-md:h-auto max-md:z-50 max-md:shadow-2xl max-md:transition-transform max-md:duration-200 {buildPanelOpen ? '' : 'max-md:-translate-x-full'} {buildPanelHiddenDesktop ? 'md:hidden' : ''}">
           <BuildPanel />
         </div>
       {/if}
@@ -246,12 +258,19 @@
       {/if}
       <PropertiesPanel is3D={mode === '3d'} />
     </div>
+    <!-- Camada de interação BuildSmart: ocupa a última linha do flex, então
+         reserva a própria altura em vez de cobrir o canvas. No BuildSmart o
+         iframe termina acima da barra da Luiza, então esta barra fica
+         imediatamente acima dela. -->
+    <div class="relative shrink-0">
+      <BuildSmartBar onMore={toggleMore} />
+    </div>
   </div>
 
   <!-- Tools drawer FAB (mobile only) -->
   {#if mode === '2d'}
     <button
-      class="md:hidden fixed bottom-4 left-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg active:bg-blue-700 transition-colors z-40 flex items-center justify-center"
+      class="md:hidden fixed bottom-24 left-4 w-12 h-12 rounded-full bg-blue-600 text-white shadow-lg active:bg-blue-700 transition-colors z-40 flex items-center justify-center"
       onclick={() => buildPanelOpen = !buildPanelOpen}
       title="Tools"
       aria-label="Toggle tools panel"
@@ -263,7 +282,7 @@
   <!-- Layers toggle button -->
   {#if mode === '2d'}
     <button
-      class="max-md:hidden fixed bottom-4 left-14 w-8 h-8 rounded-full shadow-lg hover:bg-slate-600 transition-colors z-50 text-sm"
+      class="max-md:hidden fixed bottom-20 left-14 w-8 h-8 rounded-full shadow-lg hover:bg-slate-600 transition-colors z-50 text-sm"
       class:bg-blue-600={showLayers}
       class:text-white={showLayers}
       class:bg-slate-700={!showLayers}
@@ -276,7 +295,7 @@
 
   <!-- Undo History toggle button -->
   <button
-    class="max-md:hidden fixed bottom-4 left-24 w-8 h-8 rounded-full shadow-lg hover:bg-slate-600 transition-colors z-50 text-sm"
+    class="max-md:hidden fixed bottom-20 left-24 w-8 h-8 rounded-full shadow-lg hover:bg-slate-600 transition-colors z-50 text-sm"
     class:bg-blue-600={showUndoHistory}
     class:text-white={showUndoHistory}
     class:bg-slate-700={!showUndoHistory}
@@ -290,7 +309,7 @@
 
   <!-- Help button (desktop only — keyboard shortcuts are meaningless on touch) -->
   <button
-    class="max-md:hidden fixed bottom-4 left-4 w-8 h-8 rounded-full bg-slate-700 text-white text-sm font-bold shadow-lg hover:bg-slate-600 transition-colors z-50"
+    class="max-md:hidden fixed bottom-20 left-4 w-8 h-8 rounded-full bg-slate-700 text-white text-sm font-bold shadow-lg hover:bg-slate-600 transition-colors z-50"
     onclick={() => showHelp = !showHelp}
     title="Keyboard Shortcuts (?)"
     aria-label="Keyboard Shortcuts"

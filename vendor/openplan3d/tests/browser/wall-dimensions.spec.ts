@@ -31,9 +31,9 @@ for (const width of [1440, 390]) {
     // L is the existing layers shortcut, available on desktop and compact layouts.
     await page.getByRole('button', { name: 'Save', exact: true }).press('l');
     await page.getByRole('button', { name: '─ Wall 1', exact: true }).click();
-    const length = page.getByRole('spinbutton', { name: 'Length (cm)', exact: true });
+    const length = page.getByRole('spinbutton', { name: 'Comprimento (cm)', exact: true });
     await expect(length).toHaveValue('600.5');
-    await edit(page, 'Length (cm)', '650.25');
+    await edit(page, 'Comprimento (cm)', '650.25');
     await expect(length).toHaveValue('650.25');
     await expect(page.getByRole('application')).toContainText('1 room');
     await expect(page.getByRole('application')).toContainText('25.0 m²');
@@ -47,21 +47,21 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('application')).toContainText('1 room');
     await page.getByRole('button', { name: 'Redo', exact: true }).click();
     await expect(length).toHaveValue('650.25');
-    await page.getByRole('combobox', { name: 'Keep fixed', exact: true }).selectOption('end');
-    await edit(page, 'Length (cm)', '700.75');
+    await page.getByRole('combobox', { name: 'Manter fixo', exact: true }).selectOption('end');
+    await edit(page, 'Comprimento (cm)', '700.75');
     await expect(length).toHaveValue('700.75');
     for (const value of ['', '0', '-10']) {
-      await edit(page, 'Length (cm)', value);
+      await edit(page, 'Comprimento (cm)', value);
       await expect(length).toHaveValue('700.75');
       await expect(page.getByRole('alert')).toContainText('at least 1 cm');
     }
-    await edit(page, 'Thickness (cm)', '');
-    await expect(page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true })).toHaveValue('20');
-    await edit(page, 'Thickness (cm)', '-5');
-    await expect(page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true })).toHaveValue('20');
-    await edit(page, 'Thickness (cm)', '32.75');
+    await edit(page, 'Espessura (cm)', '');
+    await expect(page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true })).toHaveValue('20');
+    await edit(page, 'Espessura (cm)', '-5');
+    await expect(page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true })).toHaveValue('20');
+    await edit(page, 'Espessura (cm)', '32.75');
     await page.getByRole('button', { name: 'Undo', exact: true }).click();
-    await expect(page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true })).toHaveValue('20');
+    await expect(page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true })).toHaveValue('20');
     await page.getByRole('button', { name: 'Undo', exact: true }).click(); // invalid drafts did not consume history
     await expect(length).toHaveValue('650.25');
     await page.getByRole('button', { name: 'Redo', exact: true }).click();
@@ -74,25 +74,25 @@ for (const width of [1440, 390]) {
     await testInfo.attach(`connected-resize-${width}`, { body: await page.screenshot(), contentType: 'image/png' });
 
     await page.getByRole('button', { name: '🚪 opening door 1', exact: true }).click();
-    const doorWidth = page.getByRole('spinbutton', { name: 'Width (cm)', exact: true });
+    const doorWidth = page.getByRole('spinbutton', { name: 'Largura (cm)', exact: true });
     await expect(doorWidth).toHaveValue('90.5');
     for (const value of ['', '0', '-1']) {
-      await edit(page, 'Width (cm)', value); await expect(doorWidth).toHaveValue('90.5');
+      await edit(page, 'Largura (cm)', value); await expect(doorWidth).toHaveValue('90.5');
     }
-    await edit(page, 'Width (cm)', '95.125');
-    await edit(page, 'Height (cm)', '');
-    await expect(page.getByRole('spinbutton', { name: 'Height (cm)', exact: true })).toHaveValue('205.25');
-    await edit(page, 'Height (cm)', '207.75');
-    await edit(page, 'Distance from A (cm)', '250.125');
-    await expect(page.getByRole('spinbutton', { name: 'Distance from B (cm)', exact: true })).toHaveValue('450.625');
-    await edit(page, 'Distance from A (cm)', '');
-    await expect(page.getByRole('spinbutton', { name: 'Distance from A (cm)', exact: true })).toHaveValue('250.125');
+    await edit(page, 'Largura (cm)', '95.125');
+    await edit(page, 'Altura (cm)', '');
+    await expect(page.getByRole('spinbutton', { name: 'Altura (cm)', exact: true })).toHaveValue('205.25');
+    await edit(page, 'Altura (cm)', '207.75');
+    await edit(page, 'Distância de A (cm)', '250.125');
+    await expect(page.getByRole('spinbutton', { name: 'Distância de B (cm)', exact: true })).toHaveValue('450.625');
+    await edit(page, 'Distância de A (cm)', '');
+    await expect(page.getByRole('spinbutton', { name: 'Distância de A (cm)', exact: true })).toHaveValue('250.125');
     await page.getByRole('button', { name: '🪟 standard window 1', exact: true }).click();
-    await edit(page, 'Height (cm)', '-10');
-    await expect(page.getByRole('spinbutton', { name: 'Height (cm)', exact: true })).toHaveValue('120.5');
-    await edit(page, 'Sill Height (cm)', '0');
-    await expect(page.getByRole('spinbutton', { name: 'Sill Height (cm)', exact: true })).toHaveValue('0');
-    await edit(page, 'Distance from A (cm)', '9999');
+    await edit(page, 'Altura (cm)', '-10');
+    await expect(page.getByRole('spinbutton', { name: 'Altura (cm)', exact: true })).toHaveValue('120.5');
+    await edit(page, 'Altura do peitoril (cm)', '0');
+    await expect(page.getByRole('spinbutton', { name: 'Altura do peitoril (cm)', exact: true })).toHaveValue('0');
+    await edit(page, 'Distância de A (cm)', '9999');
 
     await page.getByRole('button', { name: '─ Wall 1', exact: true }).click();
     if (width < 768) await page.getByRole('button', { name: 'More actions', exact: true }).click();
@@ -101,14 +101,14 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'ft, inch', exact: true }).click();
     await page.getByRole('button', { name: 'Close settings', exact: true }).click();
     const beforeFocus = (await exportPlan(page)).floors;
-    const inches = page.getByRole('spinbutton', { name: 'Length (in)', exact: true });
+    const inches = page.getByRole('spinbutton', { name: 'Comprimento (in)', exact: true });
     await expect(inches).toHaveValue('275.9');
-    for (const name of ['Length (in)', 'Thickness (in)', 'Start Height (in)', 'End Height (in)']) {
+    for (const name of ['Comprimento (in)', 'Espessura (in)', 'Altura inicial (in)', 'Altura final (in)']) {
       const input = page.getByRole('spinbutton', { name, exact: true });
       await input.click(); await input.press('Tab');
     }
     expect((await exportPlan(page)).floors).toEqual(beforeFocus);
-    await edit(page, 'Length (in)', '300.25');
+    await edit(page, 'Comprimento (in)', '300.25');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     const saved = await exportPlan(page); walls = saved.floors[0].walls;
     expect(Math.hypot(walls[0].end.x - walls[0].start.x, walls[0].end.y - walls[0].start.y)).toBeCloseTo(300.25 * 2.54);

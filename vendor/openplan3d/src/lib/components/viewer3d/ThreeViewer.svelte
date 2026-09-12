@@ -8,6 +8,7 @@
   import { activeFloor, currentProject, selectedElementId } from '$lib/stores/project';
   import type { Floor, Wall, Door, Window as Win, Stair } from '$lib/models/types';
   import { getWallStartHeight, getWallEndHeight } from '$lib/models/types';
+  import { wallStatusColor } from '$lib/utils/wallStatus';
   import { wallColors, type WallColor } from '$lib/utils/materials';
   import { projectSettings, formatArea } from '$lib/stores/settings';
   import * as THREE from 'three';
@@ -1245,6 +1246,22 @@
       } else {
         exteriorMat = defaultExteriorMat;
       }
+      // BuildSmart PoC — estado de reforma (CONSTRUIR/DEMOLIR) pinta a MESMA
+      // parede também no 3D, reaproveitando a atribuição de material que já
+      // existe: nenhuma geometria duplicada, nenhum objeto paralelo.
+      // EXISTENTE devolve null e mantém a aparência normal do motor.
+      const statusColor = wallStatusColor(wall);
+      if (statusColor) {
+        const base = new THREE.Color(statusColor);
+        interiorMat = new THREE.MeshStandardMaterial({
+          color: base, roughness: 0.9,
+          polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+        });
+        exteriorMat = new THREE.MeshStandardMaterial({
+          color: base.clone().offsetHSL(0, 0, -0.08), roughness: 0.85,
+        });
+      }
+
       const startH = getWallStartHeight(wall);
       const endH = getWallEndHeight(wall);
 

@@ -1,6 +1,7 @@
 import type { Project, DetailKind } from '$lib/models/types';
 import { validateItemDetails, validateRetainedDetailState } from './itemDetails';
 import { refreshLegacyFurnitureCategories } from './legacyFurnitureCategories';
+import { isWallStatus } from './wallStatus';
 
 /** Read untrusted native files without mutating their input or the active editor. */
 export function readProject(value: unknown): Project {
@@ -90,6 +91,10 @@ export function readProject(value: unknown): Project {
       number(wall.height, `${path}.height`, 0);
       if (wall.curvePoint !== undefined) point(wall.curvePoint, `${path}.curvePoint`);
       strings(wall, ['color', 'texture', 'interiorColor', 'interiorTexture', 'exteriorColor', 'exteriorTexture'], path);
+      // BuildSmart PoC — estado de reforma persistido na própria parede. Um
+      // valor inválido/ausente vira EXISTENTE em vez de derrubar o plano
+      // inteiro: é metadado de apresentação, não geometria.
+      if (!isWallStatus(wall.status)) delete wall.status;
     }, false);
     const walls = new Set<string>(floor.walls.map((wall: any) => wall.id));
     for (const kind of ['doors', 'windows']) elements(kind, (opening, path) => {

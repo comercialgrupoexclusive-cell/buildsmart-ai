@@ -5,7 +5,8 @@
   import type { DetailTarget } from '$lib/models/types';
   import { catalogAssetUrl } from '$lib/utils/catalogAssetUrl';
 
-  import { activeFloor, selectedElementId, selectedRoomId, updateWall, resizeWallLength, reverseWall, updateDoor, updateWindow, updateRoom, updateFurniture, detectedRoomsStore, updateStair, updateColumn, updateBackgroundImage, setBackgroundImage, calibrationMode, calibrationPoints, updateTextAnnotation, toggleFurnitureLock, updateEntourageItem, removeElement, elevationWallId } from '$lib/stores/project';
+  import { activeFloor, selectedElementId, selectedRoomId, updateWall, resizeWallLength, reverseWall, updateDoor, updateWindow, updateRoom, updateFurniture, detectedRoomsStore, updateStair, updateColumn, updateBackgroundImage, setBackgroundImage, calibrationMode, calibrationPoints, updateTextAnnotation, toggleFurnitureLock, updateEntourageItem, removeElement, elevationWallId, setWallStatus } from '$lib/stores/project';
+  import { WALL_STATUS_ORDER, WALL_STATUS_LABELS, WALL_STATUS_COLORS, wallStatusOf } from '$lib/utils/wallStatus';
   import { wallLength as calcWallLength, MIN_WALL_LENGTH, type WallEndpoint } from '$lib/utils/wallEditing';
   import { openingOnWall } from '$lib/utils/wallProfiles';
   import { getEntourageDef } from '$lib/utils/entourageCatalog';
@@ -330,33 +331,49 @@
   {#if selectedWall}
     <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
       <span class="w-6 h-6 bg-gray-200 rounded flex items-center justify-center text-xs">▭</span>
-      Wall Properties
+      Propriedades da parede
     </h3>
     <div class="space-y-3">
       <label class="block">
-        <span class="text-xs text-gray-500">Length ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Comprimento ({unitLabel()})</span>
         <input type="number" value={displayValue(wallLength)} onblur={onWallLength} onkeydown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} min={settings.units === 'imperial' ? MIN_WALL_LENGTH / 2.54 : MIN_WALL_LENGTH} step="any" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
-        <span class="text-xs text-gray-500">Keep fixed</span>
+        <span class="text-xs text-gray-500">Manter fixo</span>
         <select bind:value={fixedEndpoint} class="w-full px-2 py-1 border border-gray-200 rounded text-sm">
-          <option value="start">Start (A)</option>
-          <option value="end">End (B)</option>
+          <option value="start">Início (A)</option>
+          <option value="end">Fim (B)</option>
         </select>
       </label>
-      <p class="text-xs text-gray-500">Joined corners follow the moving endpoint. Openings keep their relative positions.</p>
+      <p class="text-xs text-gray-500">Cantos conectados acompanham a ponta que se move. Aberturas mantêm a posição relativa.</p>
       {#if wallLengthError}<p role="alert" class="text-xs text-red-700">{wallLengthError}</p>{/if}
+      <div class="block">
+        <span class="text-xs text-gray-500">Estado de reforma</span>
+        <div class="mt-1 grid grid-cols-3 gap-1" data-testid="bs-wall-status">
+          {#each WALL_STATUS_ORDER as st (st)}
+            <button
+              type="button"
+              class="flex min-h-[40px] items-center justify-center gap-1 rounded border px-1 py-1.5 text-[11px] font-semibold transition-colors {wallStatusOf(selectedWall) === st ? 'border-slate-900 bg-slate-900 text-white' : 'border-gray-200 text-gray-700 active:bg-gray-100'}"
+              aria-pressed={wallStatusOf(selectedWall) === st}
+              onclick={() => setWallStatus(selectedWall.id, st)}
+            >
+              <span class="h-2.5 w-2.5 rounded-full ring-1 ring-black/20" style="background: {WALL_STATUS_COLORS[st]}"></span>
+              {WALL_STATUS_LABELS[st]}
+            </button>
+          {/each}
+        </div>
+      </div>
       <label class="block">
-        <span class="text-xs text-gray-500">Thickness ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Espessura ({unitLabel()})</span>
         <input type="number" value={displayValue(selectedWall.thickness)} oninput={onWallThickness} onblur={onWallThickness} step="any" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <div class="grid grid-cols-2 gap-2">
         <label class="block">
-          <span class="text-xs text-gray-500">Start Height ({unitLabel()})</span>
+          <span class="text-xs text-gray-500">Altura inicial ({unitLabel()})</span>
           <input type="number" value={displayValue(getWallStartHeight(selectedWall))} min="0" step="any" oninput={onWallStartHeight} onblur={onWallStartHeight} class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
         </label>
         <label class="block">
-          <span class="text-xs text-gray-500">End Height ({unitLabel()})</span>
+          <span class="text-xs text-gray-500">Altura final ({unitLabel()})</span>
           <input type="number" value={displayValue(getWallEndHeight(selectedWall))} min="0" step="any" oninput={onWallEndHeight} onblur={onWallEndHeight} class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
         </label>
       </div>
@@ -500,23 +517,23 @@
   {:else if selectedDoor}
     <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
       <span class="w-6 h-6 bg-amber-100 rounded flex items-center justify-center text-xs">🚪</span>
-      Door Properties
+      Propriedades da porta
     </h3>
     <div class="space-y-3">
       <label class="block">
-        <span class="text-xs text-gray-500">Width ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Largura ({unitLabel()})</span>
         <input type="number" value={displayValue(selectedDoor.width)} oninput={onDoorWidth} onblur={onDoorWidth} step="any" min="0" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
-        <span class="text-xs text-gray-500">Distance from A ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Distância de A ({unitLabel()})</span>
         <input type="number" value={displayValue(doorDistFromA)} oninput={onDoorDistFromA} onblur={onDoorDistFromA} step="any" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
-        <span class="text-xs text-gray-500">Distance from B ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Distância de B ({unitLabel()})</span>
         <input type="number" value={displayValue(doorDistFromB)} oninput={onDoorDistFromB} onblur={onDoorDistFromB} step="any" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
-        <span class="text-xs text-gray-500">Height ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Altura ({unitLabel()})</span>
         <input type="number" value={displayValue(selectedDoor.height ?? 210)} oninput={onDoorHeight} onblur={onDoorHeight} step="any" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
@@ -553,7 +570,7 @@
   {:else if selectedWindow}
     <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
       <span class="w-6 h-6 bg-cyan-100 rounded flex items-center justify-center text-xs">🪟</span>
-      Window Properties
+      Propriedades da janela
     </h3>
     <div class="space-y-3">
       <label class="block">
@@ -567,23 +584,23 @@
         </select>
       </label>
       <label class="block">
-        <span class="text-xs text-gray-500">Width ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Largura ({unitLabel()})</span>
         <input type="number" value={displayValue(selectedWindow.width)} oninput={onWindowWidth} onblur={onWindowWidth} step="any" min="0" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
-        <span class="text-xs text-gray-500">Distance from A ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Distância de A ({unitLabel()})</span>
         <input type="number" value={displayValue(windowDistFromA)} oninput={onWindowDistFromA} onblur={onWindowDistFromA} step="any" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
-        <span class="text-xs text-gray-500">Distance from B ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Distância de B ({unitLabel()})</span>
         <input type="number" value={displayValue(windowDistFromB)} oninput={onWindowDistFromB} onblur={onWindowDistFromB} step="any" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
-        <span class="text-xs text-gray-500">Height ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Altura ({unitLabel()})</span>
         <input type="number" value={displayValue(selectedWindow.height)} oninput={onWindowHeight} onblur={onWindowHeight} step="any" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
       <label class="block">
-        <span class="text-xs text-gray-500">Sill Height ({unitLabel()})</span>
+        <span class="text-xs text-gray-500">Altura do peitoril ({unitLabel()})</span>
         <input type="number" value={displayValue(selectedWindow.sillHeight)} oninput={onWindowSill} onblur={onWindowSill} step="any" class="w-full px-2 py-1 border border-gray-200 rounded text-sm" />
       </label>
     </div>

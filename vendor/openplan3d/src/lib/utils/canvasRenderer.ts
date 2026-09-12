@@ -10,6 +10,7 @@ import type { ProjectSettings } from '$lib/stores/settings';
 import { formatLength, formatArea } from '$lib/stores/settings';
 import { getCatalogItem } from '$lib/utils/furnitureCatalog';
 import { drawFurnitureIcon } from '$lib/utils/furnitureIcons';
+import { wallStatusColor } from '$lib/utils/wallStatus';
 import { getRoomPolygon, roomCentroid } from '$lib/utils/roomDetection';
 import { getWallTextureCanvas, getFloorTextureCanvas } from '$lib/utils/textureGenerator';
 import { getEntourageDef } from '$lib/utils/entourageCatalog';
@@ -157,6 +158,11 @@ export function drawWall(
   const e = wts(cs, w.end.x, w.end.y);
   const thickness = wallThicknessScreen(w, zoom);
 
+  // BuildSmart PoC — estado de reforma pinta a MESMA parede (ver
+  // $lib/utils/wallStatus). EXISTENTE devolve null e mantém o visual
+  // original do motor; seleção continua tendo prioridade visual.
+  const statusFill = wallStatusColor(w);
+
   if (w.curvePoint) {
     const cp = wts(cs, w.curvePoint.x, w.curvePoint.y);
     const SEGS = 24;
@@ -177,7 +183,7 @@ export function drawWall(
       innerPts.push({ x: px - nx, y: py - ny });
     }
 
-    ctx.fillStyle = selected ? '#93c5fd' : '#404040';
+    ctx.fillStyle = selected ? '#93c5fd' : (statusFill ?? '#404040');
     ctx.strokeStyle = selected ? '#3b82f6' : '#333333';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -247,7 +253,7 @@ export function drawWall(
   const nx = (-dy / len) * thickness / 2;
   const ny = (dx / len) * thickness / 2;
 
-  ctx.fillStyle = selected ? '#93c5fd' : '#404040';
+  ctx.fillStyle = selected ? '#93c5fd' : (statusFill ?? '#404040');
   ctx.strokeStyle = selected ? '#3b82f6' : '#333333';
   ctx.lineWidth = 1;
   ctx.beginPath();

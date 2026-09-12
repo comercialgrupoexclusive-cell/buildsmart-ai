@@ -70,7 +70,7 @@ for (const width of [1440, 390]) test(`modal focus and keys preserve the selecte
       await testInfo.attach(`settings-modal-${width}`, { body: await page.screenshot(), contentType: 'image/png' });
     }
     await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true })).toHaveValue('20');
+    await expect(page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true })).toHaveValue('20');
     await expect(page.getByRole('application')).toContainText('4 walls');
     expect((await exported(page)).floors).toEqual(before.floors);
     expect(await storedRecords(page)).toEqual(stored);

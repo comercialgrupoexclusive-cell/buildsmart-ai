@@ -93,9 +93,9 @@ for (const width of [1440, 390]) test(`native package preview/import/edit/reload
   await page.getByRole('link', { name: 'QA Project Package (Imported copy)', exact: true }).click();
   await page.getByRole('button', { name: 'Save', exact: true }).press('l');
   await page.getByRole('button', { name: '─ Wall 1', exact: true }).click();
-  await expect(page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true })).toHaveValue('27.5');
-  await page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true }).fill('33.75');
-  await page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true }).press('Tab');
+  await expect(page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true })).toHaveValue('27.5');
+  await page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true }).fill('33.75');
+  await page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true }).press('Tab');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(async () => Object.values(await savedProjects(page))[0].floors[0].walls[0].thickness).toBe(33.75);
   await page.reload();

@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { connectedWallEndpoints } from '$lib/utils/wallEditing';
   import { createDrawScheduler } from '$lib/utils/drawScheduler';
-  import { activeFloor, selectedTool, selectedElementId, selectedElementIds, selectedRoomId, addWall, addDoor, addWindow, updateWall, moveWallEndpoint, updateDoor, updateWindow, addFurniture, moveFurniture, transformFurnitureDuringDrag, commitFurnitureMove, rotateFurniture, setFurnitureRotation, scaleFurniture, removeElement, placingFurnitureId, placingRotation, placingDoorType, placingWindowType, detectedRoomsStore, duplicateDoor, duplicateWindow, duplicateFurniture, duplicateWall, moveWallParallel, splitWall, snapEnabled, placingStair, addStair, moveStair, updateStair, placingColumn, placingColumnShape, addColumn, moveColumn, updateColumn, calibrationMode, calibrationPoints, updateBackgroundImage, setBackgroundImage, canvasZoom, canvasCamX, canvasCamY, panMode, showFurnitureStore, addGuide, moveGuide, removeGuide, beginUndoGroup, endUndoGroup, layerVisibility, updateRoom, addMeasurement, removeMeasurement, addAnnotation, removeAnnotation, updateAnnotation, addTextAnnotation, removeTextAnnotation, updateTextAnnotation, moveTextAnnotation, toggleFurnitureLock, createGroup, ungroupElements, findGroupForElement, placingEntourageId, addEntourageItem, moveEntourage, resizeEntourage, currentProject, elevationWallId, elevationPickMode } from '$lib/stores/project';
+  import { activeFloor, selectedTool, selectedElementId, selectedElementIds, selectedRoomId, addWall, addDoor, addWindow, updateWall, moveWallEndpoint, updateDoor, updateWindow, addFurniture, moveFurniture, transformFurnitureDuringDrag, commitFurnitureMove, rotateFurniture, setFurnitureRotation, scaleFurniture, removeElement, placingFurnitureId, placingRotation, placingDoorType, placingWindowType, detectedRoomsStore, duplicateDoor, duplicateWindow, duplicateFurniture, duplicateWall, moveWallParallel, splitWall, snapEnabled, placingStair, addStair, moveStair, updateStair, placingColumn, placingColumnShape, addColumn, moveColumn, updateColumn, calibrationMode, calibrationPoints, updateBackgroundImage, setBackgroundImage, canvasZoom, canvasCamX, canvasCamY, panMode, showFurnitureStore, addGuide, moveGuide, removeGuide, beginUndoGroup, endUndoGroup, layerVisibility, updateRoom, addMeasurement, removeMeasurement, addAnnotation, removeAnnotation, updateAnnotation, addTextAnnotation, removeTextAnnotation, updateTextAnnotation, moveTextAnnotation, toggleFurnitureLock, createGroup, ungroupElements, findGroupForElement, placingEntourageId, addEntourageItem, moveEntourage, resizeEntourage, currentProject, elevationWallId, elevationPickMode, wallChainActive, wallChainCommand } from '$lib/stores/project';
   import type { Point, Wall, Door, Window as Win, FurnitureItem, Stair, Column, GuideLine, Measurement, Annotation, TextAnnotation, CustomEntourageDef } from '$lib/models/types';
   import type { Floor, Room } from '$lib/models/types';
   import { resolveRooms, getRoomPolygon, roomCentroid } from '$lib/utils/roomDetection';
@@ -49,6 +49,9 @@
   // Digits typed while drawing a wall — Enter places the wall at exactly this length (issue #6)
   let typedWallLength = $state('');
   let wallSequenceFirst: Point | null = $state(null);
+  // BuildSmart PoC — espelha a cadeia em andamento para a barra mostrar
+  // Concluir/Cancelar por toque (ver wallChainActive em stores/project).
+  $effect(() => { wallChainActive.set(wallStart !== null); });
   let mousePos: Point = $state({ x: 0, y: 0 });
 
   // Inline room name editing
@@ -1735,6 +1738,19 @@
       if (t !== 'text') { editingTextAnnotationId = null; }
       markDirty();
     });
+    // BuildSmart PoC — Concluir/Cancelar da barra por toque (no celular não
+    // dá para exigir duplo clique nem Esc). Os dois voltam para Selecionar,
+    // para nunca deixar o usuário preso desenhando paredes.
+    const unsubChainCmd = wallChainCommand.subscribe((cmd) => {
+      if (!cmd) return;
+      // Nenhum dos dois inventa geometria: encerram exatamente o que o
+      // usuário desenhou. Fechar a sala continua sendo tocar de volta no
+      // ponto inicial (auto-close do motor) ou duplo clique no desktop.
+      finishWallChain(false);
+      selectedTool.set('select');
+      markDirty();
+      wallChainCommand.set(null);
+    });
     const unsub7 = detectedRoomsStore.subscribe((rooms) => { if (rooms.length > 0) detectedRooms = rooms; markDirty(); });
     const unsub8 = placingDoorType.subscribe((t) => { currentDoorType = t; markDirty(); });
     const unsub9 = placingWindowType.subscribe((t) => { currentWindowType = t; markDirty(); });
@@ -1807,7 +1823,7 @@
     canvas.addEventListener('touchend', onTouchEnd, { passive: false });
     canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
 
-    return () => { mounted = false; drawing?.stop(); stopTextures(); resizeObs.disconnect(); unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsub8(); unsub9(); unsub10(); unsub11(); unsub12(); unsub13(); unsub_multi(); unsub_elevopen(); unsub_elevpick(); unsub14(); unsub_col(); unsub_cols(); unsub_layers(); unsub_snapgrid(); unsubEnt1(); unsubEnt2(); document.removeEventListener('paste', handlePaste); canvas.removeEventListener('touchstart', onTouchStart); canvas.removeEventListener('touchmove', onTouchMove); canvas.removeEventListener('touchend', onTouchEnd); canvas.removeEventListener('touchcancel', onTouchEnd); };
+    return () => { mounted = false; drawing?.stop(); stopTextures(); resizeObs.disconnect(); unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsub7(); unsub8(); unsub9(); unsub10(); unsub11(); unsub12(); unsub13(); unsub_multi(); unsub_elevopen(); unsub_elevpick(); unsub14(); unsub_col(); unsub_cols(); unsub_layers(); unsub_snapgrid(); unsubEnt1(); unsubEnt2(); unsubChainCmd(); document.removeEventListener('paste', handlePaste); canvas.removeEventListener('touchstart', onTouchStart); canvas.removeEventListener('touchmove', onTouchMove); canvas.removeEventListener('touchend', onTouchEnd); canvas.removeEventListener('touchcancel', onTouchEnd); };
   });
 
   /** Compute world bounding box of all elements */
@@ -2545,13 +2561,24 @@
       }
     }
     if (currentTool === 'wall' && wallStart && wallSequenceFirst) {
-      // Auto-close the wall loop back to the first point if we have at least 2 walls
-      if (Math.hypot(wallStart.x - wallSequenceFirst.x, wallStart.y - wallSequenceFirst.y) > 5) {
-        addWall(wallStart, wallSequenceFirst);
-      }
-      wallStart = null;
-      wallSequenceFirst = null;
+      finishWallChain(true);
     }
+  }
+
+  /**
+   * BuildSmart PoC — encerra a cadeia de paredes em andamento. Mesma lógica
+   * que o duplo clique já usava (fechar o laço de volta ao primeiro ponto),
+   * agora nomeada para o duplo clique e a barra BuildSmart (Concluir /
+   * Cancelar) compartilharem — no celular não dá para exigir duplo clique.
+   */
+  function finishWallChain(closeLoop: boolean) {
+    if (closeLoop && wallStart && wallSequenceFirst
+      && Math.hypot(wallStart.x - wallSequenceFirst.x, wallStart.y - wallSequenceFirst.y) > 5) {
+      addWall(wallStart, wallSequenceFirst);
+    }
+    wallStart = null;
+    wallSequenceFirst = null;
+    typedWallLength = '';
   }
 
   function onMouseMove(e: MouseEvent) {

@@ -20,6 +20,13 @@ export interface ProjectPackageState {
   assets: Record<string, string>; // assets/<filename> → base64 bytes, one copy per file
 }
 
+/**
+ * BuildSmart PoC — estado de reforma da parede. Os valores são IDs internos
+ * estáveis (não traduzir): a UI mostra "Existente"/"Construir"/"Demolir" via
+ * WALL_STATUS_LABELS em $lib/utils/wallStatus.
+ */
+export type WallStatus = 'EXISTENTE' | 'CONSTRUIR' | 'DEMOLIR';
+
 export interface Wall {
   details?: ItemDetails;
   id: string;
@@ -27,6 +34,12 @@ export interface Wall {
   end: Point;
   thickness: number;
   height: number;
+  /**
+   * BuildSmart PoC — estado de reforma desta MESMA parede (não é outro tipo
+   * de parede nem geometria paralela). Ausente = EXISTENTE, para planos
+   * salvos antes do campo existir.
+   */
+  status?: WallStatus;
   /** Endpoint heights in centimetres. Missing values use the legacy height. */
   startHeight?: number;
   endHeight?: number;

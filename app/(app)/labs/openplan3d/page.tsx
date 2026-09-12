@@ -31,7 +31,12 @@ export default function OpenPlan3DLabPage() {
           </p>
         </div>
       </div>
-      <div className="flex-1 relative">
+      {/* pb reserva a altura da barra fixa da Luiza (LuiziaFloatingChat),
+          reusando os mesmos valores que o AppLayout já usa para isso. Sem
+          isso a barra de ferramentas da planta — que fica no rodapé do
+          editor, dentro do iframe — cairia atrás da Luiza. Com isso ela
+          fica imediatamente acima, e a Luiza não é escondida nem movida. */}
+      <div className="flex-1 relative pb-24 sm:pb-28">
         {/* Raiz da SPA vendorizada — caminho próprio, separado desta rota
             wrapper. O SvelteKit é compilado com `base` igual a esta URL
             (ver scripts/build-openplan3d.mjs); apontar para dentro da

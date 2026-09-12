@@ -20,7 +20,7 @@ test('3D metadata edits preserve the view while geometry, history and units refr
   const canvas = page.getByRole('region', { name: '3D floor plan viewer' }).locator('canvas').last();
   const bounds = (await canvas.boundingBox())!;
   await canvas.click({ position: { x: bounds.width * 0.4, y: bounds.height * 0.6 } });
-  const thickness = page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true });
+  const thickness = page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true });
   await expect(thickness).toBeVisible();
   await page.getByRole('button', { name: 'Top-Down View', exact: true }).click();
   const settle = () => page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -55,7 +55,7 @@ test('3D metadata edits preserve the view while geometry, history and units refr
   await page.getByRole('button', { name: 'Dimensions', exact: true }).click();
   await page.getByRole('button', { name: 'ft, inch', exact: true }).click();
   await page.getByRole('button', { name: 'Close settings', exact: true }).click();
-  await expect(page.getByRole('spinbutton', { name: 'Thickness (in)', exact: true })).toBeVisible();
+  await expect(page.getByRole('spinbutton', { name: 'Espessura (in)', exact: true })).toBeVisible();
   await expect.poll(async () => (await gpu(page))[0].created.Texture).toBeGreaterThan(beforeUnits);
   expect(errors).toEqual([]);
 });

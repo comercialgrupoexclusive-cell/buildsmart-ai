@@ -80,6 +80,51 @@ precisão de um script de clique). Isso valida igualmente bem o requisito
 8 segmentos do template) sem depender de um fluxo de desenho ainda não
 exercitado por nenhuma automação.
 
+## Camada de interação BuildSmart (mobile)
+
+O motor do OpenPlan3D foi **mantido**; o que mudou foi a camada de interação
+principal, substituída por uma barra explícita de toque para o uso mobile da
+PoC. Nenhuma geometria, cálculo ou estrutura de dados do motor foi
+reimplementada — os botões acionam as ferramentas que já existiam.
+
+- `src/lib/components/buildsmart/BuildSmartBar.svelte` (novo): barra canônica
+  com **Selecionar · Parede · Porta · Janela · 2D/3D · Mais**, alvos de 56px,
+  sem teclado, sem hover, sem atalho. O toggle 2D/3D fica na barra principal,
+  nunca dentro de "Mais"; "Mais" só abre o que é secundário (pavimentos,
+  escada, mobiliário, importações, configurações — o painel upstream, que
+  segue intacto).
+- A barra é o último filho do flex-col do editor: ela **reserva a própria
+  altura** em vez de flutuar sobre o canvas. No wrapper Next.js, o iframe usa
+  o mesmo `pb-24 sm:pb-28` que o `AppLayout` já aplica para reservar a Luiza,
+  então a barra da Planta fica **imediatamente acima** da barra de digitação
+  da Luiza, sem sobrepor nem esconder nada dela (a Luiza não foi tocada).
+- **Parede:** tocar no ícone já começa o desenho. Enquanto a cadeia está
+  aberta aparecem **Concluir** e **Cancelar** (`wallChainCommand`), os dois
+  voltando para Selecionar — nenhum dos dois inventa geometria, então não
+  existe estado do qual o usuário não consiga sair por toque. Trocar de
+  ferramenta também encerra o modo parede; o `Esc` do upstream continua
+  funcionando no desktop.
+- **Status de reforma** (`EXISTENTE` cinza / `CONSTRUIR` vermelho / `DEMOLIR`
+  amarelo): é uma **propriedade da mesma parede** (`Wall.status`, opcional —
+  ausente = `EXISTENTE`), não um segundo tipo de parede nem geometria
+  paralela. `src/lib/utils/wallStatus.ts` é a fonte única de rótulo/cor,
+  consumida pelo 2D (`canvasRenderer`), pelo 3D (`ThreeViewer`, reaproveitando
+  a atribuição de material que já existia — sem duplicar malha) e pela UI. É
+  escolhido na criação (linha contextual da barra) e alterado na seleção
+  (bloco "Estado de reforma" no painel de propriedades), com recolorização
+  imediata, e sobrevive a save/load (`projectValidation` descarta valor
+  inválido em vez de aceitar lixo).
+- **Porta/Janela:** ícone → toca a parede → insere **uma** → volta sozinho
+  para Selecionar (comportamento que já era do motor). Na seleção, o painel
+  expõe largura, distância das extremidades e altura/peitoril.
+- Tradução PT-BR apenas dos controles desta rodada (parede, porta, janela e a
+  barra). **IDs, enums e chaves internas não foram traduzidos** — inclusive os
+  valores de `status`, que são o contrato serializado.
+- Desktop: sem redesenho: a barra lateral upstream continua ali, "Mais" a
+  recolhe, e os botões flutuantes do upstream subiram o suficiente para não
+  ficarem atrás da barra nova.
+
+
 ## Achados sobre o formato de save/load (item 5 da tarefa)
 
 Mecanismo nativo: **IndexedDB** (`openplan3d-local`, stores `projects`,
@@ -95,7 +140,7 @@ só para analytics (desligado nesta PoC). Cada projeto é uma **string JSON**
     "id": "7rzx73hl", "name": "Ground Floor", "level": 0,
     "walls": [{ "id": "...", "start": {"x":0,"y":0}, "end": {"x":600,"y":0},
                 "thickness": 15, "height": 280, "startHeight": 280, "endHeight": 280,
-                "color": "#444444" }],
+                "color": "#444444", "status": "CONSTRUIR" }],
     "rooms": [],
     "doors":   [{ "id": "...", "wallId": "...", "position": 0.65, "width": 90,
                   "height": 210, "type": "single", "swingDirection": "left", "flipSide": false }],

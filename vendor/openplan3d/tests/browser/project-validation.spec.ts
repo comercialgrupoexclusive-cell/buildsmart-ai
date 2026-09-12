@@ -37,7 +37,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('application')).toContainText('1 room');
     await page.getByRole('button', { name: 'Save', exact: true }).press('l');
     await page.getByRole('button', { name: '─ Wall 1', exact: true }).click();
-    const thickness = page.getByRole('spinbutton', { name: 'Thickness (cm)', exact: true });
+    const thickness = page.getByRole('spinbutton', { name: 'Espessura (cm)', exact: true });
     await thickness.fill('32.5'); await thickness.press('Tab');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     const saved = await exportProject(page), url = page.url();
