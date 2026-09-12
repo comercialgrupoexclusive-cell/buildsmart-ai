@@ -51,7 +51,13 @@ export class Main extends Viewport {
       .clamp({ direction: 'all' })
       .pinch()
       .wheel()
-      .clampZoom({ minScale: 1.0, maxScale: 6.0 });
+      // BuildSmart usabilidade mobile — minScale 1.0 impedia zoom out o
+      // bastante pra caber uma casa inteira num celular (confirmado via
+      // teste real: uma casa de 10x8m = 1000x800px de mundo não cabia em
+      // 675x1500px de tela nesse limite). 0.1 cobre folgadamente tanto uma
+      // casa típica quanto uma bem maior (18x14m), com margem — ver
+      // zoom-probe usado pra validar antes de fixar este valor.
+      .clampZoom({ minScale: 0.1, maxScale: 6.0 });
     this.bkgPattern = TilingSprite.from('./pattern.svg', {
       width: this.worldWidth ?? 0,
       height: this.worldHeight ?? 0
@@ -110,11 +116,19 @@ export class Main extends Viewport {
         action.execute();
         break;
       }
-      case Tool.Edit:
-        // if (!isMobile) {
-        //     this.pause = true;
-        // }
+      case Tool.Edit: {
+        // BuildSmart usabilidade mobile — este handler só roda pra cliques
+        // que NÃO acertaram nenhum filho interativo (parede/nó/mobiliário
+        // já chamam ev.stopPropagation()) — ou seja, é exatamente "tocar no
+        // vazio". Desseleciona parede e mobiliário.
+        this.transformLayer.deselect();
+        const state = useStore.getState();
+        if (state.selectedWall) {
+          state.selectedWall.setSelected(false);
+          state.setSelectedWall(null);
+        }
         break;
+      }
       case Tool.Measure:
         this.pause = true;
         point.x = viewportX(ev.global.x);

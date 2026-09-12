@@ -1,4 +1,11 @@
-import { Container, Sprite, Text, TextStyle, Texture } from 'pixi.js';
+import {
+  Container,
+  Rectangle,
+  Sprite,
+  Text,
+  TextStyle,
+  Texture
+} from 'pixi.js';
 import { Point } from '../../../../helpers/Point';
 import {
   LABEL_COLOR,
@@ -6,6 +13,13 @@ import {
   LABEL_FONT_SIZE,
   METER
 } from '../../constants';
+
+// BuildSmart usabilidade mobile — a cota é usada como atalho de toque pra
+// abrir a edição de comprimento da parede (Wall.onLabelMouseDown); o texto
+// sozinho é pequeno demais pra tocar com o dedo, então a hitArea tem uma
+// margem generosa ao redor — mesmo padrão de WallNode (visual pequeno,
+// toque grande).
+const LABEL_TOUCH_PADDING = 14;
 
 export class Label extends Container {
   text: Text;
@@ -22,6 +36,8 @@ export class Label extends Container {
       sizeInPixels = 0;
     }
     this.text = new Text({ text: '', style: this.textStyle });
+    this.eventMode = 'static';
+    this.cursor = 'pointer';
     this.update(sizeInPixels);
 
     this.addChild(this.textBkg);
@@ -34,6 +50,12 @@ export class Label extends Container {
     this.text.text = this.toMeter(sizeInPixels);
     this.textBkg.width = this.text.width;
     this.textBkg.height = this.text.height;
+    this.hitArea = new Rectangle(
+      -LABEL_TOUCH_PADDING,
+      -LABEL_TOUCH_PADDING,
+      this.text.width + LABEL_TOUCH_PADDING * 2,
+      this.text.height + LABEL_TOUCH_PADDING * 2
+    );
   }
 
   public updatePos(pos: Point, sizeInPixels: number) {

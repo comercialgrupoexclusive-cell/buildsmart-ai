@@ -110,6 +110,13 @@ export class TransformLayer extends Container {
       return;
     }
 
+    // BuildSmart usabilidade mobile — só uma coisa selecionada por vez:
+    // selecionar mobiliário desliga o destaque de uma parede selecionada.
+    const state = useStore.getState();
+    if (state.selectedWall) {
+      state.selectedWall.setSelected(false);
+    }
+
     // sets target, computes handle coordinates, and draws on screen at right coordinates
     this.target = t;
     this.computePoints();
@@ -117,6 +124,7 @@ export class TransformLayer extends Container {
 
     this.visible = true;
     this.eventMode = 'static';
+    state.setSelectedFurniture(t);
   }
 
   private draw() {
@@ -189,6 +197,7 @@ export class TransformLayer extends Container {
     this.target = null;
     this.visible = false;
     this.eventMode = 'auto';
+    useStore.getState().setSelectedFurniture(null);
   }
 
   public dispose() {

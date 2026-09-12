@@ -20,16 +20,16 @@ export async function readPlanFile(
   const typeOk = ALLOWED_TYPES.includes(file.type);
   if (!nameOk && !typeOk) {
     notifications.show({
-      title: 'Unsupported file',
-      message: 'Please choose a .json plan file.',
+      title: 'Arquivo não suportado',
+      message: 'Escolha um arquivo de planta .json.',
       color: 'red'
     });
     return null;
   }
   if (file.size > MAX_BYTES) {
     notifications.show({
-      title: 'File too large',
-      message: 'Plan files must be smaller than 5 MB.',
+      title: 'Arquivo muito grande',
+      message: 'Arquivos de planta devem ter menos de 5 MB.',
       color: 'red'
     });
     return null;

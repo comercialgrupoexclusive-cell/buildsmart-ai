@@ -22,7 +22,7 @@ export function FurnitureAddPanel() {
       setCategory(categories[0]._id);
     } else {
       notifications.show({
-        message: 'Check your internet connection',
+        message: 'Verifique sua conexão com a internet',
         color: 'green'
       });
     }

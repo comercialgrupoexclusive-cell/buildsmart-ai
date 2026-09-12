@@ -39,6 +39,19 @@ class PointMock {
   }
 }
 
+class RectangleMock {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  constructor(x = 0, y = 0, width = 0, height = 0) {
+    this.x = x;
+    this.y = y;
+    this.width = width;
+    this.height = height;
+  }
+}
+
 class ContainerMock extends EventEmitterMock {
   children: ContainerMock[] = [];
   parent: ContainerMock | null = null;
@@ -152,6 +165,7 @@ export function createPixiMock() {
     Texture: TextureMock,
     TilingSprite: TilingSpriteMock,
     Point: PointMock,
+    Rectangle: RectangleMock,
     Application: vi.fn(),
     autoDetectRenderer: vi.fn(),
     isMobile: false

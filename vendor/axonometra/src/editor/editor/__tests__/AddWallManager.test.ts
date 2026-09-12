@@ -9,20 +9,32 @@ vi.mock('pixi.js', async () => {
 });
 
 // The floor plan store is what checkStep iterates. We stub it so checkStep
-// sees a deterministic node map.
+// sees a deterministic node map. addWall is what step() calls when chaining
+// two distinct nodes — stub a wall-like object with a no-op setStatus so
+// AddWallAction.execute() doesn't need a real Wall/Pixi Graphics instance.
 const wallNodes = new Map<number, { x: number; y: number }>();
+const addWall = vi.fn(() => ({ setStatus: vi.fn() }));
 vi.mock('../../../stores/FloorPlanStore', () => ({
   useFloorPlanStore: {
     getState: () => ({
       getWallNodeSeq: () => ({
-        getWallNodes: () => wallNodes
+        getWallNodes: () => wallNodes,
+        addWall
       })
     })
   }
 }));
 
 const { AddWallManager } = await import('../actions/AddWallManager');
-const { SNAP_THRESHOLD, METER } = await import('../constants');
+const { SNAP_THRESHOLD, METER, Tool } = await import('../constants');
+const { useStore } = await import('../../../stores/EditorStore');
+type WallNode = import('../objects/Walls/WallNode').WallNode;
+
+// Minimal WallNode-like fake — step()/finish()/cancel() only need getId()
+// and .position (read by Preview.set()).
+function fakeNode(id: number, x = 0, y = 0): WallNode {
+  return { getId: () => id, position: { x, y } } as unknown as WallNode;
+}
 
 describe('AddWallManager.checkStep', () => {
   beforeEach(() => {
@@ -80,5 +92,63 @@ describe('AddWallManager.checkStep', () => {
         true
       );
     });
+  });
+});
+
+// BuildSmart usabilidade mobile — fim de cadeia de parede: antes só era
+// coberto pelo double-click no mesmo nó (implícito); agora finish()/cancel()
+// (acionados pela barra Concluir/Cancelar) precisam terminar a sequência do
+// mesmo jeito, e o estado wallChainActive no EditorStore precisa refletir
+// isso pra a barra aparecer/sumir.
+describe('AddWallManager chain lifecycle', () => {
+  beforeEach(() => {
+    wallNodes.clear();
+    addWall.mockClear();
+    AddWallManager.Instance.unset();
+    useStore.getState().setTool(Tool.WallAdd);
+  });
+
+  it('marks the chain active on the first step and inactive after unset', () => {
+    expect(useStore.getState().wallChainActive).toBe(false);
+    AddWallManager.Instance.step(fakeNode(1));
+    expect(useStore.getState().wallChainActive).toBe(true);
+    AddWallManager.Instance.unset();
+    expect(useStore.getState().wallChainActive).toBe(false);
+  });
+
+  it('chains a second distinct node into a wall and stays active', () => {
+    AddWallManager.Instance.step(fakeNode(1, 0, 0));
+    AddWallManager.Instance.step(fakeNode(2, 100, 0));
+    expect(addWall).toHaveBeenCalledWith(1, 2);
+    expect(useStore.getState().wallChainActive).toBe(true);
+    expect(AddWallManager.Instance.previousNode?.getId()).toBe(2);
+  });
+
+  it('clicking the same node again ends the chain (desktop shortcut)', () => {
+    const node = fakeNode(1);
+    AddWallManager.Instance.step(node);
+    AddWallManager.Instance.step(node);
+    expect(AddWallManager.Instance.previousNode).toBeUndefined();
+    expect(useStore.getState().wallChainActive).toBe(false);
+  });
+
+  it('finish() ends an in-progress chain and switches to Tool.Edit', () => {
+    AddWallManager.Instance.step(fakeNode(1));
+    expect(useStore.getState().wallChainActive).toBe(true);
+    AddWallManager.Instance.finish();
+    expect(AddWallManager.Instance.previousNode).toBeUndefined();
+    expect(useStore.getState().wallChainActive).toBe(false);
+    expect(useStore.getState().activeTool).toBe(Tool.Edit);
+  });
+
+  it('cancel() ends an in-progress chain without committing a pending wall', () => {
+    AddWallManager.Instance.step(fakeNode(1));
+    AddWallManager.Instance.cancel();
+    expect(AddWallManager.Instance.previousNode).toBeUndefined();
+    expect(useStore.getState().wallChainActive).toBe(false);
+    expect(useStore.getState().activeTool).toBe(Tool.Edit);
+    // Only the first click happened — no second node, so no wall was ever
+    // committed for cancel() to have to undo.
+    expect(addWall).not.toHaveBeenCalled();
   });
 });

@@ -32,14 +32,17 @@ async function waitForEditorReady(page: Page) {
 }
 
 async function dismissWelcome(page: Page) {
-  await page.getByRole('button', { name: /new plan/i }).click();
+  await page.getByRole('button', { name: /nova planta/i }).click();
   // The modal closes via a Mantine transition that leaves the dialog and its
   // full-screen overlay in the DOM for a beat. Canvas clicks fired before the
   // overlay detaches land on the modal, not the Pixi viewport (0 nodes placed).
   // Wait for the modal to be gone before any canvas interaction.
-  await expect(page.getByRole('button', { name: /new plan/i })).toHaveCount(0, {
-    timeout: 3000
-  });
+  await expect(page.getByRole('button', { name: /nova planta/i })).toHaveCount(
+    0,
+    {
+      timeout: 3000
+    }
+  );
 }
 
 async function selectWallTool(page: Page) {
@@ -81,7 +84,9 @@ async function getWallCount(page: Page): Promise<number> {
 test.describe('place-wall critical flow', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('button', { name: /new plan/i })).toBeVisible({
+    await expect(
+      page.getByRole('button', { name: /nova planta/i })
+    ).toBeVisible({
       timeout: 5000
     });
     await dismissWelcome(page);
@@ -126,9 +131,11 @@ test.describe('place-wall critical flow', () => {
 
     await page.keyboard.press('Control+s');
 
-    await expect(page.locator('text=Saved to Local Storage')).toBeVisible({
-      timeout: 3000
-    });
+    await expect(page.locator('text=Salvo no armazenamento local')).toBeVisible(
+      {
+        timeout: 3000
+      }
+    );
 
     const stored = await page.evaluate(() =>
       window.localStorage.getItem('autosave')
@@ -137,10 +144,10 @@ test.describe('place-wall critical flow', () => {
     const parsed = JSON.parse(stored ?? '{}');
     expect(parsed).toHaveProperty('floors');
     expect(parsed).toHaveProperty('wallNodeId');
-    expect(parsed.version).toBe(1);
+    expect(parsed.version).toBe(2);
   });
 
-  test('round-trips a saved plan via "Load from local save"', async ({
+  test('round-trips a saved plan via "Carregar do salvamento local"', async ({
     page
   }) => {
     // First session: place and save.
@@ -151,9 +158,11 @@ test.describe('place-wall critical flow', () => {
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.click(box.x + box.width / 2 + 200, box.y + box.height / 2);
     await page.keyboard.press('Control+s');
-    await expect(page.locator('text=Saved to Local Storage')).toBeVisible({
-      timeout: 3000
-    });
+    await expect(page.locator('text=Salvo no armazenamento local')).toBeVisible(
+      {
+        timeout: 3000
+      }
+    );
 
     const savedNodeCount = await getWallNodeCount(page);
 
@@ -164,7 +173,9 @@ test.describe('place-wall critical flow', () => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
     await page.reload();
-    await page.getByRole('button', { name: /load from local save/i }).click();
+    await page
+      .getByRole('button', { name: /carregar do salvamento local/i })
+      .click();
     await expect(page.locator('canvas').first()).toBeVisible();
 
     // Wait for the load to finish (the welcome modal closes synchronously

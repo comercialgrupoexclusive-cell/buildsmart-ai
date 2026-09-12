@@ -37,101 +37,123 @@ export function HelpDialog() {
   const helpBody: IHelpBody[] = [];
 
   helpBody[Tool.View] = {
-    title: 'View Mode',
+    title: 'Modo Visualizar',
     body: (
       <>
         <Group>
-          <IconClick /> <p>Right click and drag to move around the map </p>
+          <IconClick /> <p>Clique com o botão direito e arraste para mover</p>
         </Group>
         <Group>
-          <IconZoomIn /> <p>Use scroll wheel to zoom in or out</p>
+          <IconZoomIn />{' '}
+          <p>Use a roda do mouse ou o gesto de pinça para dar zoom</p>
         </Group>
       </>
     )
   };
 
   helpBody[Tool.Remove] = {
-    title: 'Erase Mode',
+    title: 'Modo Apagar',
     body: (
       <>
         <Image src={helpDelete}></Image>
         <Group gap="xs">
           <IconClick /> <IconArrowNarrowRight /> <IconTrash />{' '}
-          <p> Click on object to remove from plan</p>
+          <p> Toque no elemento para removê-lo da planta</p>
         </Group>
         <Group wrap="nowrap">
-          <IconVector /> <p>Wall nodes may only be removed if disconnected</p>
+          <IconVector />{' '}
+          <p>Nós de parede só podem ser removidos se estiverem desconectados</p>
         </Group>
       </>
     )
   };
   helpBody[Tool.Edit] = {
-    title: 'Edit Mode',
+    title: 'Selecionar',
     body: (
       <>
         <Image src={helpEditFurniture}></Image>
         <Group gap="xs">
           <IconClick /> <IconArrowNarrowRight /> <IconEdit />{' '}
-          <p> Click on furniture to enable edit controls</p>
+          <p>
+            {' '}
+            Toque numa parede, porta ou janela para selecionar e ver suas
+            propriedades
+          </p>
         </Group>
         <Image src={helpEditWall}></Image>
         <Group wrap="nowrap">
-          <IconVector /> <p>Click and drag wall nodes to edit walls</p>
+          <IconVector />{' '}
+          <p>
+            Arraste os nós da parede para mudar a forma; toque na cota da parede
+            selecionada pra editar o comprimento direto
+          </p>
         </Group>
       </>
     )
   };
   helpBody[Tool.WallAdd] = {
-    title: 'Add Wall',
+    title: 'Desenhar parede',
     body: (
       <>
         <Image src={helpAddWall}></Image>
         <Group wrap="nowrap">
-          <IconClick /> <p>Click to add connected wall chain</p>
+          <IconClick />{' '}
+          <p>Toque para desenhar uma cadeia de paredes conectadas</p>
         </Group>
         <Group wrap="nowrap">
-          <IconMultiplier2x /> <p>Double click on wall node to end chain</p>
+          <IconMultiplier2x />{' '}
+          <p>Toque em Concluir (ou duas vezes no mesmo nó) para terminar</p>
         </Group>
         <Group wrap="nowrap">
-          <IconGitFork /> <p>Click on existing walls to connect</p>
+          <IconGitFork /> <p>Toque em paredes existentes para conectar</p>
         </Group>
       </>
     )
   };
 
   helpBody[Tool.FurnitureAddWindow] = {
-    title: 'Add Window',
+    title: 'Adicionar janela',
     body: (
       <>
         <Image src={helpAddWindow}></Image>
         <Group wrap="nowrap">
-          <IconClick /> <p>Click on wall to add window</p>
+          <IconClick />{' '}
+          <p>
+            Toque na parede para adicionar a janela — depois de inserir, volta
+            pra Selecionar automaticamente
+          </p>
         </Group>
       </>
     )
   };
   helpBody[Tool.FurnitureAddDoor] = {
-    title: 'Add Door',
+    title: 'Adicionar porta',
     body: (
       <>
         <Image src={helpAddDoor}></Image>
         <Group wrap="nowrap">
-          <IconClick /> <p>Click on wall to add door</p>
+          <IconClick />{' '}
+          <p>
+            Toque na parede para adicionar a porta — depois de inserir, volta
+            pra Selecionar automaticamente
+          </p>
         </Group>
         <Group wrap="nowrap">
           <IconLayoutAlignMiddle />{' '}
-          <p>Middle click to change door orientation</p>
+          <p>
+            Selecione a porta depois e use o botão Virar para trocar o sentido
+          </p>
         </Group>
       </>
     )
   };
   helpBody[Tool.Measure] = {
-    title: 'Measure tool',
+    title: 'Ferramenta medir',
     body: (
       <>
         <Image src={helpMeasure}></Image>
         <Group wrap="nowrap">
-          <IconClick /> <p>Click and drag to measure distances</p>
+          <IconClick /> <p>Toque e arraste para medir distâncias</p>
         </Group>
       </>
     )
@@ -152,7 +174,7 @@ export function HelpDialog() {
         <NavbarLink
           onClick={() => setOpened((o) => !o)}
           icon={IconHelp}
-          label="Help"
+          label="Ajuda"
         />
       </Group>
 

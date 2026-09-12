@@ -100,10 +100,10 @@ export class WallNodeSequence extends Container {
       // this.wallNodeLinks[id].length = 0;
     } else {
       notifications.show({
-        title: 'Not permitted',
+        title: 'Não permitido',
         color: 'red',
         message:
-          'Cannot delete node with walls attached. Please remove walls first.'
+          'Não é possível excluir um nó com paredes conectadas. Remova as paredes primeiro.'
       });
     }
   }

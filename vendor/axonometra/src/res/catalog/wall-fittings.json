@@ -1,7 +1,7 @@
 {
   "window": {
     "_id": "window",
-    "name": "Window",
+    "name": "Janela",
     "width": 1.0,
     "height": 0.2,
     "imagePath": "window",
@@ -10,7 +10,7 @@
   },
   "door": {
     "_id": "door",
-    "name": "Door",
+    "name": "Porta",
     "width": 0.8,
     "height": 0.8,
     "imagePath": "door",

@@ -1,7 +1,7 @@
 [
   {
     "_id": "chair",
-    "name": "Chair",
+    "name": "Cadeira",
     "width": 0.5,
     "height": 0.5,
     "imagePath": "chair",
@@ -10,7 +10,7 @@
   },
   {
     "_id": "table",
-    "name": "Table",
+    "name": "Mesa",
     "width": 1.5,
     "height": 0.9,
     "imagePath": "table",
@@ -19,7 +19,7 @@
   },
   {
     "_id": "bed",
-    "name": "Bed",
+    "name": "Cama",
     "width": 2.0,
     "height": 1.5,
     "imagePath": "bed",

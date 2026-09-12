@@ -31,9 +31,9 @@ export function WelcomeModal() {
   }, []);
 
   const notification = {
-    title: 'Welcome to Axonometra! 🎉',
+    title: 'Bem-vindo ao Axonometra! 🎉',
     message:
-      '⚒️ Use the tools on the left to create your floor plan. For detailed instructions, press the Help button on the left.'
+      '⚒️ Use as ferramentas à esquerda para criar sua planta baixa. Para instruções detalhadas, toque no botão Ajuda à esquerda.'
   };
   return (
     <>
@@ -64,7 +64,7 @@ export function WelcomeModal() {
             leftSection={<IconPlus />}
             variant="white"
           >
-            New plan
+            Nova planta
           </Button>
           <input
             ref={fileRef}
@@ -81,15 +81,15 @@ export function WelcomeModal() {
             leftSection={<IconDatabase />}
             variant="white"
           >
-            Load from disk
+            Carregar do disco
           </Button>
           <Button
             onClick={() => {
               const saved = localStorage.getItem('autosave');
               if (saved == null) {
                 notifications.show({
-                  title: 'No autosave found',
-                  message: 'There is no local autosave to load.',
+                  title: 'Nenhum salvamento automático encontrado',
+                  message: 'Não há salvamento automático local para carregar.',
                   color: 'yellow'
                 });
                 return;
@@ -100,7 +100,7 @@ export function WelcomeModal() {
             leftSection={<IconRotateClockwise />}
             variant="white"
           >
-            Load from local save
+            Carregar do salvamento local
           </Button>
         </Stack>
       </Modal>

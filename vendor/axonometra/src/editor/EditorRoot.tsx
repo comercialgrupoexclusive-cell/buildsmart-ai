@@ -7,6 +7,7 @@ import { FloorPlan } from './editor/objects/FloorPlan';
 import { TransformLayer } from './editor/objects/TransformControls/TransformLayer';
 import { AddWallManager } from './editor/actions/AddWallManager';
 import { useStore } from '../stores/EditorStore';
+import { Tool } from './editor/constants';
 import { useFloorPlanStore } from '../stores/FloorPlanStore';
 import { serializer } from './editor/persistence/Serializer';
 import { notifications } from '@mantine/notifications';
@@ -61,10 +62,16 @@ export function EditorRoot() {
         const data = serializer.serialize();
         localStorage.setItem('autosave', data);
         notifications.show({
-          message: 'Saved to Local Storage!',
+          message: 'Salvo no armazenamento local!',
           color: 'green',
           icon: createElement(IconDeviceFloppy)
         });
+      }
+      // BuildSmart usabilidade mobile — Esc no desktop sai de qualquer
+      // ferramenta de criação/ação e volta pra Selecionar (equivalente
+      // desktop do botão "Cancelar" da barra flutuante).
+      if (e.code === 'Escape') {
+        useStore.getState().setTool(Tool.Edit);
       }
     };
 

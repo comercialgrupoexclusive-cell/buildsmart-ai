@@ -44,8 +44,8 @@ export class FloorPlan extends Container {
     const renderer = rendererHolder.current;
     if (!renderer) {
       notifications.show({
-        title: 'Export failed',
-        message: 'Editor is not ready.',
+        title: 'Falha ao exportar',
+        message: 'O editor ainda não está pronto.',
         color: 'red'
       });
       return;
@@ -54,8 +54,8 @@ export class FloorPlan extends Container {
     canvas.toBlob((blob) => {
       if (!blob) {
         notifications.show({
-          title: 'Export failed',
-          message: 'Could not generate plan image.',
+          title: 'Falha ao exportar',
+          message: 'Não foi possível gerar a imagem da planta.',
           color: 'red'
         });
         return;

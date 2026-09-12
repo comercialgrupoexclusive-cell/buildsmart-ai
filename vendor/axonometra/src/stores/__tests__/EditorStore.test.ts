@@ -18,11 +18,37 @@ describe('EditorStore', () => {
     resetTools.mockClear();
   });
 
-  it('starts in FurnitureMode with snap on and View tool', () => {
+  it('starts in FurnitureMode with snap on and Edit (Selecionar) tool', () => {
     const s = useStore.getState();
     expect(s.mode).toBe(ToolMode.FurnitureMode);
-    expect(s.activeTool).toBe(Tool.View);
+    // BuildSmart usabilidade mobile — abre em Selecionar (Tool.Edit), não em
+    // Visualizar (Tool.View), ver EditorStore.tsx.
+    expect(s.activeTool).toBe(Tool.Edit);
     expect(s.snap).toBe(true);
+  });
+
+  it('setTool(Tool.Edit) clears selectedWall/selectedFurniture', () => {
+    useStore.setState({
+      selectedWall: {} as never,
+      selectedFurniture: null
+    });
+    useStore.getState().setTool(Tool.Edit);
+    expect(useStore.getState().selectedWall).toBeNull();
+  });
+
+  it('wallChainActive toggles independently', () => {
+    useStore.getState().setWallChainActive(true);
+    expect(useStore.getState().wallChainActive).toBe(true);
+    useStore.getState().setWallChainActive(false);
+    expect(useStore.getState().wallChainActive).toBe(false);
+  });
+
+  it('setSelectedWall clears selectedFurniture only when selecting a wall', () => {
+    useStore.getState().setSelectedFurniture({} as never);
+    useStore.getState().setSelectedWall(null);
+    expect(useStore.getState().selectedFurniture).not.toBeNull();
+    useStore.getState().setSelectedWall({} as never);
+    expect(useStore.getState().selectedFurniture).toBeNull();
   });
 
   it('setMode updates the mode', () => {

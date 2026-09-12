@@ -96,9 +96,9 @@ export const useFloorPlanStore = create<FloorPlanStore>()((set, get) => ({
     const { floors, currentFloor, visibleLabels } = get();
     if (floors.length < 2) {
       notifications.show({
-        title: 'Floor removal not permitted',
+        title: 'Não é possível excluir o andar',
         message:
-          'This floor is the only floor in the plan. You cannot have a plan with no floors. Create a new floor before deleting.',
+          'Este é o único andar da planta. Uma planta não pode ficar sem nenhum andar. Crie um novo andar antes de excluir este.',
         color: 'red'
       });
       return;

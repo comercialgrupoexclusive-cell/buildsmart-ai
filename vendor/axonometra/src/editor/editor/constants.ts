@@ -13,6 +13,9 @@ export const MISCLICK_THRESHOLD = 0.2 * METER;
 
 export const WALL_COLOR = 0x1a1a1a;
 export const NODE_COLOR = 0x222222;
+// BuildSmart usabilidade mobile — contorno de destaque quando a parede está
+// selecionada (ferramenta Selecionar). Ver Wall.setSelected/drawLine.
+export const SELECTION_COLOR = 0x2f6fed;
 export const HANDLE_MOBILE_SCALE = 2.5;
 export const LABEL_FONT = 'Arial';
 export const LABEL_FONT_SIZE = 16;

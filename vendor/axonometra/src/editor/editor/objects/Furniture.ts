@@ -106,9 +106,16 @@ export class Furniture extends Sprite {
     }
   }
 
-  private switchOrientation() {
+  // BuildSmart usabilidade mobile — precisa ser pública: o painel de
+  // propriedades chama isso direto num botão "Virar" (porta), sem depender
+  // de clique com o botão direito (onRightDown), que não existe no toque.
+  public switchOrientation() {
     this.applyStep(this.orientation, false);
     this.orientation = (this.orientation + 1) % 4;
+  }
+
+  public getOrientation() {
+    return this.orientation;
   }
 
   private onRightDown(ev: FederatedPointerEvent) {

@@ -26,7 +26,7 @@ import {
   IconStairsUp,
   IconStairsDown,
   IconEye,
-  IconPencil,
+  IconPointer,
   IconEraser,
   IconWindow,
   IconDoor,
@@ -89,9 +89,9 @@ import { DeleteFloorAction } from '../../editor/editor/actions/DeleteFloorAction
 import { useFurnitureStore } from '../../stores/FurnitureStore';
 
 const modes = [
-  { icon: IconEye, label: 'View', tool: Tool.View },
-  { icon: IconPencil, label: 'Edit', tool: Tool.Edit },
-  { icon: IconEraser, label: 'Erase', tool: Tool.Remove }
+  { icon: IconEye, label: 'Visualizar', tool: Tool.View },
+  { icon: IconPointer, label: 'Selecionar', tool: Tool.Edit },
+  { icon: IconEraser, label: 'Apagar', tool: Tool.Remove }
 ];
 
 function AddMenu({ setter }: { setter: Dispatch<SetStateAction<number>> }) {
@@ -116,7 +116,7 @@ function AddMenu({ setter }: { setter: Dispatch<SetStateAction<number>> }) {
           getCategories();
           setDrawerOpened(false);
         }}
-        title="Add furniture"
+        title="Adicionar mobiliário"
         padding="xl"
         size="lg"
         overlayProps={{ backgroundOpacity: 0 }}
@@ -136,7 +136,7 @@ function AddMenu({ setter }: { setter: Dispatch<SetStateAction<number>> }) {
               setter(-1);
             }}
           >
-            Add furniture
+            Adicionar mobiliário
           </Menu.Item>
           <Divider />
           {/* BuildSmart P4.6 Bloco B — escolher o status ANTES de desenhar:
@@ -152,13 +152,13 @@ function AddMenu({ setter }: { setter: Dispatch<SetStateAction<number>> }) {
                 setTool(Tool.WallAdd);
                 notifications.clean();
                 notifications.show({
-                  title: '✏️ Wall drawing mode',
-                  message: `Click to draw ${WALL_STATUS_LABELS[status].toLowerCase()} walls. Double click on wall node to end sequence.`,
+                  title: '✏️ Modo desenhar parede',
+                  message: `Toque para desenhar paredes (${WALL_STATUS_LABELS[status].toLowerCase()}). Toque em Concluir pra terminar.`,
                   color: 'blue'
                 });
               }}
             >
-              Draw wall — {WALL_STATUS_LABELS[status]}
+              Desenhar parede — {WALL_STATUS_LABELS[status]}
             </Menu.Item>
           ))}
           <Divider />
@@ -175,13 +175,13 @@ function AddMenu({ setter }: { setter: Dispatch<SetStateAction<number>> }) {
                 setTool(Tool.WallStatus);
                 notifications.clean();
                 notifications.show({
-                  title: '🎨 Wall status mode',
-                  message: `Click walls to mark them as ${WALL_STATUS_LABELS[status].toLowerCase()}.`,
+                  title: '🎨 Modo status da parede',
+                  message: `Toque nas paredes para marcá-las como ${WALL_STATUS_LABELS[status].toLowerCase()}.`,
                   color: 'blue'
                 });
               }}
             >
-              Set status — {WALL_STATUS_LABELS[status]}
+              Definir status — {WALL_STATUS_LABELS[status]}
             </Menu.Item>
           ))}
           <Divider />
@@ -193,13 +193,13 @@ function AddMenu({ setter }: { setter: Dispatch<SetStateAction<number>> }) {
               notifications.clean();
 
               notifications.show({
-                title: '🪟 Add window',
-                message: 'Click on wall to add window',
+                title: '🪟 Adicionar janela',
+                message: 'Toque na parede para adicionar a janela',
                 color: 'blue'
               });
             }}
           >
-            Add window
+            Adicionar janela
           </Menu.Item>
           <Menu.Item
             leftSection={<IconDoor size={18} />}
@@ -209,14 +209,14 @@ function AddMenu({ setter }: { setter: Dispatch<SetStateAction<number>> }) {
               notifications.clean();
 
               notifications.show({
-                title: '🚪 Add door',
+                title: '🚪 Adicionar porta',
                 message:
-                  'Click on wall to add door. Right click to change orientation',
+                  'Toque na parede para adicionar a porta. Depois, selecione-a e use Virar para trocar o sentido.',
                 color: 'blue'
               });
             }}
           >
-            Add door
+            Adicionar porta
           </Menu.Item>
         </Menu.Dropdown>
       </Menu>
@@ -225,7 +225,11 @@ function AddMenu({ setter }: { setter: Dispatch<SetStateAction<number>> }) {
 }
 
 export function ToolNavbar() {
-  const [active, setActive] = useState(0);
+  // BuildSmart usabilidade mobile — o editor abre em Selecionar (Tool.Edit),
+  // não em Visualizar (ver EditorStore.activeTool); o índice inicial aqui
+  // precisa bater com a posição de Selecionar em `modes` (índice 1), senão a
+  // barra lateral destaca "Visualizar" enquanto a ferramenta real é outra.
+  const [active, setActive] = useState(1);
 
   const setTool = useStore((s) => s.setTool);
   const floor = useFloorPlanStore((s) => s.currentFloor);
@@ -268,7 +272,7 @@ export function ToolNavbar() {
         <Box className={classes.sectionGrow}>
           <Stack align="center" gap={0}>
             <Tooltip
-              label={'Current floor'}
+              label={'Andar atual'}
               position="right"
               withArrow
               transitionProps={{ duration: 0 }}
@@ -278,7 +282,7 @@ export function ToolNavbar() {
 
             <NavbarLink
               icon={IconStairsUp}
-              label="Go to next floor"
+              label="Próximo andar"
               onClick={() => {
                 const action = new ChangeFloorAction(1);
                 action.execute();
@@ -286,7 +290,7 @@ export function ToolNavbar() {
             />
             <NavbarLink
               icon={IconStairsDown}
-              label="Go to previous floor"
+              label="Andar anterior"
               onClick={() => {
                 const action = new ChangeFloorAction(-1);
                 action.execute();
@@ -294,7 +298,7 @@ export function ToolNavbar() {
             />
             <NavbarLink
               icon={IconSquareX}
-              label="Delete floor"
+              label="Excluir andar"
               onClick={() => {
                 const action = new DeleteFloorAction();
                 action.execute();
@@ -306,38 +310,39 @@ export function ToolNavbar() {
           <Stack align="center" gap={0}>
             <NavbarLink
               icon={IconRuler2}
-              label="Measure tool"
+              label="Medir"
               onClick={() => {
                 setTool(Tool.Measure);
                 notifications.clean();
                 notifications.show({
-                  title: '📐 Measure tool',
-                  message: 'Click and drag to measure areas'
+                  title: '📐 Ferramenta medir',
+                  message: 'Toque e arraste para medir áreas'
                 });
               }}
             />
             <NavbarLink
               icon={IconArrowDownSquare}
-              label="Snap to grid"
+              label="Ajustar à grade"
               onClick={() => {
                 const next = !snap;
                 setSnap(next);
                 notifications.clean();
                 notifications.show({
-                  message: 'Snap to grid now ' + (next ? 'On' : 'Off'),
+                  message:
+                    'Ajustar à grade ' + (next ? 'ativado' : 'desativado'),
                   icon: next ? <IconTable /> : <IconTableOff />
                 });
               }}
             />
             <NavbarLink
               icon={IconDimensions}
-              label="Toggle size labels"
+              label="Exibir/ocultar cotas"
               onClick={() => {
                 const action = new ToggleLabelAction();
                 action.execute();
                 notifications.clean();
                 notifications.show({
-                  message: 'Toggled size labels',
+                  message: 'Exibição de cotas alternada',
                   icon: <IconTag />
                 });
               }}
@@ -351,7 +356,7 @@ export function ToolNavbar() {
           <Stack align="center" gap={0}>
             <NavbarLink
               icon={IconPrinter}
-              label="Print"
+              label="Imprimir"
               onClick={() => {
                 const action = new PrintAction();
                 action.execute();
@@ -359,7 +364,7 @@ export function ToolNavbar() {
             />
             <NavbarLink
               icon={IconDeviceFloppy}
-              label="Save plan"
+              label="Salvar planta"
               onClick={() => {
                 const action = new SaveAction();
                 action.execute();
@@ -369,7 +374,7 @@ export function ToolNavbar() {
             <NavbarLink
               onClick={() => fileRef.current?.click()}
               icon={IconUpload}
-              label="Load plan"
+              label="Carregar planta"
             />
             <input
               ref={fileRef}

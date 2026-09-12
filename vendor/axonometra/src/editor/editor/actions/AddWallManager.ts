@@ -2,8 +2,9 @@ import { FederatedPointerEvent } from 'pixi.js';
 import { euclideanDistance } from '../../../helpers/EuclideanDistance';
 import { Point } from '../../../helpers/Point';
 
-import { SNAP_THRESHOLD } from '../constants';
+import { SNAP_THRESHOLD, Tool } from '../constants';
 import { useFloorPlanStore } from '../../../stores/FloorPlanStore';
+import { useStore } from '../../../stores/EditorStore';
 
 import { TransformLayer } from '../objects/TransformControls/TransformLayer';
 import { WallNode } from '../objects/Walls/WallNode';
@@ -56,13 +57,15 @@ export class AddWallManager {
     if (this.previousNode === undefined) {
       this.previousNode = node;
       this.preview.set(this.previousNode.position);
+      useStore.getState().setWallChainActive(true);
       return;
     }
 
-    // double click. end chain
+    // BuildSmart usabilidade mobile — clicar de novo no mesmo nó ainda
+    // encerra a sequência (atalho de desktop), mas não é mais o único jeito:
+    // ver finish()/cancel(), acionados pela barra Concluir/Cancelar.
     if (this.previousNode.getId() === node.getId()) {
-      this.previousNode = undefined;
-      this.preview.set(undefined);
+      this.unset();
       return;
     }
 
@@ -82,13 +85,39 @@ export class AddWallManager {
   public unset() {
     this.previousNode = undefined;
     this.preview.set(undefined);
+    useStore.getState().setWallChainActive(false);
   }
+
+  // BuildSmart usabilidade mobile — "Concluir": encerra a sequência atual
+  // (os segmentos já desenhados ficam, cada um já foi commitado no clique
+  // que o criou) e volta pra Selecionar. Sem histórico de undo no motor,
+  // "Cancelar" tem o mesmo efeito sobre a cadeia — a diferença é só de
+  // intenção pro usuário; nenhum dos dois desfaz segmentos já desenhados.
+  // setTool(Tool.Edit) já chama resetTools() -> unset() por baixo (ver
+  // EditorStore.setTool), então isso também zera a cadeia.
+  public finish() {
+    useStore.getState().setTool(Tool.Edit);
+  }
+
+  public cancel() {
+    useStore.getState().setTool(Tool.Edit);
+  }
+
   public static get Instance() {
     return this.instance || (this.instance = new this());
   }
 
+  // Chamado por EditorStore.setTool a cada troca de ferramenta — ponto
+  // único pra garantir que nada fica "preso" selecionado/destacado ao trocar
+  // de ferramenta (mobiliário via TransformLayer, parede via seu próprio
+  // contorno azul).
   public resetTools() {
     TransformLayer.Instance.deselect();
+    const wall = useStore.getState().selectedWall;
+    if (wall) {
+      wall.setSelected(false);
+      useStore.getState().setSelectedWall(null);
+    }
     this.unset();
   }
 

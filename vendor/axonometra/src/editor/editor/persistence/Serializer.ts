@@ -35,8 +35,8 @@ export class Serializer {
   public load(planText: string | null): void {
     if (planText == null || planText === '') {
       notifications.show({
-        title: 'Load failed',
-        message: 'No plan data to load.',
+        title: 'Falha ao carregar',
+        message: 'Nenhum dado de planta para carregar.',
         color: 'red'
       });
       return;
@@ -46,8 +46,8 @@ export class Serializer {
       raw = safeParsePlan(planText);
     } catch {
       notifications.show({
-        title: 'Load failed',
-        message: 'Plan file is not valid JSON.',
+        title: 'Falha ao carregar',
+        message: 'O arquivo da planta não é um JSON válido.',
         color: 'red'
       });
       return;
@@ -55,8 +55,8 @@ export class Serializer {
     const plan = validatePlanShape(raw);
     if (!plan) {
       notifications.show({
-        title: 'Load failed',
-        message: 'Plan file is missing required fields.',
+        title: 'Falha ao carregar',
+        message: 'O arquivo da planta está sem campos obrigatórios.',
         color: 'red'
       });
       return;
@@ -69,8 +69,8 @@ export class Serializer {
     const version = (raw as { version?: number }).version ?? 1;
     if (version !== 1 && version !== 2) {
       notifications.show({
-        title: 'Load failed',
-        message: `Unsupported plan version: ${version}.`,
+        title: 'Falha ao carregar',
+        message: `Versão de planta não suportada: ${version}.`,
         color: 'red'
       });
       return;
