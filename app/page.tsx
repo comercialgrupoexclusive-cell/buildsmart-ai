@@ -118,6 +118,14 @@ export default function OrganizacaoPickerPage() {
           </>
         )}
       </div>
+
+      <button
+        onClick={() => router.push('/criar-organizacao')}
+        className="mt-10 px-5 py-2.5 rounded-lg text-sm font-medium text-white transition-all hover:scale-[1.02]"
+        style={{ background: 'var(--accent)' }}
+      >
+        Criar organização
+      </button>
     </div>
   )
 }

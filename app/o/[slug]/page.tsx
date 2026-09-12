@@ -34,11 +34,13 @@ export default function LoginOrganizacaoPage() {
   const [tema, setTema] = useState<Tema | null>(null)
   const [loadingTema, setLoadingTema] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [modo, setModo] = useState<'entrar' | 'primeiro_acesso'>('entrar')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -63,10 +65,16 @@ export default function LoginOrganizacaoPage() {
       setError('Preencha usuário e senha.')
       return
     }
+    if (modo === 'primeiro_acesso' && password.length < 6) {
+      setError('A senha precisa ter pelo menos 6 caracteres.')
+      return
+    }
     setBusy(true)
     setError(null)
+    setInfo(null)
     try {
-      const res = await fetch('/api/auth/login-organizacao', {
+      const endpoint = modo === 'entrar' ? '/api/auth/login-organizacao' : '/api/auth/primeiro-acesso'
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug, username: username.trim(), password }),
@@ -84,6 +92,13 @@ export default function LoginOrganizacaoPage() {
       setError('Falha de conexão. Tente novamente.')
       setBusy(false)
     }
+  }
+
+  function alternarModo() {
+    setModo(m => (m === 'entrar' ? 'primeiro_acesso' : 'entrar'))
+    setError(null)
+    setInfo(modo === 'entrar' ? 'Primeiro acesso: informe o usuário já cadastrado e crie sua senha.' : null)
+    setPassword('')
   }
 
   const corPrincipal = tema?.cor_principal || 'var(--accent)'
@@ -127,8 +142,11 @@ export default function LoginOrganizacaoPage() {
       <div className="card w-full max-w-xs p-6 animate-enter" style={{ background: 'var(--bg-card)', animationDelay: '80ms' }}>
         <div className="flex items-center gap-1.5 justify-center mb-5 text-xs" style={{ color: 'var(--text-secondary)' }}>
           <Lock size={11} />
-          Acesso restrito
+          {modo === 'entrar' ? 'Acesso restrito' : 'Primeiro acesso'}
         </div>
+        {info && !error && (
+          <p className="text-xs mb-3 text-center" style={{ color: 'var(--text-secondary)' }}>{info}</p>
+        )}
         <div className="flex flex-col gap-3 mb-3">
           <input
             value={username}
@@ -146,7 +164,7 @@ export default function LoginOrganizacaoPage() {
               value={password}
               onChange={e => { setPassword(e.target.value); setError(null) }}
               onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-              placeholder="Senha"
+              placeholder={modo === 'entrar' ? 'Senha' : 'Crie sua senha'}
               className="input-base pr-10"
               style={error ? { borderColor: 'var(--danger)' } : {}}
             />
@@ -162,7 +180,15 @@ export default function LoginOrganizacaoPage() {
           className="w-full py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-all hover:scale-[1.02]"
           style={{ background: corPrincipal }}
         >
-          {busy ? 'Entrando...' : 'Entrar'}
+          {busy ? 'Entrando...' : modo === 'entrar' ? 'Entrar' : 'Criar senha e entrar'}
+        </button>
+        <button
+          onClick={alternarModo}
+          disabled={busy}
+          className="w-full mt-3 text-xs underline text-center"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          {modo === 'entrar' ? 'Primeiro acesso' : 'Já tenho senha — Entrar'}
         </button>
       </div>
 
