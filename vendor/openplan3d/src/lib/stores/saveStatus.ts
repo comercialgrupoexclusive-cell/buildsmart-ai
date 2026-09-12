@@ -2,6 +2,7 @@ import { writable, get } from 'svelte/store';
 import { currentProject, loadProject } from './project';
 import { localStore, storageErrorMessage, ProjectConflictError, PROJECTS_STORAGE_KEY, LIBRARY_CHANGE_KEY } from '$lib/services/datastore';
 import { saveSnapshot } from '$lib/stores/versionHistory';
+import { isEmbedded } from '$lib/stores/embed';
 import type { Project } from '$lib/models/types';
 
 export type SaveState = 'saved' | 'unsaved' | 'saving';
@@ -120,6 +121,18 @@ async function persist(manual: boolean): Promise<boolean> {
   clearSaveTimer();
   const p = get(currentProject);
   if (!p) return false;
+  // BuildSmart bridge: Supabase é a fonte canônica (ver
+  // $lib/services/bridge.ts), não o IndexedDB deste navegador. O botão
+  // Salvar real é o da barra do PlantaEditor.tsx, que fala bs:request-save
+  // diretamente com o bridge — este caminho local nunca deve escrever no
+  // IndexedDB enquanto embutido, então vira um no-op "sempre salvo".
+  if (isEmbedded()) {
+    saveState.set('saved');
+    saveError.set(null);
+    saveConflict.set(false);
+    lastSavedAt.set(new Date());
+    return true;
+  }
   if (lastProjectId !== p.id) {
     lastSavedAt.set(null);
     saveError.set(null);
@@ -161,6 +174,7 @@ export function manualSave() { return persist(true); }
 
 /** Preserve this tab's version under a fresh ID before changing editor state. */
 export async function saveCurrentAsCopy(): Promise<boolean> {
+  if (isEmbedded()) return false; // sem conceito de "cópia local" no bridge — Supabase é a fonte canônica.
   if (get(savingCopy)) return false;
   const project = get(currentProject);
   if (!project) return false;

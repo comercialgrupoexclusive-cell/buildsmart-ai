@@ -5,13 +5,8 @@
 /.pnp
 .pnp.*
 
-# P4.6 Bloco B — vendored Axonometra tem seu próprio build Vite/node_modules;
-# só o resultado final (public/axonometra/) é versionado, não este rascunho.
-/vendor/axonometra/node_modules
-/vendor/axonometra/dist
-
-# PoC OpenPlan3D — mesmo padrão: vendored SvelteKit app tem seu próprio
-# node_modules/build; só public/labs/openplan3d/ é versionado.
+# OpenPlan3D (motor oficial do Planta 2D/3D) — vendored SvelteKit app tem seu
+# próprio node_modules/build; só public/labs/openplan3d-runtime/ é versionado.
 /vendor/openplan3d/node_modules
 /vendor/openplan3d/build
 /vendor/openplan3d/.svelte-kit

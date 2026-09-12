@@ -40,9 +40,12 @@ export const PROCESSO_MODULES: readonly ProcessoModuleDefinition[] = [
   { key: 'financiamento', label: 'Financiamento' },
   { key: 'rdo', label: 'RDO' },
   { key: 'relatorios', label: 'Relatórios' },
-  // P4.6 Bloco B — não habilitado por padrão: é o editor de Planta Baixa
-  // 2D (Axonometra vendorizado), só faz sentido em Processos que precisam.
-  { key: 'planta_baixa', label: 'Planta Baixa' },
+  // P4.6 Bloco B — não habilitado por padrão: é o editor de planta
+  // paramétrico 2D/3D (OpenPlan3D vendorizado, motor oficial desde a
+  // substituição do Axonometra), só faz sentido em Processos que precisam.
+  // Key interna mantida (`planta_baixa`) para não quebrar `processo_modulos`
+  // já gravado no banco — só o texto visível mudou.
+  { key: 'planta_baixa', label: 'Planta 2D/3D' },
 ]
 
 export function getProcessoModuleDefinition(key: string): ProcessoModuleDefinition | undefined {

@@ -12,12 +12,11 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return {
-      // PoC OpenPlan3D — a SPA SvelteKit vendorizada vive em
-      // public/labs/openplan3d-runtime/ e é compilada com esse mesmo
-      // caminho como `base` (ver scripts/build-openplan3d.mjs). A rota
-      // /labs/openplan3d é só o wrapper Next.js que embute o iframe — os
-      // dois caminhos precisam ficar separados, senão o router do Svelte
-      // trata a URL do wrapper como rota interna e cai no +error.svelte.
+      // Motor oficial do módulo Planta 2D/3D (OpenPlan3D) — a SPA SvelteKit
+      // vendorizada vive em public/labs/openplan3d-runtime/ e é compilada
+      // com esse mesmo caminho como `base` (ver
+      // scripts/build-openplan3d.mjs). components/processo/planta-baixa/
+      // PlantaEditor.tsx embute a raiz desse runtime num iframe.
       //
       // Estes rewrites são `fallback`: só entram em jogo quando nenhum
       // arquivo estático real (_app/**, models/**, textures/**) nem rota do

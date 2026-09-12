@@ -2,9 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
 /**
- * Camada de interação BuildSmart (PoC /labs/openplan3d) — script obrigatório
- * da rodada, ponto a ponto, sem teclado e sem atalhos: tudo pelos controles
- * da barra. Roda em desktop e no viewport mobile com toque real.
+ * Camada de interação BuildSmart do módulo oficial Planta 2D/3D — script
+ * obrigatório da rodada, ponto a ponto, sem teclado e sem atalhos: tudo
+ * pelos controles da barra. Roda em desktop e no viewport mobile com toque
+ * real, direto na rota /editor do motor (sem o bridge Supabase — ver
+ * bridge.test.ts e a rota é a mesma que components/processo/planta-baixa/
+ * PlantaEditor.tsx embute em produção).
  */
 
 const YELLOW = { r: 0xea, g: 0xb3, b: 0x08 }; // DEMOLIR (ver $lib/utils/wallStatus)

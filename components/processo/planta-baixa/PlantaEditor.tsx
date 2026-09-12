@@ -3,18 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { obterPlanta, salvarPlanoPlanta, type Planta } from '@/lib/processo/planta-baixa'
+import { obterPlanta, salvarPlanoPlanta, wrapOpenPlan3DProject, unwrapOpenPlan3DProject, type Planta } from '@/lib/processo/planta-baixa'
 import { useProfile } from '@/lib/profile-context'
 
-// P4.6 Bloco B — hospeda o Axonometra vendorizado (public/axonometra/,
-// commit pinado em vendor/axonometra/VENDOR.md) num iframe same-origin e
-// fala o protocolo documentado em EMBEDDING.md: axo:ready (mount) ->
-// axo:load (nós mandamos o plano salvo) -> ... usuário edita ... ->
-// axo:request-save (nós pedimos) -> axo:save (editor responde com o JSON
-// atual) -> gravamos em plantas.plan_json. Nunca usamos '*' como
-// targetOrigin nas mensagens que ENVIAMOS (window.location.origin, que é
-// exatamente a origem que o próprio bridge do editor aceita — ver
-// vendor/axonometra/src/embed/embedConfig.ts).
+// Motor oficial do Planta 2D/3D: OpenPlan3D vendorizado
+// (public/labs/openplan3d-runtime/, commit pinado — ver
+// vendor/openplan3d/VENDOR.md), hospedado num iframe same-origin. Protocolo
+// bs:* (mesma forma do bridge que existia para o Axonometra, agora
+// descartado): bs:ready (mount) -> bs:load (nós mandamos o projeto,
+// unwrapOpenPlan3DProject decide se é um projeto válido ou planta
+// nova/legada) -> ... usuário edita ... -> bs:request-save (nós pedimos) ->
+// bs:save (editor devolve o JSON do projeto) -> gravamos em
+// plantas.plan_json, envelopado por wrapOpenPlan3DProject (engine +
+// schemaVersion). Nunca usamos '*' como targetOrigin nas mensagens que
+// ENVIAMOS (window.location.origin — mesma origem que o próprio bridge do
+// editor aceita, ver vendor/openplan3d/src/lib/services/bridge.ts).
 export function PlantaEditor({ plantaId, onClose }: { plantaId: string; onClose: () => void }) {
   const supabase = createClient()
   const { currentProfile } = useProfile()
@@ -34,57 +37,64 @@ export function PlantaEditor({ plantaId, onClose }: { plantaId: string; onClose:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plantaId])
 
-  const axoOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+  const bsOrigin = typeof window !== 'undefined' ? window.location.origin : ''
 
-  const enviarPlano = useCallback((plano: unknown) => {
-    iframeRef.current?.contentWindow?.postMessage({ type: 'axo:load', plan: plano }, axoOrigin)
-  }, [axoOrigin])
+  const enviarPlano = useCallback((plantaAtual: Planta) => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'bs:load', plan: unwrapOpenPlan3DProject(plantaAtual.plan_json) },
+      bsOrigin,
+    )
+  }, [bsOrigin])
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
-      if (event.origin !== axoOrigin) return
+      if (event.origin !== bsOrigin) return
       const data = event.data as { type?: string; plan?: string }
-      if (data?.type === 'axo:ready') {
+      if (data?.type === 'bs:ready') {
         setEditorReady(true)
-        if (planta) enviarPlano(planta.plan_json)
+        if (planta) enviarPlano(planta)
       }
-      if (data?.type === 'axo:save' && typeof data.plan === 'string') {
+      if (data?.type === 'bs:save' && typeof data.plan === 'string') {
         setSaving(true)
         setError(null)
-        let parsed: unknown
+        let project: unknown
         try {
-          parsed = JSON.parse(data.plan)
+          project = JSON.parse(data.plan)
         } catch {
           setSaving(false)
           setError('O editor devolveu um plano inválido — nada foi salvo.')
           return
         }
-        salvarPlanoPlanta(supabase, plantaId, parsed, currentProfile?.id)
-          .then(() => setSavedAt(new Date()))
+        const envelope = wrapOpenPlan3DProject(project)
+        salvarPlanoPlanta(supabase, plantaId, envelope, currentProfile?.id)
+          .then(() => {
+            setSavedAt(new Date())
+            setPlanta((p) => (p ? { ...p, plan_json: envelope } : p))
+          })
           .catch(() => setError('Não foi possível salvar a planta.'))
           .finally(() => setSaving(false))
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [axoOrigin, planta, plantaId, currentProfile?.id, supabase, enviarPlano])
+  }, [bsOrigin, planta, plantaId, currentProfile?.id, supabase, enviarPlano])
 
   // Se o editor já sinalizou pronto antes da planta terminar de carregar
   // (raro, mas possível), manda assim que ela chegar.
   useEffect(() => {
-    if (editorReady && planta) enviarPlano(planta.plan_json)
+    if (editorReady && planta) enviarPlano(planta)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorReady, planta])
 
   function handleSalvar() {
-    iframeRef.current?.contentWindow?.postMessage({ type: 'axo:request-save' }, axoOrigin)
+    iframeRef.current?.contentWindow?.postMessage({ type: 'bs:request-save' }, bsOrigin)
   }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="min-w-0">
-          <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{planta?.nome || 'Planta Baixa'}</p>
+          <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{planta?.nome || 'Planta 2D/3D'}</p>
           <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
             {error ? <span style={{ color: 'var(--danger)' }}>{error}</span>
               : saving ? 'Salvando...'
@@ -107,7 +117,12 @@ export function PlantaEditor({ plantaId, onClose }: { plantaId: string; onClose:
         </div>
       </div>
 
-      <div className="flex-1 relative">
+      {/* pb reserva a altura da barra fixa da Luiza (LuiziaFloatingChat),
+          reusando os mesmos valores que o AppLayout já usa para isso — a
+          barra principal de ferramentas do OpenPlan3D (BuildSmartBar, no
+          rodapé do iframe) fica assim imediatamente acima da Luiza, sem
+          escondê-la nem movê-la. */}
+      <div className="flex-1 relative pb-24 sm:pb-28">
         {loading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-8 h-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} />
@@ -115,10 +130,10 @@ export function PlantaEditor({ plantaId, onClose }: { plantaId: string; onClose:
         ) : (
           <iframe
             ref={iframeRef}
-            src="/axonometra/index.html?embed=1"
+            src="/labs/openplan3d-runtime/editor?embed=1"
             className="w-full h-full border-0"
-            title="Editor de Planta Baixa"
-            sandbox="allow-scripts allow-same-origin allow-downloads"
+            title="Editor de Planta 2D/3D"
+            sandbox="allow-scripts allow-same-origin allow-downloads allow-forms allow-popups"
           />
         )}
       </div>

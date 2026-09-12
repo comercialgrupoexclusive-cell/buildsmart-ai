@@ -1,19 +1,19 @@
-// PoC OpenPlan3D — reconstrói o app vendorizado em vendor/openplan3d/
-// (commit pinado — ver vendor/openplan3d/VENDOR.md) e copia o resultado
-// estático para public/labs/openplan3d-runtime/, de onde o Next.js serve
-// como asset estático, no mesmo padrão de scripts/build-axonometra.mjs.
+// Motor oficial do módulo Planta 2D/3D do Processo — reconstrói o app
+// vendorizado em vendor/openplan3d/ (commit pinado — ver
+// vendor/openplan3d/VENDOR.md) e copia o resultado estático para
+// public/labs/openplan3d-runtime/, de onde o Next.js serve como asset
+// estático. `components/processo/planta-baixa/PlantaEditor.tsx` embute a
+// raiz desse runtime num iframe same-origem e fala o protocolo bs:* (ver
+// vendor/openplan3d/src/lib/services/bridge.ts) — Supabase (`plantas.
+// plan_json`) é a fonte canônica, o runtime não persiste nada por conta
+// própria quando embutido. O caminho público (`/labs/openplan3d-runtime`)
+// é um nome legado da rodada de PoC anterior; manter evita recompilar o
+// `base` do SvelteKit sem ganho funcional.
 //
-// A URL pública do runtime (/labs/openplan3d-runtime) é DIFERENTE da rota
-// wrapper do BuildSmart (/labs/openplan3d, uma page do Next.js que só
-// embute o iframe). As duas não podem colidir: o SvelteKit é compilado com
-// `base` igual à raiz do runtime e interpreta qualquer coisa além dessa
-// base como rota interna da SPA — com as duas no mesmo caminho, o router
-// do Svelte caía no +error.svelte ("Page not found").
-//
-// NÃO faz parte do `npm run build` principal — mesmo motivo do Axonometra:
-// é um app SvelteKit inteiro com seu próprio node_modules (~260 pacotes),
-// que só precisa ser rebuildado quando vendor/openplan3d/ mudar. Rodar
-// manualmente e commitar o resultado em public/labs/openplan3d-runtime/.
+// NÃO faz parte do `npm run build` principal: é um app SvelteKit inteiro
+// com seu próprio node_modules (~260 pacotes), que só precisa ser
+// rebuildado quando vendor/openplan3d/ mudar. Rodar manualmente e commitar
+// o resultado em public/labs/openplan3d-runtime/.
 import { execFileSync } from 'child_process'
 import { cpSync, existsSync, rmSync } from 'fs'
 import { join, dirname } from 'path'

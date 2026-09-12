@@ -1,8 +1,8 @@
 import type { Wall, WallStatus } from '$lib/models/types';
 
 /**
- * BuildSmart PoC — convenção de reforma já usada no BuildSmart (Axonometra):
- * EXISTENTE = cinza, CONSTRUIR = vermelho, DEMOLIR = amarelo.
+ * Convenção de reforma do BuildSmart: EXISTENTE = cinza, CONSTRUIR =
+ * vermelho, DEMOLIR = amarelo.
  *
  * Fonte única: o 2D (canvasRenderer), o 3D (ThreeViewer) e a UI (barra
  * BuildSmart + painel de propriedades) leem daqui, para não haver duas

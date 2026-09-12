@@ -146,7 +146,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     ...(habilitados.has('compras') ? [{ key: 'compras' as const, label: 'Compras', icon: ShoppingCart }] : []),
     ...(habilitados.has('financeiro') ? [{ key: 'financeiro' as const, label: 'Financeiro', icon: Wallet }] : []),
     ...(habilitados.has('financiamento') ? [{ key: 'financiamento' as const, label: 'Financiamento', icon: Landmark }] : []),
-    ...(habilitados.has('planta_baixa') ? [{ key: 'planta_baixa' as const, label: 'Planta Baixa', icon: LayoutTemplate }] : []),
+    ...(habilitados.has('planta_baixa') ? [{ key: 'planta_baixa' as const, label: 'Planta 2D/3D', icon: LayoutTemplate }] : []),
   ]
 
   return (

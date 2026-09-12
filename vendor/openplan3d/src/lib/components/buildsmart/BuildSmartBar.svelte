@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * Camada de interação BuildSmart (PoC /labs/openplan3d).
+   * Camada de interação BuildSmart do módulo oficial Planta 2D/3D.
    *
    * Barra principal sempre visível, acionável só por toque — sem teclado,
    * sem atalhos V/W/D, sem hover, sem menu lateral escondido. Não
@@ -9,8 +9,8 @@
    *
    * Fica ancorada no rodapé do editor. No BuildSmart o editor roda dentro de
    * um iframe cuja altura já termina acima da barra fixa da Luiza (ver
-   * app/(app)/labs/openplan3d/page.tsx), então esta barra cai exatamente
-   * imediatamente acima dela, sem esconder nem mover a Luiza.
+   * components/processo/planta-baixa/PlantaEditor.tsx), então esta barra cai
+   * exatamente imediatamente acima dela, sem esconder nem mover a Luiza.
    */
   import { selectedTool, viewMode, selectedElementId, wallStatusToApply, wallChainActive, wallChainCommand, type Tool } from '$lib/stores/project';
   import { WALL_STATUS_ORDER, WALL_STATUS_LABELS, WALL_STATUS_COLORS } from '$lib/utils/wallStatus';

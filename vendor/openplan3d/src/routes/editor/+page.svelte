@@ -1,6 +1,6 @@
 <script lang="ts">
   import { modalDialog, hasOpenModal } from '$lib/utils/modalDialog';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { base } from '$app/paths';
   import { replaceState } from '$app/navigation';
@@ -10,6 +10,7 @@
   import { localStore, storageErrorMessage, downloadLibraryBackup } from '$lib/services/datastore';
   import { autoSave, markClean, saveState } from '$lib/stores/saveStatus';
   import { createProjectFromRoomPlan, isRoomPlanJson } from '$lib/utils/roomplanImport';
+  import { initBridge, isEmbedded } from '$lib/services/bridge';
   import TopBar from '$lib/components/toolbar/TopBar.svelte';
   import BuildPanel from '$lib/components/sidebar/BuildPanel.svelte';
   import BuildSmartBar from '$lib/components/buildsmart/BuildSmartBar.svelte';
@@ -128,6 +129,18 @@
   async function initializeEditor() {
     loadError = null;
     try {
+      // BuildSmart bridge (?embed=1, módulo oficial Planta 2D/3D do
+      // Processo): Supabase é a fonte canônica, não a URL/IndexedDB. Um
+      // documento em branco fica pronto para uso imediato; o projeto real
+      // chega pela mensagem bs:load assim que o parent responder ao
+      // bs:ready (ver initBridge em onMount abaixo).
+      if (isEmbedded()) {
+        await tick(); // deixa o componente terminar de montar antes de mexer no estado reativo (mesmo motivo do `await autoSave()` no fluxo normal, abaixo)
+        loadProject(createDefaultProject());
+        ready = true;
+        return;
+      }
+
       const url = new URL(window.location.href);
 
       // iOS capture handoff: ?import=CODE
@@ -174,6 +187,7 @@
 
   onMount(() => {
     void initializeEditor();
+    const stopBridge = isEmbedded() ? initBridge() : null;
     // Imports can replace the active project from either sidebar or toolbar.
     // Keep reloads pointed at that project once initial route loading is complete.
     const stopSyncProjectUrl = currentProject.subscribe((project) => {
@@ -197,6 +211,7 @@
     window.addEventListener('beforeunload', onBeforeUnload);
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
+      stopBridge?.();
       stopSyncProjectUrl();
       window.removeEventListener('beforeunload', onBeforeUnload);
       document.removeEventListener('visibilitychange', onVisibilityChange);

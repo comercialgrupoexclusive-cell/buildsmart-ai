@@ -1,9 +1,11 @@
-# Vendoring note — PoC OpenPlan3D (`/labs/openplan3d`)
+# Vendoring note — OpenPlan3D (motor oficial do Planta 2D/3D)
 
 Este diretório é uma cópia vendorizada (não submódulo) do editor paramétrico
-2D/3D de planta baixa **OpenPlan3D**, incorporada ao BuildSmart **apenas como
-prova de conceito isolada** — ver `NOTA_POC_OPENPLAN3D.md` na raiz do repo
-para o objetivo, escopo e critérios de PASS/FAIL desta rodada.
+2D/3D de planta baixa **OpenPlan3D**. Começou como PoC isolada e, após
+validação (ver histórico do Git — `NOTA_POC_OPENPLAN3D.md`/
+`RELATORIO_POC_OPENPLAN3D.md` da rodada de PoC), foi promovido a **motor
+oficial do módulo Planta 2D/3D do Processo**, substituindo o Axonometra
+(removido da HEAD; preservado no histórico do Git).
 
 - **URL upstream:** https://github.com/laanlabs/openPlan3D (nome do pacote
   `open3dfloorplan`; há um fork/rename em `theLodgeBots/open3dFloorplan`
@@ -16,19 +18,35 @@ para o objetivo, escopo e critérios de PASS/FAIL desta rodada.
   copyright theLodgeStudio 2026 — sem divergência entre o `LICENSE` e o que o
   `README.md`/`package.json` anunciam).
 - **Modelos 3D:** fontes documentadas em `MODEL_SOURCES.md` (majoritariamente
-  Kenney.nl, licença CC0) — não auditado item a item nesta rodada porque a
-  PoC não usa a biblioteca de mobiliário (fora de escopo, ver item 7 da nota
-  de tarefa).
+  Kenney.nl, licença CC0) — não usados pelo módulo oficial (biblioteca de
+  mobiliário fora de escopo até hoje).
 - **Stack:** SvelteKit 2 + Svelte 5 + Three.js + TypeScript + Tailwind v4 +
   Vite 7 — bem diferente do stack do app principal (Next.js/React), por isso
-  vendorizado e buildado como app estático separado, no mesmo padrão já usado
-  para `vendor/axonometra/` (ver `vendor/axonometra/VENDOR.md`).
+  vendorizado e buildado como app estático separado, servido same-origin.
+
+## Integração com o BuildSmart
+
+`components/processo/planta-baixa/PlantaEditor.tsx` embute a raiz do runtime
+compilado (`public/labs/openplan3d-runtime/`) num iframe same-origin e fala
+o protocolo `bs:*` implementado em `src/lib/services/bridge.ts`:
+`bs:ready` (mount) → `bs:load` (o BuildSmart manda o projeto, lido de
+`plantas.plan_json`) → ... edição ... → `bs:request-save` (BuildSmart pede) →
+`bs:save` (o editor devolve o JSON do projeto atual). Supabase é a fonte
+canônica: com `?embed=1` na URL, o editor nunca lê do IndexedDB/localStorage
+próprio (`src/lib/stores/saveStatus.ts` neutraliza esse caminho) — só grava o
+que vier explicitamente por `bs:save`.
+
+A camada de interação (barra "Selecionar · Parede · Porta · Janela · 2D/3D ·
+Mais", status de reforma Existente/Construir/Demolir como propriedade da
+parede) vive em `src/lib/components/buildsmart/BuildSmartBar.svelte` e
+`src/lib/utils/wallStatus.ts` — aciona as ferramentas nativas do motor, não
+reimplementa geometria.
 
 ## Sem dependência do upstream em runtime
 
 O upstream é hospedado em produção como app Firebase (SSR, Firebase Hosting +
 Analytics + um endpoint de "handoff" do app iOS que lê/escreve num bucket do
-Firebase Storage do projeto `openplan3d`). Para a PoC:
+Firebase Storage do projeto `openplan3d`). Nesta vendorização:
 
 - **Analytics desligado.** `src/routes/+layout.svelte` só importa
   `$lib/firebase` (que inicializa o Firebase Analytics do projeto do
@@ -39,41 +57,51 @@ Firebase Storage do projeto `openplan3d`). Para a PoC:
   e nenhum evento é enviado ao projeto Firebase do upstream.
 - **Adapter trocado de `adapter-node` para `adapter-static`** (SPA, com
   `fallback: 'index.html'`) — o upstream roda como servidor Node com SSR
-  (Firebase App Hosting); a PoC precisa de um bundle 100% estático para
-  servir de `public/labs/openplan3d-runtime/` como asset do Next.js, igual
-  ao padrão do Axonometra. Isso desativa a única rota de servidor real do projeto,
+  (Firebase App Hosting); a integração precisa de um bundle 100% estático
+  para servir de `public/labs/openplan3d-runtime/` como asset do Next.js.
+  Isso desativa a única rota de servidor real do projeto,
   `src/routes/api/handoffs/+server.ts` (import de scan do app iOS via
-  Firebase Storage) — não usada por esta PoC.
+  Firebase Storage) — não usada pelo módulo oficial.
 - **Um ponto residual não neutralizado:** `src/routes/editor/+page.svelte`
   monta uma URL fixa para `firebasestorage.googleapis.com/.../openplan3d...`
   para o fluxo manual de "importar por código de handoff" (usuário digita um
   código de 4 dígitos vindo do app iOS). Esse fluxo não é exposto nem testado
-  nesta PoC (não faz parte do escopo funcional pedido) e só faria uma
-  requisição de rede se um usuário manualmente digitasse um código — é
-  tratado como risco residual aceito para uma PoC isolada, não como
-  dependência de runtime do fluxo principal. Registrado aqui para uma futura
-  rodada de produção, que deveria removê-lo ou apontar para infraestrutura
-  própria antes de qualquer uso real.
-- Save/load usa `localStorage`/IndexedDB do próprio navegador
-  (`src/lib/services/datastore.ts` e `localDatabase.ts`) — não depende de
-  nenhum backend, nem do upstream nem do Supabase do BuildSmart.
+  pelo módulo oficial e só faria uma requisição de rede se um usuário
+  manualmente digitasse um código no `?import=` da URL do runtime (não
+  alcançável pela UI do BuildSmart) — risco residual aceito, registrado aqui
+  para uma futura rodada que deveria removê-lo ou apontar para
+  infraestrutura própria antes de qualquer uso real desse fluxo.
+- Fora do bridge (app aberto standalone, sem `?embed=1`), save/load usa
+  `localStorage`/IndexedDB do próprio navegador
+  (`src/lib/services/datastore.ts` e `localDatabase.ts`) — só relevante para
+  quem roda `vendor/openplan3d` isoladamente (dev/teste); o módulo oficial no
+  Processo nunca cai nesse caminho.
 
-## Diferenças em relação ao upstream (PoC)
+## Diferenças em relação ao upstream
 
-Extensão mínima, só de configuração de build — **nenhuma linha de lógica de
-domínio (paredes/portas/janelas/ambientes/3D) foi alterada**:
+Extensão mínima de configuração de build, mais o bridge/interação BuildSmart
+descritos acima — **nenhuma linha de lógica geométrica de domínio
+(paredes/portas/janelas/ambientes/3D) foi alterada**; a barra e o status de
+reforma acionam as ferramentas nativas do motor (`addWall`, `setWallStatus`,
+`resizeWallLength`, etc.), não reimplementam nada:
 
 - `svelte.config.js`: `adapter-node` → `adapter-static` com
   `fallback: 'index.html'` e `paths.base` vindo de `OPENPLAN3D_BASE_PATH`
-  (`/labs/openplan3d-runtime` no build da PoC — ver
-  `scripts/build-openplan3d.mjs`). Esse caminho é **diferente** da rota
-  wrapper do BuildSmart (`/labs/openplan3d`): como o router do SvelteKit
-  trata tudo além da `base` como rota interna, os dois no mesmo caminho
-  faziam o iframe cair no `+error.svelte` ("Page not found").
+  (`/labs/openplan3d-runtime` — ver `scripts/build-openplan3d.mjs`; nome
+  legado da rodada de PoC, mantido para não recompilar o `base` sem ganho
+  funcional).
 - `package.json`: adicionado `@sveltejs/adapter-static` como devDependency.
+- `src/lib/models/types.ts`: campo opcional `Wall.status` (estado de
+  reforma) — ausente equivale a `EXISTENTE`.
+- `src/lib/services/bridge.ts`, `src/lib/stores/embed.ts` (novos): protocolo
+  `bs:*` descrito acima.
+- `src/lib/components/buildsmart/BuildSmartBar.svelte` (novo) e ajustes
+  pontuais em `PropertiesPanel.svelte`/`FloorPlanCanvas.svelte`/
+  `canvasRenderer.ts`/`ThreeViewer.svelte` para expor a barra e o status de
+  reforma reaproveitando os caminhos existentes de seleção/render/material.
 
 ## Não atualizar automaticamente
 
-Se uma versão futura for necessária (fora do escopo desta PoC — ela não vira
-produto sem uma rodada própria de decisão), repetir esta auditoria completa
-(licença + modelos + dependências de runtime) antes de re-vendorizar.
+Se uma versão futura do upstream for necessária, repetir esta auditoria
+completa (licença + modelos + dependências de runtime) antes de
+re-vendorizar.

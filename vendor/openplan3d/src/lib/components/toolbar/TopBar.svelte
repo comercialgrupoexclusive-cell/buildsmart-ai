@@ -18,6 +18,14 @@
   import { saveState, saveError, lastSavedAt, manualSave, autoSave, initAutoSave } from '$lib/stores/saveStatus';
   import { initVersionHistory, stopVersionHistory, snapshotOnAction } from '$lib/stores/versionHistory';
   import VersionHistoryPanel from './VersionHistoryPanel.svelte';
+  import { isEmbedded } from '$lib/stores/embed';
+
+  // BuildSmart bridge: dentro do módulo oficial do Processo não existe
+  // biblioteca de projetos nem conceito de "novo projeto" solto — cada
+  // documento é uma Planta do Processo (criada/aberta pela lista do
+  // BuildSmart). Esconder esses dois caminhos evita levar o usuário para a
+  // tela de boas-vindas do motor, sem volta pelo chrome do BuildSmart.
+  const embedded = isEmbedded();
 
   const openingLifetime = new AbortController();
   onDestroy(() => openingLifetime.abort());
@@ -290,15 +298,19 @@
 </script>
 
 <div class="h-12 bg-gradient-to-r from-slate-800 to-slate-700 flex items-center px-4 gap-2 max-xl:px-2 max-xl:gap-1 shrink-0 shadow-sm">
-  <!-- Back to Projects -->
-  <a
-    href={base || '/'}
-    class="flex items-center gap-1 text-white/70 hover:text-white text-sm transition-colors"
-    title="Back to Projects"
-  >
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-    <span class="hidden sm:inline">Projects</span>
-  </a>
+  <!-- Back to Projects: escondido no bridge — a lista de Plantas é a do
+       Processo (ProcessoPlantaBaixa.tsx), não a tela de boas-vindas do
+       motor, que não tem volta pelo chrome do BuildSmart. -->
+  {#if !embedded}
+    <a
+      href={base || '/'}
+      class="flex items-center gap-1 text-white/70 hover:text-white text-sm transition-colors"
+      title="Back to Projects"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      <span class="hidden sm:inline">Projects</span>
+    </a>
+  {/if}
 
   <div class="h-5 w-px bg-white/20 max-xl:hidden"></div>
 
@@ -583,10 +595,12 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Import JSON
         </button>
-        <button class="w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left flex items-center gap-2" onclick={newProject}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          New Project
-        </button>
+        {#if !embedded}
+          <button class="w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left flex items-center gap-2" onclick={newProject}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Project
+          </button>
+        {/if}
       </div>
     {/if}
   </div>

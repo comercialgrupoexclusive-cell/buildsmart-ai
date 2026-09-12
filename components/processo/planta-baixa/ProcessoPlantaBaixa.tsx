@@ -9,10 +9,11 @@ import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PlantaEditor } from './PlantaEditor'
 
-// P4.6 Bloco B — Processo → Planta Baixa: lista de plantas do Processo,
-// Nova Planta / Abrir, conforme pedido pelo P4.6 ("Processo → módulo/aba
-// Planta Baixa → lista de plantas → Nova Planta / Abrir"). Cada linha é um
-// cenário independente (nunca sobrescreve outra).
+// Processo → Planta 2D/3D: lista de plantas do Processo, Nova Planta /
+// Abrir (arquitetura original do P4.6 Bloco B, preservada na substituição do
+// motor Axonometra → OpenPlan3D). Cada linha é um cenário independente
+// (nunca sobrescreve outra) — ver components/processo/planta-baixa/
+// PlantaEditor.tsx para o motor/protocolo de persistência.
 export function ProcessoPlantaBaixa({ processoId }: { processoId: string }) {
   const supabase = createClient()
   const { currentProfile } = useProfile()
@@ -91,7 +92,7 @@ export function ProcessoPlantaBaixa({ processoId }: { processoId: string }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <LayoutTemplate size={18} style={{ color: 'var(--accent)' }} />
-          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Planta Baixa</h2>
+          <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Planta 2D/3D</h2>
         </div>
         <Button size="sm" icon={<Plus size={16} />} loading={criando} onClick={handleNovaPlanta}>
           Nova Planta
