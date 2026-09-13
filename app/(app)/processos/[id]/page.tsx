@@ -14,7 +14,7 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart, ShoppingCart, Wallet, Landmark, LayoutTemplate } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart, ShoppingCart, Wallet, Landmark, LayoutTemplate, LayoutDashboard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
@@ -37,6 +37,7 @@ import { ProcessoCompras } from '@/components/processo/compras/ProcessoCompras'
 import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ProcessoPlantaBaixa } from '@/components/processo/planta-baixa/ProcessoPlantaBaixa'
+import { ProcessoBoard } from '@/components/processo/board/ProcessoBoard'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
@@ -48,7 +49,7 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa'
+type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board'
 
 export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -147,6 +148,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     ...(habilitados.has('financeiro') ? [{ key: 'financeiro' as const, label: 'Financeiro', icon: Wallet }] : []),
     ...(habilitados.has('financiamento') ? [{ key: 'financiamento' as const, label: 'Financiamento', icon: Landmark }] : []),
     ...(habilitados.has('planta_baixa') ? [{ key: 'planta_baixa' as const, label: 'Planta 2D/3D', icon: LayoutTemplate }] : []),
+    ...(habilitados.has('board') ? [{ key: 'board' as const, label: 'Board', icon: LayoutDashboard }] : []),
   ]
 
   return (
@@ -185,9 +187,9 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
               <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Módulos</h2>
             </div>
             <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
-              Orçamento, Planejamento, Tarefas, Medições, Compras, Financeiro e Financiamento já têm tela própria.
-              Projeto Técnico/Arquivos e Relatórios ainda são só o vínculo habilitado/desabilitado, sem conteúdo —
-              a migração continua módulo a módulo.
+              Orçamento, Planejamento, Tarefas, Medições, Compras, Financeiro, Financiamento, Planta 2D/3D e Board já
+              têm tela própria. Projeto Técnico/Arquivos e Relatórios ainda são só o vínculo habilitado/desabilitado,
+              sem conteúdo — a migração continua módulo a módulo.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {registry.map(mod => {
@@ -241,6 +243,8 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
         {tab === 'tarefas' && <ContextoTarefas processoId={processo.id} />}
 
         {tab === 'planta_baixa' && <ProcessoPlantaBaixa processoId={processo.id} />}
+
+        {tab === 'board' && <ProcessoBoard processoId={processo.id} />}
       </div>
     </ProcessProvider>
   )

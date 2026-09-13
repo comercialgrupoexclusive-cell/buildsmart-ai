@@ -17,6 +17,7 @@ export type ProcessoModuleKey =
   | 'rdo'
   | 'relatorios'
   | 'planta_baixa'
+  | 'board'
 
 export type ProcessoModuleDefinition = {
   key: ProcessoModuleKey
@@ -46,6 +47,12 @@ export const PROCESSO_MODULES: readonly ProcessoModuleDefinition[] = [
   // Key interna mantida (`planta_baixa`) para não quebrar `processo_modulos`
   // já gravado no banco — só o texto visível mudou.
   { key: 'planta_baixa', label: 'Planta 2D/3D' },
+  // Rodada "núcleo operacional" — reaproveita o Board Excalidraw já
+  // existente (components/board/ExcalidrawBoard.tsx: desenho, PDF,
+  // arquivos, realtime, presence, NC), agora também vinculável por
+  // processo_id. Não habilitado por padrão: nem todo Processo precisa de
+  // quadro colaborativo.
+  { key: 'board', label: 'Board' },
 ]
 
 export function getProcessoModuleDefinition(key: string): ProcessoModuleDefinition | undefined {

@@ -16,6 +16,13 @@ const eslintConfig = defineConfig([
     // eslint.config.js/node_modules, já lintado isoladamente ali dentro;
     // não é código do app Next.js.
     "vendor/**",
+    // Bug real encontrado nesta rodada: `npm run lint` sem argumentos
+    // (eslint's próprio file discovery) varre `public/` inteiro, incluindo
+    // o runtime OpenPlan3D compilado/minificado — nunca foi ignorado
+    // (existia o mesmo problema antes desta rodada, só nunca tinha sido
+    // rodado sem uma lista de arquivos explícita). Asset gerado por build,
+    // não código-fonte do app.
+    "public/labs/openplan3d-runtime/**",
   ]),
 ]);
 

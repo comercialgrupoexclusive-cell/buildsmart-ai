@@ -22,6 +22,10 @@ interface Props {
   // persistência do Board de Project (board_data em vez da tabela `boards`,
   // que é exclusiva de obra/portal). Ver RELATORIO_INVESTIDOR_RODADA_02.md.
   prospeccaoId?: string
+  // Motor de Processo (rodada "núcleo operacional") — mesmo mecanismo do
+  // Board de Obra: find-or-create na tabela `boards` (scope='processo'),
+  // arquivos por board_id. Cada Processo tem seu Board independente.
+  processoId?: string
 }
 
 interface ViewState {
@@ -41,9 +45,9 @@ function zoomValue(appStateZoom: Any): number {
   return typeof appStateZoom === 'number' ? appStateZoom : 1
 }
 
-export function ExcalidrawBoard({ projectId, obraId, portalToken, prospeccaoId }: Props) {
+export function ExcalidrawBoard({ projectId, obraId, portalToken, prospeccaoId, processoId }: Props) {
   const { currentProfile } = useProfile()
-  const supportsNC = Boolean(projectId || obraId)
+  const supportsNC = Boolean(projectId || obraId || processoId)
 
   const [initialData, setInitialData]      = useState<Any>(null)
   const [loaded, setLoaded]                = useState(false)
@@ -128,6 +132,21 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken, prospeccaoId }
           const { data: rows } = await supabase.from('board_files')
             .select('id, mime_type, data_url, created').eq('board_id', board.id)
           fileRows = rows ?? []
+        } else if (processoId) {
+          let { data: board } = await supabase.from('boards').select('id,document_data')
+            .eq('processo_id', processoId).eq('scope', 'processo').order('created_at').limit(1).maybeSingle()
+          if (!board) {
+            const created = await supabase.from('boards').insert({
+              processo_id: processoId, name: 'Board do Processo', scope: 'processo', visibility: 'internal',
+            }).select('id,document_data').single()
+            board = created.data
+          }
+          if (!board) throw new Error('Nao foi possivel criar o Board do Processo.')
+          setBoardId(board.id)
+          document = board.document_data
+          const { data: rows } = await supabase.from('board_files')
+            .select('id, mime_type, data_url, created').eq('board_id', board.id)
+          fileRows = rows ?? []
         }
 
         // Reconstrói o mapa de arquivos e registra IDs já persistidos
@@ -158,7 +177,7 @@ export function ExcalidrawBoard({ projectId, obraId, portalToken, prospeccaoId }
       }
     }
     load()
-  }, [projectId, obraId, portalToken, prospeccaoId])
+  }, [projectId, obraId, portalToken, prospeccaoId, processoId])
 
   // ── Supabase Realtime — Broadcast + Presence ──────────────────────────────
 
