@@ -9,18 +9,20 @@
 // BDI/gerenciamento — inclusive valor fixo contratado (P1: evita erro de
 // arredondamento de converter um valor fixo real em percentual).
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, ChevronUp, Search, Settings2, Wallet } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronUp, Plus, Search, Settings2, Wallet } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import { calcularTotalOperacional } from '@/lib/orcamento/arvore'
+import { inserirItemOrcamento, resolverGrupoId, type ClassificacaoInsumo } from '@/lib/orcamento/inserir-item'
 import { MetricCard } from '@/components/ui/InsightCard'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
+import { Input, Select } from '@/components/ui/Input'
 import { LinhaArvore, agruparPorEtapa, calcularTotal } from './types'
 
 type OrcamentoResumoInfo = {
   id: string
+  processo_id: string | null
   versao: number
   status: string
   bdi_percentual: number
@@ -44,6 +46,15 @@ export function OrcamentoResumo({
   const [bdi, setBdi] = useState(String(orcamento.bdi_percentual))
   const [gerPct, setGerPct] = useState(String(orcamento.gerenciamento_percentual))
   const [gerFixo, setGerFixo] = useState(orcamento.gerenciamento_valor_fixo != null ? String(orcamento.gerenciamento_valor_fixo) : '')
+  const [novaEtapa, setNovaEtapa] = useState('')
+  const [novaSubetapa, setNovaSubetapa] = useState('')
+  const [novoItem, setNovoItem] = useState('')
+  const [novaUnidade, setNovaUnidade] = useState('UN')
+  const [novaQuantidade, setNovaQuantidade] = useState('')
+  const [novoValor, setNovoValor] = useState('')
+  const [novaClassificacao, setNovaClassificacao] = useState<ClassificacaoInsumo>('MATERIAL_SERVICOS')
+  const [criandoEstrutura, setCriandoEstrutura] = useState(false)
+  const [erroEstrutura, setErroEstrutura] = useState<string | null>(null)
 
   const custoDireto = useMemo(() => calcularTotal(linhas), [linhas])
   const { bdi: bdiValor, gerenciamento, total: totalGeral } = useMemo(() => calcularTotalOperacional({
@@ -76,6 +87,73 @@ export function OrcamentoResumo({
       setAvancadoAberto(false)
     } finally {
       setSalvando(false)
+    }
+  }
+
+  async function criarPrimeiraEstrutura() {
+    setErroEstrutura(null)
+    if (!novaEtapa.trim()) { setErroEstrutura('Informe a etapa.'); return }
+    if (!novaSubetapa.trim()) { setErroEstrutura('Informe a subetapa.'); return }
+    if (!novoItem.trim()) { setErroEstrutura('Informe o item.'); return }
+    setCriandoEstrutura(true)
+    try {
+      const { data: etapasExistentes } = await supabase
+        .from('etapas')
+        .select('ordem')
+        .eq('orcamento_id', orcamento.id)
+        .order('ordem', { ascending: false })
+        .limit(1)
+
+      const proximaOrdem = Number(etapasExistentes?.[0]?.ordem ?? 0) + 1
+      const { data: etapaCriada, error: etapaError } = await supabase
+        .from('etapas')
+        .insert({
+          processo_id: orcamento.processo_id,
+          orcamento_id: orcamento.id,
+          nome: novaEtapa.trim(),
+          status: 'planejada',
+          ordem: proximaOrdem,
+        })
+        .select('id')
+        .single()
+      if (etapaError || !etapaCriada?.id) throw etapaError || new Error('Não foi possível criar a etapa.')
+
+      const grupoId = await resolverGrupoId(supabase, {
+        orcamentoId: orcamento.id,
+        etapaId: etapaCriada.id as string,
+        nomeSubetapa: novaSubetapa.trim(),
+      })
+
+      const qtdLimpa = novaQuantidade.trim().replace(',', '.')
+      const valorLimpo = novoValor.trim().replace(/[^\d,.-]/g, '').replace(',', '.')
+      const qtd = qtdLimpa ? parseFloat(qtdLimpa) : null
+      const valor = valorLimpo ? parseFloat(valorLimpo) : null
+
+      await inserirItemOrcamento(supabase, {
+        orcamentoId: orcamento.id,
+        etapaId: etapaCriada.id as string,
+        grupoId,
+        subetapa: novaSubetapa.trim(),
+        quantidade: qtd != null && !Number.isNaN(qtd) ? qtd : null,
+        descricao: novoItem.trim(),
+        unidade: novaUnidade.trim() || 'UN',
+        classificacao: novaClassificacao,
+        fonte: 'item_livre',
+        precoUnitario: valor != null && !Number.isNaN(valor) ? valor : null,
+      })
+
+      setNovaEtapa('')
+      setNovaSubetapa('')
+      setNovoItem('')
+      setNovaUnidade('UN')
+      setNovaQuantidade('')
+      setNovoValor('')
+      setNovaClassificacao('MATERIAL_SERVICOS')
+      await onAtualizarOrcamento()
+    } catch (e) {
+      setErroEstrutura(e instanceof Error ? e.message : 'Não foi possível criar a estrutura.')
+    } finally {
+      setCriandoEstrutura(false)
     }
   }
 
@@ -128,7 +206,42 @@ export function OrcamentoResumo({
       </div>
 
       {etapasFiltradas.length === 0 ? (
-        <EmptyState icon={Wallet} title="Nenhuma etapa encontrada" description={busca ? 'Ajuste a busca.' : 'Este orçamento ainda não tem etapas.'} />
+        busca ? (
+          <EmptyState icon={Wallet} title="Nenhuma etapa encontrada" description="Ajuste a busca." />
+        ) : (
+          <div className="card p-4 flex flex-col gap-3">
+            <div className="flex items-start gap-3">
+              <span className="h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'var(--bg-secondary)', color: 'var(--accent)' }}>
+                <Plus size={17} />
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Começar orçamento</h3>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                  Cadastre a primeira etapa, subetapa e item. Depois você adiciona mais itens dentro da própria árvore.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input label="Etapa" value={novaEtapa} onChange={e => setNovaEtapa(e.target.value)} placeholder="Ex: Projetos" />
+              <Input label="Subetapa" value={novaSubetapa} onChange={e => setNovaSubetapa(e.target.value)} placeholder="Ex: Hidrossanitário / elétrico" />
+            </div>
+            <Input label="Item" value={novoItem} onChange={e => setNovoItem(e.target.value)} placeholder="Ex: Finalização hidrossanitário/elétrico" />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Input label="Un." value={novaUnidade} onChange={e => setNovaUnidade(e.target.value)} placeholder="UN" />
+              <Input label="Qtd." inputMode="decimal" value={novaQuantidade} onChange={e => setNovaQuantidade(e.target.value)} placeholder="A conferir" />
+              <Input label="Valor unit." inputMode="decimal" value={novoValor} onChange={e => setNovoValor(e.target.value)} placeholder="A definir" />
+              <Select label="Classificação" value={novaClassificacao} onChange={e => setNovaClassificacao(e.target.value as ClassificacaoInsumo)}>
+                <option value="MATERIAL_SERVICOS">Material / Serviço</option>
+                <option value="MAO_DE_OBRA">Mão de obra</option>
+                <option value="EQUIPAMENTO">Equipamento</option>
+              </Select>
+            </div>
+            {erroEstrutura && <p className="text-sm rounded-lg px-3 py-2" style={{ color: 'var(--danger)', background: 'rgba(239,68,68,0.08)' }}>{erroEstrutura}</p>}
+            <Button onClick={criarPrimeiraEstrutura} loading={criandoEstrutura} className="w-full justify-center">
+              Criar primeira estrutura
+            </Button>
+          </div>
+        )
       ) : (
         <div className="flex flex-col gap-2">
           {etapasFiltradas.map((etapa, i) => (

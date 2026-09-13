@@ -22,6 +22,9 @@ describe('Motor de Processo — P3.1', () => {
 
   beforeEach(() => {
     db = new FakeDB()
+    db.seed('organization_members', [
+      { id: 'org-member-1', organization_id: 'org-teste', profile_id: 'profile-teste', ativo: true, papel: 'owner' },
+    ])
   })
 
   function supa(): SupabaseClient {

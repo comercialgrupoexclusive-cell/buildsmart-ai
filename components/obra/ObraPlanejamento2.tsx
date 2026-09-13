@@ -65,6 +65,20 @@ function fmtBR(v: string | null | undefined) {
   return `${d}/${m}/${String(y).slice(2)}`
 }
 
+function normalizarDataInput(value: string): string | null {
+  const v = value.trim()
+  if (!v) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v
+  const br = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/)
+  if (br) {
+    const day = br[1].padStart(2, '0')
+    const month = br[2].padStart(2, '0')
+    const year = br[3].length === 2 ? `20${br[3]}` : br[3]
+    return `${year}-${month}-${day}`
+  }
+  return null
+}
+
 function calcDuracao(inicio: string | null | undefined, fim: string | null | undefined): number | null {
   if (!inicio || !fim) return null
   const d1 = new Date(inicio + 'T00:00:00')
@@ -104,16 +118,26 @@ function refKey(tipo: string, etapaId: string | null, subKey: string | null, orc
 
 function DateCell({ value, onCommit, disabled }: { value: string | null | undefined; onCommit: (v: string) => void; disabled?: boolean }) {
   const [editing, setEditing] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (editing && inputRef.current) inputRef.current.select() }, [editing])
   if (disabled) return <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{fmtBR(value) || '—'}</span>
   if (editing) {
+    function commit(raw: string) {
+      const parsed = normalizarDataInput(raw)
+      if (parsed) onCommit(parsed)
+      setEditing(false)
+    }
     return (
-      <input type="date" autoFocus
+      <input ref={inputRef} type="text" autoFocus inputMode="numeric"
         className="text-xs rounded border px-1 py-0.5 outline-none w-full"
         style={{ background: 'var(--bg-secondary)', borderColor: 'var(--accent)', color: 'var(--text-primary)', maxWidth: 130 }}
-        defaultValue={value ?? ''}
-        onChange={e => { if (e.target.value) { onCommit(e.target.value); setEditing(false) } }}
-        onBlur={() => setEditing(false)}
-        onKeyDown={e => { if (e.key === 'Escape') setEditing(false) }}
+        defaultValue={value ? fmtBR(value)?.replace(/\/(\d{2})$/, '/20$1') : ''}
+        placeholder="dd/mm/aaaa"
+        onBlur={e => commit(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit((e.target as HTMLInputElement).value)
+          if (e.key === 'Escape') setEditing(false)
+        }}
       />
     )
   }

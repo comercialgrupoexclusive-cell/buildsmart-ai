@@ -21,6 +21,26 @@ function formVazio(): FormState {
   return { titulo: '', descricao: '', responsavel_id: '', prioridade: 'normal', data_prazo: '', status: 'pendente' }
 }
 
+function formatarDataBR(value?: string | null) {
+  if (!value) return ''
+  const [ano, mes, dia] = value.split('-')
+  if (!ano || !mes || !dia) return value
+  return `${dia}/${mes}/${ano}`
+}
+
+function normalizarDataInput(value: string) {
+  const texto = value.trim()
+  if (!texto) return ''
+  const iso = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (iso) return texto
+  const br = texto.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/)
+  if (!br) return ''
+  const dia = br[1].padStart(2, '0')
+  const mes = br[2].padStart(2, '0')
+  const ano = br[3].length === 2 ? `20${br[3]}` : br[3]
+  return `${ano}-${mes}-${dia}`
+}
+
 // Modal única de criação/edição de tarefa, reutilizada pelo painel de
 // contexto (Obra/Projeto) e pela tela global. Criação exige só o título;
 // obra_id/projeto_id são herdados automaticamente do contexto (se houver) e
@@ -69,6 +89,7 @@ function TarefaModalForm({
   const supabase = createClient()
   const [usuarios, setUsuarios] = useState<{ id: string; name: string }[]>([])
   const [saving, setSaving] = useState(false)
+  const [prazoTexto, setPrazoTexto] = useState(() => formatarDataBR(editando?.data_prazo || ''))
   const [form, setForm] = useState<FormState>(() => editando ? {
     titulo: editando.titulo,
     descricao: editando.descricao || '',
@@ -85,6 +106,11 @@ function TarefaModalForm({
 
   async function handleSave() {
     if (!form.titulo.trim()) return
+    const dataPrazo = normalizarDataInput(prazoTexto)
+    if (prazoTexto.trim() && !dataPrazo) {
+      alert('Informe o prazo no formato dd/mm/aaaa.')
+      return
+    }
     setSaving(true)
     const responsavelNome = usuarios.find(u => u.id === form.responsavel_id)?.name || null
     const payload: Record<string, unknown> = {
@@ -93,7 +119,7 @@ function TarefaModalForm({
       responsavel_id: form.responsavel_id || null,
       responsavel_nome: form.responsavel_id ? responsavelNome : null,
       prioridade: form.prioridade,
-      data_prazo: form.data_prazo || null,
+      data_prazo: dataPrazo || null,
       updated_at: new Date().toISOString(),
     }
     const embed = '*, obra:obras(nome), projeto:projetos(nome)'
@@ -149,9 +175,10 @@ function TarefaModalForm({
           </Select>
           <Input
             label="Prazo"
-            type="date"
-            value={form.data_prazo}
-            onChange={e => setForm(f => ({ ...f, data_prazo: e.target.value }))}
+            inputMode="numeric"
+            placeholder="dd/mm/aaaa"
+            value={prazoTexto}
+            onChange={e => setPrazoTexto(e.target.value)}
           />
         </div>
         {editando && (

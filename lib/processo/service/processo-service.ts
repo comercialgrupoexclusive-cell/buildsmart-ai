@@ -29,6 +29,26 @@ function normalizarTexto(v: string | null | undefined): string | null {
   return t || null
 }
 
+async function resolverOrganizacaoUnica(supabase: SupabaseClient, organizationId?: string | null): Promise<string> {
+  if (organizationId) return organizationId
+
+  const { data, error } = await supabase
+    .from('organization_members')
+    .select('organization_id')
+    .eq('ativo', true)
+
+  if (error) {
+    throw new Error('Não foi possível identificar a organização ativa para criar o processo.')
+  }
+
+  const organizacoes = Array.from(new Set((data ?? []).map(row => row.organization_id).filter(Boolean))) as string[]
+  if (organizacoes.length === 1) return organizacoes[0]
+  if (organizacoes.length === 0) {
+    throw new Error('Seu usuário não possui uma organização ativa para criar processos.')
+  }
+  throw new Error('Selecione a organização antes de criar o processo.')
+}
+
 export async function criarProcesso(supabase: SupabaseClient, input: CriarProcessoInput): Promise<Processo> {
   const nome = (input.nome ?? '').trim()
   if (!nome) throw new Error('Nome do processo é obrigatório.')
@@ -36,6 +56,7 @@ export async function criarProcesso(supabase: SupabaseClient, input: CriarProces
   const moduleKeys = input.modulos && input.modulos.length > 0 ? input.modulos : modulosHabilitadosPorPadrao()
   const invalidos = moduleKeys.filter(k => !isValidProcessoModuleKey(k))
   if (invalidos.length > 0) throw new Error(`Módulo(s) desconhecido(s): ${invalidos.join(', ')}`)
+  const organizationId = await resolverOrganizacaoUnica(supabase, input.organization_id)
 
   const processo = await inserirProcesso(supabase, {
     nome,
@@ -43,7 +64,7 @@ export async function criarProcesso(supabase: SupabaseClient, input: CriarProces
     cliente_nome: normalizarTexto(input.cliente_nome),
     endereco: normalizarTexto(input.endereco),
     responsavel_id: input.responsavel_id || null,
-    organization_id: input.organization_id || null,
+    organization_id: organizationId,
     status: 'ACTIVE',
     archived_at: null,
   })

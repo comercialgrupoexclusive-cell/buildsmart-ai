@@ -64,6 +64,7 @@ export function ComprasLancamentos({
 }) {
   const [supabase] = useState(createClient)
   const [itens, setItens] = useState<CompraItem[]>([])
+  const [pagamentosPorItem, setPagamentosPorItem] = useState<Record<string, number>>({})
   const [etapas, setEtapas] = useState<Etapa[]>([])
   const [subetapas, setSubetapas] = useState<SubetapaOrcamento[]>([])
   const [itensOrcamento, setItensOrcamento] = useState<ItemOrcamento[]>([])
@@ -117,9 +118,24 @@ export function ComprasLancamentos({
       : supabase.from('fornecedores').select('*').is('obra_id', null).order('nome')
     const [itensRes, etapasRes, fornecedoresRes] = await Promise.all([itensQuery, etapasQuery, fornecedoresQuery])
     const todos = (itensRes.data || []) as CompraItem[]
-    setItens(todos.filter(item => consolidado
+    const filtrados = todos.filter(item => consolidado
       ? (!item.orcamento_id || orcamentoIds.includes(item.orcamento_id))
-      : item.orcamento_id === orcamentoId))
+      : item.orcamento_id === orcamentoId)
+    setItens(filtrados)
+    const idsCompras = filtrados.map(item => item.id)
+    if (idsCompras.length > 0) {
+      const { data: pagamentosData } = await supabase
+        .from('compra_pagamentos')
+        .select('compra_item_id, valor_pago')
+        .in('compra_item_id', idsCompras)
+      const acumulado: Record<string, number> = {}
+      ;((pagamentosData || []) as { compra_item_id: string; valor_pago: number }[]).forEach(pagamento => {
+        acumulado[pagamento.compra_item_id] = (acumulado[pagamento.compra_item_id] || 0) + Number(pagamento.valor_pago || 0)
+      })
+      setPagamentosPorItem(acumulado)
+    } else {
+      setPagamentosPorItem({})
+    }
     const etapasData = (etapasRes.data || []) as Etapa[]
     setEtapas(etapasData)
     setFornecedores((fornecedoresRes.data || []) as Fornecedor[])
@@ -285,16 +301,14 @@ export function ComprasLancamentos({
     setItens(prev => prev.filter(i => i.id !== id))
   }
 
-  async function alternarPago(item: CompraItem) {
-    const novoStatus = item.status_pagamento === 'pago' ? 'pendente' : 'pago'
-    await supabase.from('compra_itens').update({ status_pagamento: novoStatus, updated_at: new Date().toISOString() }).eq('id', item.id)
-    setItens(prev => prev.map(i => i.id === item.id ? { ...i, status_pagamento: novoStatus } : i))
+  async function abrirRegistroPagamento(item: CompraItem) {
+    await abrirPagamentos(item)
   }
 
   async function alternarRecebido(item: CompraItem) {
-    const recebido = item.status_recebimento === 'recebido'
-    const novoStatus = recebido ? 'pendente' : 'recebido'
-    const dataReceb = recebido ? null : new Date().toISOString().slice(0, 10)
+    const statusAtual = item.status_recebimento || 'pendente'
+    const novoStatus = statusAtual === 'pendente' ? 'parcial' : statusAtual === 'parcial' ? 'recebido' : 'pendente'
+    const dataReceb = novoStatus === 'pendente' ? null : new Date().toISOString().slice(0, 10)
     await supabase.from('compra_itens').update({ status_recebimento: novoStatus, data_recebimento: dataReceb, updated_at: new Date().toISOString() }).eq('id', item.id)
     setItens(prev => prev.map(i => i.id === item.id ? { ...i, status_recebimento: novoStatus, data_recebimento: dataReceb } as CompraItem : i))
   }
@@ -319,6 +333,7 @@ export function ComprasLancamentos({
     const novaLista = [data as CompraPagamento, ...pagamentos]
     setPagamentos(novaLista)
     const totalPago = novaLista.reduce((s, p) => s + Number(p.valor_pago), 0)
+    setPagamentosPorItem(prev => ({ ...prev, [pagamentoItem.id]: totalPago }))
     // status_pagamento continua o flag rápido para telas/relatórios legados
     // que só leem pendente/pago — o histórico real vive em compra_pagamentos.
     const novoStatus = totalPago >= Number(pagamentoItem.valor_total || 0) ? 'pago' : 'pendente'
@@ -368,9 +383,11 @@ export function ComprasLancamentos({
 
   const totais = useMemo(() => {
     const confirmado = itens.filter(i => i.status_valor === 'confirmado').reduce((s, i) => s + (i.valor_total || 0), 0)
-    const pago = itens.filter(i => i.status_valor === 'confirmado' && i.status_pagamento === 'pago').reduce((s, i) => s + (i.valor_total || 0), 0)
+    const pago = itens
+      .filter(i => i.status_valor === 'confirmado')
+      .reduce((s, i) => s + Math.min(Number(i.valor_total || 0), pagamentosPorItem[i.id] || 0), 0)
     return { confirmado, pago, pendente: Math.max(0, confirmado - pago) }
-  }, [itens])
+  }, [itens, pagamentosPorItem])
 
   const itensPorEtapa = useMemo(() => {
     const grupos: Record<string, CompraItem[]> = { [SEM_ETAPA]: [] }
@@ -403,7 +420,7 @@ export function ComprasLancamentos({
           <p className="text-xl font-bold" style={{ color: 'var(--success)' }}>{formatCurrency(totais.pago)}</p>
         </div>
         <div className="card p-4">
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Pendente</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Saldo a pagar</p>
           <p className="text-xl font-bold" style={{ color: 'var(--warning)' }}>{formatCurrency(totais.pendente)}</p>
         </div>
       </div>
@@ -450,11 +467,12 @@ export function ComprasLancamentos({
               onToggle={() => setCollapsed(c => ({ ...c, [SEM_ETAPA]: !c[SEM_ETAPA] }))}
               onEdit={openEdit}
               onDelete={handleDelete}
-              onTogglePago={alternarPago}
+              onTogglePago={abrirRegistroPagamento}
               onToggleRecebido={alternarRecebido}
               onCotacao={abrirCotacao}
               onPagamentos={abrirPagamentos}
               materialTituloPorInsumoId={materialTituloPorInsumoId}
+              pagamentosPorItem={pagamentosPorItem}
             />
           )}
           {etapas.map(etapa => {
@@ -470,11 +488,12 @@ export function ComprasLancamentos({
                 onToggle={() => setCollapsed(c => ({ ...c, [etapa.id]: !c[etapa.id] }))}
                 onEdit={openEdit}
                 onDelete={handleDelete}
-                onTogglePago={alternarPago}
+                onTogglePago={abrirRegistroPagamento}
                 onToggleRecebido={alternarRecebido}
                 onCotacao={abrirCotacao}
                 onPagamentos={abrirPagamentos}
                 materialTituloPorInsumoId={materialTituloPorInsumoId}
+                pagamentosPorItem={pagamentosPorItem}
               />
             )
           })}
@@ -979,7 +998,7 @@ export function LancamentoRapidoForm({
 */
 
 function GrupoEtapaCompra({
-  chave, nome, itens, collapsed, onToggle, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, onPagamentos, materialTituloPorInsumoId,
+  chave, nome, itens, collapsed, onToggle, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, onPagamentos, materialTituloPorInsumoId, pagamentosPorItem,
 }: {
   chave: string
   nome: string
@@ -993,9 +1012,10 @@ function GrupoEtapaCompra({
   onCotacao: (item: CompraItem) => void
   onPagamentos: (item: CompraItem) => void
   materialTituloPorInsumoId: Record<string, string>
+  pagamentosPorItem: Record<string, number>
 }) {
   const subtotal = itens.reduce((s, i) => s + (i.valor_total || 0), 0)
-  const pagos = itens.filter(i => i.status_pagamento === 'pago').length
+  const pagoTotal = itens.reduce((s, i) => s + Math.min(Number(i.valor_total || 0), pagamentosPorItem[i.id] || 0), 0)
 
   return (
     <div className="card overflow-hidden" data-group={chave}>
@@ -1010,7 +1030,7 @@ function GrupoEtapaCompra({
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{nome}</p>
           <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
-            {itens.length} {itens.length === 1 ? 'item' : 'itens'} · {pagos} {pagos === 1 ? 'pago' : 'pagos'}
+            {itens.length} {itens.length === 1 ? 'item' : 'itens'} · pago {formatCurrency(pagoTotal)} · saldo {formatCurrency(Math.max(0, subtotal - pagoTotal))}
           </p>
         </div>
         <span className="text-sm font-semibold flex-shrink-0" style={{ color: 'var(--text-primary)' }}>{formatCurrency(subtotal)}</span>
@@ -1019,7 +1039,7 @@ function GrupoEtapaCompra({
       {!collapsed && (
         <div className="flex flex-col">
           {itens.map(item => (
-            <LinhaCompra key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onTogglePago={onTogglePago} onToggleRecebido={onToggleRecebido} onCotacao={onCotacao} onPagamentos={onPagamentos} materialVinculado={item.orcamento_item_insumo_id ? materialTituloPorInsumoId[item.orcamento_item_insumo_id] : undefined} />
+            <LinhaCompra key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onTogglePago={onTogglePago} onToggleRecebido={onToggleRecebido} onCotacao={onCotacao} onPagamentos={onPagamentos} materialVinculado={item.orcamento_item_insumo_id ? materialTituloPorInsumoId[item.orcamento_item_insumo_id] : undefined} valorPago={pagamentosPorItem[item.id] || 0} />
           ))}
         </div>
       )}
@@ -1028,7 +1048,7 @@ function GrupoEtapaCompra({
 }
 
 function LinhaCompra({
-  item, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, onPagamentos, materialVinculado,
+  item, onEdit, onDelete, onTogglePago, onToggleRecebido, onCotacao, onPagamentos, materialVinculado, valorPago,
 }: {
   item: CompraItem
   onEdit: (item: CompraItem) => void
@@ -1038,15 +1058,20 @@ function LinhaCompra({
   onCotacao: (item: CompraItem) => void
   onPagamentos: (item: CompraItem) => void
   materialVinculado?: string
+  valorPago: number
 }) {
-  const pago = item.status_pagamento === 'pago'
+  const totalItem = Number(item.valor_total || 0)
+  const pago = totalItem > 0 && valorPago >= totalItem
+  const saldo = Math.max(0, totalItem - valorPago)
   const recebido = item.status_recebimento === 'recebido'
+  const recebimentoParcial = item.status_recebimento === 'parcial'
+  const recebimentoLabel = recebido ? 'Recebido' : recebimentoParcial ? 'Parcial' : 'Receber'
   const fornecedorNome = item.fornecedor?.nome || item.fornecedor_nome
 
   return (
-    <div className="flex items-start gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
+    <div className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-start" style={{ borderBottom: '1px solid var(--border)' }}>
+      <div className="min-w-0 w-full flex-1">
+        <p className="text-sm font-medium md:truncate" style={{ color: 'var(--text-primary)' }}>{item.descricao}</p>
         <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
           {item.tipo_custo && (
             <span
@@ -1072,20 +1097,31 @@ function LinhaCompra({
       </div>
 
       <span
-        className="hidden sm:inline text-xs font-semibold px-2 py-1 rounded-full flex-shrink-0"
+        className="hidden md:inline text-xs font-semibold px-2 py-1 rounded-full flex-shrink-0"
         style={{ color: STATUS_VALOR_COLOR[item.status_valor], background: 'var(--bg-card)' }}
       >
         {STATUS_VALOR_LABEL[item.status_valor]}
       </span>
 
-      <span className="text-sm font-semibold flex-shrink-0 pt-0.5" style={{ color: 'var(--text-primary)' }}>
-        {formatCurrency(item.valor_total)}
-      </span>
+      <div className="grid w-full grid-cols-3 gap-2 rounded-lg p-2 text-xs md:w-64" style={{ background: 'var(--bg-secondary)' }}>
+        <div>
+          <p style={{ color: 'var(--text-secondary)' }}>Contratado</p>
+          <p className="font-semibold" style={{ color: 'var(--text-primary)' }}>{formatCurrency(totalItem)}</p>
+        </div>
+        <div>
+          <p style={{ color: 'var(--text-secondary)' }}>Pago</p>
+          <p className="font-semibold" style={{ color: 'var(--success)' }}>{formatCurrency(valorPago)}</p>
+        </div>
+        <div>
+          <p style={{ color: 'var(--text-secondary)' }}>Saldo</p>
+          <p className="font-semibold" style={{ color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{formatCurrency(saldo)}</p>
+        </div>
+      </div>
 
-      <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex w-full flex-wrap items-center gap-1 md:w-auto md:flex-shrink-0">
         <button
           onClick={() => onTogglePago(item)}
-          title={pago ? 'Marcar como pendente' : 'Marcar como pago'}
+          title="Registrar pagamento"
           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
           style={pago
             ? { background: 'rgba(16,185,129,0.16)', color: 'var(--success)', border: '1px solid rgba(16,185,129,0.35)' }
@@ -1096,14 +1132,16 @@ function LinhaCompra({
         </button>
         <button
           onClick={() => onToggleRecebido(item)}
-          title={recebido ? 'Marcar como não recebido' : 'Marcar como recebido'}
+          title={recebido ? 'Voltar para pendente' : recebimentoParcial ? 'Marcar como recebido' : 'Marcar como parcialmente recebido'}
           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors"
           style={recebido
             ? { background: 'rgba(59,123,248,0.16)', color: 'var(--accent)', border: '1px solid rgba(59,123,248,0.35)' }
+            : recebimentoParcial
+              ? { background: 'rgba(245,158,11,0.16)', color: 'var(--warning)', border: '1px solid rgba(245,158,11,0.35)' }
             : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
         >
-          {recebido ? <CheckSquare size={14} /> : <Square size={14} />}
-          <span className="hidden sm:inline">{recebido ? 'Recebido' : 'Receber'}</span>
+          {recebido || recebimentoParcial ? <CheckSquare size={14} /> : <Square size={14} />}
+          <span className="hidden sm:inline">{recebimentoLabel}</span>
         </button>
         <button onClick={() => onCotacao(item)} title="Comparar cotações" className="p-1.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors">
           <Scale size={14} style={{ color: 'var(--text-secondary)' }} />

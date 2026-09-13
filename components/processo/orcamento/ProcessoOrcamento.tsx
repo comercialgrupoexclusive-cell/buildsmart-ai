@@ -33,6 +33,7 @@ type Vista =
 
 type OrcamentoInfo = {
   id: string
+  processo_id: string | null
   versao: number
   status: string
   bdi_percentual: number
@@ -52,7 +53,7 @@ export function ProcessoOrcamento({ orcamentoId, processoNome }: { orcamentoId: 
   const carregar = useCallback(async () => {
     setErro(null)
     const [{ data: orc, error: orcError }, { data: arvore, error: arvoreError }] = await Promise.all([
-      supabase.from('orcamentos').select('id, versao, status, bdi_percentual, gerenciamento_percentual, gerenciamento_valor_fixo, uf').eq('id', orcamentoId).single(),
+      supabase.from('orcamentos').select('id, processo_id, versao, status, bdi_percentual, gerenciamento_percentual, gerenciamento_valor_fixo, uf').eq('id', orcamentoId).single(),
       supabase.rpc('orcamento_arvore_valores', { p_orcamento_ids: [orcamentoId] }),
     ])
     if (orcError || arvoreError) {

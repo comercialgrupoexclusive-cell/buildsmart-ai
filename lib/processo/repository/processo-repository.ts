@@ -10,6 +10,7 @@ const TABELA_PROCESSOS = 'processos'
 const TABELA_MODULOS = 'processo_modulos'
 
 type NovoProcessoDados = {
+  id?: string
   nome: string
   tipo: string | null
   cliente_nome: string | null
@@ -21,9 +22,13 @@ type NovoProcessoDados = {
 }
 
 export async function inserirProcesso(supabase: SupabaseClient, dados: NovoProcessoDados): Promise<Processo> {
-  const { data, error } = await supabase.from(TABELA_PROCESSOS).insert(dados).select().single()
-  if (error || !data) throw new Error(error?.message || 'Não foi possível criar o processo.')
-  return data as Processo
+  const id = dados.id || crypto.randomUUID()
+  const { error } = await supabase.from(TABELA_PROCESSOS).insert({ ...dados, id })
+  if (error) throw new Error(error.message || 'Não foi possível criar o processo.')
+
+  const processo = await buscarProcessoPorId(supabase, id)
+  if (!processo) throw new Error('Processo criado, mas não foi possível carregá-lo.')
+  return processo
 }
 
 export async function buscarProcessoPorId(supabase: SupabaseClient, id: string): Promise<Processo | null> {

@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { criarProcesso } from '@/lib/processo'
+import { useProfile } from '@/lib/profile-context'
 import type { Profile } from '@/lib/types'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -25,10 +26,19 @@ const EMPTY_FORM = {
   responsavel_id: '',
 }
 
+type OrgOption = {
+  id: string
+  nome: string
+}
+
 export default function NovoProcessoPage() {
   const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
+  const { currentProfile } = useProfile()
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [organizacoes, setOrganizacoes] = useState<OrgOption[]>([])
+  const [organizationId, setOrganizationId] = useState('')
+  const [loadingOrg, setLoadingOrg] = useState(true)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -39,10 +49,71 @@ export default function NovoProcessoPage() {
     })
   }, [supabase])
 
+  useEffect(() => {
+    let active = true
+    async function loadOrganizacoes() {
+      if (!currentProfile?.id) {
+        setLoadingOrg(false)
+        return
+      }
+
+      setLoadingOrg(true)
+      const { data: memberships, error } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('profile_id', currentProfile.id)
+        .eq('ativo', true)
+
+      if (!active) return
+
+      if (error) {
+        setErro('Não foi possível carregar sua organização ativa.')
+        setLoadingOrg(false)
+        return
+      }
+
+      const ids = Array.from(
+        new Set((memberships ?? []).map((m: { organization_id: string | null }) => m.organization_id).filter(Boolean)),
+      ) as string[]
+      if (ids.length === 0) {
+        setOrganizacoes([])
+        setOrganizationId('')
+        setLoadingOrg(false)
+        return
+      }
+
+      const { data: orgs, error: orgError } = await supabase
+        .from('organizations')
+        .select('id, nome')
+        .in('id', ids)
+        .order('nome')
+
+      if (!active) return
+
+      if (orgError) {
+        setErro('Não foi possível carregar sua organização ativa.')
+        setLoadingOrg(false)
+        return
+      }
+
+      const options = (orgs ?? []) as OrgOption[]
+      setOrganizacoes(options)
+      setOrganizationId(prev => prev || (options.length === 1 ? options[0].id : ''))
+      setLoadingOrg(false)
+    }
+
+    loadOrganizacoes()
+    return () => { active = false }
+  }, [currentProfile?.id, supabase])
+
   async function handleSave() {
     setErro(null)
     if (!form.nome.trim()) {
       setErro('Nome do processo é obrigatório.')
+      return
+    }
+    if (organizacoes.length > 1 && !organizationId) {
+      setErro('Selecione a organização do processo.')
       return
     }
     setSaving(true)
@@ -53,10 +124,16 @@ export default function NovoProcessoPage() {
         cliente_nome: form.cliente_nome || null,
         endereco: form.endereco || null,
         responsavel_id: form.responsavel_id || null,
+        organization_id: organizationId || null,
       })
       router.push(`/processos/${processo.id}`)
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível criar o processo.')
+      const message = e instanceof Error ? e.message : ''
+      setErro(
+        message.includes('row-level security')
+          ? 'Você não tem permissão para criar processos nesta organização.'
+          : message || 'Não foi possível criar o processo.',
+      )
     } finally {
       setSaving(false)
     }
@@ -75,6 +152,18 @@ export default function NovoProcessoPage() {
       />
 
       <div className="card space-y-4 p-5">
+        {organizacoes.length > 1 && (
+          <Select
+            label="Organização"
+            value={organizationId}
+            onChange={e => setOrganizationId(e.target.value)}
+          >
+            <option value="">— Selecionar organização —</option>
+            {organizacoes.map(org => (
+              <option key={org.id} value={org.id}>{org.nome}</option>
+            ))}
+          </Select>
+        )}
         <Input
           label="Nome *"
           placeholder="Ex: Jardim Allegra"
@@ -116,7 +205,7 @@ export default function NovoProcessoPage() {
           <Link href="/processos">
             <Button variant="secondary">Cancelar</Button>
           </Link>
-          <Button onClick={handleSave} loading={saving} disabled={!form.nome.trim()}>
+          <Button onClick={handleSave} loading={saving || loadingOrg} disabled={!form.nome.trim() || loadingOrg}>
             Criar Processo
           </Button>
         </div>
