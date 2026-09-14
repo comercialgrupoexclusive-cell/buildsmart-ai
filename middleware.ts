@@ -45,8 +45,9 @@ export const config = {
     // login tematizado por Organização (/o/[slug] — P4.6, roda antes de
     // qualquer sessão existir), criar-organizacao (P4.7 — signUp acontece
     // aqui, também sem sessão prévia), onboarding (fluxo pós-cadastro que
-    // ainda não tem sessão), API, portal público por token, e assets
+    // ainda não tem sessão), API, portal público por token, experimento
+    // visual isolado (rota de experimentação, sem dados nem sessão), e assets
     // estáticos/imagens/favicon.
-    '/((?!$|o/|criar-organizacao|onboarding|api|portal|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!$|o/|criar-organizacao|onboarding|api|portal|experimento-360|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }
