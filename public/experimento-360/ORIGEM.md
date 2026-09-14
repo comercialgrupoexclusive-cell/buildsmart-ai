@@ -1,23 +1,13 @@
-# ceu-profundo-4k.jpg
+# Panorama do experimento 360
 
-Panorama equiretangular (2:1, 4096×2048) usado como textura 360° do ambiente.
+O ambiente usa `fundo-tellus.png`, arquivo local em `public/experimento-360/`.
 
-- **Origem:** gerado neste repositório por `scripts/gerar-panorama-360.py`.
-  Não é asset de terceiros; nenhuma licença externa envolvida; nada por hotlink.
-- **Conteúdo:** céu noturno com Via Láctea, cordilheiras em camadas com névoa no
-  vale, brilho de pôr do sol num lado e primeiro plano rochoso — reproduz a
-  composição da referência ("fundoTellus 360").
-- **Regerar:** `pip install numpy imageio && python3 scripts/gerar-panorama-360.py`
-  (semente fixa → resultado determinístico).
+- Origem: PNG fornecido pelo usuário, “fundoTellus 360 para backgrond.png”.
+- Fonte: https://drive.google.com/file/d/1-MnULIKnk0nxCs78gwvcMTU8qkaSL20o/view
+- Dimensões verificadas: 3548 × 1774 pixels (proporção equiretangular 2:1).
+- Tamanho original: 7.870.417 bytes. Arquivo preservado sem recompressão.
+- A referência que contém o orbe e o input não é usada como textura.
 
-## Trocar pelo panorama real (1 passo)
-
-Este é um substituto gerado. Para usar o panorama 4K real (foto), basta
-**substituir este arquivo** por outro JPG/PNG equiretangular 2:1 com o mesmo
-nome e caminho (`public/experimento-360/ceu-profundo-4k.jpg`). Nenhuma mudança
-de código é necessária — a rotação, o enquadramento inicial e a projeção já
-funcionam para qualquer equiretangular 2:1.
-
-Motivo de ainda ser gerado: as imagens enviadas nesta sessão chegam por
-WhatsApp e não são gravadas no disco do ambiente, e a saída HTTPS é bloqueada,
-então não foi possível baixar o arquivo original aqui. A troca local resolve.
+O arquivo anterior `ceu-profundo-4k.jpg`, gerado por
+`scripts/gerar-panorama-360.py`, permanece disponível como recurso legado,
+mas não é carregado pela experiência.

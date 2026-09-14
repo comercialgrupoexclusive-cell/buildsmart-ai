@@ -9,7 +9,7 @@ import '@photo-sphere-viewer/core/index.css'
 // mexer para acelerar ou desacelerar o ambiente.
 const MINUTOS_POR_VOLTA = 10
 
-const PANORAMA = '/experimento-360/ceu-profundo-4k.jpg'
+const PANORAMA = '/experimento-360/fundo-tellus.png'
 
 // O plugin dispara sozinho a primeira rotação assim que `autostartDelay`
 // vence, e esse start() só aplica o giro num microtask — ou seja, um stop()
