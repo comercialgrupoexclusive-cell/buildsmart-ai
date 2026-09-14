@@ -45,8 +45,10 @@ export const config = {
     // login tematizado por Organização (/o/[slug] — P4.6, roda antes de
     // qualquer sessão existir), criar-organizacao (P4.7 — signUp acontece
     // aqui, também sem sessão prévia), onboarding (fluxo pós-cadastro que
-    // ainda não tem sessão), API, portal público por token, e assets
+    // ainda não tem sessão), API, portal público por token, tellus
+    // (experimento visual isolado — branch experimento/tellus-hero, link de
+    // preview sem login, ver app/tellus/page.tsx), e assets
     // estáticos/imagens/favicon.
-    '/((?!$|o/|criar-organizacao|onboarding|api|portal|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!$|o/|criar-organizacao|onboarding|api|portal|tellus|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }

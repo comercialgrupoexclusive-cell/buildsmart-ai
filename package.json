@@ -22,6 +22,8 @@
     "@photo-sphere-viewer/gallery-plugin": "^5.15.0",
     "@photo-sphere-viewer/markers-plugin": "^5.15.0",
     "@photo-sphere-viewer/virtual-tour-plugin": "^5.15.0",
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.107.0",
     "clsx": "^2.1.1",
@@ -37,6 +39,7 @@
     "react-easy-crop": "^6.2.3",
     "react-is": "^19.2.7",
     "recharts": "^3.8.1",
+    "three": "^0.186.0",
     "unpdf": "^1.6.2",
     "xlsx": "^0.18.5"
   },
