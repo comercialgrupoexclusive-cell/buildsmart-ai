@@ -17,20 +17,25 @@ const PANORAMA = '/experimento-360/ceu-profundo-4k.jpg'
 // decide começar e parar passa a ser exclusivamente `sincronizar()`.
 const NUNCA = Number.MAX_SAFE_INTEGER
 
-export function Panorama360() {
+export function Panorama360({ movimento }: { movimento: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [pronto, setPronto] = useState(false)
+  const movimentoRef = useRef(movimento)
+  const sincronizarRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    movimentoRef.current = movimento
+    sincronizarRef.current()
+  }, [movimento])
 
   useEffect(() => {
     if (!containerRef.current) return
 
     let viewer: Viewer | null = null
     let desmontado = false
-    const semMovimento = window.matchMedia('(prefers-reduced-motion: reduce)')
-
-    // Só gira quando faz sentido girar: o usuário não pediu menos movimento e
-    // a aba está visível (aba oculta continuaria consumindo GPU à toa).
-    const deveGirar = () => !semMovimento.matches && !document.hidden
+    // Só gira quando faz sentido girar: o movimento está ligado e a aba está
+    // visível (aba oculta continuaria consumindo GPU à toa).
+    const deveGirar = () => movimentoRef.current && !document.hidden
 
     const sincronizar = () => {
       const plugin = viewer?.getPlugin<AutorotatePlugin>(AutorotatePlugin)
@@ -76,14 +81,13 @@ export function Panorama360() {
       )
     }, 0)
 
+    sincronizarRef.current = sincronizar
     document.addEventListener('visibilitychange', sincronizar)
-    semMovimento.addEventListener('change', sincronizar)
 
     return () => {
       desmontado = true
       window.clearTimeout(timer)
       document.removeEventListener('visibilitychange', sincronizar)
-      semMovimento.removeEventListener('change', sincronizar)
       viewer?.destroy()
     }
   }, [])

@@ -239,16 +239,22 @@ function construirGeometria(total: number) {
   return geo
 }
 
-export function Orbe({ estado }: { estado: EstadoOrbe }) {
+export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const estadoRef = useRef(estado)
+  const movimentoRef = useRef(movimento)
+  const sincronizarRef = useRef<() => void>(() => {})
+
   useEffect(() => { estadoRef.current = estado }, [estado])
+  useEffect(() => {
+    movimentoRef.current = movimento
+    sincronizarRef.current()
+  }, [movimento])
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
-    const semMovimento = window.matchMedia('(prefers-reduced-motion: reduce)')
     const estreito = window.innerWidth < 640
     const total = estreito ? 15000 : 34000
 
@@ -276,7 +282,7 @@ export function Orbe({ estado }: { estado: EstadoOrbe }) {
       uPixelRatio: { value: renderer.getPixelRatio() },
       uTamanho: { value: estreito ? 3.1 : 3.5 },
       uGanho: { value: 1.15 },
-      uFormacao: { value: semMovimento.matches ? 1 : 0 },
+      uFormacao: { value: movimentoRef.current ? 0 : 1 },
       uCorNucleo: { value: new THREE.Color('#1b4fe0') },
       uCorCasca: { value: new THREE.Color('#5fdcff') },
       uCorRealce: { value: new THREE.Color('#b9ecff') },
@@ -318,7 +324,7 @@ export function Orbe({ estado }: { estado: EstadoOrbe }) {
       camera.lookAt(0, 0, 0)
       camera.updateProjectionMatrix()
       uniforms.uPixelRatio.value = renderer.getPixelRatio()
-      if (semMovimento.matches) renderer.render(cena, camera)
+      if (!movimentoRef.current) renderer.render(cena, camera)
     }
     dimensionar()
     const ro = new ResizeObserver(dimensionar)
@@ -343,7 +349,7 @@ export function Orbe({ estado }: { estado: EstadoOrbe }) {
     }
 
     const aoMover = (e: PointerEvent) => {
-      if (semMovimento.matches) return
+      if (!movimentoRef.current) return
       if (paraMundo(e.clientX, e.clientY)) {
         if (ponteiroSuave.z > 100) ponteiroSuave.copy(alvoPonteiro)
         forcaAlvo = 1
@@ -358,7 +364,7 @@ export function Orbe({ estado }: { estado: EstadoOrbe }) {
     }
 
     const aoPressionar = (e: PointerEvent) => {
-      if (semMovimento.matches) return
+      if (!movimentoRef.current) return
       // Clique dentro da caixa de conversa é da caixa, não do orbe.
       if (e.target instanceof Element && e.target.closest('[data-sem-onda]')) return
       if (paraMundo(e.clientX, e.clientY)) {
@@ -377,6 +383,7 @@ export function Orbe({ estado }: { estado: EstadoOrbe }) {
     let ultimo = performance.now()
     let energia = 0
     let expansao = 1
+    let nasceuAnimado = false
     let proximaPulsacao = 0
 
     const passo = (agora: number) => {
@@ -386,6 +393,7 @@ export function Orbe({ estado }: { estado: EstadoOrbe }) {
       uniforms.uTempo.value += dt
       if (uniforms.uFormacao.value < 1) {
         uniforms.uFormacao.value = Math.min(1, uniforms.uFormacao.value + dt / SEG_FORMACAO)
+        if (uniforms.uFormacao.value >= 1) nasceuAnimado = true
       }
 
       const est = estadoRef.current
@@ -418,28 +426,30 @@ export function Orbe({ estado }: { estado: EstadoOrbe }) {
       renderer.render(cena, camera)
     }
 
-    // Com movimento reduzido o orbe não anima: desenha uma vez e só volta a
-    // desenhar se a área mudar. O estado da conversa continua legível pela
+    // Com o movimento desligado o orbe não anima: desenha uma vez e só volta
+    // a desenhar se a área mudar. O estado da conversa continua legível pela
     // legenda de texto da caixa.
     const sincronizar = () => {
       cancelAnimationFrame(raf)
-      if (semMovimento.matches) {
+      if (!movimentoRef.current) {
         renderer.render(cena, camera)
         return
       }
+      // Ligar o movimento refaz o nascimento: quem acabou de pedir animação
+      // quer ver o orbe se formar, não encontrá-lo já pronto.
+      if (uniforms.uFormacao.value >= 1 && !nasceuAnimado) uniforms.uFormacao.value = 0
       if (!document.hidden) {
         ultimo = performance.now()
         raf = requestAnimationFrame(passo)
       }
     }
+    sincronizarRef.current = sincronizar
     sincronizar()
     document.addEventListener('visibilitychange', sincronizar)
-    semMovimento.addEventListener('change', sincronizar)
 
     return () => {
       cancelAnimationFrame(raf)
       document.removeEventListener('visibilitychange', sincronizar)
-      semMovimento.removeEventListener('change', sincronizar)
       window.removeEventListener('pointermove', aoMover)
       window.removeEventListener('pointerdown', aoPressionar)
       window.removeEventListener('pointerleave', aoSair)
