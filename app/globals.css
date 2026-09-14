@@ -213,3 +213,8 @@ input[type="radio"]:hover {
   border-color: var(--border-interactive);
   transition: border-color 0.15s ease;
 }
+
+/* Experimento 360 — traço de luz percorrendo bordas (input e atividade). */
+@keyframes orbe-borda {
+  to { transform: rotate(360deg); }
+}

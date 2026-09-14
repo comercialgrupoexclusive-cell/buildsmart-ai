@@ -40,6 +40,7 @@ const vertexShader = /* glsl */ `
 
   attribute vec3  aOrigem;
   attribute vec3  aOrbita;
+  attribute vec3  aCor;
   attribute float aSatelite;
   attribute float aAtraso;
   attribute float aSemente;
@@ -48,7 +49,7 @@ const vertexShader = /* glsl */ `
   attribute float aBrilho;
 
   varying float vBrilho;
-  varying float vCasca;
+  varying vec3  vCor;
   varying float vRealce;
 
   // Campo de rotação barato: soma de senos cruzados entre eixos. Não é ruído
@@ -88,7 +89,7 @@ const vertexShader = /* glsl */ `
     vec3 eixoAux = mix(vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), step(0.9, abs(aOrbita.z)));
     vec3 e1 = normalize(cross(eixoAux, aOrbita));
     vec3 e2 = cross(aOrbita, e1);
-    float raioOrb = length(position) * (1.10 + aSemente * 0.40) * (1.0 + uOrbita * 0.28);
+    float raioOrb = length(position) * (1.02 + aSemente * 0.16) * (1.0 + uOrbita * 0.22);
     float ang = uTempo * (0.30 + fract(aSemente * 7.0) * 0.45) * (0.55 + uOrbita * 1.25)
               + aSemente * 6.2831;
     vec3 orbita = (e1 * cos(ang) + e2 * sin(ang)) * raioOrb;
@@ -113,7 +114,7 @@ const vertexShader = /* glsl */ `
         float anel = exp(-pow((d - frente) / 0.42, 2.0));
         float queda = 1.0 - idade / ${VIDA_ONDA.toFixed(2)};
         float amp = anel * queda * queda * chegada * uOndaForca[i];
-        p += normalize(ateO + 1e-5) * amp * 0.42;
+        p += normalize(ateO + 1e-5) * amp * 0.20;
         realce += amp;
       }
     }
@@ -128,7 +129,7 @@ const vertexShader = /* glsl */ `
     vBrilho = aBrilho * uGanho * surgir
             * (1.0 + realce * 1.0 + uEnergia * 0.35 + voo * 0.60 + uFala * 0.45
                + aSatelite * uOrbita * 0.55);
-    vCasca = aCasca;
+    vCor = aCor;
     vRealce = realce;
 
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -138,12 +139,10 @@ const vertexShader = /* glsl */ `
 `
 
 const fragmentShader = /* glsl */ `
-  uniform vec3 uCorNucleo;
-  uniform vec3 uCorCasca;
   uniform vec3 uCorRealce;
 
   varying float vBrilho;
-  varying float vCasca;
+  varying vec3  vCor;
   varying float vRealce;
 
   void main() {
@@ -151,8 +150,9 @@ const fragmentShader = /* glsl */ `
     if (r > 1.0) discard;
 
     float perfil = exp(-r * r * 3.4);
-    vec3 cor = mix(uCorNucleo, uCorCasca, vCasca);
-    cor = mix(cor, uCorRealce, clamp(vRealce, 0.0, 1.0) * 0.32);
+    // Cor definida por partícula (violeta/azul/ciano do filamento); o realce
+    // do toque e das ondas puxa em direção ao branco.
+    vec3 cor = mix(vCor, uCorRealce, clamp(vRealce, 0.0, 1.0) * 0.35);
 
     float a = perfil * clamp(vBrilho, 0.0, 3.0);
     // Saída pré-multiplicada somada com fator Um: a cor acende sobre o
@@ -162,10 +162,19 @@ const fragmentShader = /* glsl */ `
   }
 `
 
+// Paleta da referência: violeta e azul elétrico no corpo, ciano no núcleo e
+// em algumas correntes, branco só nos picos. Valores em luz linear porque o
+// blending é aditivo.
+const VIOLETA: [number, number, number] = [0.42, 0.24, 0.98]
+const AZUL: [number, number, number] = [0.16, 0.42, 1.0]
+const CIANO: [number, number, number] = [0.30, 0.82, 1.0]
+const BRANCO: [number, number, number] = [0.80, 0.92, 1.0]
+
 function construirGeometria(total: number) {
   const posicoes = new Float32Array(total * 3)
   const origens = new Float32Array(total * 3)
   const orbitas = new Float32Array(total * 3)
+  const cores = new Float32Array(total * 3)
   const satelites = new Float32Array(total)
   const atrasos = new Float32Array(total)
   const sementes = new Float32Array(total)
@@ -173,124 +182,167 @@ function construirGeometria(total: number) {
   const tamanhos = new Float32Array(total)
   const brilhos = new Float32Array(total)
 
-  // Contorno irregular: três oitavas de senos cruzados sobre a direção do
-  // ponto. Fica embutido na posição de repouso, então o recorte da silhueta
-  // não custa nada por frame.
-  const relevo = (x: number, y: number, z: number) =>
-    0.55 * Math.sin(2.1 * x + 1.3) * Math.sin(1.8 * y - 0.7) * Math.sin(2.4 * z + 2.2) +
-    0.30 * Math.sin(4.3 * y + 0.4) * Math.sin(3.7 * z - 1.1) * Math.sin(4.1 * x + 0.9) +
-    0.15 * Math.sin(7.9 * z + 2.0) * Math.sin(8.3 * x + 0.2) * Math.sin(7.1 * y - 1.7)
-
   let s = 1337
   const rnd = () => {
     s = (s * 1664525 + 1013904223) >>> 0
     return s / 4294967296
   }
-
-  // Poucos planos de órbita compartilhados: satélites espalhados em planos
-  // próprios virariam uma casca uniforme, e o pedido é que se leiam como
-  // pequenos grupos.
-  const GRUPOS = 7
-  const planos = Array.from({ length: GRUPOS }, () => {
+  const rndUnit = (): [number, number, number] => {
     const z = rnd() * 2 - 1
     const a = rnd() * Math.PI * 2
     const r = Math.sqrt(1 - z * z)
-    return [r * Math.cos(a), r * Math.sin(a), z] as const
-  })
+    return [r * Math.cos(a), r * Math.sin(a), z]
+  }
 
-  for (let i = 0; i < total; i++) {
-    // z uniforme em [-1,1] é o que dá distribuição uniforme na esfera; sortear
-    // latitude direto amontoaria tudo nos polos.
-    const z = rnd() * 2 - 1
-    const t = rnd() * Math.PI * 2
-    const rxy = Math.sqrt(1 - z * z)
-    const dx = rxy * Math.cos(t)
-    const dy = rxy * Math.sin(t)
-    const dz = z
-
-    const sorte = rnd()
-    let raio: number
-    let casca: number
-    let brilho: number
-    let tamanho: number
-    let satelite = 0
-    let semente = rnd()
-
-    if (sorte < 0.535) {
-      raio = RAIO * (1 + relevo(dx * 2, dy * 2, dz * 2) * 0.13) + (rnd() - 0.5) * 0.05
-      casca = 1
-      brilho = 0.75 + rnd() * 0.55
-      tamanho = 0.75 + rnd() * 0.5
-    } else if (sorte < 0.775) {
-      raio = RAIO * Math.cbrt(rnd()) * 0.92
-      casca = 0.18
-      brilho = 0.24 + rnd() * 0.30
-      tamanho = 0.6 + rnd() * 0.45
-    } else if (sorte < 0.855) {
-      // Miolo luminoso: é ele que dá o núcleo aceso da referência.
-      raio = RAIO * Math.cbrt(rnd()) * 0.34
-      casca = 0.55
-      brilho = 0.85 + rnd() * 0.7
-      tamanho = 0.8 + rnd() * 0.6
-    } else if (sorte < 0.895) {
-      // Satélites. A semente quase compartilhada dentro do grupo mantém
-      // velocidade e fase parecidas, então eles andam juntos.
-      const grupo = Math.floor(rnd() * GRUPOS)
-      semente = grupo / GRUPOS + rnd() * 0.045
-      raio = RAIO * (1.06 + rnd() * 0.22)
-      casca = 0.95
-      brilho = 0.55 + rnd() * 0.45
-      tamanho = 0.6 + rnd() * 0.45
-      satelite = 0.75 + rnd() * 0.25
-      orbitas[i * 3] = planos[grupo][0]
-      orbitas[i * 3 + 1] = planos[grupo][1]
-      orbitas[i * 3 + 2] = planos[grupo][2]
-    } else {
-      // Filamentos soltos além da casca: é deles que vem a borda rasgada.
-      raio = RAIO * (1.02 + Math.pow(rnd(), 2) * 0.42)
-      casca = 0.85
-      brilho = 0.14 + rnd() * 0.22
-      tamanho = 0.45 + rnd() * 0.35
-    }
-
-    // Toda partícula precisa de um plano válido: o shader normaliza aOrbita
-    // sem ramificar, e um vetor nulo viraria NaN no meio da nuvem.
-    if (satelite === 0) {
-      const pz = rnd() * 2 - 1
-      const pa = rnd() * Math.PI * 2
-      const pr = Math.sqrt(1 - pz * pz)
-      orbitas[i * 3] = pr * Math.cos(pa)
-      orbitas[i * 3 + 1] = pr * Math.sin(pa)
-      orbitas[i * 3 + 2] = pz
-    }
-
-    posicoes[i * 3] = dx * raio
-    posicoes[i * 3 + 1] = dy * raio
-    posicoes[i * 3 + 2] = dz * raio
-
-    // Nuvem de onde a partícula vem: mesma direção não serve, senão o orbe
-    // apenas encolhe. Direção própria, longe, e achatada em Y para a poeira
-    // parecer orbitar o ponto onde o orbe vai nascer.
-    const oz = rnd() * 2 - 1
-    const ot = rnd() * Math.PI * 2
-    const orxy = Math.sqrt(1 - oz * oz)
+  let i = 0
+  const escreverComum = (dir: [number, number, number]) => {
+    // Nuvem de origem para o nascimento: direção própria e distante.
+    const [ox, oy, oz] = rndUnit()
     const odist = RAIO * (2.6 + rnd() * 3.2)
-    origens[i * 3] = orxy * Math.cos(ot) * odist
-    origens[i * 3 + 1] = oz * odist * 0.6
-    origens[i * 3 + 2] = orxy * Math.sin(ot) * odist
-
+    origens[i * 3] = ox * odist
+    origens[i * 3 + 1] = oy * odist * 0.6
+    origens[i * 3 + 2] = oz * odist
+    // Plano de órbita válido para todos (o shader normaliza sem ramificar).
+    const [px, py, pz] = dir
+    orbitas[i * 3] = px
+    orbitas[i * 3 + 1] = py
+    orbitas[i * 3 + 2] = pz
     atrasos[i] = rnd()
-    satelites[i] = satelite
-    sementes[i] = semente
-    cascas[i] = casca
-    brilhos[i] = brilho
-    tamanhos[i] = tamanho
+  }
+  const pintar = (cor: [number, number, number], k = 1) => {
+    cores[i * 3] = cor[0] * k
+    cores[i * 3 + 1] = cor[1] * k
+    cores[i * 3 + 2] = cor[2] * k
+  }
+
+  const nCore = Math.round(total * 0.08)
+  const nSat = Math.round(total * 0.06)
+  const nInterior = Math.round(total * 0.54)
+  const nStrand = total - nCore - nSat - nInterior
+
+  // ---- núcleo: aglomerado central compacto, ciano/branco, aceso ----------
+  for (let c = 0; c < nCore; c++, i++) {
+    const dir = rndUnit()
+    const raio = RAIO * Math.pow(rnd(), 0.8) * 0.34
+    posicoes[i * 3] = dir[0] * raio
+    posicoes[i * 3 + 1] = dir[1] * raio
+    posicoes[i * 3 + 2] = dir[2] * raio
+    escreverComum(rndUnit())
+    satelites[i] = 0
+    sementes[i] = rnd()
+    cascas[i] = 0.15
+    const branco = rnd() < 0.16
+    pintar(branco ? BRANCO : CIANO, 0.8 + rnd() * 0.4)
+    brilhos[i] = (branco ? 0.85 : 0.6) + rnd() * 0.45
+    tamanhos[i] = 0.6 + rnd() * 0.4
+  }
+
+  // ---- corpo: preenchimento volumétrico dá a bola redonda e translúcida --
+  // Uniforme no volume (raio ∝ cbrt), fraco e pequeno — é o brilho interno
+  // sobre o qual os filamentos aparecem, sem virar espetos radiais.
+  for (let c = 0; c < nInterior; c++, i++) {
+    const dir = rndUnit()
+    // Uniforme no volume (raio ∝ cbrt) preenchendo quase todo o raio: como o
+    // blending é aditivo, o caminho de visão mais longo no centro já clareia o
+    // miolo e escurece as bordas sozinho — vira uma bola translúcida cheia, do
+    // tamanho da casca de filamentos, e não um ponto pequeno cercado de fios.
+    const raio = RAIO * Math.cbrt(rnd()) * 0.78
+    posicoes[i * 3] = dir[0] * raio
+    posicoes[i * 3 + 1] = dir[1] * raio
+    posicoes[i * 3 + 2] = dir[2] * raio
+    escreverComum(rndUnit())
+    satelites[i] = 0
+    sementes[i] = rnd()
+    cascas[i] = Math.min(1, raio / RAIO)
+    const r = rnd()
+    pintar(r < 0.5 ? AZUL : r < 0.8 ? VIOLETA : CIANO, 0.7 + rnd() * 0.3)
+    brilhos[i] = 0.24 + rnd() * 0.26
+    tamanhos[i] = 0.42 + rnd() * 0.3
+  }
+
+  // ---- filamentos: correntes traçadas por um campo curvo ------------------
+  // Cada corrente anda pela superfície de uma casca por passos de arco, com o
+  // rumo desviado por um campo de senos — é isso que dá as dobras e os vazios.
+  const PONTOS_CORRENTE = 130
+  const nCorrentes = Math.max(1, Math.round(nStrand / PONTOS_CORRENTE))
+  let feitos = 0
+  for (let c = 0; c < nCorrentes; c++) {
+    const pts = c === nCorrentes - 1 ? nStrand - feitos : PONTOS_CORRENTE
+    feitos += pts
+
+    let p = rndUnit()
+    const shell = 0.66 + rnd() * 0.2            // casca fina: filamentos na superfície
+    const extensao = rnd() < 0.06               // pouquíssimas escapam, e de leve
+    const ph = [rnd() * 6.28, rnd() * 6.28, rnd() * 6.28]
+    const fq = 1.4 + rnd() * 1.6
+    // Cor dominante da corrente: maioria azul, boa parte violeta, poucas ciano.
+    const r = rnd()
+    const cor = r < 0.5 ? AZUL : r < 0.8 ? VIOLETA : CIANO
+    const brilhoBase = (cor === CIANO ? 0.42 : 0.26) + rnd() * 0.20
+
+    for (let k = 0; k < pts; k++, i++) {
+      const prog = k / pts
+      // rumo tangente desviado pelo campo → curva
+      const nx = Math.sin(p[1] * fq + ph[0]) + Math.sin(p[2] * 1.7 - ph[1])
+      const ny = Math.sin(p[2] * fq + ph[1]) + Math.sin(p[0] * 1.7 - ph[2])
+      const nz = Math.sin(p[0] * fq + ph[2]) + Math.sin(p[1] * 1.7 - ph[0])
+      // tangente = componente de n ortogonal a p
+      const dot = nx * p[0] + ny * p[1] + nz * p[2]
+      let tx = nx - dot * p[0]
+      let ty = ny - dot * p[1]
+      let tz = nz - dot * p[2]
+      const tl = Math.hypot(tx, ty, tz) || 1
+      tx /= tl; ty /= tl; tz /= tl
+      const dth = 0.026 + rnd() * 0.012
+      const cs = Math.cos(dth), sn = Math.sin(dth)
+      p = [p[0] * cs + tx * sn, p[1] * cs + ty * sn, p[2] * cs + tz * sn]
+      const pl = Math.hypot(p[0], p[1], p[2]) || 1
+      p = [p[0] / pl, p[1] / pl, p[2] / pl]
+
+      // raio: casca + dobra (ondulação ao longo da corrente); extensões saem
+      const dobra = 0.08 * Math.sin(k * 0.5 + ph[0]) + (rnd() - 0.5) * 0.04
+      let rf = shell + dobra
+      if (extensao) rf += prog * 0.14
+      const raio = RAIO * Math.max(0.18, rf)
+      posicoes[i * 3] = p[0] * raio
+      posicoes[i * 3 + 1] = p[1] * raio
+      posicoes[i * 3 + 2] = p[2] * raio
+
+      escreverComum(rndUnit())
+      satelites[i] = 0
+      sementes[i] = rnd()
+      cascas[i] = Math.min(1, Math.max(0, rf - 0.35))
+      const pico = rnd() < 0.05
+      pintar(pico ? BRANCO : cor, 0.85 + rnd() * 0.4)
+      brilhos[i] = (pico ? 1.0 : brilhoBase) * (1 + (rnd() - 0.5) * 0.4)
+      tamanhos[i] = (extensao ? 0.45 : 0.6) + rnd() * 0.4
+    }
+  }
+
+  // ---- satélites: pequenos grupos orbitando, em poucos planos -------------
+  const GRUPOS = 6
+  const planos = Array.from({ length: GRUPOS }, () => rndUnit())
+  for (let c = 0; c < nSat; c++, i++) {
+    const dir = rndUnit()
+    const raio = RAIO * (1.05 + rnd() * 0.22)
+    posicoes[i * 3] = dir[0] * raio
+    posicoes[i * 3 + 1] = dir[1] * raio
+    posicoes[i * 3 + 2] = dir[2] * raio
+    escreverComum(planos[Math.floor(rnd() * GRUPOS)])
+    const grupo = Math.floor(rnd() * GRUPOS)
+    satelites[i] = 0.75 + rnd() * 0.25
+    sementes[i] = grupo / GRUPOS + rnd() * 0.045
+    cascas[i] = 0.9
+    pintar(rnd() < 0.5 ? CIANO : AZUL, 0.9 + rnd() * 0.4)
+    brilhos[i] = 0.5 + rnd() * 0.4
+    tamanhos[i] = 0.55 + rnd() * 0.4
   }
 
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(posicoes, 3))
   geo.setAttribute('aOrigem', new THREE.BufferAttribute(origens, 3))
   geo.setAttribute('aOrbita', new THREE.BufferAttribute(orbitas, 3))
+  geo.setAttribute('aCor', new THREE.BufferAttribute(cores, 3))
   geo.setAttribute('aSatelite', new THREE.BufferAttribute(satelites, 1))
   geo.setAttribute('aAtraso', new THREE.BufferAttribute(atrasos, 1))
   geo.setAttribute('aSemente', new THREE.BufferAttribute(sementes, 1))
@@ -360,12 +412,10 @@ export function Orbe({ estado, movimento, onPronto, ref }: Props) {
       uOndaInicio: { value: new Array(MAX_ONDAS).fill(-999) },
       uOndaForca: { value: new Array(MAX_ONDAS).fill(0) },
       uPixelRatio: { value: renderer.getPixelRatio() },
-      uTamanho: { value: estreito ? 3.1 : 3.5 },
-      uGanho: { value: 1.15 },
+      uTamanho: { value: estreito ? 3.8 : 4.3 },
+      uGanho: { value: 1.42 },
       uFormacao: { value: 0 },
-      uCorNucleo: { value: new THREE.Color('#1b4fe0') },
-      uCorCasca: { value: new THREE.Color('#5fdcff') },
-      uCorRealce: { value: new THREE.Color('#b9ecff') },
+      uCorRealce: { value: new THREE.Color('#eaf6ff') },
     }
 
     const geometria = construirGeometria(total)
@@ -385,7 +435,7 @@ export function Orbe({ estado, movimento, onPronto, ref }: Props) {
     })
     const pontos = new THREE.Points(geometria, material)
     // Levanta o orbe do centro geométrico: a caixa de conversa ocupa a base.
-    pontos.position.y = RAIO * 0.16
+    pontos.position.y = RAIO * 0.62
     cena.add(pontos)
 
     let resolvido = false
@@ -413,7 +463,7 @@ export function Orbe({ estado, movimento, onPronto, ref }: Props) {
       camera.aspect = l / a
       // Enquadra o orbe pela menor dimensão visível, senão em retrato ele
       // encosta nas laterais e em paisagem fica minúsculo.
-      const alvo = RAIO * (l < 640 ? 2.15 : 1.80)
+      const alvo = RAIO * (l < 640 ? 1.9 : 1.55)
       const meioFov = THREE.MathUtils.degToRad(camera.fov) / 2
       const distV = alvo / Math.tan(meioFov)
       const distH = alvo / (Math.tan(meioFov) * camera.aspect)

@@ -4,18 +4,27 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Panorama360 } from './Panorama360'
 import { Orbe, type EstadoOrbe, type OrbeHandle } from './Orbe'
 import { CaixaConversa } from './CaixaConversa'
-import { SAUDACAO, responderDemonstracao, ritmoDaPalavra, type Mensagem } from './conversa'
+import { AtividadeHabilidade, type FaseAtividade } from './AtividadeHabilidade'
+import {
+  SAUDACAO,
+  responderDemonstracao,
+  ritmoDaPalavra,
+  atividadePara,
+  type Atividade,
+  type Mensagem,
+} from './conversa'
 
 const MS_PENSANDO = 1100
+const MS_CONCLUIDO = 1500
 const CHAVE = 'experimento-360:movimento'
 
 export function Experiencia() {
-  // `null` enquanto a preferência do sistema não foi lida. O orbe não desenha
-  // nada nesse intervalo, então nunca aparece um quadro estático dele.
   const [movimento, setMovimento] = useState<boolean | null>(null)
   const [pedeReduzido, setPedeReduzido] = useState(false)
   const [estado, setEstado] = useState<EstadoOrbe>('repouso')
   const [mensagens, setMensagens] = useState<Mensagem[]>([])
+  const [atividade, setAtividade] = useState<Atividade | null>(null)
+  const [faseAtividade, setFaseAtividade] = useState<FaseAtividade>('oculto')
 
   const orbeRef = useRef<OrbeHandle>(null)
   const movimentoRef = useRef<boolean | null>(null)
@@ -28,8 +37,6 @@ export function Experiencia() {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
     const aplicar = () => {
       setPedeReduzido(mq.matches)
-      // Escolha manual anterior vence a do sistema: quem já ligou a animação
-      // nesta página não deveria ter de ligar de novo a cada visita.
       let escolha: string | null = null
       try { escolha = localStorage.getItem(CHAVE) } catch { escolha = null }
       setMovimento(escolha === null ? !mq.matches : escolha === '1')
@@ -39,22 +46,23 @@ export function Experiencia() {
     return () => mq.removeEventListener('change', aplicar)
   }, [])
 
-  const limparTemporizadores = () => {
+  const limpar = () => {
     temporizadores.current.forEach(clearTimeout)
     temporizadores.current = []
   }
-  useEffect(() => limparTemporizadores, [])
+  useEffect(() => limpar, [])
 
-  // Revela a resposta palavra a palavra. Cada palavra é um pulso no orbe, e é
-  // o fim da última que devolve a cena ao repouso — o ciclo visual é dirigido
-  // pela apresentação do texto, não por um cronômetro paralelo.
-  const apresentar = useCallback((texto: string) => {
+  // Revela a resposta palavra a palavra; cada palavra é um pulso no orbe. É o
+  // fim da última palavra que devolve ao repouso e dispara `onFim`, então o
+  // ciclo visual e o indicador de atividade seguem a apresentação do texto.
+  const apresentar = useCallback((texto: string, onFim?: () => void) => {
     const id = proximoId.current++
     setMensagens(atuais => [...atuais, { id, autor: 'orbe', texto: '' }])
 
     if (!movimentoRef.current) {
       setMensagens(atuais => atuais.map(m => (m.id === id ? { ...m, texto } : m)))
       setEstado('repouso')
+      onFim?.()
       return
     }
 
@@ -66,11 +74,13 @@ export function Experiencia() {
       i++
       setMensagens(atuais => atuais.map(m => (m.id === id ? { ...m, texto: ate } : m)))
       const { atraso, intensidade } = ritmoDaPalavra(palavra)
-      // "Respondendo" começa exatamente quando a primeira palavra aparece.
       if (i === 1) setEstado('respondendo')
       orbeRef.current?.pulsar(intensidade)
       if (i >= palavras.length) {
-        temporizadores.current.push(window.setTimeout(() => setEstado('repouso'), 420))
+        temporizadores.current.push(window.setTimeout(() => {
+          setEstado('repouso')
+          onFim?.()
+        }, 420))
         return
       }
       temporizadores.current.push(window.setTimeout(revelar, atraso))
@@ -86,11 +96,21 @@ export function Experiencia() {
   }, [apresentar])
 
   const enviar = (texto: string) => {
-    limparTemporizadores()
+    limpar()
     setMensagens(atuais => [...atuais, { id: proximoId.current++, autor: 'voce', texto }])
+    // Indicador de atividade acompanha o mesmo ciclo da resposta.
+    setAtividade(atividadePara(texto))
+    setFaseAtividade('trabalhando')
     setEstado('pensando')
     temporizadores.current.push(
-      window.setTimeout(() => apresentar(responderDemonstracao(texto)), MS_PENSANDO),
+      window.setTimeout(() => {
+        apresentar(responderDemonstracao(texto), () => {
+          setFaseAtividade('concluido')
+          temporizadores.current.push(
+            window.setTimeout(() => setFaseAtividade('oculto'), MS_CONCLUIDO),
+          )
+        })
+      }, MS_PENSANDO),
     )
   }
 
@@ -106,16 +126,15 @@ export function Experiencia() {
     <>
       <Panorama360 movimento={movimento === true} />
       <Orbe ref={orbeRef} estado={estado} movimento={movimento} onPronto={aoOrbePronto} />
+      <AtividadeHabilidade atividade={atividade} fase={faseAtividade} />
       <CaixaConversa estado={estado} mensagens={mensagens} onEnviar={enviar} />
 
       {pedeReduzido && (
         <div
           data-sem-onda
-          className="fixed right-3 top-3 z-20 flex items-center gap-2 rounded-full border border-white/12 bg-black/45 px-3 py-1.5 text-[12px] backdrop-blur-md"
+          className="fixed left-3 top-[max(0.75rem,env(safe-area-inset-top))] z-20 flex items-center gap-2 rounded-full border border-white/12 bg-black/45 px-3 py-1.5 text-[12px] backdrop-blur-md"
         >
-          <span className="hidden text-white/50 sm:inline">
-            Seu sistema pede movimento reduzido
-          </span>
+          <span className="hidden text-white/50 sm:inline">Movimento reduzido</span>
           <button
             type="button"
             onClick={alternarMovimento}

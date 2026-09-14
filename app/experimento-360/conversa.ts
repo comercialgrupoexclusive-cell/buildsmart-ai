@@ -49,3 +49,27 @@ export function ritmoDaPalavra(palavra: string) {
     intensidade: Math.min(1, 0.35 + palavra.replace(/\W/g, '').length * 0.08 + (finalDeFrase ? 0.25 : 0)),
   }
 }
+
+export type Atividade = {
+  agente: string
+  habilidade: string
+}
+
+const ORCAMENTO = [
+  'orcamento', 'orcar', 'custo', 'preco', 'valor', 'quanto custa', 'material',
+  'materiais', 'obra', 'reforma', 'construir', 'construcao', 'metro', 'm2',
+  'planilha', 'sinapi', 'insumo', 'composicao',
+]
+
+// Atividade coerente com o texto. Orçamento aciona a habilidade nomeada no
+// pedido; o resto usa uma atividade genérica compatível com a demonstração.
+export function atividadePara(entrada: string): Atividade {
+  const texto = semAcento(entrada)
+  if (contem(texto, ORCAMENTO, true)) {
+    return { agente: 'Organizando resposta', habilidade: 'Consulta de orçamento' }
+  }
+  if (contem(texto, IDEIAS, true)) {
+    return { agente: 'Organizando resposta', habilidade: 'Estruturando a ideia' }
+  }
+  return { agente: 'Organizando resposta', habilidade: 'Lendo o contexto' }
+}

@@ -1,21 +1,23 @@
 # ceu-profundo-4k.jpg
 
-- **Origem:** gerado neste próprio repositório por `scripts/gerar-panorama-360.py`.
-  Não é um asset de terceiros: não há licença externa envolvida, e nada é
-  carregado por hotlink.
-- **Formato:** JPEG equiretangular 4096×2048 (proporção 2:1), costura
-  horizontal contínua.
-- **Como regerar:** `pip install numpy imageio && python3 scripts/gerar-panorama-360.py`
-  (a semente é fixa, então o resultado é determinístico).
+Panorama equiretangular (2:1, 4096×2048) usado como textura 360° do ambiente.
 
-## Por que gerado e não baixado
+- **Origem:** gerado neste repositório por `scripts/gerar-panorama-360.py`.
+  Não é asset de terceiros; nenhuma licença externa envolvida; nada por hotlink.
+- **Conteúdo:** céu noturno com Via Láctea, cordilheiras em camadas com névoa no
+  vale, brilho de pôr do sol num lado e primeiro plano rochoso — reproduz a
+  composição da referência ("fundoTellus 360").
+- **Regerar:** `pip install numpy imageio && python3 scripts/gerar-panorama-360.py`
+  (semente fixa → resultado determinístico).
 
-O panorama enviado para esta etapa (`rogland_clear_night_4k.hdr`, Poly Haven,
-CC0) é Radiance HDR bruto de ~28 MB: o `photo-sphere-viewer` carrega JPG/PNG,
-não `.hdr`, e o arquivo também excede o limite de download do conector usado
-para buscá-lo. O ambiente de execução desta etapa também bloqueia saída HTTPS
-para hosts externos, o que inviabilizou baixar uma alternativa gratuita.
+## Trocar pelo panorama real (1 passo)
 
-Trocar o fundo depois é um passo só: substituir este arquivo por outro JPG
-equiretangular 2:1, ou apontar `PANORAMA` em `app/experimento-360/Panorama360.tsx`
-para o novo caminho.
+Este é um substituto gerado. Para usar o panorama 4K real (foto), basta
+**substituir este arquivo** por outro JPG/PNG equiretangular 2:1 com o mesmo
+nome e caminho (`public/experimento-360/ceu-profundo-4k.jpg`). Nenhuma mudança
+de código é necessária — a rotação, o enquadramento inicial e a projeção já
+funcionam para qualquer equiretangular 2:1.
+
+Motivo de ainda ser gerado: as imagens enviadas nesta sessão chegam por
+WhatsApp e não são gravadas no disco do ambiente, e a saída HTTPS é bloqueada,
+então não foi possível baixar o arquivo original aqui. A troca local resolve.
