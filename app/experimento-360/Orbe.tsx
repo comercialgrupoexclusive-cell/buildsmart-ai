@@ -17,6 +17,7 @@ const RAIO = 2.25
 const MAX_ONDAS = 3
 const VIDA_ONDA = 2.6
 const VEL_ONDA = 2.15
+const SEG_FORMACAO = 3.8
 
 const vertexShader = /* glsl */ `
   uniform float uTempo;
@@ -31,7 +32,10 @@ const vertexShader = /* glsl */ `
   uniform float uPixelRatio;
   uniform float uTamanho;
   uniform float uGanho;
+  uniform float uFormacao;
 
+  attribute vec3  aOrigem;
+  attribute float aAtraso;
   attribute float aSemente;
   attribute float aCasca;
   attribute float aTamanho;
@@ -52,13 +56,25 @@ const vertexShader = /* glsl */ `
   }
 
   void main() {
-    vec3 p = position;
+    // Nascimento: cada partícula parte do seu ponto disperso e entra em
+    // espiral até a posição de repouso. O atraso próprio de cada uma é o que
+    // faz o orbe se juntar aos poucos em vez de aparecer inteiro de uma vez.
+    float atraso = aAtraso * 0.62;
+    float t = clamp((uFormacao - atraso) / (1.0 - atraso), 0.0, 1.0);
+    float chegada = smoothstep(0.0, 1.0, t);
+
+    vec3 p = mix(aOrigem, position, chegada);
+
+    float giro = (1.0 - chegada) * (1.6 + aSemente * 2.2);
+    float cg = cos(giro);
+    float sg = sin(giro);
+    p = vec3(p.x * cg - p.z * sg, p.y, p.x * sg + p.z * cg);
 
     float respiracao = 1.0 + 0.030 * sin(uTempo * 0.55 + aSemente * 6.2831);
-    p *= respiracao * uExpansao;
+    p *= mix(1.0, respiracao * uExpansao, chegada);
 
     vec3 deriva = redemoinho(position * 0.55 + aSemente * 3.0, uTempo * (0.17 + uEnergia * 0.60));
-    p += deriva * (0.085 + uEnergia * 0.145) * (0.40 + aCasca);
+    p += deriva * (0.085 + uEnergia * 0.145) * (0.40 + aCasca) * chegada;
 
     float realce = 0.0;
 
@@ -66,7 +82,7 @@ const vertexShader = /* glsl */ `
     // só a região sob o cursor se afasta — o resto da esfera nem sente.
     vec3 ateP = p - uPonteiro;
     float distP = length(ateP);
-    float influencia = exp(-(distP * distP) / (uRaioPonteiro * uRaioPonteiro)) * uForcaPonteiro;
+    float influencia = exp(-(distP * distP) / (uRaioPonteiro * uRaioPonteiro)) * uForcaPonteiro * chegada;
     p += normalize(ateP + 1e-5) * influencia * uEmpurrao;
     realce += influencia;
 
@@ -78,7 +94,7 @@ const vertexShader = /* glsl */ `
         float frente = idade * ${VEL_ONDA.toFixed(2)};
         float anel = exp(-pow((d - frente) / 0.42, 2.0));
         float queda = 1.0 - idade / ${VIDA_ONDA.toFixed(1)};
-        float amp = anel * queda * queda;
+        float amp = anel * queda * queda * chegada;
         p += normalize(ateO + 1e-5) * amp * 0.42;
         realce += amp;
       }
@@ -88,13 +104,16 @@ const vertexShader = /* glsl */ `
     // o orbe inteiro lavaria de branco em vez de mostrar um ponto de impacto.
     realce = min(realce, 1.2);
 
-    vBrilho = aBrilho * uGanho * (1.0 + realce * 1.0 + uEnergia * 0.35);
+    float surgir = smoothstep(0.0, 0.22, t);
+    float voo = t * (1.0 - t) * 4.0;
+
+    vBrilho = aBrilho * uGanho * surgir * (1.0 + realce * 1.0 + uEnergia * 0.35 + voo * 0.60);
     vCasca = aCasca;
     vRealce = realce;
 
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = uTamanho * aTamanho * uPixelRatio * (1.0 + realce * 0.35) * (7.0 / -mv.z);
+    gl_PointSize = uTamanho * aTamanho * uPixelRatio * (1.0 + realce * 0.35 + voo * 0.25) * (7.0 / -mv.z);
   }
 `
 
@@ -125,6 +144,8 @@ const fragmentShader = /* glsl */ `
 
 function construirGeometria(total: number) {
   const posicoes = new Float32Array(total * 3)
+  const origens = new Float32Array(total * 3)
+  const atrasos = new Float32Array(total)
   const sementes = new Float32Array(total)
   const cascas = new Float32Array(total)
   const tamanhos = new Float32Array(total)
@@ -187,6 +208,19 @@ function construirGeometria(total: number) {
     posicoes[i * 3] = dx * raio
     posicoes[i * 3 + 1] = dy * raio
     posicoes[i * 3 + 2] = dz * raio
+
+    // Nuvem de onde a partícula vem: mesma direção não serve, senão o orbe
+    // apenas encolhe. Direção própria, longe, e achatada em Y para a poeira
+    // parecer orbitar o ponto onde o orbe vai nascer.
+    const oz = rnd() * 2 - 1
+    const ot = rnd() * Math.PI * 2
+    const orxy = Math.sqrt(1 - oz * oz)
+    const odist = RAIO * (2.6 + rnd() * 3.2)
+    origens[i * 3] = orxy * Math.cos(ot) * odist
+    origens[i * 3 + 1] = oz * odist * 0.6
+    origens[i * 3 + 2] = orxy * Math.sin(ot) * odist
+    atrasos[i] = rnd()
+
     sementes[i] = rnd()
     cascas[i] = casca
     brilhos[i] = brilho
@@ -195,11 +229,13 @@ function construirGeometria(total: number) {
 
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(posicoes, 3))
+  geo.setAttribute('aOrigem', new THREE.BufferAttribute(origens, 3))
+  geo.setAttribute('aAtraso', new THREE.BufferAttribute(atrasos, 1))
   geo.setAttribute('aSemente', new THREE.BufferAttribute(sementes, 1))
   geo.setAttribute('aCasca', new THREE.BufferAttribute(cascas, 1))
   geo.setAttribute('aTamanho', new THREE.BufferAttribute(tamanhos, 1))
   geo.setAttribute('aBrilho', new THREE.BufferAttribute(brilhos, 1))
-  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), RAIO * 2)
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), RAIO * 7)
   return geo
 }
 
@@ -240,6 +276,7 @@ export function Orbe({ estado }: { estado: EstadoOrbe }) {
       uPixelRatio: { value: renderer.getPixelRatio() },
       uTamanho: { value: estreito ? 3.1 : 3.5 },
       uGanho: { value: 1.15 },
+      uFormacao: { value: semMovimento.matches ? 1 : 0 },
       uCorNucleo: { value: new THREE.Color('#1b4fe0') },
       uCorCasca: { value: new THREE.Color('#5fdcff') },
       uCorRealce: { value: new THREE.Color('#b9ecff') },
@@ -347,6 +384,9 @@ export function Orbe({ estado }: { estado: EstadoOrbe }) {
       const dt = Math.min((agora - ultimo) / 1000, 0.05)
       ultimo = agora
       uniforms.uTempo.value += dt
+      if (uniforms.uFormacao.value < 1) {
+        uniforms.uFormacao.value = Math.min(1, uniforms.uFormacao.value + dt / SEG_FORMACAO)
+      }
 
       const est = estadoRef.current
       const energiaAlvo = est === 'pensando' ? 1 : est === 'respondendo' ? 0.62 : 0
