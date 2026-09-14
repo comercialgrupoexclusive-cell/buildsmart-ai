@@ -167,7 +167,7 @@ const fragmentShader = /* glsl */ `
 // blending é aditivo.
 const VIOLETA: [number, number, number] = [0.42, 0.24, 0.98]
 const AZUL: [number, number, number] = [0.16, 0.42, 1.0]
-const CIANO: [number, number, number] = [0.30, 0.82, 1.0]
+const CIANO: [number, number, number] = [0.34, 0.86, 1.0]
 const BRANCO: [number, number, number] = [0.80, 0.92, 1.0]
 
 function construirGeometria(total: number) {
@@ -215,7 +215,7 @@ function construirGeometria(total: number) {
     cores[i * 3 + 2] = cor[2] * k
   }
 
-  const nCore = Math.round(total * 0.08)
+  const nCore = Math.round(total * 0.11)
   const nSat = Math.round(total * 0.06)
   const nInterior = Math.round(total * 0.54)
   const nStrand = total - nCore - nSat - nInterior
@@ -223,7 +223,7 @@ function construirGeometria(total: number) {
   // ---- núcleo: aglomerado central compacto, ciano/branco, aceso ----------
   for (let c = 0; c < nCore; c++, i++) {
     const dir = rndUnit()
-    const raio = RAIO * Math.pow(rnd(), 0.8) * 0.34
+    const raio = RAIO * Math.pow(rnd(), 0.9) * 0.30
     posicoes[i * 3] = dir[0] * raio
     posicoes[i * 3 + 1] = dir[1] * raio
     posicoes[i * 3 + 2] = dir[2] * raio
@@ -233,7 +233,7 @@ function construirGeometria(total: number) {
     cascas[i] = 0.15
     const branco = rnd() < 0.16
     pintar(branco ? BRANCO : CIANO, 0.8 + rnd() * 0.4)
-    brilhos[i] = (branco ? 0.85 : 0.6) + rnd() * 0.45
+    brilhos[i] = (branco ? 1.05 : 0.78) + rnd() * 0.5
     tamanhos[i] = 0.6 + rnd() * 0.4
   }
 
@@ -256,7 +256,7 @@ function construirGeometria(total: number) {
     cascas[i] = Math.min(1, raio / RAIO)
     const r = rnd()
     pintar(r < 0.5 ? AZUL : r < 0.8 ? VIOLETA : CIANO, 0.7 + rnd() * 0.3)
-    brilhos[i] = 0.24 + rnd() * 0.26
+    brilhos[i] = 0.30 + rnd() * 0.28
     tamanhos[i] = 0.42 + rnd() * 0.3
   }
 
@@ -385,7 +385,7 @@ export function Orbe({ estado, movimento, onPronto, ref }: Props) {
     if (!container) return
 
     const estreito = window.innerWidth < 640
-    const total = estreito ? 15000 : 34000
+    const total = estreito ? 20000 : 46000
 
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: false, powerPreference: 'high-performance' })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
@@ -412,8 +412,8 @@ export function Orbe({ estado, movimento, onPronto, ref }: Props) {
       uOndaInicio: { value: new Array(MAX_ONDAS).fill(-999) },
       uOndaForca: { value: new Array(MAX_ONDAS).fill(0) },
       uPixelRatio: { value: renderer.getPixelRatio() },
-      uTamanho: { value: estreito ? 3.8 : 4.3 },
-      uGanho: { value: 1.42 },
+      uTamanho: { value: estreito ? 4.1 : 4.6 },
+      uGanho: { value: 1.58 },
       uFormacao: { value: 0 },
       uCorRealce: { value: new THREE.Color('#eaf6ff') },
     }
@@ -642,7 +642,7 @@ export function Orbe({ estado, movimento, onPronto, ref }: Props) {
       className="pointer-events-none absolute inset-0 z-[1] transition-opacity duration-700 ease-out"
       style={{ opacity: visivel ? 1 : 0 }}
     >
-      <div className="absolute left-1/2 top-[44%] size-[min(78vw,60vh)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(70,150,255,0.22),rgba(40,90,200,0.08)_55%,transparent_78%)] blur-2xl" />
+      <div className="absolute left-1/2 top-[40%] size-[min(62vw,52vh)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(90,200,255,0.30),rgba(60,120,240,0.12)_52%,transparent_76%)] blur-2xl" />
       <div ref={containerRef} className="absolute inset-0" />
     </div>
   )
