@@ -8,33 +8,39 @@
 // para dezenas de milhares de partículas; aqui é um único THREE.Points e o
 // deslocamento acontece no vertex shader.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState } from 'react'
 import * as THREE from 'three'
 
 export type EstadoOrbe = 'repouso' | 'pensando' | 'respondendo'
+export type OrbeHandle = { pulsar: (intensidade: number) => void }
 
 const RAIO = 2.25
-const MAX_ONDAS = 3
-const VIDA_ONDA = 2.6
-const VEL_ONDA = 2.15
+const MAX_ONDAS = 5
+const VIDA_ONDA = 1.7
+const VEL_ONDA = 2.6
 const SEG_FORMACAO = 3.8
 
 const vertexShader = /* glsl */ `
   uniform float uTempo;
   uniform float uEnergia;
   uniform float uExpansao;
+  uniform float uOrbita;
+  uniform float uFala;
   uniform vec3  uPonteiro;
   uniform float uForcaPonteiro;
   uniform float uRaioPonteiro;
   uniform float uEmpurrao;
   uniform vec3  uOndaOrigem[${MAX_ONDAS}];
   uniform float uOndaInicio[${MAX_ONDAS}];
+  uniform float uOndaForca[${MAX_ONDAS}];
   uniform float uPixelRatio;
   uniform float uTamanho;
   uniform float uGanho;
   uniform float uFormacao;
 
   attribute vec3  aOrigem;
+  attribute vec3  aOrbita;
+  attribute float aSatelite;
   attribute float aAtraso;
   attribute float aSemente;
   attribute float aCasca;
@@ -71,10 +77,22 @@ const vertexShader = /* glsl */ `
     p = vec3(p.x * cg - p.z * sg, p.y, p.x * sg + p.z * cg);
 
     float respiracao = 1.0 + 0.030 * sin(uTempo * 0.55 + aSemente * 6.2831);
-    p *= mix(1.0, respiracao * uExpansao, chegada);
+    p *= mix(1.0, respiracao * uExpansao * (1.0 + uFala * 0.055), chegada);
 
     vec3 deriva = redemoinho(position * 0.55 + aSemente * 3.0, uTempo * (0.17 + uEnergia * 0.60));
     p += deriva * (0.085 + uEnergia * 0.145) * (0.40 + aCasca) * chegada;
+
+    // Satélites: um punhado de partículas deixa o corpo e descreve uma órbita
+    // própria em volta do núcleo. O plano vem do atributo, e dois eixos
+    // ortonormais são derivados dele sem ramificação.
+    vec3 eixoAux = mix(vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), step(0.9, abs(aOrbita.z)));
+    vec3 e1 = normalize(cross(eixoAux, aOrbita));
+    vec3 e2 = cross(aOrbita, e1);
+    float raioOrb = length(position) * (1.10 + aSemente * 0.40) * (1.0 + uOrbita * 0.28);
+    float ang = uTempo * (0.30 + fract(aSemente * 7.0) * 0.45) * (0.55 + uOrbita * 1.25)
+              + aSemente * 6.2831;
+    vec3 orbita = (e1 * cos(ang) + e2 * sin(ang)) * raioOrb;
+    p = mix(p, orbita, aSatelite * (0.30 + uOrbita * 0.70) * chegada);
 
     float realce = 0.0;
 
@@ -88,13 +106,13 @@ const vertexShader = /* glsl */ `
 
     for (int i = 0; i < ${MAX_ONDAS}; i++) {
       float idade = uTempo - uOndaInicio[i];
-      if (idade > 0.0 && idade < ${VIDA_ONDA.toFixed(1)}) {
+      if (idade > 0.0 && idade < ${VIDA_ONDA.toFixed(2)}) {
         vec3 ateO = p - uOndaOrigem[i];
         float d = length(ateO);
         float frente = idade * ${VEL_ONDA.toFixed(2)};
         float anel = exp(-pow((d - frente) / 0.42, 2.0));
-        float queda = 1.0 - idade / ${VIDA_ONDA.toFixed(1)};
-        float amp = anel * queda * queda * chegada;
+        float queda = 1.0 - idade / ${VIDA_ONDA.toFixed(2)};
+        float amp = anel * queda * queda * chegada * uOndaForca[i];
         p += normalize(ateO + 1e-5) * amp * 0.42;
         realce += amp;
       }
@@ -107,7 +125,9 @@ const vertexShader = /* glsl */ `
     float surgir = smoothstep(0.0, 0.22, t);
     float voo = t * (1.0 - t) * 4.0;
 
-    vBrilho = aBrilho * uGanho * surgir * (1.0 + realce * 1.0 + uEnergia * 0.35 + voo * 0.60);
+    vBrilho = aBrilho * uGanho * surgir
+            * (1.0 + realce * 1.0 + uEnergia * 0.35 + voo * 0.60 + uFala * 0.45
+               + aSatelite * uOrbita * 0.55);
     vCasca = aCasca;
     vRealce = realce;
 
@@ -145,6 +165,8 @@ const fragmentShader = /* glsl */ `
 function construirGeometria(total: number) {
   const posicoes = new Float32Array(total * 3)
   const origens = new Float32Array(total * 3)
+  const orbitas = new Float32Array(total * 3)
+  const satelites = new Float32Array(total)
   const atrasos = new Float32Array(total)
   const sementes = new Float32Array(total)
   const cascas = new Float32Array(total)
@@ -165,6 +187,17 @@ function construirGeometria(total: number) {
     return s / 4294967296
   }
 
+  // Poucos planos de órbita compartilhados: satélites espalhados em planos
+  // próprios virariam uma casca uniforme, e o pedido é que se leiam como
+  // pequenos grupos.
+  const GRUPOS = 7
+  const planos = Array.from({ length: GRUPOS }, () => {
+    const z = rnd() * 2 - 1
+    const a = rnd() * Math.PI * 2
+    const r = Math.sqrt(1 - z * z)
+    return [r * Math.cos(a), r * Math.sin(a), z] as const
+  })
+
   for (let i = 0; i < total; i++) {
     // z uniforme em [-1,1] é o que dá distribuição uniforme na esfera; sortear
     // latitude direto amontoaria tudo nos polos.
@@ -180,29 +213,55 @@ function construirGeometria(total: number) {
     let casca: number
     let brilho: number
     let tamanho: number
+    let satelite = 0
+    let semente = rnd()
 
-    if (sorte < 0.55) {
+    if (sorte < 0.535) {
       raio = RAIO * (1 + relevo(dx * 2, dy * 2, dz * 2) * 0.13) + (rnd() - 0.5) * 0.05
       casca = 1
       brilho = 0.75 + rnd() * 0.55
       tamanho = 0.75 + rnd() * 0.5
-    } else if (sorte < 0.79) {
+    } else if (sorte < 0.775) {
       raio = RAIO * Math.cbrt(rnd()) * 0.92
       casca = 0.18
       brilho = 0.24 + rnd() * 0.30
       tamanho = 0.6 + rnd() * 0.45
-    } else if (sorte < 0.87) {
+    } else if (sorte < 0.855) {
       // Miolo luminoso: é ele que dá o núcleo aceso da referência.
       raio = RAIO * Math.cbrt(rnd()) * 0.34
       casca = 0.55
       brilho = 0.85 + rnd() * 0.7
       tamanho = 0.8 + rnd() * 0.6
+    } else if (sorte < 0.895) {
+      // Satélites. A semente quase compartilhada dentro do grupo mantém
+      // velocidade e fase parecidas, então eles andam juntos.
+      const grupo = Math.floor(rnd() * GRUPOS)
+      semente = grupo / GRUPOS + rnd() * 0.045
+      raio = RAIO * (1.06 + rnd() * 0.22)
+      casca = 0.95
+      brilho = 0.55 + rnd() * 0.45
+      tamanho = 0.6 + rnd() * 0.45
+      satelite = 0.75 + rnd() * 0.25
+      orbitas[i * 3] = planos[grupo][0]
+      orbitas[i * 3 + 1] = planos[grupo][1]
+      orbitas[i * 3 + 2] = planos[grupo][2]
     } else {
       // Filamentos soltos além da casca: é deles que vem a borda rasgada.
       raio = RAIO * (1.02 + Math.pow(rnd(), 2) * 0.42)
       casca = 0.85
       brilho = 0.14 + rnd() * 0.22
       tamanho = 0.45 + rnd() * 0.35
+    }
+
+    // Toda partícula precisa de um plano válido: o shader normaliza aOrbita
+    // sem ramificar, e um vetor nulo viraria NaN no meio da nuvem.
+    if (satelite === 0) {
+      const pz = rnd() * 2 - 1
+      const pa = rnd() * Math.PI * 2
+      const pr = Math.sqrt(1 - pz * pz)
+      orbitas[i * 3] = pr * Math.cos(pa)
+      orbitas[i * 3 + 1] = pr * Math.sin(pa)
+      orbitas[i * 3 + 2] = pz
     }
 
     posicoes[i * 3] = dx * raio
@@ -219,9 +278,10 @@ function construirGeometria(total: number) {
     origens[i * 3] = orxy * Math.cos(ot) * odist
     origens[i * 3 + 1] = oz * odist * 0.6
     origens[i * 3 + 2] = orxy * Math.sin(ot) * odist
-    atrasos[i] = rnd()
 
-    sementes[i] = rnd()
+    atrasos[i] = rnd()
+    satelites[i] = satelite
+    sementes[i] = semente
     cascas[i] = casca
     brilhos[i] = brilho
     tamanhos[i] = tamanho
@@ -230,6 +290,8 @@ function construirGeometria(total: number) {
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.BufferAttribute(posicoes, 3))
   geo.setAttribute('aOrigem', new THREE.BufferAttribute(origens, 3))
+  geo.setAttribute('aOrbita', new THREE.BufferAttribute(orbitas, 3))
+  geo.setAttribute('aSatelite', new THREE.BufferAttribute(satelites, 1))
   geo.setAttribute('aAtraso', new THREE.BufferAttribute(atrasos, 1))
   geo.setAttribute('aSemente', new THREE.BufferAttribute(sementes, 1))
   geo.setAttribute('aCasca', new THREE.BufferAttribute(cascas, 1))
@@ -239,17 +301,32 @@ function construirGeometria(total: number) {
   return geo
 }
 
-export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boolean }) {
+type Props = {
+  estado: EstadoOrbe
+  // `null` = ainda não sabemos a preferência de movimento. Enquanto for null
+  // nada é desenhado: é isso que evita o orbe estático aparecer antes da hora.
+  movimento: boolean | null
+  onPronto?: () => void
+  ref?: React.Ref<OrbeHandle>
+}
+
+export function Orbe({ estado, movimento, onPronto, ref }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const [visivel, setVisivel] = useState(false)
   const estadoRef = useRef(estado)
   const movimentoRef = useRef(movimento)
+  const onProntoRef = useRef(onPronto)
   const sincronizarRef = useRef<() => void>(() => {})
+  const pulsarRef = useRef<(intensidade: number) => void>(() => {})
 
   useEffect(() => { estadoRef.current = estado }, [estado])
+  useEffect(() => { onProntoRef.current = onPronto }, [onPronto])
   useEffect(() => {
     movimentoRef.current = movimento
     sincronizarRef.current()
   }, [movimento])
+
+  useImperativeHandle(ref, () => ({ pulsar: i => pulsarRef.current(i) }), [])
 
   useEffect(() => {
     const container = containerRef.current
@@ -273,16 +350,19 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
       uTempo: { value: 0 },
       uEnergia: { value: 0 },
       uExpansao: { value: 1 },
+      uOrbita: { value: 0 },
+      uFala: { value: 0 },
       uPonteiro: { value: new THREE.Vector3(0, 0, 999) },
       uForcaPonteiro: { value: 0 },
       uRaioPonteiro: { value: 0.95 },
       uEmpurrao: { value: 0.52 },
       uOndaOrigem: { value: Array.from({ length: MAX_ONDAS }, () => new THREE.Vector3()) },
       uOndaInicio: { value: new Array(MAX_ONDAS).fill(-999) },
+      uOndaForca: { value: new Array(MAX_ONDAS).fill(0) },
       uPixelRatio: { value: renderer.getPixelRatio() },
       uTamanho: { value: estreito ? 3.1 : 3.5 },
       uGanho: { value: 1.15 },
-      uFormacao: { value: movimentoRef.current ? 0 : 1 },
+      uFormacao: { value: 0 },
       uCorNucleo: { value: new THREE.Color('#1b4fe0') },
       uCorCasca: { value: new THREE.Color('#5fdcff') },
       uCorRealce: { value: new THREE.Color('#b9ecff') },
@@ -308,6 +388,23 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
     pontos.position.y = RAIO * 0.16
     cena.add(pontos)
 
+    let resolvido = false
+    let apareceu = false
+    let avisouPronto = false
+
+    const desenhar = () => {
+      renderer.render(cena, camera)
+      if (!apareceu) {
+        apareceu = true
+        setVisivel(true)
+      }
+    }
+    const avisar = () => {
+      if (avisouPronto) return
+      avisouPronto = true
+      onProntoRef.current?.()
+    }
+
     const dimensionar = () => {
       const l = container.clientWidth
       const a = container.clientHeight
@@ -324,7 +421,7 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
       camera.lookAt(0, 0, 0)
       camera.updateProjectionMatrix()
       uniforms.uPixelRatio.value = renderer.getPixelRatio()
-      if (!movimentoRef.current) renderer.render(cena, camera)
+      if (resolvido && !movimentoRef.current) desenhar()
     }
     dimensionar()
     const ro = new ResizeObserver(dimensionar)
@@ -356,10 +453,14 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
       }
     }
     const aoSair = () => { forcaAlvo = 0 }
+    // No toque existe "soltar"; no mouse não, e enquanto ele paira faz sentido
+    // a região continuar cedendo.
+    const aoSoltar = (e: PointerEvent) => { if (e.pointerType !== 'mouse') forcaAlvo = 0 }
 
-    const dispararOnda = (origem: THREE.Vector3) => {
+    const dispararOnda = (origem: THREE.Vector3, forca: number) => {
       uniforms.uOndaOrigem.value[proximaOnda].copy(origem)
       uniforms.uOndaInicio.value[proximaOnda] = uniforms.uTempo.value
+      uniforms.uOndaForca.value[proximaOnda] = forca
       proximaOnda = (proximaOnda + 1) % MAX_ONDAS
     }
 
@@ -369,12 +470,23 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
       if (e.target instanceof Element && e.target.closest('[data-sem-onda]')) return
       if (paraMundo(e.clientX, e.clientY)) {
         pontos.updateMatrixWorld()
-        dispararOnda(pontos.worldToLocal(alvoPonteiro.clone()))
+        dispararOnda(pontos.worldToLocal(alvoPonteiro.clone()), 1)
       }
+    }
+
+    const origemCentro = new THREE.Vector3(0, 0, 0)
+    let falaAlvo = 0
+    // Cada palavra revelada vira uma onda saindo do centro mais um pico de
+    // luminosidade; é isso que amarra a animação à apresentação do texto.
+    pulsarRef.current = intensidade => {
+      if (!movimentoRef.current) return
+      dispararOnda(origemCentro, 0.32 + intensidade * 0.5)
+      falaAlvo = Math.max(falaAlvo, 0.45 + intensidade * 0.55)
     }
 
     window.addEventListener('pointermove', aoMover, { passive: true })
     window.addEventListener('pointerdown', aoPressionar, { passive: true })
+    window.addEventListener('pointerup', aoSoltar, { passive: true })
     window.addEventListener('pointerleave', aoSair)
     window.addEventListener('pointercancel', aoSair)
 
@@ -383,8 +495,8 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
     let ultimo = performance.now()
     let energia = 0
     let expansao = 1
+    let orbita = 0
     let nasceuAnimado = false
-    let proximaPulsacao = 0
 
     const passo = (agora: number) => {
       raf = requestAnimationFrame(passo)
@@ -393,23 +505,29 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
       uniforms.uTempo.value += dt
       if (uniforms.uFormacao.value < 1) {
         uniforms.uFormacao.value = Math.min(1, uniforms.uFormacao.value + dt / SEG_FORMACAO)
+        // Avisa antes do fim: a saudação começa enquanto o orbe ainda assenta,
+        // em vez de deixar a tela muda esperando o último grão chegar.
+        if (uniforms.uFormacao.value >= 0.72) avisar()
         if (uniforms.uFormacao.value >= 1) nasceuAnimado = true
       }
 
       const est = estadoRef.current
       const energiaAlvo = est === 'pensando' ? 1 : est === 'respondendo' ? 0.62 : 0
       const expansaoAlvo = est === 'pensando' ? 0.93 : est === 'respondendo' ? 1.07 : 1
+      // Nunca zera: mesmo em repouso alguns satélites continuam orbitando.
+      const orbitaAlvo = est === 'pensando' ? 1 : est === 'respondendo' ? 0.42 : 0.14
       const k = 1 - Math.exp(-dt * 2.6)
       energia += (energiaAlvo - energia) * k
       expansao += (expansaoAlvo - expansao) * k
+      // Satélites desaceleram mais devagar que o resto, para o fim da resposta
+      // não ter corte seco.
+      orbita += (orbitaAlvo - orbita) * (1 - Math.exp(-dt * 1.5))
       uniforms.uEnergia.value = energia
       uniforms.uExpansao.value = expansao
+      uniforms.uOrbita.value = orbita
 
-      if (est === 'respondendo' && uniforms.uTempo.value > proximaPulsacao) {
-        dispararOnda(new THREE.Vector3(0, 0, 0))
-        proximaPulsacao = uniforms.uTempo.value + 0.95
-      }
-      if (est !== 'respondendo') proximaPulsacao = 0
+      falaAlvo *= Math.exp(-dt * 3.4)
+      uniforms.uFala.value += (falaAlvo - uniforms.uFala.value) * (1 - Math.exp(-dt * 9))
 
       ponteiroSuave.lerp(alvoPonteiro, 1 - Math.exp(-dt * 9))
       // O shader trabalha em espaço local; o orbe está deslocado e girando,
@@ -418,21 +536,26 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
       pontos.updateMatrixWorld()
       uniforms.uPonteiro.value.copy(pontos.worldToLocal(ponteiroLocal.copy(ponteiroSuave)))
       const fp = uniforms.uForcaPonteiro
-      fp.value += (forcaAlvo - fp.value) * (1 - Math.exp(-dt * (forcaAlvo > fp.value ? 7 : 3.2)))
+      fp.value += (forcaAlvo - fp.value) * (1 - Math.exp(-dt * (forcaAlvo > fp.value ? 7 : 2.4)))
 
       pontos.rotation.y += dt * 0.035
       pontos.rotation.x = Math.sin(uniforms.uTempo.value * 0.12) * 0.06
 
-      renderer.render(cena, camera)
+      desenhar()
     }
 
-    // Com o movimento desligado o orbe não anima: desenha uma vez e só volta
-    // a desenhar se a área mudar. O estado da conversa continua legível pela
-    // legenda de texto da caixa.
     const sincronizar = () => {
+      const mov = movimentoRef.current
+      if (mov === null) return
       cancelAnimationFrame(raf)
-      if (!movimentoRef.current) {
-        renderer.render(cena, camera)
+      if (!resolvido) {
+        resolvido = true
+        // Sem movimento o orbe já existe pronto; com movimento ele nasce.
+        uniforms.uFormacao.value = mov ? 0 : 1
+      }
+      if (!mov) {
+        desenhar()
+        avisar()
         return
       }
       // Ligar o movimento refaz o nascimento: quem acabou de pedir animação
@@ -452,6 +575,7 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
       document.removeEventListener('visibilitychange', sincronizar)
       window.removeEventListener('pointermove', aoMover)
       window.removeEventListener('pointerdown', aoPressionar)
+      window.removeEventListener('pointerup', aoSoltar)
       window.removeEventListener('pointerleave', aoSair)
       window.removeEventListener('pointercancel', aoSair)
       ro.disconnect()
@@ -463,7 +587,11 @@ export function Orbe({ estado, movimento }: { estado: EstadoOrbe; movimento: boo
   }, [])
 
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 z-[1]">
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 z-[1] transition-opacity duration-700 ease-out"
+      style={{ opacity: visivel ? 1 : 0 }}
+    >
       <div className="absolute left-1/2 top-[44%] size-[min(78vw,60vh)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(70,150,255,0.22),rgba(40,90,200,0.08)_55%,transparent_78%)] blur-2xl" />
       <div ref={containerRef} className="absolute inset-0" />
     </div>

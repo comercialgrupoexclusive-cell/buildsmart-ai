@@ -2,19 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import type { EstadoOrbe } from './Orbe'
-
-const LEGENDA: Record<EstadoOrbe, string | null> = {
-  repouso: null,
-  pensando: 'Pensando… (simulação local)',
-  respondendo: 'Resposta simulada — nenhuma IA conectada nesta etapa.',
-}
+import { Conversa } from './Conversa'
+import type { Mensagem } from './conversa'
 
 type Props = {
   estado: EstadoOrbe
+  mensagens: Mensagem[]
   onEnviar: (texto: string) => void
 }
 
-export function CaixaConversa({ estado, onEnviar }: Props) {
+export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
   const [texto, setTexto] = useState('')
   const [recuoTeclado, setRecuoTeclado] = useState(0)
 
@@ -38,14 +35,14 @@ export function CaixaConversa({ estado, onEnviar }: Props) {
     }
   }, [])
 
+  // Digitar segue liberado enquanto o orbe responde; só o envio espera.
+  const podeEnviar = texto.trim().length > 0 && estado === 'repouso'
+
   const enviar = () => {
-    const valor = texto.trim()
-    if (!valor || estado !== 'repouso') return
-    onEnviar(valor)
+    if (!podeEnviar) return
+    onEnviar(texto.trim())
     setTexto('')
   }
-
-  const legenda = LEGENDA[estado]
 
   return (
     <div
@@ -59,13 +56,7 @@ export function CaixaConversa({ estado, onEnviar }: Props) {
           className="absolute -inset-x-8 -inset-y-7 -z-10 rounded-full bg-[radial-gradient(closest-side,rgba(94,190,255,0.18),transparent_100%)] blur-2xl"
         />
 
-        <div
-          aria-live="polite"
-          className="flex min-h-6 items-end justify-center text-pretty px-3 pb-2 text-center text-[12.5px] leading-snug text-cyan-100/70 transition-opacity duration-300"
-          style={{ opacity: legenda ? 1 : 0 }}
-        >
-          {legenda}
-        </div>
+        <Conversa mensagens={mensagens} />
 
         <div className="group relative flex items-center gap-2 rounded-full border border-cyan-200/20 bg-[linear-gradient(100deg,rgba(9,20,44,0.55),rgba(12,32,64,0.45)_55%,rgba(24,60,104,0.5))] pl-6 pr-2 shadow-[0_10px_40px_-20px_rgba(60,150,255,0.55)] backdrop-blur-2xl transition-colors duration-300 focus-within:border-cyan-200/40">
           {/* Reflexo mais evidente à direita, como na referência. */}
@@ -100,7 +91,7 @@ export function CaixaConversa({ estado, onEnviar }: Props) {
           <button
             type="button"
             onClick={enviar}
-            disabled={!texto.trim() || estado !== 'repouso'}
+            disabled={!podeEnviar}
             aria-label="Enviar"
             className="relative grid size-11 shrink-0 place-items-center rounded-full bg-[#1f6fe0] text-white shadow-[0_0_20px_-6px_rgba(70,160,255,0.8)] transition enabled:hover:bg-[#2a7ef2] disabled:cursor-default disabled:bg-white/10 disabled:text-white/35 disabled:shadow-none"
           >

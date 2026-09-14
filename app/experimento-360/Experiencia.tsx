@@ -1,21 +1,28 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Panorama360 } from './Panorama360'
-import { Orbe, type EstadoOrbe } from './Orbe'
+import { Orbe, type EstadoOrbe, type OrbeHandle } from './Orbe'
 import { CaixaConversa } from './CaixaConversa'
+import { SAUDACAO, responderDemonstracao, ritmoDaPalavra, type Mensagem } from './conversa'
 
-const MS_PENSANDO = 1800
-const MS_RESPONDENDO = 3600
+const MS_PENSANDO = 1100
 const CHAVE = 'experimento-360:movimento'
 
 export function Experiencia() {
-  // A cena começa parada até sabermos a preferência do sistema, senão o
-  // primeiro quadro já animaria para quem pediu movimento reduzido.
-  const [movimento, setMovimento] = useState(false)
+  // `null` enquanto a preferência do sistema não foi lida. O orbe não desenha
+  // nada nesse intervalo, então nunca aparece um quadro estático dele.
+  const [movimento, setMovimento] = useState<boolean | null>(null)
   const [pedeReduzido, setPedeReduzido] = useState(false)
   const [estado, setEstado] = useState<EstadoOrbe>('repouso')
+  const [mensagens, setMensagens] = useState<Mensagem[]>([])
+
+  const orbeRef = useRef<OrbeHandle>(null)
+  const movimentoRef = useRef<boolean | null>(null)
   const temporizadores = useRef<number[]>([])
+  const proximoId = useRef(0)
+
+  useEffect(() => { movimentoRef.current = movimento }, [movimento])
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -32,7 +39,60 @@ export function Experiencia() {
     return () => mq.removeEventListener('change', aplicar)
   }, [])
 
-  useEffect(() => () => temporizadores.current.forEach(clearTimeout), [])
+  const limparTemporizadores = () => {
+    temporizadores.current.forEach(clearTimeout)
+    temporizadores.current = []
+  }
+  useEffect(() => limparTemporizadores, [])
+
+  // Revela a resposta palavra a palavra. Cada palavra é um pulso no orbe, e é
+  // o fim da última que devolve a cena ao repouso — o ciclo visual é dirigido
+  // pela apresentação do texto, não por um cronômetro paralelo.
+  const apresentar = useCallback((texto: string) => {
+    const id = proximoId.current++
+    setMensagens(atuais => [...atuais, { id, autor: 'orbe', texto: '' }])
+
+    if (!movimentoRef.current) {
+      setMensagens(atuais => atuais.map(m => (m.id === id ? { ...m, texto } : m)))
+      setEstado('repouso')
+      return
+    }
+
+    const palavras = texto.split(' ')
+    let i = 0
+    const revelar = () => {
+      const palavra = palavras[i]
+      const ate = palavras.slice(0, i + 1).join(' ')
+      i++
+      setMensagens(atuais => atuais.map(m => (m.id === id ? { ...m, texto: ate } : m)))
+      const { atraso, intensidade } = ritmoDaPalavra(palavra)
+      // "Respondendo" começa exatamente quando a primeira palavra aparece.
+      if (i === 1) setEstado('respondendo')
+      orbeRef.current?.pulsar(intensidade)
+      if (i >= palavras.length) {
+        temporizadores.current.push(window.setTimeout(() => setEstado('repouso'), 420))
+        return
+      }
+      temporizadores.current.push(window.setTimeout(revelar, atraso))
+    }
+    revelar()
+  }, [])
+
+  const saudou = useRef(false)
+  const aoOrbePronto = useCallback(() => {
+    if (saudou.current) return
+    saudou.current = true
+    apresentar(SAUDACAO)
+  }, [apresentar])
+
+  const enviar = (texto: string) => {
+    limparTemporizadores()
+    setMensagens(atuais => [...atuais, { id: proximoId.current++, autor: 'voce', texto }])
+    setEstado('pensando')
+    temporizadores.current.push(
+      window.setTimeout(() => apresentar(responderDemonstracao(texto)), MS_PENSANDO),
+    )
+  }
 
   const alternarMovimento = () => {
     setMovimento(atual => {
@@ -42,20 +102,11 @@ export function Experiencia() {
     })
   }
 
-  const enviar = () => {
-    temporizadores.current.forEach(clearTimeout)
-    setEstado('pensando')
-    temporizadores.current = [
-      window.setTimeout(() => setEstado('respondendo'), MS_PENSANDO),
-      window.setTimeout(() => setEstado('repouso'), MS_PENSANDO + MS_RESPONDENDO),
-    ]
-  }
-
   return (
     <>
-      <Panorama360 movimento={movimento} />
-      <Orbe estado={estado} movimento={movimento} />
-      <CaixaConversa estado={estado} onEnviar={enviar} />
+      <Panorama360 movimento={movimento === true} />
+      <Orbe ref={orbeRef} estado={estado} movimento={movimento} onPronto={aoOrbePronto} />
+      <CaixaConversa estado={estado} mensagens={mensagens} onEnviar={enviar} />
 
       {pedeReduzido && (
         <div
