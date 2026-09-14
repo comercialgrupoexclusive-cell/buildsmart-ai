@@ -17,12 +17,36 @@ import {
 // coluna única — ver instrução explícita da tarefa: não forçar 3 colunas em
 // tela estreita.
 
+// Painel de "vidro" da referência: base AZUL-ESCURA e bem opaca (não
+// translúcida demais — senão o backdrop-filter puxa o brilho da cena e o
+// texto some), borda ciano fina, glow externo e um fio de luz no topo.
 function GlassCard({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
     <div
-      className={`rounded-2xl border border-white/15 bg-white/[0.06] shadow-2xl shadow-black/50 backdrop-blur-xl ${className}`}
+      className={`relative overflow-hidden rounded-2xl border border-cyan-300/25 backdrop-blur-xl ${className}`}
+      style={{
+        background: 'linear-gradient(160deg, rgba(13,32,66,0.88) 0%, rgba(5,12,28,0.92) 100%)',
+        boxShadow: '0 0 42px -14px rgba(56,189,248,0.55), 0 18px 50px -20px rgba(0,0,0,0.9), inset 0 1px 0 rgba(190,240,255,0.10)',
+      }}
     >
+      <span className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/60 to-transparent" />
       {children}
+    </div>
+  )
+}
+
+/** Cabeçalho mínimo que cada painel tem na referência: chip TELLUS + fechar. */
+function PanelChrome() {
+  return (
+    <div className="mb-3 flex items-center justify-between">
+      <span className="flex items-center gap-1.5 text-[9px] font-medium tracking-[0.3em] text-cyan-200/70">
+        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h18" />
+        </svg>
+        TELLUS
+      </span>
+      <span className="text-xs leading-none text-white/25">✕</span>
     </div>
   )
 }
@@ -70,6 +94,7 @@ function TopBar() {
 function ProjectListPanel() {
   return (
     <GlassCard className="flex w-full flex-col p-4 sm:p-5 lg:w-[360px] lg:shrink-0">
+      <PanelChrome />
       <div className="mb-3 flex items-center justify-between text-xs text-white/60">
         <span>Projetos <span className="text-white/30">›</span> Selecionar</span>
         <span className="text-white/40">⌕</span>
@@ -114,6 +139,7 @@ function ProjectDetailPanel() {
 
   return (
     <GlassCard className="w-full p-4 sm:p-5">
+      <PanelChrome />
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="text-lg font-semibold text-white">Projeto {PROJETO_ALLEGRA.nome}</div>
@@ -189,6 +215,7 @@ function BudgetPanel() {
   const total = ORCAMENTO_ALLEGRA.reduce((acc, l) => acc + l.previsto, 0)
   return (
     <GlassCard className="w-full p-4 sm:p-5">
+      <PanelChrome />
       <div className="mb-3 flex items-center justify-between">
         <span className="text-sm font-semibold text-white">Orçamento</span>
         <select className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-white/70" disabled defaultValue="allegra">
@@ -236,6 +263,7 @@ function OperationsPanel() {
   ]
   return (
     <GlassCard className="w-full p-4 sm:p-5">
+      <PanelChrome />
       <div className="mb-3 flex items-center justify-between">
         <span className="text-sm font-semibold text-white">Operações</span>
         <span className="text-[11px] text-white/40">Últimos 30 dias</span>
@@ -280,7 +308,16 @@ export function TellusPanels() {
     <div className="relative z-10 flex min-h-screen flex-col">
       <TopBar />
 
-      <main className="flex flex-1 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6 lg:flex-row lg:items-start lg:gap-6 lg:px-10 lg:py-8">
+      {/* Hero: no mobile o globo precisa de tela antes dos cards começarem —
+          sem isso ele fica inteiro escondido atrás do primeiro painel. */}
+      <div className="flex h-[42vh] flex-col items-center justify-end pb-6 text-center lg:hidden">
+        <p className="text-[11px] tracking-[0.4em] text-cyan-200/70">DO REAL AO POSSÍVEL</p>
+        <p className="mt-1.5 text-[10px] tracking-[0.2em] text-white/35">
+          Observar · Modelar · Agir · Medir · Aprender
+        </p>
+      </div>
+
+      <main className="flex flex-1 flex-col gap-4 px-4 pb-4 sm:px-6 sm:pb-6 lg:flex-row lg:items-start lg:gap-6 lg:px-10 lg:py-8">
         <ProjectListPanel />
 
         <div className="flex w-full flex-col gap-4 lg:ml-auto lg:w-[440px] lg:shrink-0">

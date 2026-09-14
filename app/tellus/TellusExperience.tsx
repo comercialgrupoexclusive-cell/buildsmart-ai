@@ -3,17 +3,16 @@
 import dynamic from 'next/dynamic'
 import { TellusPanels } from './TellusPanels'
 
-// Canvas/WebGL só existe no navegador — carregado sem SSR pra não quebrar
-// o build/prerender do Next (e pra não pagar o custo do three.js no HTML
-// inicial, que ninguém lê antes do JS rodar de qualquer forma).
+// three-globe toca `window` já no import do módulo, então a cena inteira
+// precisa ficar fora do SSR/prerender — não basta adiar a renderização.
 const TellusGlobe = dynamic(() => import('./TellusGlobe').then((m) => m.TellusGlobe), {
   ssr: false,
-  loading: () => <div className="fixed inset-0 z-0 bg-[#050812]" />,
+  loading: () => <div className="fixed inset-0 z-0 bg-[#030610]" />,
 })
 
 export function TellusExperience() {
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden bg-[#050812] font-sans text-white">
+    <div className="relative min-h-screen w-full overflow-x-hidden bg-[#030610] font-sans text-white">
       <TellusGlobe />
       <TellusPanels />
     </div>

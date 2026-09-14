@@ -40,7 +40,10 @@
     "react-is": "^19.2.7",
     "recharts": "^3.8.1",
     "three": "^0.186.0",
+    "three-globe": "^2.45.2",
+    "topojson-client": "^3.1.0",
     "unpdf": "^1.6.2",
+    "world-atlas": "^2.0.2",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -49,6 +52,8 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/topojson-client": "^3.1.5",
+    "@types/topojson-specification": "^1.0.5",
     "eslint": "^9",
     "eslint-config-next": "16.2.7",
     "tailwindcss": "^4",
