@@ -129,7 +129,7 @@ export function Experiencia() {
       <Orbe ref={orbeRef} estado={estado} movimento={movimento} onPronto={aoOrbePronto} />
       <AtividadeHabilidade atividade={atividade} fase={faseAtividade} />
       <CaixaConversa estado={estado} mensagens={mensagens} onEnviar={enviar} />
-      <Sistema />
+      <Sistema falando={estado !== 'repouso'} />
 
       {pedeReduzido && (
         <div

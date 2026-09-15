@@ -31,6 +31,7 @@ export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
   const [texto, setTexto] = useState('')
   const [recuoTeclado, setRecuoTeclado] = useState(0)
   const [expandido, setExpandido] = useState(false)
+  const [oculto, setOculto] = useState(false)
   const [aviso, setAviso] = useState('')
   const avisoTimer = useRef<number | null>(null)
   const listaRef = useRef<HTMLDivElement>(null)
@@ -79,10 +80,21 @@ export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
 
   useEffect(() => () => { if (avisoTimer.current) clearTimeout(avisoTimer.current) }, [])
 
+  // Enquanto a IA pensa/fala a troca fica visível por derivação; quando ela
+  // termina, um temporizador recolhe e devolve a tela. O histórico fica a um
+  // clique. `oculto` só muda por timeout ou por ação do usuário — nunca por
+  // setState síncrono dentro do efeito.
+  useEffect(() => {
+    if (estado !== 'repouso' || mensagens.length === 0) return
+    const t = window.setTimeout(() => setOculto(true), 3500)
+    return () => clearTimeout(t)
+  }, [estado, mensagens.length])
+
   const podeEnviar = texto.trim().length > 0 && estado === 'repouso'
 
   const enviar = () => {
     if (!podeEnviar) return
+    setOculto(false) // nova troca volta a aparecer
     onEnviar(texto.trim())
     setTexto('')
   }
@@ -99,6 +111,7 @@ export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
   const compacto = [ultimoVoce, ultimoOrbe].filter(Boolean) as Mensagem[]
   compacto.sort((a, b) => a.id - b.id)
   const temHistorico = mensagens.length > compacto.length
+  const mostrarTroca = estado !== 'repouso' || !oculto
 
   return (
     <div
@@ -113,7 +126,19 @@ export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
           className="absolute -inset-x-8 -inset-y-6 -z-10 rounded-full bg-[radial-gradient(closest-side,rgba(94,190,255,0.16),transparent_100%)] blur-2xl"
         />
 
-        {mensagens.length > 0 && (
+        {mensagens.length > 0 && !expandido && !mostrarTroca && (
+          <div className="mb-2.5 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setExpandido(true)}
+              className="rounded-full border border-white/10 bg-black/35 px-3 py-1 text-[11px] text-cyan-100/70 backdrop-blur-md outline-none transition hover:text-white"
+            >
+              Ver conversa ({mensagens.length})
+            </button>
+          </div>
+        )}
+
+        {mensagens.length > 0 && (expandido || mostrarTroca) && (
           <div className="mb-2.5">
             <div className="mb-1 flex items-center justify-between px-1">
               <span className="rounded-full border border-cyan-200/15 bg-black/40 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-cyan-100/55 backdrop-blur-md">
@@ -122,7 +147,10 @@ export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
               {(temHistorico || expandido) && (
                 <button
                   type="button"
-                  onClick={() => setExpandido(v => !v)}
+                  onClick={() => {
+                    if (expandido) { setExpandido(false); setOculto(true) }
+                    else setExpandido(true)
+                  }}
                   className="rounded-full px-2 py-0.5 text-[11px] text-cyan-100/70 underline-offset-2 outline-none hover:underline focus-visible:underline"
                 >
                   {expandido ? 'Recolher' : `Ver conversa (${mensagens.length})`}

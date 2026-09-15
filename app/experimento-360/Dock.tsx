@@ -8,6 +8,7 @@ type Props = {
   ativo: string | null
   contexto: 'global' | 'processo'
   nomeProcesso?: string
+  falando?: boolean
   onSelecionar: (id: string) => void
   onSairProcesso: () => void
 }
@@ -15,11 +16,18 @@ type Props = {
 // Menu principal do sistema. Fica ACIMA da barra da IA (que segue fixa embaixo)
 // e usa o mesmo vidro do modal da IA. Pode ser arrastado para baixo para
 // recolher, deixando só um puxador; puxando/clicando ele volta.
-export function Dock({ itens, ativo, contexto, nomeProcesso, onSelecionar, onSairProcesso }: Props) {
-  const [colapsado, setColapsado] = useState(false)
-  const [arraste, setArraste] = useState(0) // deslocamento vertical durante o gesto
+//
+// Enquanto a IA fala, o Dock recolhe sozinho: o texto da resposta cresce
+// palavra a palavra logo abaixo dele e, se o Dock ficasse aberto, seria
+// empurrado para cima a cada palavra (tremida) e competiria com a fala. Some
+// enquanto ela fala e volta ao terminar — respeitando um recolhimento manual.
+export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, onSelecionar, onSairProcesso }: Props) {
+  const [manual, setManual] = useState(false)   // recolhido pelo usuário (arraste)
+  const [arraste, setArraste] = useState(0)      // deslocamento vertical durante o gesto
   const [arrastando, setArrastando] = useState(false)
   const inicioY = useRef<number | null>(null)
+
+  const recolhido = manual || falando
 
   // Apoia o Dock logo acima da barra da IA usando a altura publicada por ela.
   const base = 'calc(var(--altura-ia, 4rem) + 0.6rem)'
@@ -35,13 +43,26 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, onSelecionar, onSai
   }
   const aoSoltar = () => {
     if (inicioY.current === null) return
-    if (arraste > 38) setColapsado(true)
+    if (arraste > 38) setManual(true)
     inicioY.current = null
     setArrastando(false)
     setArraste(0)
   }
 
-  if (colapsado) {
+  // Enquanto a IA fala, some por completo (sem puxador) para não disputar com
+  // a fala; o clique/arraste manual só reaparece quando ela termina.
+  if (falando) {
+    return (
+      <div
+        data-sem-onda
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-3 opacity-0 transition-opacity duration-300"
+        style={{ bottom: base }}
+      />
+    )
+  }
+
+  if (recolhido) {
     return (
       <div
         data-sem-onda
@@ -50,7 +71,7 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, onSelecionar, onSai
       >
         <button
           type="button"
-          onClick={() => setColapsado(false)}
+          onClick={() => setManual(false)}
           aria-label="Mostrar menu"
           className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/12 bg-[linear-gradient(100deg,rgba(10,18,38,0.66),rgba(14,28,54,0.58))] px-4 py-1.5 text-[12px] text-cyan-100/80 shadow-[0_10px_30px_-16px_rgba(60,150,255,0.6)] backdrop-blur-2xl outline-none transition hover:text-white"
         >

@@ -9,7 +9,7 @@ import { DOCK_GLOBAL, DOCK_PROCESSO, PROCESSO_TESTE, type ItemDock } from './doc
 // Camada de navegação da nova experiência: Dock + telas glass SOBRE o sistema
 // atual (o Levi e o panorama seguem ativos atrás). Só interface e navegação
 // nesta etapa — nenhum módulo real é migrado.
-export function Sistema() {
+export function Sistema({ falando = false }: { falando?: boolean }) {
   const [contexto, setContexto] = useState<'global' | 'processo'>('global')
   const [aba, setAba] = useState<string | null>(null) // null = home (Levi à mostra)
 
@@ -78,6 +78,7 @@ export function Sistema() {
         ativo={aba ?? (contexto === 'global' ? 'visao-geral' : null)}
         contexto={contexto}
         nomeProcesso={PROCESSO_TESTE.nome}
+        falando={falando}
         onSelecionar={selecionar}
         onSairProcesso={sairProcesso}
       />
