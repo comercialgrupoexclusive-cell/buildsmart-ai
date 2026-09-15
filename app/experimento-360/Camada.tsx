@@ -22,7 +22,8 @@ export function Camada({ titulo, contexto, onFechar, children }: Props) {
   return (
     <div
       data-sem-onda
-      className="fixed inset-0 z-40 flex justify-center px-3 pb-[6.5rem] pt-[max(1rem,env(safe-area-inset-top))]"
+      className="fixed inset-x-0 top-0 z-[38] flex justify-center px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-3"
+      style={{ bottom: 'calc(var(--altura-ia, 4rem) + 4rem)' }}
     >
       {/* Escurecimento sutil: mantém o fundo/Levi perceptíveis atrás. */}
       <button

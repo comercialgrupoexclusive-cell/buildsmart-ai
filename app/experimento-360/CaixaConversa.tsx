@@ -34,8 +34,23 @@ export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
   const [aviso, setAviso] = useState('')
   const avisoTimer = useRef<number | null>(null)
   const listaRef = useRef<HTMLDivElement>(null)
+  const raizRef = useRef<HTMLDivElement>(null)
 
   const processando = estado !== 'repouso'
+
+  // Publica a altura da barra da IA numa variável CSS. O Dock se apoia acima
+  // dela e a camada glass reserva esse espaço no rodapé, de modo que a barra
+  // fique sempre visível — inclusive com uma tela aberta.
+  useEffect(() => {
+    const el = raizRef.current
+    if (!el) return
+    const aplicar = () =>
+      document.documentElement.style.setProperty('--altura-ia', `${Math.round(el.offsetHeight)}px`)
+    aplicar()
+    const ro = new ResizeObserver(aplicar)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     const vv = window.visualViewport
@@ -87,8 +102,9 @@ export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
 
   return (
     <div
+      ref={raizRef}
       data-sem-onda
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-10 flex justify-center px-4 pb-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.75rem))] transition-transform duration-200 ease-out"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-[max(1.1rem,env(safe-area-inset-bottom))] transition-transform duration-200 ease-out"
       style={{ transform: `translateY(-${recuoTeclado}px)` }}
     >
       <div className="pointer-events-auto relative w-full max-w-[680px] [touch-action:manipulation]">
