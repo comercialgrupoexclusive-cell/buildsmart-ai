@@ -1,6 +1,6 @@
-// Definição do Dock. Esta etapa é só de interface/navegação: nenhum conteúdo
-// real de módulo é implementado, só a estrutura que permite o Dock trocar de
-// contexto (global ↔ dentro de um Processo) e voltar.
+// Definição do Dock: só a estrutura de navegação. O conteúdo de cada aba vem
+// dos módulos reais do BuildSmart (app/experimento-360/modulos/), nunca de uma
+// segunda implementação declarada aqui.
 
 export type ItemDock = {
   id: string
@@ -15,8 +15,8 @@ export const DOCK_GLOBAL: ItemDock[] = [
   { id: 'config', rotulo: 'Config' },
 ]
 
-// Abas de um Processo aberto (o Dock assume este conjunto ao entrar num
-// Processo). Conteúdo real de cada aba fica para as próximas etapas.
+// Abas de um Processo aberto — o Dock assume este conjunto ao entrar num
+// Processo e volta ao global ao sair.
 export const DOCK_PROCESSO: ItemDock[] = [
   { id: 'visao-geral', rotulo: 'Visão geral' },
   { id: 'tempo', rotulo: 'Tempo' },
@@ -25,6 +25,3 @@ export const DOCK_PROCESSO: ItemDock[] = [
   { id: 'financeiro', rotulo: 'Financeiro' },
   { id: 'config', rotulo: 'Config' },
 ]
-
-// Processo de teste — nesta etapa não há dados nem Motor de Processo por trás.
-export const PROCESSO_TESTE = { id: 'proc-teste', nome: 'Processo de teste' }

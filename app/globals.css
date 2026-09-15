@@ -224,3 +224,64 @@ input[type="radio"]:hover {
   from { opacity: 0; transform: translateY(14px) scale(0.985); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Experimento 360 — "pele" de vidro para os módulos reais.
+
+   Os módulos do BuildSmart (Investidor, Board, Compras/Financeiro, Planta)
+   desenham tudo a partir das variáveis de tema e da classe `.card`. Em vez de
+   reescrever esses componentes só para mudar aparência, o escopo abaixo
+   redefine as mesmas variáveis dentro da camada glass: o componente continua
+   idêntico e passa a ser translúcido, desfocado e com a borda em luz fria da
+   nova experiência. Nada aqui vaza para fora de `.pele-360`.
+   ────────────────────────────────────────────────────────────────────────── */
+.pele-360 {
+  --bg-primary: transparent;
+  --bg-secondary: rgba(255, 255, 255, 0.045);
+  --bg-card: rgba(12, 22, 44, 0.42);
+  --border: rgba(255, 255, 255, 0.10);
+  --border-interactive: rgba(140, 205, 255, 0.28);
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(196, 226, 255, 0.62);
+  --accent: #58a8ff;
+  --accent-hover: #7bbcff;
+  color: var(--text-primary);
+}
+
+.pele-360 .card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 50px -34px rgba(60, 150, 255, 0.8);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.pele-360 .card:hover {
+  border-color: rgba(140, 205, 255, 0.26);
+}
+
+/* Campos: vidro escuro com foco em ciano, sem tocar na marcação dos módulos. */
+.pele-360 input:not([type='checkbox']):not([type='radio']),
+.pele-360 select,
+.pele-360 textarea {
+  background: rgba(8, 16, 34, 0.5) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.pele-360 input:focus,
+.pele-360 select:focus,
+.pele-360 textarea:focus {
+  border-color: rgba(140, 205, 255, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(90, 180, 255, 0.14) !important;
+}
+.pele-360 select option {
+  background: #0b1426;
+  color: #e8f4ff;
+}
+
+/* O Excalidraw traz o próprio tema; só suavizamos a moldura. */
+.pele-360 .excalidraw {
+  --color-primary: #58a8ff;
+}

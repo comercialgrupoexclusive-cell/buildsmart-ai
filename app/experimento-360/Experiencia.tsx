@@ -34,6 +34,26 @@ export function Experiencia() {
 
   useEffect(() => { movimentoRef.current = movimento }, [movimento])
 
+  // O experimento é um ambiente escuro por definição. Componentes reais que
+  // leem o tema direto do documento — o Excalidraw do Board é o caso — ficariam
+  // claros dentro do vidro se o perfil do usuário estivesse em modo claro.
+  // O ProfileProvider reaplica `data-theme` quando o perfil carrega (efeito de
+  // pai, que roda depois do filho), então não basta remover uma vez: enquanto o
+  // experimento está montado, a marca é mantida fora. Ao sair, o valor original
+  // volta e o resto do sistema segue com o tema do usuário.
+  useEffect(() => {
+    const raiz = document.documentElement
+    const anterior = raiz.getAttribute('data-theme')
+    const forcarEscuro = () => { if (raiz.hasAttribute('data-theme')) raiz.removeAttribute('data-theme') }
+    forcarEscuro()
+    const obs = new MutationObserver(forcarEscuro)
+    obs.observe(raiz, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => {
+      obs.disconnect()
+      if (anterior !== null) raiz.setAttribute('data-theme', anterior)
+    }
+  }, [])
+
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
     const aplicar = () => {
