@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
+import { ORG_COOKIE, destinoSeguro, sanitizarSlug } from '@/lib/auth/next-path'
 
 // P4.5 FOCO 1 — antes desta rodada não existia middleware nenhum: toda
 // leitura/escrita rodava com a anon key, sem sessão real, e as policies de
@@ -32,7 +33,15 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
-    const redirectUrl = new URL('/', request.url)
+    // Em vez de descartar o destino, leva-o junto: depois de autenticar a
+    // pessoa volta exatamente para onde tentou entrar. Só caminho interno
+    // sobrevive a destinoSeguro() — um "next" externo é simplesmente ignorado.
+    const destino = destinoSeguro(request.nextUrl.pathname + request.nextUrl.search)
+    // O cookie da Organização é só uma lembrança de qual login mostrar; sem
+    // ele cai no seletor de Organizações, que carrega o "next" adiante.
+    const slug = sanitizarSlug(request.cookies.get(ORG_COOKIE)?.value)
+    const redirectUrl = new URL(slug ? `/o/${slug}` : '/', request.url)
+    if (destino) redirectUrl.searchParams.set('next', destino)
     return NextResponse.redirect(redirectUrl)
   }
   return response
@@ -45,9 +54,13 @@ export const config = {
     // login tematizado por Organização (/o/[slug] — P4.6, roda antes de
     // qualquer sessão existir), criar-organizacao (P4.7 — signUp acontece
     // aqui, também sem sessão prévia), onboarding (fluxo pós-cadastro que
-    // ainda não tem sessão), API, portal público por token, experimento
-    // visual isolado (rota de experimentação, sem dados nem sessão), e assets
+    // ainda não tem sessão), API, portal público por token, e assets
     // estáticos/imagens/favicon.
-    '/((?!$|o/|criar-organizacao|onboarding|api|portal|experimento-360|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    //
+    // `experimento-360` SAIU desta lista: enquanto estava fora do middleware
+    // ele abria sem sessão e os módulos reais batiam em RLS sem auth.uid(),
+    // devolvendo tela vazia. Agora entra pelo mesmo portão do resto do
+    // sistema e volta sozinho depois do login, via "next".
+    '/((?!$|o/|criar-organizacao|onboarding|api|portal|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 }

@@ -30,21 +30,24 @@ export function Camada({ titulo, contexto, largo = false, preencher = false, onF
       className="fixed inset-x-0 top-0 z-[38] flex justify-center px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-3"
       style={{ bottom: 'calc(var(--altura-ia, 4rem) + 4rem)' }}
     >
-      {/* Escurecimento sutil: mantém o fundo/Levi perceptíveis atrás. */}
+      {/* Véu mínimo: o fundo e o Levi têm de continuar visíveis e ativos
+          atrás — o painel se separa pelo vidro, não por escurecer a cena. */}
       <button
         type="button"
         aria-label="Fechar"
         onClick={onFechar}
-        className="absolute inset-0 -z-10 cursor-default bg-black/25"
+        className="absolute inset-0 -z-10 cursor-default bg-black/10"
       />
 
+      {/* `vidro-360`: mesma superfície do painel da conversa da IA, definida
+          uma vez em app/globals.css. */}
       <div
         className={
-          'animate-[camada-entra_.32s_ease-out] flex w-full flex-col overflow-hidden rounded-[26px] border border-white/12 bg-[linear-gradient(160deg,rgba(12,20,40,0.62),rgba(10,18,36,0.5))] shadow-[0_30px_90px_-40px_rgba(40,120,255,0.7)] backdrop-blur-2xl ' +
+          'vidro-360 animate-[camada-entra_.32s_ease-out] flex w-full flex-col overflow-hidden rounded-[26px] ' +
           (largo ? 'max-w-[1180px]' : 'max-w-[860px]')
         }
       >
-        <header className="flex items-center justify-between gap-3 border-b border-white/8 px-5 py-3.5">
+        <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),transparent)] px-5 py-3.5">
           <div className="min-w-0">
             {contexto && (
               <div className="text-[10.5px] uppercase tracking-[0.16em] text-cyan-200/55">{contexto}</div>

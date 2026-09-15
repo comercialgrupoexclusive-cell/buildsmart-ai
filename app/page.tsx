@@ -2,10 +2,11 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { APP_VERSION } from '@/lib/version'
 import { createClient } from '@/lib/supabase/client'
+import { destinoSeguro } from '@/lib/auth/next-path'
 
 type OrganizacaoPublica = {
   nome: string
@@ -19,8 +20,14 @@ type OrganizacaoPublica = {
 // dado cosmético e público (organizacoes_publicas, RPC anon-safe); usuário
 // entra pela tela tematizada da própria Organização (/o/[slug]), com
 // usuário+senha, nunca e-mail.
-export default function OrganizacaoPickerPage() {
+function SeletorOrganizacoes() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Chegou aqui vindo de uma tela protegida: o destino atravessa o seletor e
+  // segue para o login da Organização escolhida.
+  const next = destinoSeguro(searchParams.get('next'))
+  const irParaLogin = (slug: string) =>
+    router.push(next ? `/o/${slug}?next=${encodeURIComponent(next)}` : `/o/${slug}`)
   const [orgs, setOrgs] = useState<OrganizacaoPublica[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -94,8 +101,8 @@ export default function OrganizacaoPickerPage() {
                   key={org.slug}
                   role="button"
                   tabIndex={0}
-                  onClick={() => router.push(`/o/${org.slug}`)}
-                  onKeyDown={e => e.key === 'Enter' && router.push(`/o/${org.slug}`)}
+                  onClick={() => irParaLogin(org.slug)}
+                  onKeyDown={e => e.key === 'Enter' && irParaLogin(org.slug)}
                   className="relative group flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all duration-200 hover:scale-105 w-36 cursor-pointer"
                   style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
                 >
@@ -127,5 +134,15 @@ export default function OrganizacaoPickerPage() {
         Criar organização
       </button>
     </div>
+  )
+}
+
+// Mesmo motivo do /onboarding: `useSearchParams` (o "next" que atravessa o
+// seletor) exige boundary de Suspense numa rota prerenderizada.
+export default function OrganizacaoPickerPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" style={{ background: 'var(--bg-primary)' }} />}>
+      <SeletorOrganizacoes />
+    </Suspense>
   )
 }

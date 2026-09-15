@@ -235,11 +235,37 @@ input[type="radio"]:hover {
    idêntico e passa a ser translúcido, desfocado e com a borda em luz fria da
    nova experiência. Nada aqui vaza para fora de `.pele-360`.
    ────────────────────────────────────────────────────────────────────────── */
+/* Superfície de vidro comum da experiência 360.
+
+   Os valores vêm do painel da conversa da IA em CaixaConversa.tsx, que é a
+   referência aprovada: `border-white/8` + `bg-black/22..28` +
+   `backdrop-blur-xl` (24px), mais o realce superior e a orla azul da cápsula
+   do input. Ficam aqui uma vez só para que o painel do Dock e o da IA não
+   divirjam — antes o painel do Dock tinha gradiente próprio a 0.62/0.5 de
+   alfa, quase três vezes mais opaco que a referência. */
+.vidro-360 {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.26);
+  /* Só a forma sem prefixo: escrever as duas faz o Lightning CSS colapsar
+     tudo em `-webkit-backdrop-filter`, que o Firefox não entende — o blur
+     sumiria lá. Sozinha, ela é que gera o par prefixado + padrão, igual às
+     utilidades `backdrop-blur-*` do Tailwind. */
+  backdrop-filter: blur(24px) saturate(125%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 0 0 1px rgba(120, 180, 255, 0.10),
+    0 30px 90px -40px rgba(40, 120, 255, 0.7);
+}
+
 .pele-360 {
   --bg-primary: transparent;
-  --bg-secondary: rgba(255, 255, 255, 0.045);
-  --bg-card: rgba(12, 22, 44, 0.42);
-  --border: rgba(255, 255, 255, 0.10);
+  /* Dentro de `.vidro-360` o vidro já foi feito pela superfície-mãe. Os
+     preenchimentos daqui são véus claros por cima dele, não novos painéis:
+     um segundo fundo escuro empilhado é exatamente o que deixava o conteúdo
+     do Dock opaco. */
+  --bg-secondary: rgba(255, 255, 255, 0.04);
+  --bg-card: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.09);
   --border-interactive: rgba(140, 205, 255, 0.28);
   --text-primary: rgba(255, 255, 255, 0.92);
   --text-secondary: rgba(196, 226, 255, 0.62);
@@ -248,13 +274,13 @@ input[type="radio"]:hover {
   color: var(--text-primary);
 }
 
+/* Sem `backdrop-filter` próprio: dois vidros empilhados somam até virar
+   sólido. O cartão é um relevo dentro do vidro, não outro vidro. */
 .pele-360 .card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 18px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 50px -34px rgba(60, 150, 255, 0.8);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .pele-360 .card:hover {
   border-color: rgba(140, 205, 255, 0.26);
@@ -264,11 +290,9 @@ input[type="radio"]:hover {
 .pele-360 input:not([type='checkbox']):not([type='radio']),
 .pele-360 select,
 .pele-360 textarea {
-  background: rgba(8, 16, 34, 0.5) !important;
+  background: rgba(4, 10, 24, 0.34) !important;
   border-color: var(--border) !important;
   color: var(--text-primary) !important;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 .pele-360 input:focus,
 .pele-360 select:focus,

@@ -3,10 +3,11 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Eye, EyeOff, Lock } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
+import { destinoSeguro } from '@/lib/auth/next-path'
 import { Profile } from '@/lib/types'
 
 type Tema = {
@@ -29,7 +30,11 @@ export default function LoginOrganizacaoPage() {
   const params = useParams<{ slug: string }>()
   const slug = params.slug
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { setCurrentProfile } = useProfile()
+  // Destino de retorno: quem chegou aqui por ter tentado abrir uma tela
+  // protegida volta para ela depois de entrar. Só caminho interno passa.
+  const next = destinoSeguro(searchParams.get('next'))
 
   const [tema, setTema] = useState<Tema | null>(null)
   const [loadingTema, setLoadingTema] = useState(true)
@@ -41,6 +46,22 @@ export default function LoginOrganizacaoPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
+
+  // Já autenticado e com destino em mãos: não faz sentido pedir a senha de
+  // novo — o middleware só mandou para cá porque a sessão ainda não existia
+  // quando a navegação começou. Sem "next", a tela continua aparecendo
+  // normalmente, que é como se troca de organização/usuário.
+  useEffect(() => {
+    if (!next) return
+    let cancelado = false
+    const t = window.setTimeout(() => {
+      void (async () => {
+        const { data } = await createClient().auth.getUser()
+        if (!cancelado && data.user) router.replace(next)
+      })()
+    }, 0)
+    return () => { cancelado = true; window.clearTimeout(t) }
+  }, [next, router])
 
   useEffect(() => {
     let cancelled = false
@@ -87,7 +108,12 @@ export default function LoginOrganizacaoPage() {
       }
       setCurrentProfile(data.profile as Profile)
       const profile = data.profile as Profile
-      router.push(profile.onboarding_done ? '/dashboard' : '/onboarding')
+      if (!profile.onboarding_done) {
+        // Onboarding não pode ser pulado; o destino espera do outro lado dele.
+        router.push(next ? `/onboarding?next=${encodeURIComponent(next)}` : '/onboarding')
+        return
+      }
+      router.push(next ?? '/dashboard')
     } catch {
       setError('Falha de conexão. Tente novamente.')
       setBusy(false)
@@ -116,7 +142,7 @@ export default function LoginOrganizacaoPage() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-8 text-center" style={{ background: 'var(--bg-primary)' }}>
         <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Organização não encontrada.</p>
-        <button onClick={() => router.push('/')} className="text-xs underline" style={{ color: 'var(--text-secondary)' }}>
+        <button onClick={() => router.push(next ? `/?next=${encodeURIComponent(next)}` : '/')} className="text-xs underline" style={{ color: 'var(--text-secondary)' }}>
           Voltar
         </button>
       </div>
@@ -192,7 +218,11 @@ export default function LoginOrganizacaoPage() {
         </button>
       </div>
 
-      <button onClick={() => router.push('/')} className="mt-6 text-xs underline" style={{ color: 'var(--text-secondary)' }}>
+      <button
+        onClick={() => router.push(next ? `/?next=${encodeURIComponent(next)}` : '/')}
+        className="mt-6 text-xs underline"
+        style={{ color: 'var(--text-secondary)' }}
+      >
         Trocar de organização
       </button>
     </div>

@@ -2,10 +2,11 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Monitor, Sun, Moon, BotMessageSquare, AlertTriangle, X } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
+import { destinoSeguro } from '@/lib/auth/next-path'
 
 const ASSIST_ON_ENTRY_KEY = 'buildsmart-open-luizia-on-entry'
 
@@ -32,14 +33,18 @@ const STEPS = [
 
 function OnboardingContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { currentProfile } = useProfile()
+  // Primeiro acesso vindo de uma tela protegida: o destino sobrevive ao
+  // onboarding e é para lá que "Começar" leva.
+  const next = destinoSeguro(searchParams.get('next'))
   const [betaOpen, setBetaOpen] = useState(true)
 
   function handleStart() {
     if (typeof window !== 'undefined') {
       sessionStorage.setItem(ASSIST_ON_ENTRY_KEY, '1')
     }
-    router.push('/dashboard')
+    router.push(next ?? '/dashboard')
   }
 
   return (
@@ -120,6 +125,13 @@ function OnboardingContent() {
   )
 }
 
+// `useSearchParams` num Client Component obriga a um boundary de Suspense:
+// numa rota prerenderizada, a árvore até o boundary mais próximo passa a ser
+// renderizada no cliente — sem ele o build de produção falha.
 export default function OnboardingPage() {
-  return <OnboardingContent />
+  return (
+    <Suspense fallback={<div className="min-h-screen" style={{ background: 'var(--bg-primary)' }} />}>
+      <OnboardingContent />
+    </Suspense>
+  )
 }

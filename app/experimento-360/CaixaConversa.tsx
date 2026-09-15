@@ -161,14 +161,14 @@ export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
             {expandido ? (
               <div
                 ref={listaRef}
-                className="max-h-[42vh] overflow-y-auto overscroll-contain rounded-[22px] border border-white/8 bg-black/28 px-4 py-3.5 backdrop-blur-xl [mask-image:linear-gradient(to_bottom,transparent,black_14px)]"
+                className="vidro-360 max-h-[42vh] overflow-y-auto overscroll-contain rounded-[22px] px-4 py-3.5 [mask-image:linear-gradient(to_bottom,transparent,black_14px)]"
               >
                 <div className="flex flex-col gap-2.5">
                   {mensagens.map(m => <Balao key={m.id} m={m} />)}
                 </div>
               </div>
             ) : (
-              <div className="rounded-[22px] border border-white/8 bg-black/22 px-4 py-3 backdrop-blur-xl">
+              <div className="vidro-360 rounded-[22px] px-4 py-3">
                 <div className="flex flex-col gap-2.5">
                   {compacto.map(m => <Balao key={m.id} m={m} />)}
                 </div>

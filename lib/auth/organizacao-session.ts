@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { SESSION_COOKIE, sessionCookieOptions, signProfileId } from '@/lib/portal-admin-session'
+import { ORG_COOKIE } from '@/lib/auth/next-path'
 
 // P4.7 — resposta padrão dos três pontos de entrada do ciclo normal de
 // acesso (login, primeiro acesso, criar organização): mesmo formato de
@@ -29,6 +30,11 @@ export async function responderSessaoOrganizacao(
 
   const cookieStore = await cookies()
   cookieStore.set(SESSION_COOKIE, signProfileId(profileId), sessionCookieOptions)
+  // Lembrança de qual Organização usar ao pedir login de novo. Só o slug, que
+  // já é público: não autoriza nada, apenas escolhe a tela de login que o
+  // middleware mostra quando a sessão expira. Legível pelo middleware, por
+  // isso não é httpOnly-only — mas também não carrega segredo nenhum.
+  cookieStore.set(ORG_COOKIE, organization.slug, { ...sessionCookieOptions, httpOnly: false })
 
   return {
     ok: true as const,
