@@ -88,7 +88,7 @@ export function CaixaConversa({ estado, mensagens, onEnviar }: Props) {
   return (
     <div
       data-sem-onda
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-10 flex justify-center px-4 pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+0.75rem))] transition-transform duration-200 ease-out"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-10 flex justify-center px-4 pb-[max(5.5rem,calc(env(safe-area-inset-bottom)+4.75rem))] transition-transform duration-200 ease-out"
       style={{ transform: `translateY(-${recuoTeclado}px)` }}
     >
       <div className="pointer-events-auto relative w-full max-w-[680px] [touch-action:manipulation]">

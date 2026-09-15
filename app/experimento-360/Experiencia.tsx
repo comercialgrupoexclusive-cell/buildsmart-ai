@@ -5,6 +5,7 @@ import { Panorama360 } from './Panorama360'
 import { Orbe, type EstadoOrbe, type OrbeHandle } from './Orbe'
 import { CaixaConversa } from './CaixaConversa'
 import { AtividadeHabilidade, type FaseAtividade } from './AtividadeHabilidade'
+import { Sistema } from './Sistema'
 import {
   SAUDACAO,
   responderDemonstracao,
@@ -128,6 +129,7 @@ export function Experiencia() {
       <Orbe ref={orbeRef} estado={estado} movimento={movimento} onPronto={aoOrbePronto} />
       <AtividadeHabilidade atividade={atividade} fase={faseAtividade} />
       <CaixaConversa estado={estado} mensagens={mensagens} onEnviar={enviar} />
+      <Sistema />
 
       {pedeReduzido && (
         <div
