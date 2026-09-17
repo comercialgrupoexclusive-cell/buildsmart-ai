@@ -440,11 +440,15 @@ export async function GET() {
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  // An external sender must prove possession of the configured webhook secret.
+  const webhookSecret = process.env.ZAPI_WEBHOOK_SECRET
+  if (!webhookSecret || req.headers.get('x-webhook-secret') !== webhookSecret) {
+    return NextResponse.json({ error: 'Webhook não autorizado.' }, { status: 401 })
+  }
   const db = supabase()
 
   try {
     const body = await req.json()
-    console.log('ZAPI WEBHOOK RECEBIDO', JSON.stringify(body).slice(0, 300))
     if (db) await logRaw(db, body, `fromMe=${body?.fromMe} phone=${body?.phone}`)
 
     if (body.fromMe === true) return NextResponse.json({ ok: true, skip: 'fromMe' })

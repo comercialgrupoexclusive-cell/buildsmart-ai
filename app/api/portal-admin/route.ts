@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { createServiceClient } from '@/lib/supabase/service'
-import { SESSION_COOKIE, verifyProfileToken } from '@/lib/portal-admin-session'
+
+import { readAccess } from '@/lib/auth/session'
+import { requireSameOrigin } from '@/lib/auth/http'
 
 // Proxy unico para as RPCs administrativas do Portal/Feed (feed_admin_*,
 // portal_content_admin_*, portal_visibility_admin_*, portal_link_*,
@@ -37,26 +37,23 @@ const ADMIN_RPC_PROFILE_ARG: Record<string, string | null> = {
 }
 
 export async function POST(req: NextRequest) {
+  const denied = requireSameOrigin(req)
+  if (denied) return denied
   const body = await req.json().catch(() => null) as { fn?: string; args?: Record<string, unknown> } | null
   const fn = body?.fn
   if (!fn || !Object.prototype.hasOwnProperty.call(ADMIN_RPC_PROFILE_ARG, fn)) {
     return NextResponse.json({ error: 'Operacao nao permitida.' }, { status: 400 })
   }
 
-  const cookieStore = await cookies()
-  const profileId = verifyProfileToken(cookieStore.get(SESSION_COOKIE)?.value)
+  const access = await readAccess()
+  const profileId = access?.profile?.id
   if (!profileId) {
-    return NextResponse.json({ error: 'Sessao expirada. Selecione seu perfil novamente.', code: 'session_expired' }, { status: 401 })
+    return NextResponse.json({ error: 'Sessão expirada. Entre novamente.', code: 'session_expired' }, { status: 401 })
   }
-
-  const db = createServiceClient()
-  if (!db) return NextResponse.json({ error: 'Servidor nao configurado.' }, { status: 500 })
-
-  const args = { ...(body?.args || {}) }
-  const profileArg = ADMIN_RPC_PROFILE_ARG[fn]
-  if (profileArg) args[profileArg] = profileId
-
-  const { data, error } = await db.rpc(fn, args)
-  if (error) return NextResponse.json({ error: error.message, code: error.code }, { status: 400 })
-  return NextResponse.json({ data })
+  // Legacy privileged RPCs do not consistently bind their target to a tenant.
+  // Fail closed until each operation has a tenant-aware contract; no bs_session bypass.
+  if (!access?.active || !['owner', 'admin'].includes(access.active.role)) {
+    return NextResponse.json({ error: 'Operação não autorizada.' }, { status: 403 })
+  }
+  return NextResponse.json({ error: 'Administração do portal temporariamente indisponível nesta fundação de acesso.' }, { status: 403 })
 }
