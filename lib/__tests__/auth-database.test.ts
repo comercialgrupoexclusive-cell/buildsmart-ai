@@ -24,7 +24,10 @@ beforeAll(async () => {
     await db.exec(file(`supabase/migrations/${migration}`))
   }
   await db.exec(file('supabase/migrations/20260917061212_fundacao_auth_global.sql'))
+  await db.exec(file('supabase/migrations/20260917234152_quarantine_unscoped_legacy_rls.sql'))
+  await db.exec(file('supabase/migrations/20260917234538_quarantine_legacy_security_definers.sql'))
   await db.exec(`
+    insert into legacy_secrets(secret) values('preserved');
     insert into organizations(id,nome,slug) values('${orgA}','A','org-a'),('${orgB}','B','org-b');
     insert into app_private.auth_invitations(email,organization_id,role) values
       ('a@example.com','${orgA}','member'),('b@example.com','${orgB}','owner'),('zero@example.com',null,'member');
@@ -103,6 +106,16 @@ describe('global identity: real PostgreSQL migration and RLS', () => {
   it('prevents anonymous profile reads and claims', async () => {
     await db.exec('set role anon')
     await expect(db.exec('select * from profiles')).rejects.toThrow(/permission denied/)
+  })
+  it('quarantines legacy tables with unconditional policies without deleting rows', async () => {
+    await asUser()
+    expect(await scalar('select count(*) from legacy_secrets')).toBe(0)
+    await db.exec('reset role')
+    expect(await scalar('select count(*) from legacy_secrets')).toBe(1)
+  })
+  it('revokes legacy SECURITY DEFINER functions from Data API roles', async () => {
+    await asUser()
+    await expect(db.exec('select legacy_security_definer()')).rejects.toThrow(/permission denied/)
   })
   it('supports multiple memberships while isolating current selection per session', async () => {
     await db.exec(`insert into organization_members(organization_id,profile_id,user_id,role,papel)
