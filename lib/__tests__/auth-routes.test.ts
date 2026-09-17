@@ -14,6 +14,7 @@ import { POST as login } from '@/app/api/auth/login/route'
 import { POST as logout } from '@/app/api/auth/logout/route'
 import { POST as selectOrganization } from '@/app/api/auth/organization/route'
 import { POST as changePassword } from '@/app/api/auth/password/route'
+import { POST as requestPasswordRecovery } from '@/app/api/auth/recovery/route'
 
 type Membership = {
   organization_id: string
@@ -29,6 +30,7 @@ type DbOptions = {
   signInError?: Record<string, unknown> | null
   signOutError?: Record<string, unknown> | null
   updateUserError?: Record<string, unknown> | null
+  recoveryError?: Record<string, unknown> | null
   selectOrganizationError?: Record<string, unknown> | null
 }
 
@@ -88,6 +90,10 @@ function createDb(options: DbOptions = {}) {
     data: { user },
     error: options.updateUserError || null,
   })
+  const resetPasswordForEmail = vi.fn().mockResolvedValue({
+    data: {},
+    error: options.recoveryError || null,
+  })
   const rpc = vi.fn(async (name: string) => {
     if (name === 'current_organization_id') {
       return { data: options.activeOrganization || null, error: null }
@@ -105,7 +111,7 @@ function createDb(options: DbOptions = {}) {
   })
 
   return {
-    auth: { signInWithPassword, getUser, signOut, updateUser },
+    auth: { signInWithPassword, getUser, signOut, updateUser, resetPasswordForEmail },
     from,
     rpc,
   }
@@ -349,6 +355,31 @@ describe('auth route handlers', () => {
       error: 'Link expirado. Solicite outro convite ou link de recuperação.',
     })
     expect(db.auth.updateUser).not.toHaveBeenCalled()
+  })
+
+  it('sends password recovery back to the public HTTPS confirmation route', async () => {
+    const db = createDb()
+    createClientMock.mockResolvedValue(db)
+    const request = new NextRequest('http://next-internal:3000/api/auth/recovery', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'https://preview.buildsmart.test',
+        host: 'next-internal:3000',
+        'x-forwarded-host': 'preview.buildsmart.test',
+        'x-forwarded-proto': 'https',
+        'sec-fetch-site': 'same-origin',
+      },
+      body: JSON.stringify({ email: '  ANA@Example.Test ' }),
+    })
+
+    const response = await requestPasswordRecovery(request)
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(db.auth.resetPasswordForEmail).toHaveBeenCalledWith('ana@example.test', {
+      redirectTo: 'https://preview.buildsmart.test/auth/confirm',
+    })
   })
 
   it('returns the access snapshot produced from the authenticated provider session', async () => {
