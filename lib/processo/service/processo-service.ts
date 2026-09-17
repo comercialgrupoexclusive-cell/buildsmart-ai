@@ -30,23 +30,11 @@ function normalizarTexto(v: string | null | undefined): string | null {
 }
 
 async function resolverOrganizacaoUnica(supabase: SupabaseClient, organizationId?: string | null): Promise<string> {
-  if (organizationId) return organizationId
-
-  const { data, error } = await supabase
-    .from('organization_members')
-    .select('organization_id')
-    .eq('ativo', true)
-
-  if (error) {
-    throw new Error('Não foi possível identificar a organização ativa para criar o processo.')
+  const { data, error } = await supabase.rpc('current_organization_id')
+  if (error || !data || (organizationId && organizationId !== data)) {
+    throw new Error('Selecione a organização antes de criar o processo.')
   }
-
-  const organizacoes = Array.from(new Set((data ?? []).map(row => row.organization_id).filter(Boolean))) as string[]
-  if (organizacoes.length === 1) return organizacoes[0]
-  if (organizacoes.length === 0) {
-    throw new Error('Seu usuário não possui uma organização ativa para criar processos.')
-  }
-  throw new Error('Selecione a organização antes de criar o processo.')
+  return data as string
 }
 
 export async function criarProcesso(supabase: SupabaseClient, input: CriarProcessoInput): Promise<Processo> {

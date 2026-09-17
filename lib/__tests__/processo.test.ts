@@ -2,7 +2,7 @@
 // investidor-ai-tools.test.ts: FakeDB em memória (sem rede, sandbox bloqueia
 // *.supabase.co) exercitando as Actions públicas ponta a ponta.
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { FakeDB } from './fake-supabase'
 import {
   alterarStatusProcesso,
@@ -22,6 +22,9 @@ describe('Motor de Processo — P3.1', () => {
 
   beforeEach(() => {
     db = new FakeDB()
+    const originalRpc = db.rpc.bind(db)
+    vi.spyOn(db, 'rpc').mockImplementation((name, params) => name === 'current_organization_id'
+      ? Promise.resolve({ data: 'org-teste', error: null }) : originalRpc(name, params))
     db.seed('organization_members', [
       { id: 'org-member-1', organization_id: 'org-teste', profile_id: 'profile-teste', ativo: true, papel: 'owner' },
     ])
@@ -32,6 +35,11 @@ describe('Motor de Processo — P3.1', () => {
   }
 
   describe('criarProcesso', () => {
+    it('usa a organização selecionada mesmo com múltiplos vínculos', async () => {
+      db.seed('organization_members', [{ organization_id: 'outra-org', ativo: true }, { organization_id: 'org-teste', ativo: true }])
+      const processo = await criarProcesso(supa(), { nome: 'Contexto ativo' })
+      expect(processo.organization_id).toBe('org-teste')
+    })
     it('cria com status ACTIVE e os módulos habilitados por padrão do registry', async () => {
       const processo = await criarProcesso(supa(), { nome: 'Allegra' })
       expect(processo.nome).toBe('Allegra')

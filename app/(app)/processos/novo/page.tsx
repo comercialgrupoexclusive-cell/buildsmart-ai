@@ -58,11 +58,7 @@ export default function NovoProcessoPage() {
       }
 
       setLoadingOrg(true)
-      const { data: memberships, error } = await supabase
-        .from('organization_members')
-        .select('organization_id')
-        .eq('profile_id', currentProfile.id)
-        .eq('ativo', true)
+      const { data: selectedOrganization, error } = await supabase.rpc('current_organization_id')
 
       if (!active) return
 
@@ -72,9 +68,7 @@ export default function NovoProcessoPage() {
         return
       }
 
-      const ids = Array.from(
-        new Set((memberships ?? []).map((m: { organization_id: string | null }) => m.organization_id).filter(Boolean)),
-      ) as string[]
+      const ids = selectedOrganization ? [selectedOrganization as string] : []
       if (ids.length === 0) {
         setOrganizacoes([])
         setOrganizationId('')
