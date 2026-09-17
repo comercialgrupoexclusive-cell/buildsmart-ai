@@ -3,9 +3,8 @@
 import { usePathname, useRouter } from 'next/navigation'
 import { Moon, Sun, LogOut, Pencil, ChevronDown, Menu } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
-import { createClient } from '@/lib/supabase/client'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -44,14 +43,16 @@ export function Header({ hasSidebar = false, onOpenMobileNav }: { hasSidebar?: b
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  function handleSwitchProfile() {
-    setCurrentProfile(null)
-    fetch('/api/session', { method: 'DELETE' }).catch(() => {})
-    // P4.5: encerra também a sessão real do Supabase Auth — sem isso o
-    // middleware deixaria a próxima pessoa que abrir o app continuar
-    // autenticada como o perfil anterior, mesmo depois de "trocar perfil".
-    createClient().auth.signOut().catch(() => {})
-    router.push('/')
+  async function handleSwitchProfile() {
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST' })
+      if (!response.ok) throw new Error('logout_failed')
+      setCurrentProfile(null)
+      localStorage.removeItem('buildsmart_organization')
+      window.location.assign('/login')
+    } catch {
+      setToast('Não foi possível encerrar a sessão. Tente novamente.')
+    }
   }
 
   function handleToggleTheme() {
@@ -107,7 +108,7 @@ export function Header({ hasSidebar = false, onOpenMobileNav }: { hasSidebar?: b
                     src={currentProfile.photo_url}
                     alt={currentProfile.name}
                     className="w-8 h-8 rounded-full object-cover ring-2"
-                    style={{ '--tw-ring-color': 'var(--accent)' } as any}
+                    style={{ '--tw-ring-color': 'var(--accent)' } as CSSProperties}
                   />
                 ) : (
                   <div

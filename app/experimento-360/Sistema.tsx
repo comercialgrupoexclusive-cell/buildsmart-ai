@@ -17,7 +17,7 @@ import { TelaPesquisa } from './modulos/TelaPesquisa'
 import { TelaBoard } from './modulos/TelaBoard'
 import { TelaFinanceiro } from './modulos/TelaFinanceiro'
 import { TelaConfig } from './modulos/TelaConfig'
-import { DOCK_GLOBAL, DOCK_PROCESSO, type ItemDock } from './dock'
+import { DOCK_GLOBAL, DOCK_PROCESSO, type ItemDock } from './dock-model'
 
 // Navegação da nova experiência: Dock + camada glass SOBRE o ambiente (o Levi
 // e o panorama seguem ativos atrás). Dentro de um Processo, as abas montam os

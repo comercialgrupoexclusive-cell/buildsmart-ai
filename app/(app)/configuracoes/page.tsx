@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import Link from 'next/link'
 import { Sun, Moon, Database, Info, Pipette, ListChecks, Plus, Trash2, Monitor, Users, Pencil, X, ShieldCheck, KeyRound } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
@@ -47,6 +48,7 @@ const ACCENT_OPTIONS = [
 ]
 
 const WELCOME_HIDDEN_KEY = 'buildsmart-welcome-hidden'
+const ACCESS_MANAGEMENT_ENABLED = false
 
 // P4.6 Bloco A — formas de retorno do endpoint /api/auth/org-admin (GET),
 // que embute o profile via join do PostgREST (por isso profiles pode vir
@@ -76,10 +78,6 @@ export default function ConfiguracoesPage() {
   const [cidadesLoading, setCidadesLoading] = useState(false)
   const [accentColor, setAccentColor] = useState(currentProfile?.theme_color || '#3B7BF8')
   const [darkMode, setDarkMode] = useState(currentProfile?.dark_mode ?? true)
-  const [pwCurrent, setPwCurrent] = useState('')
-  const [pwNew, setPwNew] = useState('')
-  const [pwConfirm, setPwConfirm] = useState('')
-  const [pwError, setPwError] = useState('')
   const [etapasPadrao, setEtapasPadrao] = useState<EtapaPadrao[]>([])
   const [novaEtapaPadrao, setNovaEtapaPadrao] = useState('')
   const [salvandoEtapaPadrao, setSalvandoEtapaPadrao] = useState(false)
@@ -88,7 +86,9 @@ export default function ConfiguracoesPage() {
   const [chuvaThreshold, setChuvaThresholdState] = useState(CLIMA_THRESHOLD_DEFAULT)
   const colorPickerRef = useRef<HTMLInputElement>(null)
 
-  const isAdmin = currentProfile?.tipo === 'admin'
+  // A gestão avançada de identidades permanece fechada nesta etapa. O campo
+  // legado profiles.tipo não é fonte de autorização para Supabase Auth.
+  const isAdmin = ACCESS_MANAGEMENT_ENABLED && currentProfile?.tipo === 'admin'
   const [users, setUsers] = useState<Profile[]>([])
   const [usersLoading, setUsersLoading] = useState(false)
   const [userModalOpen, setUserModalOpen] = useState(false)
@@ -106,7 +106,7 @@ export default function ConfiguracoesPage() {
   // impõe isso no banco, esta checagem é só para não mostrar a UI à toa.
   const [orgId, setOrgId] = useState<string | null>(null)
   const [orgPapel, setOrgPapel] = useState<string | null>(null)
-  const isOrgAdmin = orgPapel === 'owner' || orgPapel === 'admin'
+  const isOrgAdmin = ACCESS_MANAGEMENT_ENABLED && (orgPapel === 'owner' || orgPapel === 'admin')
   const [orgMembros, setOrgMembros] = useState<OrgMembroRow[]>([])
   const [orgConvidados, setOrgConvidados] = useState<OrgConvidadoRow[]>([])
   const [orgProcessos, setOrgProcessos] = useState<{ id: string; nome: string }[]>([])
@@ -465,19 +465,6 @@ export default function ConfiguracoesPage() {
     document.documentElement.style.setProperty('--accent', color)
   }
 
-  async function handleDesativarSenha() {
-    if (!currentProfile) return
-    if (pwCurrent !== currentProfile.password_hash) {
-      setPwError('Senha atual incorreta')
-      return
-    }
-    const { error } = await supabase.from('profiles').update({ password_hash: null }).eq('id', currentProfile.id)
-    if (error) { setPwError(`Erro: ${error.message}`); return }
-    setCurrentProfile({ ...currentProfile, password_hash: null })
-    setPwCurrent('')
-    setPwError('')
-  }
-
   async function handleSave() {
     if (!currentProfile) return
     setSaving(true)
@@ -511,19 +498,6 @@ export default function ConfiguracoesPage() {
       theme_color: accentColor,
       dark_mode: darkMode,
     }
-    if (pwNew.trim() || pwConfirm.trim()) {
-      if (pwNew !== pwConfirm) {
-        setPwError('Senhas não coincidem')
-        setSaving(false)
-        return
-      }
-      if (!pwNew.trim()) {
-        setPwError('Digite a nova senha')
-        setSaving(false)
-        return
-      }
-      payload.password_hash = pwNew.trim()
-    }
     const { data, error } = await supabase
       .from('profiles')
       .update(payload)
@@ -540,7 +514,6 @@ export default function ConfiguracoesPage() {
     const updated = { ...profileToSave, ...(data as Profile) }
     setCurrentProfile(updated)
     document.documentElement.style.setProperty('--accent', accentColor)
-    setPwNew(''); setPwConfirm(''); setPwError('')
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
@@ -821,62 +794,17 @@ export default function ConfiguracoesPage() {
             </button>
           </div>
 
-          {/* Senha */}
-          <div className="flex flex-col gap-3 p-4 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+          <div className="flex items-center justify-between gap-3 p-4 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
             <div className="flex items-center gap-2">
               <KeyRound size={15} style={{ color: 'var(--accent)' }} />
-              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                {currentProfile?.password_hash ? '🔒 Senha definida' : '🔓 Sem senha — acesso direto'}
-              </p>
-            </div>
-
-            {currentProfile?.password_hash && (
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={pwCurrent}
-                  onChange={e => { setPwCurrent(e.target.value); setPwError('') }}
-                  placeholder="Senha atual"
-                  className="input-base flex-1"
-                />
-                <button
-                  type="button"
-                  onClick={handleDesativarSenha}
-                  disabled={!pwCurrent.trim()}
-                  className="px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-                  style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)' }}
-                >
-                  Desativar senha
-                </button>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Senha da conta</p>
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Gerenciada com segurança pelo Supabase Auth.</p>
               </div>
-            )}
-
-            <Input
-              label="Nova senha"
-              type="password"
-              value={pwNew}
-              onChange={e => { setPwNew(e.target.value); setPwError('') }}
-              placeholder="Digite a nova senha"
-            />
-            <Input
-              label="Confirmar nova senha"
-              type="password"
-              value={pwConfirm}
-              onChange={e => { setPwConfirm(e.target.value); setPwError('') }}
-              placeholder="Repita a nova senha"
-            />
-
-            {pwError && (
-              <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'rgba(239,68,68,0.12)', color: 'var(--danger)' }}>
-                {pwError}
-              </p>
-            )}
-
-            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              {currentProfile?.password_hash
-                ? 'Para trocar, preencha Nova senha + Confirmar e clique em Salvar. Para remover, confirme a senha atual e clique em Desativar.'
-                : 'Preencha os dois campos para definir uma senha de acesso.'}
-            </p>
+            </div>
+            <Link href="/auth/redefinir-senha" className="px-3 py-2 rounded-lg text-sm font-medium" style={{ background: 'rgba(59,123,248,0.12)', color: 'var(--accent)' }}>
+              Alterar senha
+            </Link>
           </div>
 
           <Button loading={saving} onClick={handleSave} disabled={!nome.trim()}>

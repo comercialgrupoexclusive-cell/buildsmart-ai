@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ProfileProvider } from "@/lib/profile-context";
+import { readAccess } from '@/lib/auth/session';
 
 export const metadata: Metadata = {
   title: "BuildSmart AI — Gestão de Obras",
@@ -10,11 +11,12 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const access = await readAccess();
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <head>
@@ -22,7 +24,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: 'window.EXCALIDRAW_ASSET_PATH = "/";' }} />
       </head>
       <body className="min-h-screen antialiased">
-        <ProfileProvider>{children}</ProfileProvider>
+        <ProfileProvider initialProfile={access?.profile || null}>{children}</ProfileProvider>
       </body>
     </html>
   );

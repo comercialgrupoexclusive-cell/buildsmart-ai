@@ -1,3 +1,4 @@
+import 'server-only'
 import { createClient } from '@supabase/supabase-js'
 import { supabaseUrl } from '@/lib/supabase/config'
 
@@ -7,7 +8,7 @@ import { supabaseUrl } from '@/lib/supabase/config'
 // qualquer chamada a essas RPCs precisa passar por este cliente.
 export function createServiceClient() {
   const url = supabaseUrl()
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) return null
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
 }

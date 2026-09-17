@@ -17,18 +17,6 @@ const ProfileContext = createContext<ProfileContextType>({
   toggleTheme: () => {},
 })
 
-// Lê localStorage de forma síncrona na inicialização do estado
-// Isso garante que currentProfile está disponível ANTES de qualquer useEffect rodar
-function loadProfileFromStorage(): Profile | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const stored = localStorage.getItem('buildsmart_profile')
-    return stored ? (JSON.parse(stored) as Profile) : null
-  } catch {
-    return null
-  }
-}
-
 function applyTheme(t: 'dark' | 'light', accentColor?: string) {
   document.documentElement.removeAttribute('data-theme')
   if (t === 'light') {
@@ -39,12 +27,10 @@ function applyTheme(t: 'dark' | 'light', accentColor?: string) {
   }
 }
 
-export function ProfileProvider({ children }: { children: ReactNode }) {
-  // Inicialização lazy síncrona — lê localStorage no primeiro render
-  const [currentProfile, setCurrentProfileState] = useState<Profile | null>(loadProfileFromStorage)
+export function ProfileProvider({ children, initialProfile = null }: { children: ReactNode; initialProfile?: Profile | null }) {
+  const [currentProfile, setCurrentProfileState] = useState<Profile | null>(initialProfile)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    const p = loadProfileFromStorage()
-    return p?.dark_mode === false ? 'light' : 'dark'
+    return initialProfile?.dark_mode === false ? 'light' : 'dark'
   })
 
   // Aplica o tema do perfil após montar (só afeta DOM, não causa redirect)

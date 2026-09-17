@@ -29,6 +29,7 @@ export function sanitizarSlug(valor: string | undefined | null): string | null {
 export function sanitizarNext(valor: string | undefined | null): string | null {
   if (!valor) return null
   const bruto = valor.trim()
+  if (/[\\\u0000-\u001f\u007f]/.test(valor) || /%(?:2f|5c|0[0-9a-f]|1[0-9a-f]|7f)/i.test(bruto)) return null
   if (!bruto.startsWith('/')) return null
   if (bruto.startsWith('//') || bruto.startsWith('/\\')) return null
   // `new URL` com base fictícia normaliza `..` e revela qualquer esquema
@@ -45,12 +46,13 @@ export function sanitizarNext(valor: string | undefined | null): string | null {
 
 // Rotas que nunca fazem sentido como destino de retorno: voltar para o próprio
 // login criaria um laço.
-const NUNCA_RETORNAR = ['/o/', '/criar-organizacao']
+const NUNCA_RETORNAR = ['/o', '/criar-organizacao', '/login', '/organizacoes', '/auth', '/api', '/onboarding']
 
 export function destinoSeguro(valor: string | undefined | null): string | null {
   const next = sanitizarNext(valor)
   if (!next) return null
-  if (next === '/') return null
-  if (NUNCA_RETORNAR.some(p => next.startsWith(p))) return null
+  const pathname = new URL(next, 'https://interno.invalid').pathname
+  if (pathname === '/') return null
+  if (NUNCA_RETORNAR.some(p => pathname === p || pathname.startsWith(p + '/'))) return null
   return next
 }

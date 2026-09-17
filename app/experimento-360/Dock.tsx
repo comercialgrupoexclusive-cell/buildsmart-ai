@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import type { ItemDock } from './dock'
+import type { ItemDock } from './dock-model'
 
 type Props = {
   itens: ItemDock[]

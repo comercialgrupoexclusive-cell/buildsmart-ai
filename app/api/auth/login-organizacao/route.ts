@@ -1,73 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient as createServerAuthClient } from '@/lib/supabase/server'
-import { responderSessaoOrganizacao } from '@/lib/auth/organizacao-session'
+import { NextResponse } from 'next/server'
 
-type ResolverAcesso = {
-  status: 'nao_encontrado' | 'sem_acesso' | 'ok'
-  email: string | null
-  organization_id: string | null
-  organization_nome: string | null
+function closed() {
+  return NextResponse.json({ error: 'Fluxo desativado. Use o login global em /login. Cadastros são realizados por convite.' }, { status: 410, headers: { 'Cache-Control': 'no-store' } })
 }
-
-// P4.7 — login por Organização: usuário digita usuário+senha (não e-mail).
-// resolver_acesso_organizacao (SQL, SECURITY DEFINER, anon-safe) resolve
-// slug+username para o e-mail técnico interno sem o servidor precisar da
-// service_role key — só Supabase Auth público (signInWithPassword com a
-// anon key). Substitui a versão anterior, que usava createServiceClient()
-// só para esse lookup.
-export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => null) as {
-    slug?: string
-    username?: string
-    password?: string
-  } | null
-
-  const slug = body?.slug?.trim().toLowerCase()
-  const username = body?.username?.trim()
-  const password = body?.password
-
-  if (!slug || !username || !password) {
-    return NextResponse.json({ error: 'Preencha organização, usuário e senha.' }, { status: 400 })
-  }
-
-  const supabase = await createServerAuthClient()
-
-  const { data: resolvedRaw, error: resolveError } = await supabase
-    .rpc('resolver_acesso_organizacao', { p_slug: slug, p_username: username })
-    .maybeSingle()
-  const resolved = resolvedRaw as ResolverAcesso | null
-
-  if (resolveError || !resolved || resolved.status === 'nao_encontrado') {
-    return NextResponse.json({ error: 'Usuário ou senha incorretos.' }, { status: 401 })
-  }
-  if (resolved.status === 'sem_acesso') {
-    return NextResponse.json({ error: 'Este acesso ainda não foi configurado. Use "Primeiro acesso".' }, { status: 409 })
-  }
-
-  const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-    email: resolved.email!,
-    password,
-  })
-  if (signInError || !signInData.user) {
-    return NextResponse.json({ error: 'Usuário ou senha incorretos.' }, { status: 401 })
-  }
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('auth_user_id', signInData.user.id)
-    .maybeSingle()
-  if (!profile) {
-    return NextResponse.json({ error: 'Perfil não encontrado.' }, { status: 404 })
-  }
-
-  const resposta = await responderSessaoOrganizacao(supabase, profile.id, {
-    id: resolved.organization_id!,
-    nome: resolved.organization_nome!,
-    slug,
-  })
-  if (!resposta) {
-    return NextResponse.json({ error: 'Não foi possível carregar o perfil.' }, { status: 500 })
-  }
-  return NextResponse.json(resposta)
-}
+export const GET = closed
+export const POST = closed
+export const DELETE = closed
+export const PATCH = closed

@@ -197,6 +197,30 @@ describe('auth route handlers', () => {
     expect(db.auth.signInWithPassword).not.toHaveBeenCalled()
   })
 
+  it('accepts the public forwarded origin used behind the Next.js proxy', async () => {
+    const db = createDb({
+      signInError: { status: 400, code: 'invalid_credentials' },
+    })
+    createClientMock.mockResolvedValue(db)
+    const request = new NextRequest('http://next-internal:3000/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'https://app.buildsmart.test',
+        host: 'next-internal:3000',
+        'x-forwarded-host': 'app.buildsmart.test',
+        'x-forwarded-proto': 'https',
+        'sec-fetch-site': 'same-origin',
+      },
+      body: JSON.stringify({ email: 'ana@example.test', password: 'senha-incorreta' }),
+    })
+
+    const response = await login(request)
+
+    expect(response.status).toBe(401)
+    expect(db.auth.signInWithPassword).toHaveBeenCalledOnce()
+  })
+
   it('replaces an external post-login target with the application home', async () => {
     const db = createDb({ memberships: [membership('org-a')] })
     createClientMock.mockResolvedValue(db)

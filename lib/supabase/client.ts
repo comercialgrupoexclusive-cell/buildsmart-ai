@@ -1,8 +1,8 @@
 import { createBrowserClient } from '@supabase/ssr'
-import { createLocalClient, isLocalDataMode } from '@/lib/data/local-client'
 import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
 
-export function createClient() {
-  if (isLocalDataMode()) return createLocalClient() as any
+// Keep the existing untyped query contract of the business modules during this auth change.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createClient(): any {
   return createBrowserClient(supabaseUrl(), supabaseAnonKey())
 }
