@@ -108,7 +108,7 @@ export function Sistema({ falando = false }: { falando?: boolean }) {
 
     switch (aba) {
       case 'visao-geral':
-        return dentro(<TelaVisaoGeral processo={processo} modulos={modulos} />)
+        return dentro(<TelaVisaoGeral processo={processo} modulos={modulos} onAtualizado={setProcesso} />)
       case 'pesquisa':
         return dentro(<TelaPesquisa />, { largo: true })
       case 'board':
