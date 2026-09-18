@@ -83,6 +83,19 @@ describe('authentication proxy', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store')
   })
 
+  it('allows an anonymous visitor to request a password recovery link', async () => {
+    // Regression: /api/auth/recovery was missing from PUBLIC_API, so the proxy
+    // returned "Sessão expirada." for every recovery request before the route
+    // handler ever ran — nobody without an existing session could recover a
+    // password, which defeats the whole point of the endpoint.
+    createServerClientMock.mockImplementation(providerClient())
+    const request = new NextRequest('https://buildsmart.test/api/auth/recovery', { method: 'POST' })
+
+    const response = await proxy(request)
+
+    expect(response.status).not.toBe(401)
+  })
+
   it('does not bypass authentication when the application data mode is local', async () => {
     vi.stubEnv('NEXT_PUBLIC_DATA_MODE', 'local')
     createServerClientMock.mockImplementation(providerClient())

@@ -4,7 +4,7 @@ import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase/config'
 import { destinoSeguro } from '@/lib/auth/next-path'
 
 const PUBLIC_PAGES = new Set(['/', '/login', '/criar-organizacao', '/onboarding', '/auth/confirm', '/auth/redefinir-senha'])
-const PUBLIC_API = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/password', '/api/session', '/api/auth/claim', '/api/auth/bootstrap-owner', '/api/auth/login-organizacao', '/api/auth/primeiro-acesso', '/api/auth/criar-organizacao'])
+const PUBLIC_API = new Set(['/api/auth/login', '/api/auth/logout', '/api/auth/password', '/api/auth/recovery', '/api/session', '/api/auth/claim', '/api/auth/bootstrap-owner', '/api/auth/login-organizacao', '/api/auth/primeiro-acesso', '/api/auth/criar-organizacao'])
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
