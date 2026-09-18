@@ -12,6 +12,7 @@ import { Dock } from './Dock'
 import { Camada } from './Camada'
 import { TelaPlaceholder, TelaTempo } from './telas'
 import { TelaProcessos } from './modulos/TelaProcessos'
+import { TelaConfigGlobal } from './modulos/TelaConfigGlobal'
 import { TelaVisaoGeral } from './modulos/TelaVisaoGeral'
 import { TelaPesquisa } from './modulos/TelaPesquisa'
 import { TelaBoard } from './modulos/TelaBoard'
@@ -93,6 +94,7 @@ export function Sistema({ falando = false }: { falando?: boolean }) {
     if (contexto === 'global') {
       if (aba === 'processos') return envolver(<TelaProcessos onAbrir={abrirProcesso} />)
       if (aba === 'tempo') return envolver(<TelaTempo />)
+      if (aba === 'config') return envolver(<TelaConfigGlobal />)
       return envolver(<TelaPlaceholder nome={rotulo(aba)} />)
     }
 

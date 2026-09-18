@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { listarProcessos, type Processo } from '@/lib/processo'
+import { criarProcesso, listarProcessos, type Processo } from '@/lib/processo'
 import { Carregando, PrecisaSessao, Vazio } from './comuns'
 
 const STATUS_ROTULO: Record<string, string> = {
@@ -19,6 +19,19 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
   const supabase = useMemo(() => createClient(), [])
   const [processos, setProcessos] = useState<Processo[] | null>(null)
   const [semSessao, setSemSessao] = useState(false)
+  const [criando, setCriando] = useState(false)
+  const [nomeNovo, setNomeNovo] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  const carregar = async () => {
+    try {
+      const lista = await listarProcessos(supabase)
+      setProcessos(lista)
+    } catch {
+      setProcessos([])
+    }
+  }
 
   useEffect(() => {
     let vivo = true
@@ -36,19 +49,94 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
     return () => { vivo = false }
   }, [supabase])
 
+  async function salvarNovoProcesso() {
+    const nome = nomeNovo.trim()
+    if (!nome) { setErro('Dê um nome ao Processo.'); return }
+    setSalvando(true)
+    setErro('')
+    try {
+      // Mesma Action do motor real (lib/processo) usada por /processos/novo —
+      // organização e módulos padrão são resolvidos por ela, nenhuma segunda
+      // regra de criação nasce aqui.
+      await criarProcesso(supabase, { nome })
+      setNomeNovo('')
+      setCriando(false)
+      await carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível criar o Processo.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
   if (semSessao) return <PrecisaSessao modulo="A lista de Processos" />
   if (processos === null) return <Carregando texto="Carregando Processos…" />
+
+  const formularioNovo = criando && (
+    <div className="rounded-2xl border border-cyan-200/20 bg-cyan-300/[0.06] p-4">
+      <label htmlFor="novo-processo-nome" className="text-[11px] uppercase tracking-[0.12em] text-cyan-200/60">
+        Nome do Processo
+      </label>
+      <input
+        id="novo-processo-nome"
+        autoFocus
+        value={nomeNovo}
+        onChange={e => { setNomeNovo(e.target.value); setErro('') }}
+        onKeyDown={e => { if (e.key === 'Enter') salvarNovoProcesso() }}
+        placeholder="Ex.: Residencial Jardim Allegra"
+        disabled={salvando}
+        className="mt-1.5 w-full rounded-xl border border-white/12 bg-black/25 px-3 py-2 text-[14px] text-white/92 outline-none placeholder:text-white/35 focus:border-cyan-200/40"
+      />
+      {erro && <p className="mt-2 text-[12.5px] text-red-300/85">{erro}</p>}
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={salvarNovoProcesso}
+          disabled={salvando}
+          className="rounded-full bg-cyan-300/90 px-4 py-1.5 text-[13px] font-medium text-slate-950 outline-none transition hover:bg-cyan-200 disabled:opacity-50"
+        >
+          {salvando ? 'Criando…' : 'Criar Processo'}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setCriando(false); setErro('') }}
+          disabled={salvando}
+          className="rounded-full px-3 py-1.5 text-[13px] text-white/55 outline-none transition hover:text-white/85"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  )
+
+  const botaoNovo = !criando && (
+    <button
+      type="button"
+      onClick={() => setCriando(true)}
+      className="flex items-center justify-center gap-1.5 rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-3.5 text-[13.5px] font-medium text-cyan-100/80 outline-none transition hover:border-cyan-200/30 hover:bg-white/[0.05] hover:text-white"
+    >
+      <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+      Novo Processo
+    </button>
+  )
+
   if (processos.length === 0) {
     return (
-      <Vazio
-        titulo="Nenhum Processo ainda"
-        descricao="Crie um Processo no BuildSmart e ele aparece aqui — esta tela lê a mesma tabela de /processos."
-      />
+      <div className="flex flex-col gap-3">
+        {formularioNovo || botaoNovo}
+        <Vazio
+          titulo="Nenhum Processo ainda"
+          descricao="Crie o primeiro Processo acima — é a mesma tabela que /processos usa."
+        />
+      </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-2.5">
+      {formularioNovo || botaoNovo}
       {processos.map(p => (
         <button
           key={p.id}
