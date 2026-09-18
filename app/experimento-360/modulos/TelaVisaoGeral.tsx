@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { alterarStatusProcesso, atualizarDadosProcesso, type Processo, type ProcessoStatus } from '@/lib/processo'
+import { listarMembrosDaOrganizacaoAtiva, type MembroOrganizacao } from '@/lib/organizacao/membros'
 
 // Visão geral do Processo — identidade e estado, editáveis diretamente na
 // célula. Mesma interação de EditableCell (app/(app)/servicos/page.tsx):
@@ -11,10 +12,9 @@ import { alterarStatusProcesso, atualizarDadosProcesso, type Processo, type Proc
 // (dados gerais e status) já existem em lib/processo/service e são as mesmas
 // que /processos/[id] usa.
 //
-// responsavel_id fica de fora nesta rodada: o seletor de responsável
-// depende de listar outros perfis da organização, e a leitura de `profiles`
-// hoje só permite ver o próprio registro (RLS da fundação de auth) — vira
-// escopo próprio quando essa visibilidade for resolvida.
+// Responsável agora tem fonte segura: lib/organizacao/membros.ts, que lê a
+// RPC organization_members_list (só a organização ativa, nunca profiles
+// inteiro). Salva por profile_id, nunca por nome em texto.
 
 const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ACTIVE', label: 'Ativo' },
@@ -113,6 +113,58 @@ function CelulaStatus({ status, salvar }: { status: ProcessoStatus; salvar: (nov
   )
 }
 
+// Célula de responsável: mesmo visual de CelulaStatus, mas as opções vêm da
+// organização ativa (lib/organizacao/membros.ts), nunca de `profiles`
+// direto. O valor salvo é sempre profile_id — a UI só mostra o nome.
+function CelulaResponsavel({ responsavelId, membros, carregando, salvar }: {
+  responsavelId: string | null
+  membros: MembroOrganizacao[]
+  carregando: boolean
+  salvar: (novo: string | null) => Promise<void>
+}) {
+  const [salvando, setSalvando] = useState(false)
+
+  const atual = membros.find(m => m.profile_id === responsavelId)
+  // Selecionável: qualquer membro ativo, mais o atual mesmo que tenha ficado
+  // inativo — pra não trocar o responsável sozinho só porque alguém saiu.
+  const opcoes = membros.filter(m => m.ativo || m.profile_id === responsavelId)
+  // O responsável pode apontar pra alguém que nem aparece mais na
+  // organização (removido de vez, não só inativo) — a RPC só lista quem
+  // está lá hoje. Mostra isso de forma honesta em vez de trocar sozinho.
+  const removido = !!responsavelId && !atual
+
+  return (
+    <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3.5 py-3">
+      <div className="text-[10.5px] uppercase tracking-[0.12em] text-cyan-200/50">Responsável</div>
+      {carregando ? (
+        <div className="mt-1 px-2 py-1 text-[14px] text-white/40">Carregando…</div>
+      ) : (
+        <select
+          value={responsavelId ?? ''}
+          disabled={salvando}
+          onChange={async e => {
+            setSalvando(true)
+            try { await salvar(e.target.value || null) } finally { setSalvando(false) }
+          }}
+          className="mt-1 w-full rounded-lg bg-transparent px-2 py-1 text-[14px] text-white/88 outline-none transition hover:bg-white/[0.05] disabled:opacity-60"
+        >
+          <option value="" className="bg-slate-900 text-white">Sem responsável</option>
+          {removido && (
+            <option value={responsavelId ?? ''} className="bg-slate-900 text-white/50">
+              Fora da organização
+            </option>
+          )}
+          {opcoes.map(m => (
+            <option key={m.profile_id} value={m.profile_id} className="bg-slate-900 text-white">
+              {m.nome}{!m.ativo ? ' (inativo)' : ''}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  )
+}
+
 function CelulaFixa({ rotulo, valor }: { rotulo: string; valor: string }) {
   return (
     <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3.5 py-3">
@@ -178,6 +230,17 @@ export function TelaVisaoGeral({ processo, modulos, onAtualizado }: {
 }) {
   const supabase = useMemo(() => createClient(), [])
   const [erro, setErro] = useState('')
+  const [membros, setMembros] = useState<MembroOrganizacao[]>([])
+  const [carregandoMembros, setCarregandoMembros] = useState(true)
+
+  useEffect(() => {
+    let vivo = true
+    void listarMembrosDaOrganizacaoAtiva(supabase)
+      .then(lista => { if (vivo) setMembros(lista) })
+      .catch(() => { if (vivo) setMembros([]) })
+      .finally(() => { if (vivo) setCarregandoMembros(false) })
+    return () => { vivo = false }
+  }, [supabase])
 
   async function salvarCampo(patch: Parameters<typeof atualizarDadosProcesso>[2]) {
     setErro('')
@@ -210,6 +273,12 @@ export function TelaVisaoGeral({ processo, modulos, onAtualizado }: {
         <CelulaTexto rotulo="Cliente" valor={processo.cliente_nome ?? ''} placeholder="Sem cliente" salvar={cliente_nome => salvarCampo({ cliente_nome })} />
         <CelulaTexto rotulo="Endereço" valor={processo.endereco ?? ''} placeholder="Sem endereço" salvar={endereco => salvarCampo({ endereco })} />
         <CelulaStatus status={processo.status} salvar={salvarStatus} />
+        <CelulaResponsavel
+          responsavelId={processo.responsavel_id}
+          membros={membros}
+          carregando={carregandoMembros}
+          salvar={responsavel_id => salvarCampo({ responsavel_id })}
+        />
         <CelulaFixa rotulo="Aberto em" valor={dataCurta(processo.created_at)} />
         <CelulaFixa rotulo="Última atualização" valor={dataCurta(processo.updated_at)} />
       </div>
