@@ -43,6 +43,7 @@ dev-server.err.log
 
 # env files
 .env*.local
+.env.production
 # keep .env.example
 !.env.example
 
