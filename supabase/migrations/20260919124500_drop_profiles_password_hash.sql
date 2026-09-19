@@ -1,0 +1,11 @@
+-- Higiene de segurança pré-produção (item pendente desde a fundação de auth):
+-- profiles.password_hash era o gate de senha em texto plano do sistema
+-- antigo. O login hoje é 100% via Supabase Auth (auth.users,
+-- signInWithPassword) — nenhuma rota de API lê mais esta coluna. A única UI
+-- que ainda escrevia nela (app/(app)/configuracoes/page.tsx, painel
+-- "Usuários") já estava inalcançável (ACCESS_MANAGEMENT_ENABLED = false) e
+-- o grant de UPDATE em profiles nem inclui esta coluna desde
+-- 20260917061212_fundacao_auth_global.sql — mas a coluna continuava
+-- existindo. Confirmado antes de aplicar: 0 de 9 profiles em produção
+-- tinham valor não-nulo aqui.
+alter table public.profiles drop column if exists password_hash;

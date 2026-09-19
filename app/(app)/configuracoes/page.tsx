@@ -22,7 +22,6 @@ const EMPTY_USER_FORM = {
   descricao: '',
   cidade: '',
   estado: '',
-  password: '',
   tipo: 'usuario' as 'admin' | 'usuario' | 'cliente' | 'prestador',
   pode_excluir: true,
   theme_color: '#3B7BF8',
@@ -331,7 +330,6 @@ export default function ConfiguracoesPage() {
       descricao: profile.descricao || '',
       cidade: profile.cidade || '',
       estado: profile.estado || '',
-      password: '',
       tipo: profile.tipo || 'usuario',
       pode_excluir: profile.pode_excluir ?? true,
       theme_color: profile.theme_color || '#3B7BF8',
@@ -353,10 +351,6 @@ export default function ConfiguracoesPage() {
       setUserError('Informe o nome do usuário.')
       return
     }
-    if (!editingUser && !userForm.password.trim()) {
-      setUserError('Defina uma senha para o novo usuário.')
-      return
-    }
 
     setUserSaving(true)
     setUserError('')
@@ -371,7 +365,6 @@ export default function ConfiguracoesPage() {
       pode_excluir: userForm.pode_excluir,
       theme_color: userForm.theme_color,
     }
-    if (userForm.password.trim()) payload.password_hash = userForm.password.trim()
 
     let savedUser: Profile | null = null
 
@@ -420,13 +413,6 @@ export default function ConfiguracoesPage() {
     }
     setUserSaving(false)
     closeUserModal()
-  }
-
-  async function handleResetSenha(profile: Profile) {
-    if (!confirm(`Resetar a senha de "${profile.apelido || profile.name}"? O usuário precisará definir nova senha no próximo login.`)) return
-    const { error } = await supabase.from('profiles').update({ password_hash: null }).eq('id', profile.id)
-    if (error) { setUserError(`Erro ao resetar senha: ${error.message}`); return }
-    await loadUsers()
   }
 
   async function handleDeleteUser(profile: Profile) {
@@ -882,14 +868,6 @@ export default function ConfiguracoesPage() {
                       <Pencil size={14} style={{ color: 'var(--text-secondary)' }} />
                     </button>
                     <button
-                      onClick={() => handleResetSenha(user)}
-                      disabled={user.id === currentProfile?.id}
-                      className="p-2 rounded-lg hover:bg-[var(--bg-card)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      title="Resetar senha"
-                    >
-                      <KeyRound size={14} style={{ color: 'var(--text-secondary)' }} />
-                    </button>
-                    <button
                       onClick={() => handleDeleteUser(user)}
                       disabled={user.id === currentProfile?.id}
                       className="p-2 rounded-lg hover:bg-red-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
@@ -1212,14 +1190,6 @@ export default function ConfiguracoesPage() {
                   </select>
                 </div>
               </div>
-              <Input
-                label={editingUser ? 'Nova senha (opcional)' : 'Senha'}
-                type="password"
-                value={userForm.password}
-                onChange={e => setUserForm(f => ({ ...f, password: e.target.value }))}
-                placeholder={editingUser ? 'Deixe em branco para manter a atual' : 'Defina uma senha de acesso'}
-              />
-
               <div>
                 <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--text-secondary)' }}>
                   Tipo de acesso

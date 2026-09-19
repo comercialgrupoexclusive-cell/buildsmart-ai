@@ -24,7 +24,7 @@ create table public.profiles (
   id uuid primary key default gen_random_uuid(),name text not null,
   photo_url text,theme_color text not null default '#3B7BF8',
   dark_mode boolean not null default true,onboarding_done boolean not null default false,
-  password_hash text,created_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
   tipo text not null default 'usuario',apelido text,descricao text,cidade text,estado text,
   pode_excluir boolean not null default true
 );

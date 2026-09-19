@@ -15,7 +15,7 @@ function mockQuery(result: { data: unknown; error: unknown }) {
     select: vi.fn(() => q),
     eq: vi.fn(() => q),
     order: vi.fn(() => q),
-    insert: vi.fn(() => q),
+    insert: vi.fn((_payload: Record<string, unknown>) => q),
     single: vi.fn(() => Promise.resolve(result)),
     then: (resolve: (v: typeof result) => unknown, reject?: (e: unknown) => unknown) =>
       Promise.resolve(result).then(resolve, reject),
@@ -61,7 +61,7 @@ describe('criarEntradaTexto', () => {
 describe('criarEntradaArquivo', () => {
   function supabaseComStorage(insertResult: { data: unknown; error: unknown }) {
     const q = mockQuery(insertResult)
-    const upload = vi.fn(() => Promise.resolve({ error: null }))
+    const upload = vi.fn((_path: string, _file: File) => Promise.resolve({ error: null }))
     const getPublicUrl = vi.fn((path: string) => ({ data: { publicUrl: `https://storage.example/${path}` } }))
     const storageFrom = vi.fn(() => ({ upload, getPublicUrl }))
     const supabase = {

@@ -6,7 +6,6 @@ export type Profile = {
   theme_color: string
   dark_mode: boolean
   onboarding_done: boolean
-  password_hash: string | null
   tipo: 'admin' | 'usuario' | 'cliente' | 'prestador'
   pode_excluir: boolean
   apelido: string | null
