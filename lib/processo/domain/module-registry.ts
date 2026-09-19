@@ -18,6 +18,7 @@ export type ProcessoModuleKey =
   | 'relatorios'
   | 'planta_baixa'
   | 'board'
+  | 'caixa_entrada'
 
 export type ProcessoModuleDefinition = {
   key: ProcessoModuleKey
@@ -53,6 +54,12 @@ export const PROCESSO_MODULES: readonly ProcessoModuleDefinition[] = [
   // processo_id. Não habilitado por padrão: nem todo Processo precisa de
   // quadro colaborativo.
   { key: 'board', label: 'Board' },
+  // Núcleo do novo sistema — a Caixa de Entrada é onde a realidade bruta do
+  // Processo entra (texto, imagem, documento, áudio), sem organização
+  // prévia. Habilitada por padrão porque é o ponto de partida do fluxo
+  // "usuário despeja realidade → sistema trabalha por baixo" para qualquer
+  // Processo novo (processo_caixa_entrada, 20260919120000).
+  { key: 'caixa_entrada', label: 'Caixa de Entrada', enabledByDefault: true },
 ]
 
 export function getProcessoModuleDefinition(key: string): ProcessoModuleDefinition | undefined {

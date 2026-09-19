@@ -19,6 +19,7 @@ export const DOCK_GLOBAL: ItemDock[] = [
 // Processo e volta ao global ao sair.
 export const DOCK_PROCESSO: ItemDock[] = [
   { id: 'visao-geral', rotulo: 'Visão geral' },
+  { id: 'caixa-entrada', rotulo: 'Caixa de Entrada' },
   { id: 'tempo', rotulo: 'Tempo' },
   { id: 'pesquisa', rotulo: 'Pesquisa' },
   { id: 'board', rotulo: 'Board' },

@@ -14,6 +14,7 @@ import { TelaPlaceholder, TelaTempo } from './telas'
 import { TelaProcessos } from './modulos/TelaProcessos'
 import { TelaConfigGlobal } from './modulos/TelaConfigGlobal'
 import { TelaVisaoGeral } from './modulos/TelaVisaoGeral'
+import { TelaCaixaEntrada } from './modulos/TelaCaixaEntrada'
 import { TelaPesquisa } from './modulos/TelaPesquisa'
 import { TelaBoard } from './modulos/TelaBoard'
 import { TelaFinanceiro } from './modulos/TelaFinanceiro'
@@ -109,6 +110,8 @@ export function Sistema({ falando = false }: { falando?: boolean }) {
     switch (aba) {
       case 'visao-geral':
         return dentro(<TelaVisaoGeral processo={processo} modulos={modulos} onAtualizado={setProcesso} />)
+      case 'caixa-entrada':
+        return dentro(<TelaCaixaEntrada processoId={processo.id} />)
       case 'pesquisa':
         return dentro(<TelaPesquisa />, { largo: true })
       case 'board':
