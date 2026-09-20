@@ -2,8 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { criarProcesso, listarProcessos, type Processo } from '@/lib/processo'
+import {
+  criarProcesso,
+  listarProcessos,
+  listarTemplatesDisponiveis,
+  type Processo,
+  type ProcessoTemplateKey,
+} from '@/lib/processo'
 import { Carregando, PrecisaSessao, Vazio } from './comuns'
+
+const TEMPLATES = listarTemplatesDisponiveis()
 
 const STATUS_ROTULO: Record<string, string> = {
   ACTIVE: 'Ativo',
@@ -21,6 +29,9 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
   const [semSessao, setSemSessao] = useState(false)
   const [criando, setCriando] = useState(false)
   const [nomeNovo, setNomeNovo] = useState('')
+  // Tellus R01/C — mesma receita de composição de /processos/novo. Vazio =
+  // sem template, que mantém os módulos enabledByDefault do registry.
+  const [templateNovo, setTemplateNovo] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -58,8 +69,12 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
       // Mesma Action do motor real (lib/processo) usada por /processos/novo —
       // organização e módulos padrão são resolvidos por ela, nenhuma segunda
       // regra de criação nasce aqui.
-      await criarProcesso(supabase, { nome })
+      await criarProcesso(supabase, {
+        nome,
+        template_key: (templateNovo || null) as ProcessoTemplateKey | null,
+      })
       setNomeNovo('')
+      setTemplateNovo('')
       setCriando(false)
       await carregar()
     } catch (e) {
@@ -87,6 +102,22 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
         disabled={salvando}
         className="mt-1.5 w-full rounded-xl border border-white/12 bg-black/25 px-3 py-2 text-[14px] text-white/92 outline-none placeholder:text-white/35 focus:border-cyan-200/40"
       />
+      <label htmlFor="novo-processo-template" className="mt-3 block text-[11px] uppercase tracking-[0.12em] text-cyan-200/60">
+        Template
+      </label>
+      <select
+        id="novo-processo-template"
+        value={templateNovo}
+        onChange={e => { setTemplateNovo(e.target.value); setErro('') }}
+        disabled={salvando}
+        className="mt-1.5 w-full rounded-xl border border-white/12 bg-black/25 px-3 py-2 text-[14px] text-white/92 outline-none focus:border-cyan-200/40"
+      >
+        <option value="">— Sem template (módulos padrão) —</option>
+        {TEMPLATES.map(t => (
+          <option key={`${t.key}-v${t.version}`} value={t.key}>{t.label}</option>
+        ))}
+      </select>
+
       {erro && <p className="mt-2 text-[12.5px] text-red-300/85">{erro}</p>}
       <div className="mt-3 flex items-center gap-2">
         <button
