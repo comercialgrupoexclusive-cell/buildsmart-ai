@@ -11,6 +11,13 @@ import {
   Plus, Pencil, Copy, Trash2, Star, ArrowLeft, Save, TrendingUp, TrendingDown, Calculator, Loader2, AlertTriangle,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import {
+  atualizarCenario,
+  criarCenario,
+  definirCenarioPrincipal,
+  duplicarCenario,
+  excluirCenario,
+} from '@/lib/investidor'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -131,11 +138,14 @@ export function ProspeccaoCenarios({
   async function duplicarParaComparar(c: ProspeccaoCenario) {
     setDuplicando(true)
     const supabase = createClient()
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { id, created_at, updated_at, principal, ...resto } = c
-    const { error } = await supabase.from('prospeccao_cenarios').insert({ ...resto, nome: `${c.nome} (cópia)`, principal: false })
+    try {
+      await duplicarCenario(supabase, c)
+    } catch (err) {
+      setDuplicando(false)
+      alert(`Não foi possível duplicar: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setDuplicando(false)
-    if (error) { alert(`Não foi possível duplicar: ${error.message}`); return }
     onChanged()
   }
 
@@ -161,11 +171,14 @@ export function ProspeccaoCenarios({
       ...PREMISSAS_GENERICAS_BASE,
     }
     const resultado = calcularCenario(premissas)
-    const { error } = await supabase.from('prospeccao_cenarios').insert({
-      prospeccao_id: prospeccaoId, nome: 'Base', principal: true, ...premissas, ...resultado,
-    })
+    try {
+      await criarCenario(supabase, { prospeccaoId, nome: 'Base', premissas, resultado, principal: true })
+    } catch (err) {
+      setCriandoBase(false)
+      setErroBase(`Não foi possível criar o cenário Base automaticamente: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setCriandoBase(false)
-    if (error) { setErroBase(`Não foi possível criar o cenário Base automaticamente: ${error.message}`); return }
     onChanged()
   }
 
@@ -255,34 +268,44 @@ function ListaCenarios({
   async function marcarPrincipal(c: ProspeccaoCenario) {
     setBusy(c.id)
     const supabase = createClient()
-    const { error } = await supabase.rpc('prospeccao_cenario_definir_principal', {
-      p_prospeccao_id: c.prospeccao_id, p_cenario_id: c.id,
-    })
+    try {
+      await definirCenarioPrincipal(supabase, { prospeccaoId: c.prospeccao_id, cenarioId: c.id })
+    } catch (err) {
+      setBusy(null)
+      alert(`Não foi possível marcar como principal: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setBusy(null)
-    if (error) { alert(`Não foi possível marcar como principal: ${error.message}`); return }
     onChanged()
   }
 
   async function duplicar(c: ProspeccaoCenario) {
     setBusy(c.id)
     const supabase = createClient()
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { id, created_at, updated_at, principal, ...resto } = c
-    const { error } = await supabase.from('prospeccao_cenarios').insert({
-      ...resto, nome: `${c.nome} (cópia)`, principal: false,
-    })
+    try {
+      await duplicarCenario(supabase, c)
+    } catch (err) {
+      setBusy(null)
+      alert(`Não foi possível duplicar: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setBusy(null)
-    if (error) { alert(`Não foi possível duplicar: ${error.message}`); return }
     onChanged()
   }
 
   async function excluir(c: ProspeccaoCenario) {
+    // Destrutivo (Action classe exige_aprovacao_humana): confirmação humana aqui.
     if (!confirm(`Excluir o cenário "${c.nome}"? Essa ação não pode ser desfeita.`)) return
     setBusy(c.id)
     const supabase = createClient()
-    const { error } = await supabase.from('prospeccao_cenarios').delete().eq('id', c.id)
+    try {
+      await excluirCenario(supabase, c.id)
+    } catch (err) {
+      setBusy(null)
+      alert(`Não foi possível excluir: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setBusy(null)
-    if (error) { alert(`Não foi possível excluir: ${error.message}`); return }
     onChanged()
   }
 
@@ -415,12 +438,18 @@ function EditorCenario({
     if (!form.nome.trim()) return
     setSaving(true)
     const supabase = createClient()
-    const payload = { prospeccao_id: prospeccaoId, nome: form.nome.trim(), ...premissas, ...resultado }
-    const { error } = cenario
-      ? await supabase.from('prospeccao_cenarios').update(payload).eq('id', cenario.id)
-      : await supabase.from('prospeccao_cenarios').insert(payload)
+    try {
+      if (cenario) {
+        await atualizarCenario(supabase, { id: cenario.id, prospeccaoId, nome: form.nome, premissas, resultado })
+      } else {
+        await criarCenario(supabase, { prospeccaoId, nome: form.nome, premissas, resultado })
+      }
+    } catch (err) {
+      setSaving(false)
+      alert(`Não foi possível salvar: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setSaving(false)
-    if (error) { alert(`Não foi possível salvar: ${error.message}`); return }
     onSalvo()
   }
 

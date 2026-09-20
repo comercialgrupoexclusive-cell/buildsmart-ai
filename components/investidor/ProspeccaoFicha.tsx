@@ -12,11 +12,12 @@
 import { useEffect, useState } from 'react'
 import { Link2, FileText, ImagePlus, Sparkles, Check, AlertTriangle, Loader2, History } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { adicionarCampoManualFicha, obterFicha, salvarValidacaoFicha } from '@/lib/investidor'
 import { useProfile } from '@/lib/profile-context'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { formatCurrency } from '@/lib/utils'
-import type { ProspeccaoFicha as ProspeccaoFichaType, ProspeccaoFichaConflito, Prospeccao } from '@/lib/types'
+import type { ProspeccaoFicha as ProspeccaoFichaType, Prospeccao } from '@/lib/types'
 
 const CAMPO_LABEL: Record<string, string> = {
   tipo: 'Tipo do imóvel',
@@ -94,8 +95,7 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
   async function carregar() {
     setLoading(true)
     const supabase = createClient()
-    const { data } = await supabase.from('prospeccao_ficha').select('*').eq('prospeccao_id', prospeccaoId).maybeSingle()
-    const f = (data as ProspeccaoFichaType | null) || null
+    const f = await obterFicha(supabase, prospeccaoId).catch(() => null)
     setFicha(f)
     if (f) {
       const merge: Record<string, string> = {}
@@ -194,29 +194,22 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
   async function salvarValidacao(marcarValidada: boolean) {
     if (!ficha) return
     setSalvando(true)
-    const extraidos = ficha.dados_extraidos || {}
-    const dadosConfirmados: Record<string, unknown> = {}
-    const conflitos: ProspeccaoFichaConflito[] = []
-    for (const campo of Object.keys(confirmados)) {
-      const valorConfirmado = confirmados[campo]
-      if (valorConfirmado.trim() === '') continue
-      dadosConfirmados[campo] = valorConfirmado
-      const valorExtraido = extraidos[campo]
-      if (valorExtraido != null && fmtValor(valorExtraido).trim().toLowerCase() !== valorConfirmado.trim().toLowerCase()) {
-        conflitos.push({ campo, valor_extraido: valorExtraido, valor_confirmado: valorConfirmado })
-      }
-    }
-    const camposPendentes = Object.keys(extraidos).filter(c => !confirmados[c] || confirmados[c].trim() === '')
-    const status = marcarValidada ? 'validada' : camposPendentes.length === 0 ? 'validada' : 'parcial'
     const supabase = createClient()
-    const { error } = await supabase.from('prospeccao_ficha').update({
-      dados_confirmados: dadosConfirmados,
-      conflitos,
-      status,
-      updated_at: new Date().toISOString(),
-    }).eq('id', ficha.id)
+    // Derivação de dados_confirmados/conflitos/status agora mora na Action do
+    // domínio (lib/investidor), determinística e reutilizável pela futura IA.
+    try {
+      await salvarValidacaoFicha(supabase, {
+        fichaId: ficha.id,
+        dadosExtraidos: ficha.dados_extraidos || {},
+        confirmados,
+        marcarValidada,
+      })
+    } catch (err) {
+      setSalvando(false)
+      setErro(`Não foi possível salvar a validação: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setSalvando(false)
-    if (error) { setErro(`Não foi possível salvar a validação: ${error.message}`); return }
     window.dispatchEvent(new Event('buildsmart:investidor-changed'))
     void carregar()
   }
@@ -227,28 +220,24 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
   // pesquisa de comparáveis, que lê tipo/área/dormitórios daqui) sabe nada
   // sobre o imóvel.
   async function adicionarCampoManual() {
-    const chave = (campoManualChave === '__outro__' ? campoManualCustom : campoManualChave).trim().toLowerCase().replace(/\s+/g, '_')
-    const valor = campoManualValor.trim()
-    if (!chave || !valor) return
+    const chaveBruta = campoManualChave === '__outro__' ? campoManualCustom : campoManualChave
     setSalvandoManual(true)
     setErro(null)
     const supabase = createClient()
-    if (!ficha) {
-      const { error } = await supabase.from('prospeccao_ficha').insert({
-        prospeccao_id: prospeccaoId,
-        dados_extraidos: {},
-        dados_confirmados: { [chave]: valor },
-        status: 'parcial',
+    // Normalização da chave, decisão insert-vs-update e status ficam na Action
+    // do domínio (retorna null quando chave/valor são inválidos).
+    try {
+      const salva = await adicionarCampoManualFicha(supabase, {
+        prospeccaoId,
+        fichaExistente: ficha,
+        chave: chaveBruta,
+        valor: campoManualValor,
       })
-      if (error) { setErro(`Não foi possível salvar: ${error.message}`); setSalvandoManual(false); return }
-    } else {
-      const dadosConfirmados = { ...(ficha.dados_confirmados || {}), [chave]: valor }
-      const { error } = await supabase.from('prospeccao_ficha').update({
-        dados_confirmados: dadosConfirmados,
-        status: ficha.status === 'pendente' ? 'parcial' : ficha.status,
-        updated_at: new Date().toISOString(),
-      }).eq('id', ficha.id)
-      if (error) { setErro(`Não foi possível salvar: ${error.message}`); setSalvandoManual(false); return }
+      if (!salva) { setSalvandoManual(false); return }
+    } catch (err) {
+      setErro(`Não foi possível salvar: ${err instanceof Error ? err.message : 'erro'}`)
+      setSalvandoManual(false)
+      return
     }
     setCampoManualChave('')
     setCampoManualCustom('')

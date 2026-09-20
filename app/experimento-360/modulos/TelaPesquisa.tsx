@@ -7,7 +7,7 @@ import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidenci
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
 import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
 import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
-import { obterOuCriarProspeccaoDoProcesso } from '@/lib/investidor-processo'
+import { obterOuCriarProspeccaoDoProcesso, registrarDecisao } from '@/lib/investidor'
 import { formatCurrency } from '@/lib/utils'
 import type { Processo } from '@/lib/processo'
 import type { Prospeccao, ProspeccaoCenario, ProspeccaoFase } from '@/lib/types'
@@ -192,9 +192,16 @@ function Decisao({ prospeccao, principal, ficha, mercado, onIr, onSalvo }: {
   async function decidir(fase: ProspeccaoFase) {
     setSalvando(true)
     setErro('')
-    const { error } = await supabase.from('prospeccoes').update({ fase }).eq('id', prospeccao.id)
+    // Decisão é a única escrita "exclusivamente humana" do fluxo: parte de um
+    // clique humano, roteada pela Action do domínio (nunca update solto na UI).
+    try {
+      await registrarDecisao(supabase, { prospeccaoId: prospeccao.id, fase })
+    } catch {
+      setSalvando(false)
+      setErro('Não foi possível registrar a decisão agora.')
+      return
+    }
     setSalvando(false)
-    if (error) { setErro('Não foi possível registrar a decisão agora.'); return }
     onSalvo()
   }
 
