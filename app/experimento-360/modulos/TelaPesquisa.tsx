@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useProcessContext } from '@/lib/processo/context'
+import {
+  desvincularOportunidade,
+  listarOportunidadesVinculaveis,
+  obterOportunidadeDoProcesso,
+  vincularOportunidadeAoProcesso,
+} from '@/lib/investidor-oportunidade'
 import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
 import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidencias'
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
@@ -35,31 +42,79 @@ type PassoPesquisa = 'ficha' | 'mercado' | 'viabilidade' | 'decisao'
 type FichaResumo = { status: keyof typeof STATUS_FICHA_LABEL } | null
 type MercadoResumo = { faixa_base: number | null } | null
 
+// Tellus R01/B — esta tela roda SEMPRE dentro de um Processo
+// (Sistema.tsx envolve todo módulo em <ProcessProvider>). Portanto ela não
+// lista mais todas as prospecções: resolve a oportunidade DAQUELE Processo.
+// Enquanto não houver vínculo, mostra as oportunidades livres para o usuário
+// vincular explicitamente — o controle manual continua existindo.
 export function TelaPesquisa() {
+  const { processoId } = useProcessContext()
   const supabase = useMemo(() => createClient(), [])
-  const [lista, setLista] = useState<Prospeccao[] | null>(null)
-  const [abertaId, setAbertaId] = useState<string | null>(null)
+  const [oportunidade, setOportunidade] = useState<Prospeccao | null | undefined>(undefined)
+  const [vinculaveis, setVinculaveis] = useState<Prospeccao[]>([])
+  const [erro, setErro] = useState<string | null>(null)
+
+  // Resolve a oportunidade do Processo. Não é chamada pelo efeito abaixo — o
+  // efeito tem a própria cópia inline para não disparar setState de forma
+  // síncrona no corpo dele (react-hooks/set-state-in-effect).
+  const carregar = useCallback(async () => {
+    setErro(null)
+    try {
+      const atual = await obterOportunidadeDoProcesso(supabase, processoId)
+      setOportunidade(atual)
+      setVinculaveis(atual ? [] : await listarOportunidadesVinculaveis(supabase))
+    } catch (e) {
+      setOportunidade(null)
+      setErro(e instanceof Error ? e.message : 'Não consegui carregar a oportunidade deste Processo.')
+    }
+  }, [supabase, processoId])
 
   useEffect(() => {
     let vivo = true
     void (async () => {
-      const { data } = await supabase
-        .from('prospeccoes')
-        .select('*')
-        .eq('is_venda', false)
-        .order('created_at', { ascending: false })
-      if (vivo) setLista((data ?? []) as Prospeccao[])
+      try {
+        const atual = await obterOportunidadeDoProcesso(supabase, processoId)
+        const livres = atual ? [] : await listarOportunidadesVinculaveis(supabase)
+        if (!vivo) return
+        setOportunidade(atual)
+        setVinculaveis(livres)
+      } catch (e) {
+        if (!vivo) return
+        setOportunidade(null)
+        setErro(e instanceof Error ? e.message : 'Não consegui carregar a oportunidade deste Processo.')
+      }
     })()
     return () => { vivo = false }
-  }, [supabase])
+  }, [supabase, processoId])
 
-  if (abertaId) return <Detalhe prospeccaoId={abertaId} onVoltar={() => setAbertaId(null)} />
-  if (lista === null) return <Carregando texto="Carregando oportunidades…" />
-  if (lista.length === 0) {
+  async function vincular(prospeccaoId: string) {
+    setErro(null)
+    try {
+      await vincularOportunidadeAoProcesso(supabase, prospeccaoId, processoId)
+      await carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não consegui vincular a oportunidade.')
+    }
+  }
+
+  async function desvincular(prospeccaoId: string) {
+    setErro(null)
+    try {
+      await desvincularOportunidade(supabase, prospeccaoId)
+      await carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não consegui desvincular a oportunidade.')
+    }
+  }
+
+  if (oportunidade === undefined) return <Carregando texto="Carregando oportunidade do Processo…" />
+
+  if (oportunidade) {
     return (
-      <Vazio
-        titulo="Nenhuma oportunidade ainda"
-        descricao="Cadastre um imóvel no Investidor do BuildSmart e ele aparece aqui — esta tela lê a mesma tabela de prospecções."
+      <Detalhe
+        prospeccaoId={oportunidade.id}
+        onVoltar={() => desvincular(oportunidade.id)}
+        rotuloVoltar="Desvincular do Processo"
       />
     )
   }
@@ -67,36 +122,48 @@ export function TelaPesquisa() {
   return (
     <div className="flex flex-col gap-2.5">
       <p className="text-[12.5px] text-white/45">
-        Imóveis e oportunidades do Investidor. Abrir um deles percorre o funil
-        completo: Imóvel → Pesquisa de mercado → Viabilidade → Decisão.
+        Este Processo ainda não tem uma oportunidade vinculada. Escolha uma abaixo —
+        ela passa a ser a única oportunidade deste Processo.
       </p>
-      {lista.map(p => {
-        const meta = FASE_META[p.fase]
-        return (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => setAbertaId(p.id)}
-            className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-left outline-none transition hover:border-cyan-200/30 hover:bg-white/[0.08] focus-visible:border-cyan-200/30"
-          >
-            <div className="min-w-0">
-              <div className="truncate text-[15px] font-semibold text-white/92">{p.nome}</div>
-              <div className="mt-0.5 truncate text-[12.5px] text-white/50">{p.endereco || 'Sem endereço'}</div>
-            </div>
-            <span
-              className="shrink-0 rounded-full border px-2.5 py-1 text-[11px]"
-              style={{ borderColor: `${meta.color}55`, color: meta.color, background: `${meta.color}1a` }}
+      {erro && <p className="text-[12.5px] text-red-300">{erro}</p>}
+      {vinculaveis.length === 0 ? (
+        <Vazio
+          titulo="Nenhuma oportunidade livre"
+          descricao="Cadastre um imóvel no Investidor do BuildSmart, ou desvincule uma oportunidade de outro Processo."
+        />
+      ) : (
+        vinculaveis.map(p => {
+          const meta = FASE_META[p.fase]
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => vincular(p.id)}
+              className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-left outline-none transition hover:border-cyan-200/30 hover:bg-white/[0.08] focus-visible:border-cyan-200/30"
             >
-              {meta.label}
-            </span>
-          </button>
-        )
-      })}
+              <div className="min-w-0">
+                <div className="truncate text-[15px] font-semibold text-white/92">{p.nome}</div>
+                <div className="mt-0.5 truncate text-[12.5px] text-white/50">{p.endereco || 'Sem endereço'}</div>
+              </div>
+              <span
+                className="shrink-0 rounded-full border px-2.5 py-1 text-[11px]"
+                style={{ borderColor: `${meta.color}55`, color: meta.color, background: `${meta.color}1a` }}
+              >
+                {meta.label}
+              </span>
+            </button>
+          )
+        })
+      )}
     </div>
   )
 }
 
-function Detalhe({ prospeccaoId, onVoltar }: { prospeccaoId: string; onVoltar: () => void }) {
+function Detalhe({ prospeccaoId, onVoltar, rotuloVoltar = 'Voltar para as oportunidades' }: {
+  prospeccaoId: string
+  onVoltar: () => void
+  rotuloVoltar?: string
+}) {
   const supabase = useMemo(() => createClient(), [])
   const [passo, setPasso] = useState<PassoPesquisa>('ficha')
   const [prospeccao, setProspeccao] = useState<Prospeccao | null>(null)
@@ -142,7 +209,7 @@ function Detalhe({ prospeccaoId, onVoltar }: { prospeccaoId: string; onVoltar: (
   return (
     <div className="flex flex-col gap-4">
       <Voltar
-        rotulo="Voltar para as oportunidades"
+        rotulo={rotuloVoltar}
         onVoltar={onVoltar}
         titulo={prospeccao.nome}
         subtitulo={prospeccao.endereco}

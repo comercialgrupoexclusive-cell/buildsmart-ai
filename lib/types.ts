@@ -714,6 +714,11 @@ export type Prospeccao = {
   // uma Prospecção convertida quanto pela "prospecção-sombra de venda"
   // (is_venda=true) de um Imóvel.
   project_id: string | null
+  // Tellus R01/B — vínculo canônico com o Motor de Processo. Nullable: uma
+  // oportunidade pode existir antes de ganhar Processo, e prospecção-sombra
+  // de venda nunca é vinculada. Uma oportunidade de aquisição pertence a no
+  // máximo um Processo (ver lib/investidor-oportunidade.ts).
+  processo_id: string | null
   // true só na linha-sombra criada por lib/investidor-venda.ts para dar a um
   // Imóvel um contêiner de Pesquisa de Mercado/Viabilidade do lado da
   // VENDA, reaproveitando prospeccao_ficha/comparaveis/analises_mercado/
