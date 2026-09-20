@@ -76,7 +76,13 @@ function fmt(v: number | null | undefined) {
   return v == null ? '—' : formatCurrency(v)
 }
 
-export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
+export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
+  prospeccaoId: string
+  // Opcional: reporta quantos comparáveis estão salvos/favoritos sempre que
+  // a seleção muda. Usado pelo Plano de Trabalho (mundo canônico) para saber
+  // quando mostrar a ação de decisão — não muda nada para quem não passa.
+  onSelecaoChange?: (selecionados: ProspeccaoComparavel[]) => void
+}) {
   const { currentProfile } = useProfile()
   const [ficha, setFicha] = useState<ProspeccaoFicha | null>(null)
   const [comparaveis, setComparaveis] = useState<ProspeccaoComparavel[]>([])
@@ -157,6 +163,11 @@ export function ProspeccaoMercado({ prospeccaoId }: { prospeccaoId: string }) {
   const selecionados = comparaveis.filter(c => c.salvo || c.favorito)
   const selecionadosOrdenados = ordenarPorSimilaridade(selecionados)
   const assinaturaSelecao = selecionados.map(c => c.id).sort().join(',')
+
+  useEffect(() => {
+    onSelecaoChange?.(selecionados)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assinaturaSelecao])
 
   function ordenarPor(lista: ProspeccaoComparavel[], ord: Ordenacao): ProspeccaoComparavel[] {
     if (ord === 'relevancia') return ordenarPorSimilaridade(lista)
