@@ -91,6 +91,10 @@ export function TelaCaixaEntrada({ processoId }: { processoId: string }) {
   const supabase = useMemo(() => createClient(), [])
   const inputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const [pendentes, setPendentes] = useState<File[]>([])
+  // Duração só existe para áudio gravado aqui; WeakMap-like por arquivo para
+  // não inventar um tipo novo só por causa de um número opcional.
+  const duracaoPendenteRef = useRef<Map<File, number>>(new Map())
   const chunksRef = useRef<Blob[]>([])
   const inicioGravacaoRef = useRef(0)
 
@@ -120,34 +124,47 @@ export function TelaCaixaEntrada({ processoId }: { processoId: string }) {
     return () => { vivo = false }
   }, [supabase, processoId])
 
-  async function enviarTexto() {
-    const valor = texto.trim()
-    if (!valor || enviando) return
-    setEnviando(true)
-    try {
-      const nova = await criarEntradaTexto(supabase, processoId, valor)
-      setEntradas(prev => [nova, ...prev])
-      setTexto('')
-    } catch {
-      setErro('Não foi possível enviar. Tente novamente.')
-    } finally {
-      setEnviando(false)
-    }
+  // Anexo e áudio NÃO entram sozinhos: viram pendências visíveis, e só vão
+  // embora quando o usuário aperta Enviar — junto com o texto, se houver.
+  function adicionarArquivos(files: FileList | null) {
+    if (!files?.length) return
+    setErro('')
+    setPendentes(prev => [...prev, ...Array.from(files)])
+    if (inputRef.current) inputRef.current.value = ''
   }
 
-  async function enviarArquivos(files: FileList | null) {
-    if (!files?.length || enviando) return
+  function removerPendente(indice: number) {
+    setPendentes(prev => prev.filter((_, i) => i !== indice))
+  }
+
+  async function enviar() {
+    const valor = texto.trim()
+    if ((!valor && pendentes.length === 0) || enviando) return
     setEnviando(true)
+    setErro('')
     try {
-      for (const arquivo of Array.from(files)) {
-        const nova = await criarEntradaArquivo(supabase, processoId, arquivo)
+      if (valor) {
+        const nova = await criarEntradaTexto(supabase, processoId, valor)
+        setEntradas(prev => [nova, ...prev])
+        setTexto('')
+      }
+      for (const arquivo of pendentes) {
+        const duracaoSegundos = duracaoPendenteRef.current.get(arquivo)
+        const nova = await criarEntradaArquivo(
+          supabase, processoId, arquivo,
+          duracaoSegundos !== undefined ? { duracaoSegundos } : undefined,
+        )
+        duracaoPendenteRef.current.delete(arquivo)
         setEntradas(prev => [nova, ...prev])
       }
-    } catch {
-      setErro('Não foi possível enviar o anexo. Tente novamente.')
+      setPendentes([])
+    } catch (e) {
+      // Mensagem real do erro. A versão anterior engolia a causa e só dizia
+      // "não foi possível", o que tornava qualquer falha indiagnosticável.
+      const causa = e instanceof Error ? e.message : String(e)
+      setErro(`Não foi possível enviar: ${causa}`)
     } finally {
       setEnviando(false)
-      if (inputRef.current) inputRef.current.value = ''
     }
   }
 
@@ -168,15 +185,19 @@ export function TelaCaixaEntrada({ processoId }: { processoId: string }) {
       gravador.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       gravador.onstop = () => {
         stream.getTracks().forEach(t => t.stop())
-        const duracaoSegundos = (Date.now() - inicioGravacaoRef.current) / 1000
-        const blob = new Blob(chunksRef.current, { type: gravador.mimeType || 'audio/webm' })
-        const arquivo = new File([blob], `audio-${Date.now()}.webm`, { type: blob.type })
+        // No Android o mimeType vem como `audio/webm;codecs=opus`. O sufixo
+        // `;codecs=` quebra o Content-Type no upload do Storage, então o tipo
+        // é normalizado e a extensão passa a seguir o tipo real (o Safari
+        // grava em mp4, não webm — fixar ".webm" gerava arquivo inválido).
+        const bruto = gravador.mimeType || 'audio/webm'
+        const tipo = bruto.split(';')[0].trim() || 'audio/webm'
+        const ext = tipo.includes('mp4') ? 'm4a' : tipo.includes('ogg') ? 'ogg' : 'webm'
+        const blob = new Blob(chunksRef.current, { type: tipo })
+        const arquivo = new File([blob], `audio-${Date.now()}.${ext}`, { type: tipo })
         setGravando(false)
-        setEnviando(true)
-        void criarEntradaArquivo(supabase, processoId, arquivo, { duracaoSegundos })
-          .then(nova => setEntradas(prev => [nova, ...prev]))
-          .catch(() => setErro('Não foi possível enviar o áudio gravado.'))
-          .finally(() => setEnviando(false))
+        // Áudio também vira pendência: o usuário confere e aperta Enviar.
+        setPendentes(prev => [...prev, arquivo])
+        duracaoPendenteRef.current.set(arquivo, (Date.now() - inicioGravacaoRef.current) / 1000)
       }
       mediaRecorderRef.current = gravador
       gravador.start()
@@ -199,6 +220,30 @@ export function TelaCaixaEntrada({ processoId }: { processoId: string }) {
           rows={3}
           className="w-full resize-none bg-transparent text-[13.5px] text-white/90 outline-none placeholder:text-white/35"
         />
+        {pendentes.length > 0 && (
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {pendentes.map((f, i) => (
+              <li
+                key={`${f.name}-${i}`}
+                className="flex items-center justify-between gap-2 rounded-xl border border-cyan-200/18 bg-cyan-300/[0.07] px-3 py-2"
+              >
+                <span className="min-w-0 truncate text-[12.5px] text-white/85">
+                  {f.type.startsWith('audio/') ? '🎤 ' : '📎 '}{f.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removerPendente(i)}
+                  disabled={enviando}
+                  aria-label={`Remover ${f.name}`}
+                  className="shrink-0 rounded-full px-2 py-0.5 text-[12px] text-white/55 outline-none transition hover:text-red-200 disabled:opacity-40"
+                >
+                  remover
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
         <div className="mt-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <button
@@ -230,13 +275,13 @@ export function TelaCaixaEntrada({ processoId }: { processoId: string }) {
               multiple
               accept="image/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
               className="hidden"
-              onChange={e => void enviarArquivos(e.target.files)}
+              onChange={e => adicionarArquivos(e.target.files)}
             />
           </div>
           <button
             type="button"
-            onClick={() => void enviarTexto()}
-            disabled={enviando || !texto.trim()}
+            onClick={() => void enviar()}
+            disabled={enviando || (!texto.trim() && pendentes.length === 0)}
             className="inline-flex items-center gap-1.5 rounded-full bg-cyan-300/15 px-4 py-1.5 text-[13px] font-medium text-white shadow-[inset_0_0_0_1px_rgba(120,205,255,0.32)] outline-none transition hover:bg-cyan-300/22 disabled:opacity-40"
           >
             <Send className="size-3.5" /> Enviar
