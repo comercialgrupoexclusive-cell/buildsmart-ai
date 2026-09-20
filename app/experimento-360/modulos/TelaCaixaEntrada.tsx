@@ -161,7 +161,7 @@ export function TelaCaixaEntrada({ processoId }: { processoId: string }) {
     } catch (e) {
       // Mensagem real do erro. A versão anterior engolia a causa e só dizia
       // "não foi possível", o que tornava qualquer falha indiagnosticável.
-      const causa = e instanceof Error ? e.message : String(e)
+      const causa = e instanceof Error ? e.message : ((e as { message?: string })?.message ?? String(e))
       setErro(`Não foi possível enviar: ${causa}`)
     } finally {
       setEnviando(false)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ItemDock } from './dock-model'
 
 type Props = {
@@ -26,6 +26,19 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, on
   const [arraste, setArraste] = useState(0)      // deslocamento vertical durante o gesto
   const [arrastando, setArrastando] = useState(false)
   const inicioY = useRef<number | null>(null)
+  const pilulRef = useRef<HTMLDivElement>(null)
+
+  // Publica a altura do Dock para que a Camada possa se posicionar sem sobreposição.
+  useEffect(() => {
+    const el = pilulRef.current
+    if (!el) return
+    const publicar = () =>
+      document.documentElement.style.setProperty('--altura-dock', `${Math.round(el.offsetHeight)}px`)
+    publicar()
+    const ro = new ResizeObserver(publicar)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   const recolhido = manual || falando
 
@@ -94,7 +107,7 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, on
         transition: arrastando ? 'none' : 'transform .25s ease',
       }}
     >
-      <div className="pointer-events-auto flex max-w-[calc(100vw-1.5rem)] flex-col items-center rounded-[26px] border border-white/12 bg-[linear-gradient(100deg,rgba(10,18,38,0.66),rgba(14,28,54,0.58))] p-1 shadow-[0_14px_44px_-22px_rgba(60,150,255,0.6)] backdrop-blur-2xl">
+      <div ref={pilulRef} className="pointer-events-auto flex max-w-[calc(100vw-1.5rem)] flex-col items-center rounded-[26px] border border-white/12 bg-[linear-gradient(100deg,rgba(10,18,38,0.66),rgba(14,28,54,0.58))] p-1 shadow-[0_14px_44px_-22px_rgba(60,150,255,0.6)] backdrop-blur-2xl">
         {/* Puxador: arraste para baixo para recolher. */}
         <div
           onPointerDown={aoBaixar}
@@ -110,7 +123,7 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, on
 
         <nav
           aria-label="Menu principal"
-          className="flex max-w-full items-center gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none]"
+          className="flex max-w-full items-center gap-1 overflow-x-auto pl-1 pr-6 pb-1 [scrollbar-width:none]"
         >
           {contexto === 'processo' && (
             <button

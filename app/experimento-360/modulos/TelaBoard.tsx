@@ -40,7 +40,7 @@ export function TelaBoard({ processoId }: { processoId: string }) {
   if (!temSessao) return <PrecisaSessao modulo="O Board do Processo" />
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div className="flex flex-1 min-h-0 flex-col gap-3">
       {/* Planta Baixa mora dentro do contexto do Board/imóvel, não como um
           módulo solto no Dock — é o desenho do mesmo imóvel, em outra
           ferramenta. */}
@@ -54,8 +54,14 @@ export function TelaBoard({ processoId }: { processoId: string }) {
       />
 
       {aba === 'board' ? (
-        <div className="min-h-[420px] flex-1 overflow-hidden rounded-2xl border border-white/10 bg-black/25">
-          <ExcalidrawBoard processoId={processoId} />
+        /* Wrapper com position:relative + dimensões definidas.
+           O ExcalidrawBoard usa height:100% internamente, que só resolve
+           quando o pai tem tamanho em px — absolute inset-0 garante isso
+           independente da cadeia flex acima. */
+        <div className="min-h-0 flex-1 relative rounded-2xl border border-white/10 bg-black/25" style={{ minHeight: '40svh' }}>
+          <div className="absolute inset-0 overflow-hidden rounded-2xl">
+            <ExcalidrawBoard processoId={processoId} />
+          </div>
         </div>
       ) : (
         <ProcessoPlantaBaixa processoId={processoId} />

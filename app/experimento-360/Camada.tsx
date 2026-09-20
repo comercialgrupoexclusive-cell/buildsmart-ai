@@ -28,7 +28,7 @@ export function Camada({ titulo, contexto, largo = false, preencher = false, onF
     <div
       data-sem-onda
       className="fixed inset-x-0 top-0 z-[38] flex justify-center px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-3"
-      style={{ bottom: 'calc(var(--altura-ia, 4rem) + 4rem)' }}
+      style={{ bottom: 'calc(var(--altura-ia, 4rem) + var(--altura-dock, 4rem) + 0.75rem)' }}
     >
       {/* Véu mínimo: o fundo e o Levi têm de continuar visíveis e ativos
           atrás — o painel se separa pelo vidro, não por escurecer a cena. */}
