@@ -23,6 +23,12 @@ import {
   type ProcessoStatus,
 } from '../domain/types'
 import { PROCESSO_MODULES, isValidProcessoModuleKey, modulosHabilitadosPorPadrao } from '../domain/module-registry'
+import {
+  PROCESSO_TEMPLATES,
+  getProcessoTemplate,
+  isValidProcessoTemplateKey,
+  type ProcessoTemplateDefinition,
+} from '../domain/template-registry'
 
 function normalizarTexto(v: string | null | undefined): string | null {
   const t = (v ?? '').trim()
@@ -37,11 +43,35 @@ async function resolverOrganizacaoUnica(supabase: SupabaseClient, organizationId
   return data as string
 }
 
+// Resolve e valida o template ANTES de qualquer escrita (exigência da Seção A:
+// validação no domínio/Service). Devolve null quando não há template.
+function resolverTemplate(input: CriarProcessoInput): ProcessoTemplateDefinition | null {
+  const key = input.template_key
+  if (key === undefined || key === null) return null
+
+  if (!isValidProcessoTemplateKey(key)) throw new Error(`Template desconhecido: ${key}`)
+
+  const versao = input.template_version ?? undefined
+  const definicao = getProcessoTemplate(key, versao)
+  if (!definicao) throw new Error(`Versão de template inexistente: ${key} v${versao}`)
+  return definicao
+}
+
 export async function criarProcesso(supabase: SupabaseClient, input: CriarProcessoInput): Promise<Processo> {
   const nome = (input.nome ?? '').trim()
   if (!nome) throw new Error('Nome do processo é obrigatório.')
 
-  const moduleKeys = input.modulos && input.modulos.length > 0 ? input.modulos : modulosHabilitadosPorPadrao()
+  const template = resolverTemplate(input)
+
+  // Precedência travada (ver domain/types.ts CriarProcessoInput):
+  // `modulos` explícito > módulos do template > enabledByDefault do registry.
+  // A ordem preserva o contrato anterior — quem já passava `modulos` recebe
+  // exatamente o que pediu, com ou sem template.
+  const moduleKeys = input.modulos && input.modulos.length > 0
+    ? input.modulos
+    : template
+      ? template.modules
+      : modulosHabilitadosPorPadrao()
   const invalidos = moduleKeys.filter(k => !isValidProcessoModuleKey(k))
   if (invalidos.length > 0) throw new Error(`Módulo(s) desconhecido(s): ${invalidos.join(', ')}`)
   const organizationId = await resolverOrganizacaoUnica(supabase, input.organization_id)
@@ -55,6 +85,8 @@ export async function criarProcesso(supabase: SupabaseClient, input: CriarProces
     organization_id: organizationId,
     status: 'ACTIVE',
     archived_at: null,
+    template_key: template?.key ?? null,
+    template_version: template?.version ?? null,
   })
 
   await inserirModulos(supabase, processo.id, moduleKeys)
@@ -131,4 +163,8 @@ export async function listarModulosDoProcesso(supabase: SupabaseClient, processo
 
 export function listarModulosDisponiveis() {
   return PROCESSO_MODULES
+}
+
+export function listarTemplatesDisponiveis() {
+  return PROCESSO_TEMPLATES
 }

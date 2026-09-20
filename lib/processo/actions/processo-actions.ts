@@ -53,3 +53,9 @@ export async function listarModulosDoProcesso(supabase: SupabaseClient, processo
 export function listarModulosDisponiveis() {
   return service.listarModulosDisponiveis()
 }
+
+// Tellus R01/A — expõe o registry de templates pelo contrato público, no
+// mesmo padrão de listarModulosDisponiveis. Leitura pura, sem efeito.
+export function listarTemplatesDisponiveis() {
+  return service.listarTemplatesDisponiveis()
+}

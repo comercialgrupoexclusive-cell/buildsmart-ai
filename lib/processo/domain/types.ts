@@ -4,6 +4,8 @@
 // `Processo` é raiz nova e canônica — nunca um alias de `projetos`/`obras`
 // (lib/types.ts). Nenhum tipo aqui deve ganhar `obra_id`/`projeto_id`.
 
+import type { ProcessoTemplateKey } from './template-registry'
+
 export type ProcessoStatus = 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED'
 
 export const PROCESSO_STATUSES: readonly ProcessoStatus[] = ['ACTIVE', 'ON_HOLD', 'COMPLETED', 'ARCHIVED']
@@ -12,11 +14,17 @@ export type Processo = {
   id: string
   organization_id: string | null
   nome: string
+  // Rótulo descritivo livre, digitado pelo usuário e apenas exibido. NÃO é
+  // template e nenhum comportamento deve ser derivado dele (Tellus R01/A).
   tipo: string | null
   cliente_nome: string | null
   endereco: string | null
   responsavel_id: string | null
   status: ProcessoStatus
+  // Receita de composição que este Processo declarou (domain/template-registry).
+  // Nullable: Processos anteriores ao Tellus R01 não têm template e seguem válidos.
+  template_key: ProcessoTemplateKey | null
+  template_version: number | null
   created_at: string
   updated_at: string
   archived_at: string | null
@@ -38,9 +46,15 @@ export type CriarProcessoInput = {
   endereco?: string | null
   responsavel_id?: string | null
   organization_id?: string | null
-  // Se omitido, usa os módulos com enabledByDefault do registry (ver
-  // domain/module-registry.ts) — o chamador nunca precisa conhecer a lista.
+  // Precedência de módulos iniciais (travada em Tellus R01/A):
+  //   1. `modulos` explícito vence — contrato que já existia;
+  //   2. senão, módulos do template quando `template_key` for informado;
+  //   3. senão, módulos com enabledByDefault do registry (comportamento antigo).
   modulos?: string[]
+  // Receita de composição. Validada no Service antes de qualquer escrita.
+  // `template_version` omitido resolve a versão corrente do registry.
+  template_key?: ProcessoTemplateKey | null
+  template_version?: number | null
 }
 
 export type AtualizarProcessoInput = Partial<

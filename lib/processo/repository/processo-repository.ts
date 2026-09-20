@@ -19,6 +19,10 @@ type NovoProcessoDados = {
   organization_id: string | null
   status: ProcessoStatus
   archived_at: string | null
+  // Tellus R01/A — nullable: Processos sem template continuam válidos. O
+  // Service já validou a key/version contra o registry antes de chegar aqui.
+  template_key: string | null
+  template_version: number | null
 }
 
 export async function inserirProcesso(supabase: SupabaseClient, dados: NovoProcessoDados): Promise<Processo> {
