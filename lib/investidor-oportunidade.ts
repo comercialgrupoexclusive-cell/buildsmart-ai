@@ -84,6 +84,42 @@ export async function vincularOportunidadeAoProcesso(
   if (error) throw error
 }
 
+/**
+ * Cria uma oportunidade JÁ vinculada ao Processo.
+ *
+ * Existe porque obrigar o usuário a escolher numa lista global, estando
+ * dentro de um Processo, é o oposto do canônico: o trabalho deve nascer do
+ * contexto. Um Processo novo não tem oportunidade nenhuma para garimpar.
+ *
+ * `organization_id` não é enviado — o trigger do banco resolve pela sessão.
+ */
+export async function criarOportunidadeDoProcesso(
+  supabase: SupabaseClient,
+  processoId: string,
+  nome: string,
+  endereco?: string | null,
+): Promise<Prospeccao> {
+  const nomeLimpo = nome.trim()
+  if (!nomeLimpo) throw new Error('Dê um nome à oportunidade.')
+
+  const jaTem = await obterOportunidadeDoProcesso(supabase, processoId)
+  if (jaTem) throw new Error('Este Processo já possui uma oportunidade vinculada.')
+
+  const { data, error } = await supabase
+    .from(TABELA)
+    .insert({
+      nome: nomeLimpo,
+      endereco: endereco?.trim() || null,
+      processo_id: processoId,
+      is_venda: false,
+      fase: 'nova',
+    })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data as Prospeccao
+}
+
 export async function desvincularOportunidade(supabase: SupabaseClient, prospeccaoId: string): Promise<void> {
   const { error } = await supabase.from(TABELA).update({ processo_id: null }).eq('id', prospeccaoId)
   if (error) throw error

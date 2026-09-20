@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProcessContext } from '@/lib/processo/context'
 import {
+  criarOportunidadeDoProcesso,
   desvincularOportunidade,
   listarOportunidadesVinculaveis,
   obterOportunidadeDoProcesso,
   vincularOportunidadeAoProcesso,
 } from '@/lib/investidor-oportunidade'
+import { obterProcesso } from '@/lib/processo'
 import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
 import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidencias'
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
@@ -53,6 +55,11 @@ export function TelaPesquisa() {
   const [oportunidade, setOportunidade] = useState<Prospeccao | null | undefined>(undefined)
   const [vinculaveis, setVinculaveis] = useState<Prospeccao[]>([])
   const [erro, setErro] = useState<string | null>(null)
+  // O caminho principal de um Processo novo é CRIAR a própria oportunidade.
+  // Vincular uma já existente fica como caminho secundário.
+  const [nomeNova, setNomeNova] = useState('')
+  const [enderecoNova, setEnderecoNova] = useState('')
+  const [criando, setCriando] = useState(false)
 
   // Resolve a oportunidade do Processo. Não é chamada pelo efeito abaixo — o
   // efeito tem a própria cópia inline para não disparar setState de forma
@@ -75,7 +82,11 @@ export function TelaPesquisa() {
       try {
         const atual = await obterOportunidadeDoProcesso(supabase, processoId)
         const livres = atual ? [] : await listarOportunidadesVinculaveis(supabase)
+        // Pré-preenche com o nome do próprio Processo: na esmagadora maioria
+        // dos casos a oportunidade é o Processo.
+        const proc = atual ? null : await obterProcesso(supabase, processoId)
         if (!vivo) return
+        if (proc) { setNomeNova(proc.nome); setEnderecoNova(proc.endereco ?? '') }
         setOportunidade(atual)
         setVinculaveis(livres)
       } catch (e) {
@@ -94,6 +105,19 @@ export function TelaPesquisa() {
       await carregar()
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não consegui vincular a oportunidade.')
+    }
+  }
+
+  async function criarOportunidade() {
+    setErro(null)
+    setCriando(true)
+    try {
+      await criarOportunidadeDoProcesso(supabase, processoId, nomeNova, enderecoNova)
+      await carregar()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não consegui criar a oportunidade.')
+    } finally {
+      setCriando(false)
     }
   }
 
@@ -121,17 +145,42 @@ export function TelaPesquisa() {
 
   return (
     <div className="flex flex-col gap-2.5">
-      <p className="text-[12.5px] text-white/45">
-        Este Processo ainda não tem uma oportunidade vinculada. Escolha uma abaixo —
-        ela passa a ser a única oportunidade deste Processo.
-      </p>
-      {erro && <p className="text-[12.5px] text-red-300">{erro}</p>}
-      {vinculaveis.length === 0 ? (
-        <Vazio
-          titulo="Nenhuma oportunidade livre"
-          descricao="Cadastre um imóvel no Investidor do BuildSmart, ou desvincule uma oportunidade de outro Processo."
+      <div className="rounded-2xl border border-cyan-200/20 bg-cyan-300/[0.06] p-4">
+        <p className="text-[12.5px] text-white/60">
+          Este Processo ainda não tem um imóvel. Crie o dele:
+        </p>
+        <input
+          value={nomeNova}
+          onChange={e => { setNomeNova(e.target.value); setErro(null) }}
+          placeholder="Nome do imóvel"
+          disabled={criando}
+          className="mt-2 w-full rounded-xl border border-white/12 bg-black/25 px-3 py-2 text-[14px] text-white/92 outline-none placeholder:text-white/35 focus:border-cyan-200/40"
         />
-      ) : (
+        <input
+          value={enderecoNova}
+          onChange={e => setEnderecoNova(e.target.value)}
+          placeholder="Endereço (opcional)"
+          disabled={criando}
+          className="mt-2 w-full rounded-xl border border-white/12 bg-black/25 px-3 py-2 text-[14px] text-white/92 outline-none placeholder:text-white/35 focus:border-cyan-200/40"
+        />
+        <button
+          type="button"
+          onClick={() => void criarOportunidade()}
+          disabled={criando || !nomeNova.trim()}
+          className="mt-3 rounded-full bg-cyan-300/90 px-4 py-1.5 text-[13px] font-medium text-slate-950 outline-none transition hover:bg-cyan-200 disabled:opacity-50"
+        >
+          {criando ? 'Criando…' : 'Criar imóvel deste Processo'}
+        </button>
+      </div>
+
+      {erro && <p className="text-[12.5px] text-red-300">{erro}</p>}
+
+      {vinculaveis.length > 0 && (
+        <p className="mt-1 text-[12.5px] text-white/40">
+          Ou aproveite um imóvel já cadastrado e ainda sem Processo:
+        </p>
+      )}
+      {vinculaveis.length === 0 ? null : (
         vinculaveis.map(p => {
           const meta = FASE_META[p.fase]
           return (
