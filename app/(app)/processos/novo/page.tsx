@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { criarProcesso } from '@/lib/processo'
+import { criarProcesso, listarTemplatesDisponiveis, type ProcessoTemplateKey } from '@/lib/processo'
 import { useProfile } from '@/lib/profile-context'
 import type { Profile } from '@/lib/types'
 import { Input, Select } from '@/components/ui/Input'
@@ -24,7 +24,13 @@ const EMPTY_FORM = {
   cliente_nome: '',
   endereco: '',
   responsavel_id: '',
+  // Tellus R01/C — receita de composição. Vazio = sem template, que mantém o
+  // comportamento antigo (módulos enabledByDefault do registry). Conceito
+  // separado de `tipo`, que continua sendo rótulo descritivo livre.
+  template_key: '',
 }
+
+const TEMPLATES = listarTemplatesDisponiveis()
 
 type OrgOption = {
   id: string
@@ -119,6 +125,9 @@ export default function NovoProcessoPage() {
         endereco: form.endereco || null,
         responsavel_id: form.responsavel_id || null,
         organization_id: organizationId || null,
+        // Sem template, `criarProcesso` cai nos módulos enabledByDefault —
+        // exatamente o comportamento anterior a esta rodada.
+        template_key: (form.template_key || null) as ProcessoTemplateKey | null,
       })
       router.push(`/processos/${processo.id}`)
     } catch (e) {
@@ -142,7 +151,7 @@ export default function NovoProcessoPage() {
 
       <PageHeader
         title="Criar Processo"
-        subtitle="Os módulos habilitados por padrão (Dados Gerais, Projeto técnico, Orçamento, Planejamento, Tarefas) podem ser ajustados depois de criado."
+        subtitle="O template define quais módulos o Processo já nasce com. Sem template, valem os padrões (Dados Gerais, Projeto técnico, Orçamento, Planejamento, Tarefas, Caixa de Entrada). Tudo pode ser ajustado depois."
       />
 
       <div className="card space-y-4 p-5">
@@ -164,6 +173,16 @@ export default function NovoProcessoPage() {
           value={form.nome}
           onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
         />
+        <Select
+          label="Template"
+          value={form.template_key}
+          onChange={e => setForm(f => ({ ...f, template_key: e.target.value }))}
+        >
+          <option value="">— Sem template (módulos padrão) —</option>
+          {TEMPLATES.map(t => (
+            <option key={`${t.key}-v${t.version}`} value={t.key}>{t.label}</option>
+          ))}
+        </Select>
         <Input
           label="Tipo"
           placeholder="Ex: Obra para cliente, Investimento imobiliário..."
