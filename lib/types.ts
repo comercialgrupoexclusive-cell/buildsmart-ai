@@ -714,6 +714,15 @@ export type Prospeccao = {
   // uma Prospecção convertida quanto pela "prospecção-sombra de venda"
   // (is_venda=true) de um Imóvel.
   project_id: string | null
+  // Template Investidor: a prospecção é o registro interno (1:1) da
+  // oportunidade de um Processo. O Processo é o núcleo único; esta coluna liga
+  // a oportunidade a ele sem expor um segundo objeto ao usuário. Nullable
+  // porque a Prospecção do laboratório Investidor autônomo (/investidor) não
+  // pertence a um Processo. Ver lib/investidor-processo.ts.
+  processo_id: string | null
+  // Organização dona da oportunidade — herdada do Processo quando criada por
+  // ele. Nullable para as prospecções antigas do laboratório autônomo.
+  organization_id: string | null
   // true só na linha-sombra criada por lib/investidor-venda.ts para dar a um
   // Imóvel um contêiner de Pesquisa de Mercado/Viabilidade do lado da
   // VENDA, reaproveitando prospeccao_ficha/comparaveis/analises_mercado/

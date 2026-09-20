@@ -54,7 +54,7 @@ export function TelaBoard({ processoId }: { processoId: string }) {
       />
 
       {aba === 'board' ? (
-        <div className="min-h-[420px] flex-1 overflow-hidden rounded-2xl border border-white/10 bg-black/25">
+        <div className="min-h-[280px] flex-1 overflow-hidden rounded-2xl border border-white/10 bg-black/25 sm:min-h-[420px]">
           <ExcalidrawBoard processoId={processoId} />
         </div>
       ) : (

@@ -92,14 +92,17 @@ describe('criarEntradaArquivo', () => {
     expect(inserted).not.toHaveProperty('autor_profile_id')
   })
 
-  it('classifica áudio pelo mime e propaga duracaoSegundos', async () => {
+  it('classifica áudio pelo mime e arredonda duracaoSegundos para inteiro', async () => {
     const { supabase, q } = supabaseComStorage({ data: { id: 'e4' }, error: null })
     const arquivo = new File(['audio'], 'nota.webm', { type: 'audio/webm' })
 
+    // O gravador entrega segundos como float (ex.: 12.4). A coluna
+    // duracao_segundos é INTEGER — sem arredondar, o Postgres rejeitava com
+    // "invalid input syntax for type integer". Deve gravar o inteiro 12.
     await criarEntradaArquivo(supabase, 'proc-1', arquivo, { duracaoSegundos: 12.4 })
 
     const inserted = q.insert.mock.calls[0][0]
-    expect(inserted).toMatchObject({ tipo: 'audio', duracao_segundos: 12.4 })
+    expect(inserted).toMatchObject({ tipo: 'audio', duracao_segundos: 12 })
   })
 
   it('documento (nem imagem nem áudio) cai em tipo documento', async () => {

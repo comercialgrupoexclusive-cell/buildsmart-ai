@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { criarProcesso, listarProcessos, type Processo } from '@/lib/processo'
+import { obterOuCriarProspeccaoDoProcesso } from '@/lib/investidor-processo'
 import { Carregando, PrecisaSessao, Vazio } from './comuns'
 
 const STATUS_ROTULO: Record<string, string> = {
@@ -58,7 +59,16 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
       // Mesma Action do motor real (lib/processo) usada por /processos/novo —
       // organização e módulos padrão são resolvidos por ela, nenhuma segunda
       // regra de criação nasce aqui.
-      await criarProcesso(supabase, { nome })
+      const processo = await criarProcesso(supabase, { nome })
+      // Template Investidor: a oportunidade interna (1:1) já nasce com o
+      // Processo, para o usuário nunca ter de "criar o imóvel" depois. É
+      // find-or-create idempotente — a Pesquisa reaproveita a mesma linha.
+      // Uma falha aqui não impede a criação do Processo (a Pesquisa recria).
+      try {
+        await obterOuCriarProspeccaoDoProcesso(supabase, processo)
+      } catch {
+        // silencioso: a Pesquisa resolve na primeira abertura
+      }
       setNomeNovo('')
       setCriando(false)
       await carregar()

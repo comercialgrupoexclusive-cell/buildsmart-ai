@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ItemDock } from './dock-model'
 
 type Props = {
@@ -26,11 +26,30 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, on
   const [arraste, setArraste] = useState(0)      // deslocamento vertical durante o gesto
   const [arrastando, setArrastando] = useState(false)
   const inicioY = useRef<number | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const recolhido = manual || falando
 
   // Apoia o Dock logo acima da barra da IA usando a altura publicada por ela.
   const base = 'calc(var(--altura-ia, 4rem) + 0.6rem)'
+
+  // Publica a altura do Dock numa variável CSS, como a barra da IA faz com
+  // --altura-ia. A Camada usa as duas para reservar o rodapé inteiro (input +
+  // Dock) e nunca sobrepor a navegação no mobile, onde o Dock quebra em mais
+  // de uma linha. Re-mede a cada troca de estado (falando/recolhido) porque o
+  // nó medido muda entre os ramos de render.
+  useEffect(() => {
+    const el = rootRef.current
+    const aplicar = () => {
+      const altura = el ? Math.round(el.offsetHeight) : 0
+      document.documentElement.style.setProperty('--altura-dock', `${altura}px`)
+    }
+    aplicar()
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(aplicar)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [falando, recolhido])
 
   const aoBaixar = (e: React.PointerEvent) => {
     inicioY.current = e.clientY
@@ -54,6 +73,7 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, on
   if (falando) {
     return (
       <div
+        ref={rootRef}
         data-sem-onda
         aria-hidden
         className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-3 opacity-0 transition-opacity duration-300"
@@ -65,6 +85,7 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, on
   if (recolhido) {
     return (
       <div
+        ref={rootRef}
         data-sem-onda
         className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-3"
         style={{ bottom: base }}
@@ -86,6 +107,7 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, on
 
   return (
     <div
+      ref={rootRef}
       data-sem-onda
       className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-3"
       style={{

@@ -24,11 +24,21 @@ export function Camada({ titulo, contexto, largo = false, preencher = false, onF
     return () => window.removeEventListener('keydown', aoTecla)
   }, [onFechar])
 
+  // Telas de trabalho (Board, Planta, Financeiro) ganham quase toda a largura
+  // no mobile para o editor não ficar espremido dentro da camada.
+  const trabalho = largo || preencher
+
   return (
     <div
       data-sem-onda
-      className="fixed inset-x-0 top-0 z-[38] flex justify-center px-3 pt-[max(1rem,env(safe-area-inset-top))] pb-3"
-      style={{ bottom: 'calc(var(--altura-ia, 4rem) + 4rem)' }}
+      className={
+        'fixed inset-x-0 top-0 z-[38] flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 sm:pt-[max(1rem,env(safe-area-inset-top))] sm:pb-3 ' +
+        (trabalho ? 'px-1.5 sm:px-3' : 'px-3')
+      }
+      // Reserva o rodapé inteiro: barra da IA (--altura-ia) + Dock
+      // (--altura-dock) + folga. Sem isto o Dock — que no mobile quebra em mais
+      // de uma linha — cobria a base da camada e disputava espaço com o input.
+      style={{ bottom: 'calc(var(--altura-ia, 4rem) + var(--altura-dock, 3.4rem) + 0.9rem)' }}
     >
       {/* Véu mínimo: o fundo e o Levi têm de continuar visíveis e ativos
           atrás — o painel se separa pelo vidro, não por escurecer a cena. */}
@@ -43,11 +53,11 @@ export function Camada({ titulo, contexto, largo = false, preencher = false, onF
           uma vez em app/globals.css. */}
       <div
         className={
-          'vidro-360 animate-[camada-entra_.32s_ease-out] flex w-full flex-col overflow-hidden rounded-[26px] ' +
+          'vidro-360 animate-[camada-entra_.32s_ease-out] flex w-full flex-col overflow-hidden rounded-2xl sm:rounded-[26px] ' +
           (largo ? 'max-w-[1180px]' : 'max-w-[860px]')
         }
       >
-        <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),transparent)] px-5 py-3.5">
+        <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),transparent)] px-3.5 py-2.5 sm:px-5 sm:py-3.5">
           <div className="min-w-0">
             {contexto && (
               <div className="text-[10.5px] uppercase tracking-[0.16em] text-cyan-200/55">{contexto}</div>
@@ -71,8 +81,8 @@ export function Camada({ titulo, contexto, largo = false, preencher = false, onF
             que nenhum componente deles seja alterado (ver app/globals.css). */}
         <div
           className={
-            'pele-360 min-h-0 flex-1 overscroll-contain p-5 ' +
-            (preencher ? 'flex flex-col overflow-hidden' : 'overflow-y-auto')
+            'pele-360 min-h-0 flex-1 overscroll-contain ' +
+            (preencher ? 'flex flex-col overflow-hidden p-2 sm:p-5' : 'overflow-y-auto p-4 sm:p-5')
           }
         >
           {children}

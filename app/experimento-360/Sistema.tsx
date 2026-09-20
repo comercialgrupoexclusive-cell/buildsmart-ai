@@ -113,7 +113,7 @@ export function Sistema({ falando = false }: { falando?: boolean }) {
       case 'caixa-entrada':
         return dentro(<TelaCaixaEntrada processoId={processo.id} />)
       case 'pesquisa':
-        return dentro(<TelaPesquisa />, { largo: true })
+        return dentro(<TelaPesquisa processo={processo} />, { largo: true })
       case 'board':
         return dentro(<TelaBoard processoId={processo.id} />, { largo: true, preencher: true })
       case 'financeiro':

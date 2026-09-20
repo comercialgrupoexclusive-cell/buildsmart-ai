@@ -7,16 +7,22 @@ import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidenci
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
 import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
 import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
+import { obterOuCriarProspeccaoDoProcesso } from '@/lib/investidor-processo'
 import { formatCurrency } from '@/lib/utils'
+import type { Processo } from '@/lib/processo'
 import type { Prospeccao, ProspeccaoCenario, ProspeccaoFase } from '@/lib/types'
-import { Carregando, SubAbas, Vazio, Voltar } from './comuns'
+import { Carregando, SubAbas, Vazio } from './comuns'
 
 // Pesquisa = o funil do Investidor reaproveitado inteiro: Imóvel →
 // Pesquisa de mercado → Viabilidade → Decidir. Os quatro passos usam os
 // mesmos componentes de /investidor/[id] e o mesmo motor de cálculo
-// (lib/investidor-calculadora.ts). Nada de regra de negócio é reescrito
-// aqui: esta tela só escolhe a prospecção e organiza a navegação dentro da
-// camada glass.
+// (lib/investidor-calculadora.ts). Nada de regra de negócio é reescrito aqui.
+//
+// Tellus R01 / Seção C2 — o Processo é o núcleo único. No template Investidor
+// o Processo É a operação; a Pesquisa abre DIRETAMENTE a oportunidade daquele
+// Processo (registro interno 1:1 em `prospeccoes`, resolvido por find-or-create
+// em lib/investidor-processo.ts). Não há mais lista de prospecções nem passo
+// "crie o imóvel": o usuário nunca precisa criar um segundo objeto.
 
 const FASE_META: Record<ProspeccaoFase, { label: string; color: string }> = {
   nova: { label: 'Nova', color: '#94a3b8' },
@@ -35,68 +41,33 @@ type PassoPesquisa = 'ficha' | 'mercado' | 'viabilidade' | 'decisao'
 type FichaResumo = { status: keyof typeof STATUS_FICHA_LABEL } | null
 type MercadoResumo = { faixa_base: number | null } | null
 
-export function TelaPesquisa() {
+export function TelaPesquisa({ processo }: { processo: Processo }) {
   const supabase = useMemo(() => createClient(), [])
-  const [lista, setLista] = useState<Prospeccao[] | null>(null)
-  const [abertaId, setAbertaId] = useState<string | null>(null)
+  const [prospeccaoId, setProspeccaoId] = useState<string | null>(null)
+  const [erro, setErro] = useState('')
 
+  // A oportunidade do Processo é resolvida na abertura: existente ou criada em
+  // silêncio. É o mesmo find-or-create usado na criação do Processo, então
+  // aqui é idempotente — nunca duplica.
   useEffect(() => {
     let vivo = true
     void (async () => {
-      const { data } = await supabase
-        .from('prospeccoes')
-        .select('*')
-        .eq('is_venda', false)
-        .order('created_at', { ascending: false })
-      if (vivo) setLista((data ?? []) as Prospeccao[])
+      try {
+        const prospeccao = await obterOuCriarProspeccaoDoProcesso(supabase, processo)
+        if (vivo) setProspeccaoId(prospeccao.id)
+      } catch {
+        if (vivo) setErro('Não foi possível abrir a oportunidade deste Processo.')
+      }
     })()
     return () => { vivo = false }
-  }, [supabase])
+  }, [supabase, processo])
 
-  if (abertaId) return <Detalhe prospeccaoId={abertaId} onVoltar={() => setAbertaId(null)} />
-  if (lista === null) return <Carregando texto="Carregando oportunidades…" />
-  if (lista.length === 0) {
-    return (
-      <Vazio
-        titulo="Nenhuma oportunidade ainda"
-        descricao="Cadastre um imóvel no Investidor do BuildSmart e ele aparece aqui — esta tela lê a mesma tabela de prospecções."
-      />
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-2.5">
-      <p className="text-[12.5px] text-white/45">
-        Imóveis e oportunidades do Investidor. Abrir um deles percorre o funil
-        completo: Imóvel → Pesquisa de mercado → Viabilidade → Decisão.
-      </p>
-      {lista.map(p => {
-        const meta = FASE_META[p.fase]
-        return (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => setAbertaId(p.id)}
-            className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-left outline-none transition hover:border-cyan-200/30 hover:bg-white/[0.08] focus-visible:border-cyan-200/30"
-          >
-            <div className="min-w-0">
-              <div className="truncate text-[15px] font-semibold text-white/92">{p.nome}</div>
-              <div className="mt-0.5 truncate text-[12.5px] text-white/50">{p.endereco || 'Sem endereço'}</div>
-            </div>
-            <span
-              className="shrink-0 rounded-full border px-2.5 py-1 text-[11px]"
-              style={{ borderColor: `${meta.color}55`, color: meta.color, background: `${meta.color}1a` }}
-            >
-              {meta.label}
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
+  if (erro) return <Vazio titulo="Não foi possível abrir a Pesquisa" descricao={erro} />
+  if (!prospeccaoId) return <Carregando texto="Abrindo a oportunidade…" />
+  return <Detalhe prospeccaoId={prospeccaoId} nome={processo.nome} endereco={processo.endereco} />
 }
 
-function Detalhe({ prospeccaoId, onVoltar }: { prospeccaoId: string; onVoltar: () => void }) {
+function Detalhe({ prospeccaoId, nome, endereco }: { prospeccaoId: string; nome: string; endereco: string | null }) {
   const supabase = useMemo(() => createClient(), [])
   const [passo, setPasso] = useState<PassoPesquisa>('ficha')
   const [prospeccao, setProspeccao] = useState<Prospeccao | null>(null)
@@ -141,12 +112,13 @@ function Detalhe({ prospeccaoId, onVoltar }: { prospeccaoId: string; onVoltar: (
 
   return (
     <div className="flex flex-col gap-4">
-      <Voltar
-        rotulo="Voltar para as oportunidades"
-        onVoltar={onVoltar}
-        titulo={prospeccao.nome}
-        subtitulo={prospeccao.endereco}
-      />
+      {/* Sem "voltar para as oportunidades": a Pesquisa é a oportunidade deste
+          Processo, não uma lista. O caminho de saída é o X da camada e o Dock. */}
+      <div className="min-w-0">
+        <div className="text-[10.5px] uppercase tracking-[0.16em] text-cyan-200/50">Oportunidade do Processo</div>
+        <div className="truncate text-[17px] font-semibold text-white/92">{nome}</div>
+        {endereco && <div className="truncate text-[12.5px] text-white/50">{endereco}</div>}
+      </div>
 
       <SubAbas
         valor={passo}

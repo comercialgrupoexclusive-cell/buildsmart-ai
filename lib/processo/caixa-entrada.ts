@@ -75,6 +75,16 @@ export async function criarEntradaArquivo(
   if (upErr) throw upErr
   const url = supabase.storage.from('project-files').getPublicUrl(path).data.publicUrl
 
+  // duracao_segundos é INTEGER no banco (ver migration
+  // 20260919120000_processo_caixa_entrada.sql). O gravador entrega um float em
+  // segundos (ex.: 6.082), e o Postgres rejeitava com "invalid input syntax
+  // for type integer: 6.082". Arredondamos para o segundo mais próximo aqui,
+  // na fronteira com o banco, para qualquer chamador ficar seguro.
+  const duracaoSegundos =
+    opts?.duracaoSegundos != null && Number.isFinite(opts.duracaoSegundos)
+      ? Math.max(0, Math.round(opts.duracaoSegundos))
+      : null
+
   const { data, error } = await supabase
     .from('processo_caixa_entrada')
     .insert({
@@ -84,7 +94,7 @@ export async function criarEntradaArquivo(
       arquivo_nome: arquivo.name,
       arquivo_tipo: arquivo.type || 'arquivo',
       arquivo_tamanho: arquivo.size,
-      duracao_segundos: opts?.duracaoSegundos ?? null,
+      duracao_segundos: duracaoSegundos,
     })
     .select('*')
     .single()
