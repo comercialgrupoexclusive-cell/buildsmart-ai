@@ -363,6 +363,34 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
     ...selecionadosParaCalculo.filter(c => c.preco_m2 != null).map(c => ({ nome: c.titulo || c.fonte || 'Comparável', valor: c.preco_m2 as number, alvo: false })),
   ]
 
+  // Ação de resultado — sempre disponível na aba Resumo, com ou sem seleção
+  // (gerarPdf já cai para "todos os cadastrados" quando nada está
+  // salvo/favoritado). Fica destacada, perto de onde o usuário acabou de
+  // olhar os comparáveis, em vez de escondida no fim da tela.
+  const pdfCard = (
+    <div className="card p-4 flex flex-col gap-3" style={{ borderLeft: '3px solid var(--accent)', background: 'color-mix(in srgb, var(--accent) 6%, var(--bg-card))' }}>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-semibold flex items-center gap-2 text-sm" style={{ color: 'var(--text-primary)' }}>
+            <FileText size={15} style={{ color: 'var(--accent)' }} /> Relatório de pesquisa (PDF)
+          </h3>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+            {selecionados.length > 0
+              ? 'Mesma tabela e gráficos acima, prontos para entregar. Modelo A completo · Modelo B enxuto.'
+              : 'Nenhum comparável selecionado — o relatório usará todos os cadastrados. Modelo A completo · Modelo B enxuto.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button onClick={() => gerarPdf('A')} loading={gerandoPdf === 'A'} icon={<FileText size={14} />}>Modelo A</Button>
+          <Button variant="secondary" onClick={() => gerarPdf('B')} loading={gerandoPdf === 'B'} icon={<FileText size={14} />}>Modelo B</Button>
+        </div>
+      </div>
+      <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+        Preços anunciados não são preço de venda. R$/m² só é calculado quando preço e área são conhecidos. Nenhum dado do comparável é atribuído ao imóvel analisado.
+      </p>
+    </div>
+  )
+
   return (
     <div className="flex flex-col gap-4">
       {(!ficha || ficha.status === 'pendente') && (
@@ -385,7 +413,15 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
             <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Pesquisa de mercado</h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Do mais semelhante (mesmo prédio) ao menos semelhante (bairro).</p>
           </div>
-          <Button onClick={() => pesquisarComparaveis(false)} loading={pesquisando} icon={<Search size={14} />} className="flex-shrink-0">Pesquisar comparáveis</Button>
+          {/* "Adicionar manual" fica ao lado da pesquisa, discreto (ghost) —
+              existe como caminho alternativo, mas não compete com o CTA
+              principal nem com os comparáveis já encontrados. */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setMostrarFormComp(v => !v)} icon={<Plus size={13} />}>
+              Manual
+            </Button>
+            <Button onClick={() => pesquisarComparaveis(false)} loading={pesquisando} icon={<Search size={14} />}>Pesquisar comparáveis</Button>
+          </div>
         </div>
         <div className="flex gap-1 p-1 rounded-lg w-fit" style={{ background: 'var(--bg-secondary)' }}>
           {([
@@ -404,24 +440,13 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
         </div>
       </div>
 
-      {subTab === 'resultados' && (
-        (mostrarFormComp || editandoComp) ? (
-          <ComparavelManualForm
-            prospeccaoId={prospeccaoId}
-            editando={editandoComp}
-            onSaved={() => { setEditandoComp(null); setMostrarFormComp(false); void carregar() }}
-            onCancelar={() => { setEditandoComp(null); setMostrarFormComp(false) }}
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setMostrarFormComp(true)}
-            className="card p-3 flex items-center justify-center gap-2 text-sm font-medium"
-            style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}
-          >
-            <Plus size={15} /> Adicionar comparável manual
-          </button>
-        )
+      {subTab === 'resultados' && (mostrarFormComp || editandoComp) && (
+        <ComparavelManualForm
+          prospeccaoId={prospeccaoId}
+          editando={editandoComp}
+          onSaved={() => { setEditandoComp(null); setMostrarFormComp(false); void carregar() }}
+          onCancelar={() => { setEditandoComp(null); setMostrarFormComp(false) }}
+        />
       )}
 
       {subTab === 'resultados' && (comparaveis.length === 0 && buscaSemResultados ? (
@@ -537,7 +562,10 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
         </div>
 
         {selecionados.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum comparável selecionado ainda. Toque no marcador ou na estrela de um comparável acima para ver a conclusão aqui.</p>
+          <div className="flex flex-col gap-3 mt-2">
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Nenhum comparável selecionado ainda. Toque no marcador ou na estrela de um comparável acima para ver a conclusão aqui.</p>
+            {comparaveis.length > 0 && pdfCard}
+          </div>
         ) : (
           <div className="flex flex-col gap-4 mt-2">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -614,6 +642,12 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
               </div>
             </div>
 
+            {/* Resultado direto da tabela/gráficos acima: gerar o relatório é
+                a ação natural depois de ver os comparáveis, não uma tarefa
+                enterrada no fim da tela — por isso fica logo aqui, com
+                destaque, antes do aprofundamento opcional da Luiza abaixo. */}
+            {pdfCard}
+
             {analisando && !analiseAtual && (
               <p className="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}><Loader2 size={14} className="animate-spin" /> Gerando resumo automático da Luiza…</p>
             )}
@@ -657,25 +691,6 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
             )}
           </div>
         )}
-      </div>
-
-      <div className="card p-5">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="min-w-0">
-            <h3 className="font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><FileText size={16} style={{ color: 'var(--accent)' }} /> Relatório de pesquisa (PDF)</h3>
-            <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-              Gerado da mesma estrutura (ficha + comparáveis). Modelo A completo; Modelo B enxuto.
-              {selecionados.length === 0 && ' Nenhum comparável selecionado — o relatório usará todos os cadastrados.'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <Button variant="secondary" onClick={() => gerarPdf('A')} loading={gerandoPdf === 'A'} icon={<FileText size={14} />}>Modelo A</Button>
-            <Button variant="secondary" onClick={() => gerarPdf('B')} loading={gerandoPdf === 'B'} icon={<FileText size={14} />}>Modelo B</Button>
-          </div>
-        </div>
-        <p className="text-[11px] mt-2" style={{ color: 'var(--text-secondary)' }}>
-          Preços anunciados não são preço de venda. R$/m² só é calculado quando preço e área são conhecidos. Nenhum dado do comparável é atribuído ao imóvel analisado.
-        </p>
       </div>
 
       {analisesAnteriores.length > 0 && (

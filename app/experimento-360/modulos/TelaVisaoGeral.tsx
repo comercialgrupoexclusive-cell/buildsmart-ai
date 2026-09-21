@@ -15,6 +15,12 @@ import { listarMembrosDaOrganizacaoAtiva, type MembroOrganizacao } from '@/lib/o
 // Responsável agora tem fonte segura: lib/organizacao/membros.ts, que lê a
 // RPC organization_members_list (só a organização ativa, nunca profiles
 // inteiro). Salva por profile_id, nunca por nome em texto.
+//
+// UX Demo 01 — mesmos dados e mesmas escritas de sempre, só reorganizados por
+// hierarquia: nome/endereço/estado (o que identifica o Processo numa
+// demonstração) ficam no topo, em destaque; Tipo/Cliente/Responsável passam a
+// uma grade secundária; "Aberto em"/"Última atualização" deixam de ser dois
+// cartões e viram uma linha discreta. Nenhum campo foi removido.
 
 const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ACTIVE', label: 'Ativo' },
@@ -22,6 +28,12 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'COMPLETED', label: 'Concluído' },
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
+const STATUS_COR: Record<ProcessoStatus, string> = {
+  ACTIVE: '#10b981',
+  ON_HOLD: '#f59e0b',
+  COMPLETED: '#58a8ff',
+  ARCHIVED: '#94a3b8',
+}
 const dataCurta = (iso: string) => {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR')
@@ -87,13 +99,72 @@ function CelulaTexto({ rotulo, valor, placeholder, salvar }: {
   )
 }
 
-// Célula de status: mesmo visual das demais, mas o valor é um <select> —
-// não faz sentido digitar status livre quando o vocabulário é fechado.
-function CelulaStatus({ status, salvar }: { status: ProcessoStatus; salvar: (novo: ProcessoStatus) => Promise<void> }) {
+// Endereço em destaque, logo abaixo do título — mesma interação de clique
+// para editar, mas sem a moldura de cartão: lê como subtítulo, não como mais
+// um campo da grade.
+function EnderecoEditavel({ valor, salvar }: { valor: string; salvar: (novo: string) => Promise<void> }) {
+  const [editando, setEditando] = useState(false)
+  const [rascunho, setRascunho] = useState(valor)
   const [salvando, setSalvando] = useState(false)
+
+  useEffect(() => {
+    if (editando) return
+    Promise.resolve().then(() => setRascunho(valor))
+  }, [valor, editando])
+
+  async function confirmar() {
+    const novo = rascunho.trim()
+    setEditando(false)
+    if (novo === valor.trim()) return
+    setSalvando(true)
+    try {
+      await salvar(novo)
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  if (editando) {
+    return (
+      <input
+        autoFocus
+        value={rascunho}
+        onChange={e => setRascunho(e.target.value)}
+        onBlur={confirmar}
+        onKeyDown={e => {
+          if (e.key === 'Enter') confirmar()
+          if (e.key === 'Escape') { setRascunho(valor); setEditando(false) }
+        }}
+        placeholder="Endereço"
+        className="w-full rounded-lg border border-cyan-200/30 bg-black/30 px-2 py-0.5 text-[13.5px] text-white/85 outline-none"
+      />
+    )
+  }
   return (
-    <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3.5 py-3">
-      <div className="text-[10.5px] uppercase tracking-[0.12em] text-cyan-200/50">Situação</div>
+    <button
+      type="button"
+      onClick={() => setEditando(true)}
+      disabled={salvando}
+      title="Clique para editar o endereço"
+      className="-mx-2 block max-w-full truncate rounded-lg px-2 py-0.5 text-left text-[13.5px] text-white/55 outline-none transition hover:bg-white/[0.05] disabled:opacity-60"
+    >
+      {salvando ? 'Salvando…' : valor || <span className="text-white/30">Sem endereço — clique para adicionar</span>}
+    </button>
+  )
+}
+
+// Situação do Processo como pill colorida ao lado do título — o estado do
+// Processo precisa ser lido de relance, não garimpado numa grade de campos
+// todos com o mesmo peso visual. Continua sendo um <select> real (mesma
+// escrita de sempre), só a moldura muda.
+function StatusPill({ status, salvar }: { status: ProcessoStatus; salvar: (novo: ProcessoStatus) => Promise<void> }) {
+  const [salvando, setSalvando] = useState(false)
+  const cor = STATUS_COR[status]
+  return (
+    <div
+      className="shrink-0 self-start rounded-full px-3.5 py-1.5"
+      style={{ background: `${cor}1a`, boxShadow: `inset 0 0 0 1px ${cor}44` }}
+    >
       <select
         value={status}
         disabled={salvando}
@@ -101,7 +172,9 @@ function CelulaStatus({ status, salvar }: { status: ProcessoStatus; salvar: (nov
           setSalvando(true)
           try { await salvar(e.target.value as ProcessoStatus) } finally { setSalvando(false) }
         }}
-        className="mt-1 w-full rounded-lg bg-transparent px-2 py-1 text-[14px] text-white/88 outline-none transition hover:bg-white/[0.05] disabled:opacity-60"
+        title="Situação do Processo"
+        className="bg-transparent text-[12.5px] font-semibold outline-none disabled:opacity-60"
+        style={{ color: cor }}
       >
         {STATUS_OPCOES.map(o => (
           <option key={o.value} value={o.value} className="bg-slate-900 text-white">
@@ -113,7 +186,7 @@ function CelulaStatus({ status, salvar }: { status: ProcessoStatus; salvar: (nov
   )
 }
 
-// Célula de responsável: mesmo visual de CelulaStatus, mas as opções vêm da
+// Célula de responsável: mesmo visual de CelulaTexto, mas as opções vêm da
 // organização ativa (lib/organizacao/membros.ts), nunca de `profiles`
 // direto. O valor salvo é sempre profile_id — a UI só mostra o nome.
 function CelulaResponsavel({ responsavelId, membros, carregando, salvar }: {
@@ -165,15 +238,6 @@ function CelulaResponsavel({ responsavelId, membros, carregando, salvar }: {
   )
 }
 
-function CelulaFixa({ rotulo, valor }: { rotulo: string; valor: string }) {
-  return (
-    <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3.5 py-3">
-      <div className="text-[10.5px] uppercase tracking-[0.12em] text-cyan-200/50">{rotulo}</div>
-      <div className="mt-1 px-2 py-1 text-[14px] text-white/60">{valor}</div>
-    </div>
-  )
-}
-
 // Título grande, mas com a mesma interação de célula — clique edita, Enter
 // ou perda de foco salva. Mantém a hierarquia visual anterior (nome em
 // destaque) sem virar mais um campo pequeno da grade.
@@ -216,7 +280,7 @@ function TituloEditavel({ valor, salvar }: { valor: string; salvar: (novo: strin
       onClick={() => setEditando(true)}
       disabled={salvando}
       title="Clique para editar"
-      className="-mx-2 block rounded-lg px-2 py-0.5 text-left text-[19px] font-semibold text-white/92 outline-none transition hover:bg-white/[0.05] disabled:opacity-60"
+      className="-mx-2 block max-w-full truncate rounded-lg px-2 py-0.5 text-left text-[19px] font-semibold text-white/92 outline-none transition hover:bg-white/[0.05] disabled:opacity-60"
     >
       {salvando ? 'Salvando…' : valor}
     </button>
@@ -264,33 +328,45 @@ export function TelaVisaoGeral({ processo, modulos, onAtualizado }: {
 
   return (
     <div className="flex flex-col gap-4">
-      <TituloEditavel valor={processo.nome} salvar={nome => salvarCampo({ nome })} />
+      {/* Identidade do Processo: nome + endereço + situação, tudo no que se lê
+          primeiro. O resto da tela é apoio, não competição visual. */}
+      <div className="flex flex-col items-start gap-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+        <div className="min-w-0 flex-1">
+          <TituloEditavel valor={processo.nome} salvar={nome => salvarCampo({ nome })} />
+          <EnderecoEditavel valor={processo.endereco ?? ''} salvar={endereco => salvarCampo({ endereco })} />
+        </div>
+        <StatusPill status={processo.status} salvar={salvarStatus} />
+      </div>
 
       {erro && <p className="text-[12.5px] text-red-300/85">{erro}</p>}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {/* Dados operacionais — mesma edição direta de sempre, só em segundo
+          plano em relação à identidade acima. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <CelulaTexto rotulo="Tipo" valor={processo.tipo ?? ''} placeholder="Ex.: Obra, Reforma…" salvar={tipo => salvarCampo({ tipo })} />
         <CelulaTexto rotulo="Cliente" valor={processo.cliente_nome ?? ''} placeholder="Sem cliente" salvar={cliente_nome => salvarCampo({ cliente_nome })} />
-        <CelulaTexto rotulo="Endereço" valor={processo.endereco ?? ''} placeholder="Sem endereço" salvar={endereco => salvarCampo({ endereco })} />
-        <CelulaStatus status={processo.status} salvar={salvarStatus} />
         <CelulaResponsavel
           responsavelId={processo.responsavel_id}
           membros={membros}
           carregando={carregandoMembros}
           salvar={responsavel_id => salvarCampo({ responsavel_id })}
         />
-        <CelulaFixa rotulo="Aberto em" valor={dataCurta(processo.created_at)} />
-        <CelulaFixa rotulo="Última atualização" valor={dataCurta(processo.updated_at)} />
       </div>
 
-      <div className="rounded-2xl border border-white/8 bg-white/[0.04] p-4 backdrop-blur-md">
-        <div className="text-[10.5px] uppercase tracking-[0.12em] text-cyan-200/55">Módulos habilitados</div>
+      {/* Metadados de auditoria — uma linha discreta, não dois cartões
+          disputando espaço com dado operacional. */}
+      <p className="px-1 text-[11.5px] text-white/35">
+        Aberto em {dataCurta(processo.created_at)} · Última atualização em {dataCurta(processo.updated_at)}
+      </p>
+
+      <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-3.5">
+        <div className="text-[10px] uppercase tracking-[0.12em] text-cyan-200/45">Módulos habilitados</div>
         {modulos.length === 0 ? (
           <p className="mt-2 text-[13px] text-white/50">
             Nenhum módulo habilitado ainda. Habilite em Config.
           </p>
         ) : (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {modulos.map(m => (
               <span key={m} className="rounded-full border border-cyan-200/18 bg-cyan-300/10 px-2.5 py-1 text-[12px] text-cyan-100/80">
                 {m}

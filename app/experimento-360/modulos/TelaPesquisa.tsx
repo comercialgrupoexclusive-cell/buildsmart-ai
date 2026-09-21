@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProcessContext } from '@/lib/processo/context'
 import { criarOportunidadeDoProcesso, obterOportunidadeDoProcesso } from '@/lib/investidor-oportunidade'
@@ -13,7 +14,7 @@ import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
 import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
 import { formatCurrency } from '@/lib/utils'
 import type { Prospeccao, ProspeccaoCenario, ProspeccaoFase } from '@/lib/types'
-import { Carregando, SubAbas, Vazio, Voltar } from './comuns'
+import { Carregando, Vazio, Voltar } from './comuns'
 
 // Pesquisa = o funil do Investidor reaproveitado inteiro: Imóvel →
 // Pesquisa de mercado → Viabilidade → Decidir. Os quatro passos usam os
@@ -88,6 +89,64 @@ export function TelaPesquisa() {
   return <Detalhe prospeccaoId={oportunidade.id} />
 }
 
+// Fluxo visual do funil: IMÓVEL → PESQUISA → VIABILIDADE → DECISÃO. Substitui
+// as sub-abas genéricas (usadas em Board) por um stepper numerado nesta tela
+// específica, para o funil ficar legível numa demonstração — mesma navegação
+// de sempre (clique troca o passo), só a apresentação muda. "ok" reflete o
+// mesmo veredito que a Decisão já calculava (ficha validada / faixa de
+// mercado analisada / cenário com resultado válido / fase adquirida).
+function PassosPesquisa({ passo, onMudar, fichaOk, mercadoOk, viabilidadeOk, decididoOk }: {
+  passo: PassoPesquisa
+  onMudar: (p: PassoPesquisa) => void
+  fichaOk: boolean
+  mercadoOk: boolean
+  viabilidadeOk: boolean
+  decididoOk: boolean
+}) {
+  const passos: { id: PassoPesquisa; numero: number; rotulo: string; ok: boolean }[] = [
+    { id: 'ficha', numero: 1, rotulo: 'Imóvel', ok: fichaOk },
+    { id: 'mercado', numero: 2, rotulo: 'Pesquisa', ok: mercadoOk },
+    { id: 'viabilidade', numero: 3, rotulo: 'Viabilidade', ok: viabilidadeOk },
+    { id: 'decisao', numero: 4, rotulo: 'Decisão', ok: decididoOk },
+  ]
+  return (
+    <div className="-mx-1 flex items-center overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+      {passos.map((p, i) => {
+        const ativo = p.id === passo
+        return (
+          <Fragment key={p.id}>
+            <button
+              type="button"
+              onClick={() => onMudar(p.id)}
+              aria-current={ativo ? 'step' : undefined}
+              className="flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1.5 outline-none transition hover:bg-white/5"
+            >
+              <span
+                className={
+                  'grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold transition ' +
+                  (p.ok
+                    ? 'bg-emerald-400/20 text-emerald-300'
+                    : ativo
+                      ? 'bg-cyan-300/20 text-white shadow-[inset_0_0_0_1px_rgba(120,205,255,0.5)]'
+                      : 'bg-white/[0.06] text-white/45')
+                }
+              >
+                {p.ok ? <Check size={13} strokeWidth={3} /> : p.numero}
+              </span>
+              <span className={'whitespace-nowrap text-[13px] font-medium ' + (ativo ? 'text-white' : 'text-white/55')}>
+                {p.rotulo}
+              </span>
+            </button>
+            {i < passos.length - 1 && (
+              <span aria-hidden className="mx-0.5 h-px w-4 shrink-0 sm:w-8" style={{ background: 'rgba(255,255,255,0.12)' }} />
+            )}
+          </Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
 function Detalhe({ prospeccaoId, onVoltar, rotuloVoltar = 'Voltar' }: {
   prospeccaoId: string
   // Opcional: a Pesquisa do Processo abre a oportunidade direto, sem "voltar
@@ -137,6 +196,14 @@ function Detalhe({ prospeccaoId, onVoltar, rotuloVoltar = 'Voltar' }: {
     return <Vazio titulo="Oportunidade não encontrada" descricao="Ela pode ter sido excluída." />
   }
 
+  // Mesmo veredito que a Decisão usa para liberar o registro da fase — lido
+  // aqui também para os "check" do stepper (leitura pura, nenhuma escrita).
+  const fichaOk = ficha?.status === 'validada'
+  const mercadoOk = mercado?.faixa_base != null
+  const principal = cenarios.find(c => c.principal)
+  const viabilidadeOk = !!(principal && resultadoCenarioValido(principal))
+  const decididoOk = prospeccao.fase === 'adquirida'
+
   return (
     <div className="flex flex-col gap-4">
       {onVoltar ? (
@@ -154,15 +221,13 @@ function Detalhe({ prospeccaoId, onVoltar, rotuloVoltar = 'Voltar' }: {
         </div>
       )}
 
-      <SubAbas
-        valor={passo}
+      <PassosPesquisa
+        passo={passo}
         onMudar={setPasso}
-        abas={[
-          { id: 'ficha', rotulo: 'Imóvel' },
-          { id: 'mercado', rotulo: 'Pesquisa de mercado' },
-          { id: 'viabilidade', rotulo: 'Viabilidade' },
-          { id: 'decisao', rotulo: 'Decisão' },
-        ]}
+        fichaOk={fichaOk}
+        mercadoOk={mercadoOk}
+        viabilidadeOk={viabilidadeOk}
+        decididoOk={decididoOk}
       />
 
       {passo === 'ficha' && (
