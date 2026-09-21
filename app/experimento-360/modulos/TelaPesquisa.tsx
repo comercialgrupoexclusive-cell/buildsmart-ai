@@ -14,7 +14,7 @@ import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
 import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
 import { formatCurrency } from '@/lib/utils'
 import type { Prospeccao, ProspeccaoCenario, ProspeccaoFase } from '@/lib/types'
-import { Carregando, Vazio, Voltar } from './comuns'
+import { Carregando, Vazio } from './comuns'
 
 // Pesquisa = o funil do Investidor reaproveitado inteiro: Imóvel →
 // Pesquisa de mercado → Viabilidade → Decidir. Os quatro passos usam os
@@ -147,13 +147,7 @@ function PassosPesquisa({ passo, onMudar, fichaOk, mercadoOk, viabilidadeOk, dec
   )
 }
 
-function Detalhe({ prospeccaoId, onVoltar, rotuloVoltar = 'Voltar' }: {
-  prospeccaoId: string
-  // Opcional: a Pesquisa do Processo abre a oportunidade direto, sem "voltar
-  // para a lista" (não há lista). Só mostra o botão quando um caller pede.
-  onVoltar?: () => void
-  rotuloVoltar?: string
-}) {
+function Detalhe({ prospeccaoId }: { prospeccaoId: string }) {
   const supabase = useMemo(() => createClient(), [])
   const [passo, setPasso] = useState<PassoPesquisa>('ficha')
   const [prospeccao, setProspeccao] = useState<Prospeccao | null>(null)
@@ -206,19 +200,11 @@ function Detalhe({ prospeccaoId, onVoltar, rotuloVoltar = 'Voltar' }: {
 
   return (
     <div className="flex flex-col gap-4">
-      {onVoltar ? (
-        <Voltar
-          rotulo={rotuloVoltar}
-          onVoltar={onVoltar}
-          titulo={prospeccao.nome}
-          subtitulo={prospeccao.endereco}
-        />
-      ) : (
-        <div className="min-w-0">
-          <div className="text-[10.5px] uppercase tracking-[0.16em] text-cyan-200/50">Oportunidade do Processo</div>
-          <div className="truncate text-[17px] font-semibold text-white/92">{prospeccao.nome}</div>
-          {prospeccao.endereco && <div className="truncate text-[12.5px] text-white/50">{prospeccao.endereco}</div>}
-        </div>
+      {/* Sem título repetido: a camada já mostra "Nome do Processo / Pesquisa"
+          no cabeçalho (Camada.tsx). Só o endereço soma informação nova aqui —
+          é o que identifica o imóvel, e some quando não preenchido. */}
+      {prospeccao.endereco && (
+        <div className="truncate text-[12.5px] text-white/50">{prospeccao.endereco}</div>
       )}
 
       <PassosPesquisa

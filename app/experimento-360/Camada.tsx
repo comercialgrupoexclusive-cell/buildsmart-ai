@@ -50,7 +50,7 @@ export function Camada({ titulo, contexto, largo = false, preencher = false, onF
         <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] bg-[linear-gradient(180deg,rgba(255,255,255,0.05),transparent)] px-5 py-3.5">
           <div className="min-w-0">
             {contexto && (
-              <div className="text-[10.5px] uppercase tracking-[0.16em] text-cyan-200/55">{contexto}</div>
+              <div className="truncate text-[10.5px] uppercase tracking-[0.16em] text-cyan-200/55">{contexto}</div>
             )}
             <h2 className="truncate text-[17px] font-semibold text-white/92">{titulo}</h2>
           </div>

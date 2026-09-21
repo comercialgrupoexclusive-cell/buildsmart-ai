@@ -126,17 +126,19 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, on
           className="flex max-w-full items-center gap-1 overflow-x-auto pl-1 pr-6 pb-1 [scrollbar-width:none]"
         >
           {contexto === 'processo' && (
+            // Indicador "você está aqui", visualmente distinto dos itens de
+            // navegação abaixo (tinta de destaque própria) — não é mais um
+            // botão de menu igual aos outros, é o contexto do Processo aberto.
             <button
               type="button"
               onClick={onSairProcesso}
-              className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-[13px] text-cyan-100/80 outline-none transition hover:bg-white/5 focus-visible:bg-white/5"
+              className="mr-1 flex shrink-0 items-center gap-1.5 rounded-full bg-cyan-300/[0.08] py-1.5 pl-2.5 pr-3 text-[12px] font-medium text-cyan-100/90 outline-none shadow-[inset_0_0_0_1px_rgba(120,205,255,0.2)] transition hover:bg-cyan-300/[0.14] focus-visible:bg-cyan-300/[0.14] sm:py-2 sm:text-[12.5px]"
               title="Voltar ao menu global"
             >
-              <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <svg viewBox="0 0 24 24" className="size-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="M15 18l-6-6 6-6" />
               </svg>
-              <span className="max-w-[140px] truncate">{nomeProcesso}</span>
-              <span aria-hidden className="mx-0.5 h-5 w-px bg-white/12" />
+              <span className="max-w-[120px] truncate sm:max-w-[160px]">{nomeProcesso}</span>
             </button>
           )}
 
@@ -149,10 +151,10 @@ export function Dock({ itens, ativo, contexto, nomeProcesso, falando = false, on
                 onClick={() => onSelecionar(item.id)}
                 aria-current={selecionado ? 'page' : undefined}
                 className={
-                  'relative shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-medium outline-none transition ' +
+                  'relative shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[12px] outline-none transition sm:px-4 sm:py-2 sm:text-[13px] ' +
                   (selecionado
-                    ? 'bg-cyan-300/15 text-white shadow-[inset_0_0_0_1px_rgba(120,205,255,0.35),0_0_18px_-6px_rgba(90,190,255,0.7)]'
-                    : 'text-white/60 hover:text-white/90 hover:bg-white/5 focus-visible:bg-white/5')
+                    ? 'bg-cyan-300/20 font-semibold text-white shadow-[inset_0_0_0_1px_rgba(120,205,255,0.45),0_0_18px_-6px_rgba(90,190,255,0.8)]'
+                    : 'font-medium text-white/50 hover:bg-white/5 hover:text-white/85 focus-visible:bg-white/5')
                 }
               >
                 {item.rotulo}
