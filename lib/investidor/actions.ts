@@ -16,17 +16,67 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   ProspeccaoAnaliseMercado,
   ProspeccaoCenario,
+  ProspeccaoComparavel,
   ProspeccaoEvidencia,
   ProspeccaoFicha,
   ProspeccaoFase,
 } from '@/lib/types'
 import type { PremissasCenario, ResultadoCenario } from '@/lib/investidor-calculadora'
 import {
+  calcularPrecoM2,
   derivarValidacaoFicha,
   planejarCampoManualFicha,
   type ValidacaoFichaEntrada,
 } from './service'
 import * as repo from './repository'
+
+// Campos de um comparável cadastrado/editado MANUALMENTE (Pesquisa Imobiliária).
+export type ComparavelManualInput = {
+  titulo: string
+  tipo?: string | null
+  area?: number | null
+  tipo_area?: ProspeccaoComparavel['tipo_area']
+  dormitorios?: number | null
+  banheiros?: number | null
+  vagas?: number | null
+  andar?: string | null
+  preco?: number | null
+  url?: string | null
+  fonte?: string | null
+  data_evidencia?: string | null
+  disponibilidade?: string | null
+  diferencas?: string | null
+  similaridade?: ProspeccaoComparavel['similaridade']
+  possivel_duplicado?: boolean
+  url_confirmada?: boolean
+}
+
+function payloadComparavel(input: ComparavelManualInput): Partial<ProspeccaoComparavel> {
+  const preco = input.preco ?? null
+  const area = input.area ?? null
+  return {
+    titulo: input.titulo.trim() || null,
+    tipo: input.tipo?.trim() || null,
+    area,
+    // R$/m² é derivado aqui, na Action, e nunca digitado à mão. Fica null
+    // quando preço ou área são desconhecidos (regra inviolável).
+    preco_m2: calcularPrecoM2(preco, area),
+    tipo_area: input.tipo_area ?? null,
+    dormitorios: input.dormitorios ?? null,
+    banheiros: input.banheiros ?? null,
+    vagas: input.vagas ?? null,
+    andar: input.andar?.trim() || null,
+    preco,
+    url: input.url?.trim() || null,
+    fonte: input.fonte?.trim() || null,
+    data_evidencia: input.data_evidencia || null,
+    disponibilidade: input.disponibilidade?.trim() || null,
+    diferencas: input.diferencas?.trim() || null,
+    similaridade: input.similaridade ?? null,
+    possivel_duplicado: input.possivel_duplicado ?? false,
+    url_confirmada: input.url_confirmada ?? false,
+  }
+}
 
 // ─── Classificação das Actions (contrato para a futura IA) ───────────────────
 // leitura                → só lê, nunca muda estado.
@@ -72,6 +122,18 @@ export const INVESTIDOR_ACTIONS: Record<string, ActionMeta> = {
   encerrarAnaliseMercado: {
     classe: 'escrita_reversivel',
     descricao: 'Grava um snapshot imutável da análise de mercado (histórico append-only).',
+  },
+  registrarComparavelManual: {
+    classe: 'escrita_reversivel',
+    descricao: 'Cadastra manualmente um comparável (R$/m² derivado). Reversível por exclusão.',
+  },
+  atualizarComparavelManual: {
+    classe: 'escrita_reversivel',
+    descricao: 'Edita um comparável cadastrado; recalcula R$/m².',
+  },
+  excluirComparavel: {
+    classe: 'exige_aprovacao_humana',
+    descricao: 'Apaga um comparável. Destrutivo — exige confirmação humana explícita.',
   },
   criarCenario: { classe: 'escrita_reversivel', descricao: 'Cria um cenário de viabilidade. Reversível por exclusão.' },
   atualizarCenario: { classe: 'escrita_reversivel', descricao: 'Edita as premissas/resultado de um cenário.' },
@@ -185,6 +247,33 @@ export function encerrarAnaliseMercado(
   payload: Partial<ProspeccaoAnaliseMercado> & { prospeccao_id: string },
 ): Promise<ProspeccaoAnaliseMercado> {
   return repo.inserirAnaliseMercado(db, payload)
+}
+
+export function listarComparaveis(db: SupabaseClient, prospeccaoId: string): Promise<ProspeccaoComparavel[]> {
+  return repo.listarComparaveis(db, prospeccaoId)
+}
+
+// Cadastro manual do comparável (sem automação web nesta etapa). Já nasce
+// `salvo: true` para entrar na tabela/gráficos e no relatório.
+export function registrarComparavelManual(
+  db: SupabaseClient,
+  prospeccaoId: string,
+  input: ComparavelManualInput,
+): Promise<ProspeccaoComparavel> {
+  return repo.inserirComparavel(db, { prospeccao_id: prospeccaoId, ...payloadComparavel(input), salvo: true })
+}
+
+export function atualizarComparavelManual(
+  db: SupabaseClient,
+  id: string,
+  input: ComparavelManualInput,
+): Promise<ProspeccaoComparavel> {
+  return repo.atualizarComparavel(db, id, payloadComparavel(input))
+}
+
+// Destrutivo: confirmação humana na UI antes de chamar.
+export function excluirComparavel(db: SupabaseClient, id: string): Promise<void> {
+  return repo.excluirComparavel(db, id)
 }
 
 // ─── Cenários / viabilidade ──────────────────────────────────────────────────

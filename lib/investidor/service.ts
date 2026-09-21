@@ -100,3 +100,16 @@ export function planejarCampoManualFicha(entrada: CampoManualEntrada): CampoManu
     entrada.fichaExistente.status === 'pendente' ? 'parcial' : entrada.fichaExistente.status
   return { tipo: 'atualizar', fichaId: entrada.fichaExistente.id, dados_confirmados, status }
 }
+
+// Pesquisa Imobiliária — cálculo derivado do comparável.
+//
+// Regra inviolável (doc "Processo e Modelos de Saída", §7): R$/m² só existe
+// quando preço E área são conhecidos e válidos. Nunca inferir, nunca preencher
+// desconhecido. Preço/área ausentes ou não-positivos → null (desconhecido
+// permanece desconhecido).
+export function calcularPrecoM2(preco: number | null | undefined, area: number | null | undefined): number | null {
+  if (preco == null || area == null) return null
+  if (!Number.isFinite(preco) || !Number.isFinite(area)) return null
+  if (preco <= 0 || area <= 0) return null
+  return preco / area
+}

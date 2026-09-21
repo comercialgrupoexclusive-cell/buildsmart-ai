@@ -850,6 +850,15 @@ export type ProspeccaoComparavel = {
   identificador_anuncio: string | null
   data_evidencia: string | null
   diferencas: string | null
+  // Pesquisa Imobiliária (Template Investidor): campos do processo canônico.
+  // tipo_area distingue útil/privativa/construída/total — a área de um anúncio
+  // nunca é atribuída ao imóvel analisado. possivel_duplicado é marcação
+  // humana. Todos nullable (retrocompatível). Ver migration 20260921120000.
+  tipo: string | null
+  andar: string | null
+  tipo_area: 'util' | 'privativa' | 'construida' | 'total' | 'outro' | null
+  disponibilidade: string | null
+  possivel_duplicado: boolean
   similaridade: 'mesmo_predio' | 'mesma_rua' | 'entorno' | 'bairro' | null
   // Núcleo N06.2 — geocoding best-effort do título/endereço do comparável
   // (ver lib/geocoding.ts). Nullable: nem todo anúncio tem endereço

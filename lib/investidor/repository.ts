@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   ProspeccaoAnaliseMercado,
   ProspeccaoCenario,
+  ProspeccaoComparavel,
   ProspeccaoEvidencia,
   ProspeccaoFicha,
 } from '@/lib/types'
@@ -120,6 +121,41 @@ export async function definirCenarioPrincipal(
     p_prospeccao_id: prospeccaoId,
     p_cenario_id: cenarioId,
   })
+  if (error) throw error
+}
+
+// ─── Comparáveis (Pesquisa Imobiliária) ──────────────────────────────────────
+export async function listarComparaveis(db: SupabaseClient, prospeccaoId: string): Promise<ProspeccaoComparavel[]> {
+  const { data, error } = await db
+    .from('prospeccao_comparaveis')
+    .select('*')
+    .eq('prospeccao_id', prospeccaoId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as ProspeccaoComparavel[]
+}
+
+export async function inserirComparavel(
+  db: SupabaseClient,
+  payload: Partial<ProspeccaoComparavel> & { prospeccao_id: string },
+): Promise<ProspeccaoComparavel> {
+  const { data, error } = await db.from('prospeccao_comparaveis').insert(payload).select('*').single()
+  if (error) throw error
+  return data as ProspeccaoComparavel
+}
+
+export async function atualizarComparavel(
+  db: SupabaseClient,
+  id: string,
+  patch: Partial<ProspeccaoComparavel>,
+): Promise<ProspeccaoComparavel> {
+  const { data, error } = await db.from('prospeccao_comparaveis').update(patch).eq('id', id).select('*').single()
+  if (error) throw error
+  return data as ProspeccaoComparavel
+}
+
+export async function excluirComparavel(db: SupabaseClient, id: string): Promise<void> {
+  const { error } = await db.from('prospeccao_comparaveis').delete().eq('id', id)
   if (error) throw error
 }
 

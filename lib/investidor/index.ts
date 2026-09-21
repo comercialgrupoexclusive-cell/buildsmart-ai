@@ -10,6 +10,17 @@ export type {
   CampoManualEntrada,
   CampoManualPlano,
 } from './service'
+export { calcularPrecoM2 } from './service'
+// Pesquisa Imobiliária — modelo estruturado do relatório e render em PDF.
+export { montarRelatorioPesquisa } from './relatorio-pesquisa'
+export type {
+  RelatorioPesquisa,
+  RelatorioInput,
+  ModeloRelatorio,
+  LinhaComparavel,
+  LinhaImovel,
+} from './relatorio-pesquisa'
+export { gerarRelatorioPesquisaPdf } from './relatorio-pesquisa-pdf'
 // O vínculo canônico Processo ↔ oportunidade (Seção B) vive em
 // lib/investidor-oportunidade.ts. Reexportado aqui para o domínio ter um
 // contrato único, sem duplicar a lógica de vínculo.

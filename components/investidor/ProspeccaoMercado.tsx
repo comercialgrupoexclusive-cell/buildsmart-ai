@@ -20,10 +20,14 @@
 // análise. faixa_conservadora/base/otimista são ESTIMATIVAS da IA, nunca
 // fatos observados — exibidas com esse aviso.
 import { useEffect, useRef, useState } from 'react'
-import { Search, ExternalLink, Bookmark, Star, AlertTriangle, FlagOff, Loader2 } from 'lucide-react'
+import { Search, ExternalLink, Bookmark, Star, AlertTriangle, FlagOff, Loader2, Pencil, Trash2, FileText, Plus } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
-import { alternarSelecaoComparavel, encerrarAnaliseMercado, listarEvidencias } from '@/lib/investidor'
+import {
+  alternarSelecaoComparavel, encerrarAnaliseMercado, listarEvidencias,
+  excluirComparavel, montarRelatorioPesquisa, gerarRelatorioPesquisaPdf, type ModeloRelatorio,
+} from '@/lib/investidor'
+import { ComparavelManualForm } from './ComparavelManualForm'
 import { useProfile } from '@/lib/profile-context'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Input'
@@ -106,6 +110,10 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
   const [filtroSimilaridade, setFiltroSimilaridade] = useState<'todos' | keyof typeof SIMILARIDADE_LABEL>('todos')
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>('todos')
   const [ordenacao, setOrdenacao] = useState<Ordenacao>('relevancia')
+  // Pesquisa Imobiliária — cadastro manual de comparável + geração de PDF.
+  const [mostrarFormComp, setMostrarFormComp] = useState(false)
+  const [editandoComp, setEditandoComp] = useState<ProspeccaoComparavel | null>(null)
+  const [gerandoPdf, setGerandoPdf] = useState<ModeloRelatorio | null>(null)
 
   async function carregar() {
     setLoading(true)
@@ -159,6 +167,59 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
     const supabase = createClient()
     await alternarSelecaoComparavel(supabase, { id, campo, valorAtual })
     setComparaveis(prev => prev.map(c => c.id === id ? { ...c, [campo]: !valorAtual } : c))
+  }
+
+  function editarComp(c: ProspeccaoComparavel) {
+    setEditandoComp(c)
+    setMostrarFormComp(true)
+    setSubTab('resultados')
+  }
+
+  async function excluirComp(c: ProspeccaoComparavel) {
+    // Destrutivo: confirmação humana antes da Action.
+    if (!confirm(`Excluir o comparável "${c.titulo || 'sem título'}"? Essa ação não pode ser desfeita.`)) return
+    const supabase = createClient()
+    try {
+      await excluirComparavel(supabase, c.id)
+    } catch {
+      setErro('Não foi possível excluir o comparável.')
+      return
+    }
+    if (editandoComp?.id === c.id) { setEditandoComp(null); setMostrarFormComp(false) }
+    void carregar()
+  }
+
+  // Gera o PDF (Modelo A completo / B enxuto) a partir da MESMA estrutura que
+  // alimenta tabela e gráficos (fonte única). Usa os comparáveis selecionados
+  // quando há; senão, todos os cadastrados.
+  async function gerarPdf(modelo: ModeloRelatorio) {
+    setGerandoPdf(modelo)
+    setErro(null)
+    try {
+      const conf = ficha?.dados_confirmados ?? null
+      const endereco = conf && typeof conf.endereco === 'string' ? conf.endereco : null
+      const base = selecionadosOrdenados.length ? selecionadosOrdenados : comparaveis
+      const rel = montarRelatorioPesquisa({
+        imovelNome: endereco || 'Imóvel analisado',
+        imovelEndereco: endereco,
+        fichaConfirmados: conf,
+        comparaveis: base,
+      })
+      const bytes = await gerarRelatorioPesquisaPdf(rel, modelo)
+      const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `pesquisa-imobiliaria-modelo-${modelo}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setErro('Não foi possível gerar o PDF.')
+    } finally {
+      setGerandoPdf(null)
+    }
   }
 
   const selecionados = comparaveis.filter(c => c.salvo || c.favorito)
@@ -338,6 +399,26 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
         </div>
       </div>
 
+      {subTab === 'resultados' && (
+        (mostrarFormComp || editandoComp) ? (
+          <ComparavelManualForm
+            prospeccaoId={prospeccaoId}
+            editando={editandoComp}
+            onSaved={() => { setEditandoComp(null); setMostrarFormComp(false); void carregar() }}
+            onCancelar={() => { setEditandoComp(null); setMostrarFormComp(false) }}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setMostrarFormComp(true)}
+            className="card p-3 flex items-center justify-center gap-2 text-sm font-medium"
+            style={{ color: 'var(--accent)', border: '1px dashed var(--border)' }}
+          >
+            <Plus size={15} /> Adicionar comparável manual
+          </button>
+        )
+      )}
+
       {subTab === 'resultados' && (comparaveis.length === 0 && buscaSemResultados ? (
         <div className="card p-8 text-center flex flex-col items-center gap-3">
           <AlertTriangle size={20} style={{ color: '#f59e0b' }} />
@@ -405,8 +486,17 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
                       <button onClick={() => alternarCampo(c.id, 'favorito', c.favorito)} title={c.favorito ? 'Remover favorito' : 'Favoritar'} className="p-1.5 rounded hover:bg-[var(--bg-secondary)]">
                         <Star size={14} fill={c.favorito ? '#f59e0b' : 'none'} style={{ color: c.favorito ? '#f59e0b' : 'var(--text-secondary)' }} />
                       </button>
+                      <button onClick={() => editarComp(c)} title="Editar comparável" className="p-1.5 rounded hover:bg-[var(--bg-secondary)]">
+                        <Pencil size={14} style={{ color: 'var(--text-secondary)' }} />
+                      </button>
+                      <button onClick={() => excluirComp(c)} title="Excluir comparável" className="p-1.5 rounded hover:bg-red-500/20">
+                        <Trash2 size={14} style={{ color: 'var(--danger)' }} />
+                      </button>
                     </div>
                   </div>
+                  {c.possivel_duplicado && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded w-fit" style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>possível duplicado</span>
+                  )}
                   <p className="text-lg font-bold tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(c.preco)}</p>
                   <p className="text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>
                     {c.area != null ? `${c.area} m²` : '—'}{c.preco_m2 != null ? ` · ${formatCurrency(c.preco_m2)}/m²` : ''}
@@ -555,6 +645,25 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
             )}
           </div>
         )}
+      </div>
+
+      <div className="card p-5">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h3 className="font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}><FileText size={16} style={{ color: 'var(--accent)' }} /> Relatório de pesquisa (PDF)</h3>
+            <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+              Gerado da mesma estrutura (ficha + comparáveis). Modelo A completo; Modelo B enxuto.
+              {selecionados.length === 0 && ' Nenhum comparável selecionado — o relatório usará todos os cadastrados.'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Button variant="secondary" onClick={() => gerarPdf('A')} loading={gerandoPdf === 'A'} icon={<FileText size={14} />}>Modelo A</Button>
+            <Button variant="secondary" onClick={() => gerarPdf('B')} loading={gerandoPdf === 'B'} icon={<FileText size={14} />}>Modelo B</Button>
+          </div>
+        </div>
+        <p className="text-[11px] mt-2" style={{ color: 'var(--text-secondary)' }}>
+          Preços anunciados não são preço de venda. R$/m² só é calculado quando preço e área são conhecidos. Nenhum dado do comparável é atribuído ao imóvel analisado.
+        </p>
       </div>
 
       {analisesAnteriores.length > 0 && (
