@@ -3,13 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProcessContext } from '@/lib/processo/context'
-import {
-  criarOportunidadeDoProcesso,
-  desvincularOportunidade,
-  listarOportunidadesVinculaveis,
-  obterOportunidadeDoProcesso,
-  vincularOportunidadeAoProcesso,
-} from '@/lib/investidor-oportunidade'
+import { criarOportunidadeDoProcesso, obterOportunidadeDoProcesso } from '@/lib/investidor-oportunidade'
 import { obterProcesso } from '@/lib/processo'
 import { registrarDecisao } from '@/lib/investidor'
 import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
@@ -45,173 +39,60 @@ type PassoPesquisa = 'ficha' | 'mercado' | 'viabilidade' | 'decisao'
 type FichaResumo = { status: keyof typeof STATUS_FICHA_LABEL } | null
 type MercadoResumo = { faixa_base: number | null } | null
 
-// Tellus R01/B — esta tela roda SEMPRE dentro de um Processo
-// (Sistema.tsx envolve todo módulo em <ProcessProvider>). Portanto ela não
-// lista mais todas as prospecções: resolve a oportunidade DAQUELE Processo.
-// Enquanto não houver vínculo, mostra as oportunidades livres para o usuário
-// vincular explicitamente — o controle manual continua existindo.
+// Tellus R01/C2 — o Processo é o núcleo único. Esta tela roda SEMPRE dentro de
+// um Processo (Sistema.tsx envolve todo módulo em <ProcessProvider>). A Pesquisa
+// abre DIRETO a oportunidade daquele Processo: find-or-create em silêncio,
+// seedada pelo nome/endereço do próprio Processo. NÃO existe mais a tela
+// "Este Processo ainda não tem um imóvel. Crie o dele" nem lista de vínculo —
+// o usuário nunca precisa criar um segundo objeto principal. O vínculo 1:1
+// continua sendo o de lib/investidor-oportunidade.ts (Seção B), sem duplicar.
 export function TelaPesquisa() {
   const { processoId } = useProcessContext()
   const supabase = useMemo(() => createClient(), [])
   const [oportunidade, setOportunidade] = useState<Prospeccao | null | undefined>(undefined)
-  const [vinculaveis, setVinculaveis] = useState<Prospeccao[]>([])
   const [erro, setErro] = useState<string | null>(null)
-  // O caminho principal de um Processo novo é CRIAR a própria oportunidade.
-  // Vincular uma já existente fica como caminho secundário.
-  const [nomeNova, setNomeNova] = useState('')
-  const [enderecoNova, setEnderecoNova] = useState('')
-  const [criando, setCriando] = useState(false)
-
-  // Resolve a oportunidade do Processo. Não é chamada pelo efeito abaixo — o
-  // efeito tem a própria cópia inline para não disparar setState de forma
-  // síncrona no corpo dele (react-hooks/set-state-in-effect).
-  const carregar = useCallback(async () => {
-    setErro(null)
-    try {
-      const atual = await obterOportunidadeDoProcesso(supabase, processoId)
-      setOportunidade(atual)
-      setVinculaveis(atual ? [] : await listarOportunidadesVinculaveis(supabase))
-    } catch (e) {
-      setOportunidade(null)
-      setErro(e instanceof Error ? e.message : 'Não consegui carregar a oportunidade deste Processo.')
-    }
-  }, [supabase, processoId])
 
   useEffect(() => {
     let vivo = true
     void (async () => {
       try {
-        const atual = await obterOportunidadeDoProcesso(supabase, processoId)
-        const livres = atual ? [] : await listarOportunidadesVinculaveis(supabase)
-        // Pré-preenche com o nome do próprio Processo: na esmagadora maioria
-        // dos casos a oportunidade é o Processo.
-        const proc = atual ? null : await obterProcesso(supabase, processoId)
+        let atual = await obterOportunidadeDoProcesso(supabase, processoId)
+        if (!atual) {
+          // Nasce automaticamente com o Processo. O índice único parcial no
+          // banco garante 1:1; numa corrida, reaproveitamos a existente.
+          const proc = await obterProcesso(supabase, processoId)
+          try {
+            atual = await criarOportunidadeDoProcesso(
+              supabase,
+              processoId,
+              proc?.nome?.trim() || 'Oportunidade',
+              proc?.endereco ?? null,
+            )
+          } catch {
+            atual = await obterOportunidadeDoProcesso(supabase, processoId)
+          }
+        }
         if (!vivo) return
-        if (proc) { setNomeNova(proc.nome); setEnderecoNova(proc.endereco ?? '') }
+        if (!atual) { setErro('Não foi possível abrir a oportunidade deste Processo.'); return }
         setOportunidade(atual)
-        setVinculaveis(livres)
       } catch (e) {
         if (!vivo) return
-        setOportunidade(null)
-        setErro(e instanceof Error ? e.message : 'Não consegui carregar a oportunidade deste Processo.')
+        setErro(e instanceof Error ? e.message : 'Não consegui abrir a oportunidade deste Processo.')
       }
     })()
     return () => { vivo = false }
   }, [supabase, processoId])
 
-  async function vincular(prospeccaoId: string) {
-    setErro(null)
-    try {
-      await vincularOportunidadeAoProcesso(supabase, prospeccaoId, processoId)
-      await carregar()
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não consegui vincular a oportunidade.')
-    }
-  }
-
-  async function criarOportunidade() {
-    setErro(null)
-    setCriando(true)
-    try {
-      await criarOportunidadeDoProcesso(supabase, processoId, nomeNova, enderecoNova)
-      await carregar()
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não consegui criar a oportunidade.')
-    } finally {
-      setCriando(false)
-    }
-  }
-
-  async function desvincular(prospeccaoId: string) {
-    setErro(null)
-    try {
-      await desvincularOportunidade(supabase, prospeccaoId)
-      await carregar()
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não consegui desvincular a oportunidade.')
-    }
-  }
-
-  if (oportunidade === undefined) return <Carregando texto="Carregando oportunidade do Processo…" />
-
-  if (oportunidade) {
-    return (
-      <Detalhe
-        prospeccaoId={oportunidade.id}
-        onVoltar={() => desvincular(oportunidade.id)}
-        rotuloVoltar="Desvincular do Processo"
-      />
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-2.5">
-      <div className="rounded-2xl border border-cyan-200/20 bg-cyan-300/[0.06] p-4">
-        <p className="text-[12.5px] text-white/60">
-          Este Processo ainda não tem um imóvel. Crie o dele:
-        </p>
-        <input
-          value={nomeNova}
-          onChange={e => { setNomeNova(e.target.value); setErro(null) }}
-          placeholder="Nome do imóvel"
-          disabled={criando}
-          className="mt-2 w-full rounded-xl border border-white/12 bg-black/25 px-3 py-2 text-[14px] text-white/92 outline-none placeholder:text-white/35 focus:border-cyan-200/40"
-        />
-        <input
-          value={enderecoNova}
-          onChange={e => setEnderecoNova(e.target.value)}
-          placeholder="Endereço (opcional)"
-          disabled={criando}
-          className="mt-2 w-full rounded-xl border border-white/12 bg-black/25 px-3 py-2 text-[14px] text-white/92 outline-none placeholder:text-white/35 focus:border-cyan-200/40"
-        />
-        <button
-          type="button"
-          onClick={() => void criarOportunidade()}
-          disabled={criando || !nomeNova.trim()}
-          className="mt-3 rounded-full bg-cyan-300/90 px-4 py-1.5 text-[13px] font-medium text-slate-950 outline-none transition hover:bg-cyan-200 disabled:opacity-50"
-        >
-          {criando ? 'Criando…' : 'Criar imóvel deste Processo'}
-        </button>
-      </div>
-
-      {erro && <p className="text-[12.5px] text-red-300">{erro}</p>}
-
-      {vinculaveis.length > 0 && (
-        <p className="mt-1 text-[12.5px] text-white/40">
-          Ou aproveite um imóvel já cadastrado e ainda sem Processo:
-        </p>
-      )}
-      {vinculaveis.length === 0 ? null : (
-        vinculaveis.map(p => {
-          const meta = FASE_META[p.fase]
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => vincular(p.id)}
-              className="group flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.05] p-4 text-left outline-none transition hover:border-cyan-200/30 hover:bg-white/[0.08] focus-visible:border-cyan-200/30"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-[15px] font-semibold text-white/92">{p.nome}</div>
-                <div className="mt-0.5 truncate text-[12.5px] text-white/50">{p.endereco || 'Sem endereço'}</div>
-              </div>
-              <span
-                className="shrink-0 rounded-full border px-2.5 py-1 text-[11px]"
-                style={{ borderColor: `${meta.color}55`, color: meta.color, background: `${meta.color}1a` }}
-              >
-                {meta.label}
-              </span>
-            </button>
-          )
-        })
-      )}
-    </div>
-  )
+  if (erro && !oportunidade) return <Vazio titulo="Não foi possível abrir a Pesquisa" descricao={erro} />
+  if (!oportunidade) return <Carregando texto="Abrindo a oportunidade do Processo…" />
+  return <Detalhe prospeccaoId={oportunidade.id} />
 }
 
-function Detalhe({ prospeccaoId, onVoltar, rotuloVoltar = 'Voltar para as oportunidades' }: {
+function Detalhe({ prospeccaoId, onVoltar, rotuloVoltar = 'Voltar' }: {
   prospeccaoId: string
-  onVoltar: () => void
+  // Opcional: a Pesquisa do Processo abre a oportunidade direto, sem "voltar
+  // para a lista" (não há lista). Só mostra o botão quando um caller pede.
+  onVoltar?: () => void
   rotuloVoltar?: string
 }) {
   const supabase = useMemo(() => createClient(), [])
@@ -258,12 +139,20 @@ function Detalhe({ prospeccaoId, onVoltar, rotuloVoltar = 'Voltar para as oportu
 
   return (
     <div className="flex flex-col gap-4">
-      <Voltar
-        rotulo={rotuloVoltar}
-        onVoltar={onVoltar}
-        titulo={prospeccao.nome}
-        subtitulo={prospeccao.endereco}
-      />
+      {onVoltar ? (
+        <Voltar
+          rotulo={rotuloVoltar}
+          onVoltar={onVoltar}
+          titulo={prospeccao.nome}
+          subtitulo={prospeccao.endereco}
+        />
+      ) : (
+        <div className="min-w-0">
+          <div className="text-[10.5px] uppercase tracking-[0.16em] text-cyan-200/50">Oportunidade do Processo</div>
+          <div className="truncate text-[17px] font-semibold text-white/92">{prospeccao.nome}</div>
+          {prospeccao.endereco && <div className="truncate text-[12.5px] text-white/50">{prospeccao.endereco}</div>}
+        </div>
+      )}
 
       <SubAbas
         valor={passo}
