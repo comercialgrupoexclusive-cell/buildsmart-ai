@@ -225,6 +225,11 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
   const selecionados = comparaveis.filter(c => c.salvo || c.favorito)
   const selecionadosOrdenados = ordenarPorSimilaridade(selecionados)
   const assinaturaSelecao = selecionados.map(c => c.id).sort().join(',')
+  // Regra canônica da Pesquisa Imobiliária: um comparável marcado como
+  // possível duplicado permanece visível na lista/tabela como evidência, mas
+  // NUNCA conta como imóvel distinto em estatísticas ou gráficos comparativos
+  // (mesma regra aplicada ao PDF em lib/investidor/relatorio-pesquisa.ts).
+  const selecionadosParaCalculo = selecionados.filter(c => !c.possivel_duplicado)
 
   useEffect(() => {
     onSelecaoChange?.(selecionados)
@@ -253,8 +258,8 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
   })
   const comparaveisExibidos = ordenarPor(comparaveisFiltrados, ordenacao)
 
-  const precosSelecionados = selecionados.filter(c => c.preco != null).map(c => c.preco as number)
-  const m2Selecionados = selecionados.filter(c => c.preco_m2 != null).map(c => c.preco_m2 as number)
+  const precosSelecionados = selecionadosParaCalculo.filter(c => c.preco != null).map(c => c.preco as number)
+  const m2Selecionados = selecionadosParaCalculo.filter(c => c.preco_m2 != null).map(c => c.preco_m2 as number)
   const estatisticas = {
     mediaPreco: media(precosSelecionados),
     medianaPreco: mediana(precosSelecionados),
@@ -351,11 +356,11 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
 
   const dadosGraficoPreco = [
     ...(precoAlvo != null ? [{ nome: 'Imóvel-alvo', valor: precoAlvo, alvo: true }] : []),
-    ...selecionados.filter(c => c.preco != null).map(c => ({ nome: c.titulo || c.fonte || 'Comparável', valor: c.preco as number, alvo: false })),
+    ...selecionadosParaCalculo.filter(c => c.preco != null).map(c => ({ nome: c.titulo || c.fonte || 'Comparável', valor: c.preco as number, alvo: false })),
   ]
   const dadosGraficoM2 = [
     ...(precoM2Alvo != null ? [{ nome: 'Imóvel-alvo', valor: precoM2Alvo, alvo: true }] : []),
-    ...selecionados.filter(c => c.preco_m2 != null).map(c => ({ nome: c.titulo || c.fonte || 'Comparável', valor: c.preco_m2 as number, alvo: false })),
+    ...selecionadosParaCalculo.filter(c => c.preco_m2 != null).map(c => ({ nome: c.titulo || c.fonte || 'Comparável', valor: c.preco_m2 as number, alvo: false })),
   ]
 
   return (
@@ -554,7 +559,14 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
                 <tbody>
                   {selecionadosOrdenados.map(c => (
                     <tr key={c.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td className="px-2 py-1.5 max-w-[220px] truncate" style={{ color: 'var(--text-primary)' }}>{c.titulo || c.fonte || 'Comparável'}</td>
+                      <td className="px-2 py-1.5 max-w-[220px] truncate" style={{ color: 'var(--text-primary)' }}>
+                        {c.titulo || c.fonte || 'Comparável'}
+                        {c.possivel_duplicado && (
+                          <span className="ml-1.5 text-[10px] font-semibold" style={{ color: '#f59e0b' }} title="Possível duplicado — não contado nas estatísticas/gráficos">
+                            (possível duplicado)
+                          </span>
+                        )}
+                      </td>
                       <td className="px-2 py-1.5 whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>{c.similaridade ? (SIMILARIDADE_LABEL[c.similaridade] || c.similaridade) : '—'}</td>
                       <td className="px-2 py-1.5 whitespace-nowrap tabular-nums" style={{ color: 'var(--text-primary)' }}>{fmt(c.preco)}</td>
                       <td className="px-2 py-1.5 whitespace-nowrap tabular-nums" style={{ color: 'var(--text-secondary)' }}>{c.area != null ? `${c.area} m²` : '—'}</td>

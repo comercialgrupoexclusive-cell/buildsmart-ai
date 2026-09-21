@@ -53,6 +53,24 @@ describe('montarRelatorioPesquisa', () => {
     expect(rel.graficoPreco).toHaveLength(2)
   })
 
+  it('possível duplicado fica visível na tabela mas NUNCA entra nos gráficos comparativos', () => {
+    const rel = montarRelatorioPesquisa({
+      imovelNome: 'Imóvel X',
+      comparaveis: [
+        comp({ id: 'a', titulo: 'Original', preco: 300000, area: 75 }),
+        comp({ id: 'b', titulo: 'Possível duplicado do original', preco: 305000, area: 76, possivel_duplicado: true }),
+      ],
+    })
+    // Tabela/fontes: os dois permanecem, como evidência (o duplicado sinalizado).
+    expect(rel.comparaveis).toHaveLength(2)
+    expect(rel.comparaveis[1].possivelDuplicado).toBe(true)
+    // Cálculos/gráficos: só o não-duplicado conta como imóvel distinto.
+    expect(rel.graficoPreco).toHaveLength(1)
+    expect(rel.graficoPreco[0].value).toBe(300000)
+    expect(rel.graficoM2).toHaveLength(1)
+    expect(rel.graficoM2[0].value).toBe(4000)
+  })
+
   it('marca alerta para possível duplicado e anúncio indisponível', () => {
     const rel = montarRelatorioPesquisa({
       imovelNome: 'Imóvel X',

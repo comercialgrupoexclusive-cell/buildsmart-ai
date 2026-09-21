@@ -134,13 +134,18 @@ export function montarRelatorioPesquisa(input: RelatorioInput): RelatorioPesquis
     }
   })
 
+  // Regra canônica: possível duplicado permanece na tabela/fontes como
+  // evidência (ver montagem de `comparaveis` acima), mas nunca conta como
+  // imóvel distinto nos cálculos/gráficos comparativos. Mesma regra aplicada
+  // no cliente em components/investidor/ProspeccaoMercado.tsx.
+  const comparaveisParaCalculo = comparaveis.filter(c => !c.possivelDuplicado)
   const graficoPreco: PontoGrafico[] = [
     ...(imovelPreco != null ? [{ label: 'A · analisado', value: imovelPreco }] : []),
-    ...comparaveis.filter(c => c.preco != null).map(c => ({ label: `${c.ref} · ${c.rotulo}`, value: c.preco as number })),
+    ...comparaveisParaCalculo.filter(c => c.preco != null).map(c => ({ label: `${c.ref} · ${c.rotulo}`, value: c.preco as number })),
   ]
   const graficoM2: PontoGrafico[] = [
     ...(imovelPrecoM2 != null ? [{ label: 'A · analisado', value: imovelPrecoM2 }] : []),
-    ...comparaveis.filter(c => c.precoM2 != null).map(c => ({ label: `${c.ref} · ${c.rotulo}`, value: c.precoM2 as number })),
+    ...comparaveisParaCalculo.filter(c => c.precoM2 != null).map(c => ({ label: `${c.ref} · ${c.rotulo}`, value: c.precoM2 as number })),
   ]
 
   const alertas: string[] = []
