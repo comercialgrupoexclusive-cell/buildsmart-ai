@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react'
 import { Plus, Trash2, ExternalLink, FileSearch } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { criarEvidencia, excluirEvidencia, listarEvidencias } from '@/lib/investidor'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
@@ -47,12 +48,11 @@ export function ProspeccaoEvidencias({ prospeccaoId }: { prospeccaoId: string })
   async function carregar() {
     setLoading(true)
     const supabase = createClient()
-    const { data } = await supabase
-      .from('prospeccao_evidencias')
-      .select('*')
-      .eq('prospeccao_id', prospeccaoId)
-      .order('created_at', { ascending: false })
-    setEvidencias((data ?? []) as ProspeccaoEvidencia[])
+    try {
+      setEvidencias(await listarEvidencias(supabase, prospeccaoId))
+    } catch {
+      setEvidencias([])
+    }
     setLoading(false)
   }
 
@@ -76,28 +76,40 @@ export function ProspeccaoEvidencias({ prospeccaoId }: { prospeccaoId: string })
     if (!form.informacao.trim()) return
     setSaving(true)
     const supabase = createClient()
-    const { error } = await supabase.from('prospeccao_evidencias').insert({
-      prospeccao_id: prospeccaoId,
-      informacao: form.informacao.trim(),
-      tipo: form.tipo.trim() || null,
-      fonte: form.fonte.trim() || null,
-      url: form.url.trim() || null,
-      data_evidencia: form.data_evidencia || null,
-      natureza: form.natureza,
-    })
+    try {
+      await criarEvidencia(supabase, {
+        prospeccaoId,
+        informacao: form.informacao,
+        tipo: form.tipo,
+        fonte: form.fonte,
+        url: form.url,
+        data_evidencia: form.data_evidencia,
+        natureza: form.natureza,
+      })
+    } catch (err) {
+      setSaving(false)
+      alert(`Não foi possível registrar a evidência: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setSaving(false)
-    if (error) { alert(`Não foi possível registrar a evidência: ${error.message}`); return }
     setShowModal(false)
     void carregar()
   }
 
   async function excluir(id: string) {
+    // Ação destrutiva (Action classe exige_aprovacao_humana): a confirmação
+    // humana acontece aqui antes de chamar a Action.
     if (!confirm('Excluir esta evidência? Essa ação não pode ser desfeita.')) return
     setBusyId(id)
     const supabase = createClient()
-    const { error } = await supabase.from('prospeccao_evidencias').delete().eq('id', id)
+    try {
+      await excluirEvidencia(supabase, id)
+    } catch (err) {
+      setBusyId(null)
+      alert(`Não foi possível excluir: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setBusyId(null)
-    if (error) { alert(`Não foi possível excluir: ${error.message}`); return }
     setEvidencias(prev => prev.filter(e => e.id !== id))
   }
 

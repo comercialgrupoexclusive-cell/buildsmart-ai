@@ -11,6 +11,7 @@ import {
   vincularOportunidadeAoProcesso,
 } from '@/lib/investidor-oportunidade'
 import { obterProcesso } from '@/lib/processo'
+import { registrarDecisao } from '@/lib/investidor'
 import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
 import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidencias'
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
@@ -336,9 +337,16 @@ function Decisao({ prospeccao, principal, ficha, mercado, onIr, onSalvo }: {
   async function decidir(fase: ProspeccaoFase) {
     setSalvando(true)
     setErro('')
-    const { error } = await supabase.from('prospeccoes').update({ fase }).eq('id', prospeccao.id)
+    // Decisão é a escrita "exclusivamente humana" do fluxo (Seção D): parte de
+    // um clique humano, roteada pela Action do domínio em vez de update solto.
+    try {
+      await registrarDecisao(supabase, { prospeccaoId: prospeccao.id, fase })
+    } catch {
+      setSalvando(false)
+      setErro('Não foi possível registrar a decisão agora.')
+      return
+    }
     setSalvando(false)
-    if (error) { setErro('Não foi possível registrar a decisão agora.'); return }
     onSalvo()
   }
 

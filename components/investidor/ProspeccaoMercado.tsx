@@ -23,6 +23,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Search, ExternalLink, Bookmark, Star, AlertTriangle, FlagOff, Loader2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
+import { alternarSelecaoComparavel, encerrarAnaliseMercado, listarEvidencias } from '@/lib/investidor'
 import { useProfile } from '@/lib/profile-context'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Input'
@@ -156,7 +157,7 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
 
   async function alternarCampo(id: string, campo: 'salvo' | 'favorito', valorAtual: boolean) {
     const supabase = createClient()
-    await supabase.from('prospeccao_comparaveis').update({ [campo]: !valorAtual }).eq('id', id)
+    await alternarSelecaoComparavel(supabase, { id, campo, valorAtual })
     setComparaveis(prev => prev.map(c => c.id === id ? { ...c, [campo]: !valorAtual } : c))
   }
 
@@ -249,23 +250,28 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
     if (!analiseAtual) return
     setEncerrando(true)
     const supabase = createClient()
-    const { data: evidencias } = await supabase.from('prospeccao_evidencias').select('*').eq('prospeccao_id', prospeccaoId)
-    const { error } = await supabase.from('prospeccao_analises_mercado').insert({
-      prospeccao_id: prospeccaoId,
-      ficha_snapshot: ficha?.dados_confirmados || {},
-      evidencias_snapshot: evidencias || [],
-      comparaveis_snapshot: selecionados,
-      favoritos_snapshot: selecionados.filter(c => c.favorito),
-      analise_texto: analiseAtual.resumo,
-      faixa_conservadora: analiseAtual.faixa_conservadora ?? null,
-      faixa_base: analiseAtual.faixa_base ?? null,
-      faixa_otimista: analiseAtual.faixa_otimista ?? null,
-      pendencias: analiseAtual.pendencias || null,
-      fontes: selecionados.map(c => ({ titulo: c.titulo, url: c.url, url_confirmada: c.url_confirmada, fonte: c.fonte })),
-      criado_por: currentProfile?.name || null,
-    })
+    try {
+      const evidencias = await listarEvidencias(supabase, prospeccaoId)
+      await encerrarAnaliseMercado(supabase, {
+        prospeccao_id: prospeccaoId,
+        ficha_snapshot: ficha?.dados_confirmados || {},
+        evidencias_snapshot: evidencias || [],
+        comparaveis_snapshot: selecionados,
+        favoritos_snapshot: selecionados.filter(c => c.favorito),
+        analise_texto: analiseAtual.resumo,
+        faixa_conservadora: analiseAtual.faixa_conservadora ?? null,
+        faixa_base: analiseAtual.faixa_base ?? null,
+        faixa_otimista: analiseAtual.faixa_otimista ?? null,
+        pendencias: analiseAtual.pendencias || null,
+        fontes: selecionados.map(c => ({ titulo: c.titulo, url: c.url, url_confirmada: c.url_confirmada, fonte: c.fonte })),
+        criado_por: currentProfile?.name || null,
+      })
+    } catch (err) {
+      setEncerrando(false)
+      setErroAnalise(`Não consegui encerrar a análise: ${err instanceof Error ? err.message : 'erro'}`)
+      return
+    }
     setEncerrando(false)
-    if (error) { setErroAnalise(`Não consegui encerrar a análise: ${error.message}`); return }
     setAnaliseAtual(null)
     void carregar()
   }
