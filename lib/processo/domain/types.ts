@@ -25,6 +25,14 @@ export type Processo = {
   // Nullable: Processos anteriores ao Tellus R01 não têm template e seguem válidos.
   template_key: ProcessoTemplateKey | null
   template_version: number | null
+  // Compatibilização Funcional 01 — vínculo opcional com o Motor de Operação
+  // (lib/operacoes). Operação é só agrupador acima do Processo; nenhum dos
+  // três campos abaixo substitui `status` (estado técnico) nem cria uma
+  // segunda unidade operacional. Todos nullable/0: Processos sem Operação
+  // continuam válidos exatamente como antes.
+  operacao_id: string | null
+  etapa_operacional_id: string | null
+  ordem_etapa: number
   created_at: string
   updated_at: string
   archived_at: string | null

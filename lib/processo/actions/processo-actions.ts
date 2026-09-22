@@ -54,6 +54,27 @@ export function listarModulosDisponiveis() {
   return service.listarModulosDisponiveis()
 }
 
+// ─── Compatibilização Funcional 01 — vínculo com Operação/Etapa ──────────────
+export async function listarProcessosPorOperacao(supabase: SupabaseClient, operacaoId: string): Promise<Processo[]> {
+  return service.listarProcessosPorOperacao(supabase, operacaoId)
+}
+
+export async function vincularProcessoAOperacao(supabase: SupabaseClient, processoId: string, operacaoId: string): Promise<Processo> {
+  return service.vincularProcessoAOperacao(supabase, processoId, operacaoId)
+}
+
+export async function desvincularProcessoDaOperacao(supabase: SupabaseClient, processoId: string): Promise<Processo> {
+  return service.desvincularProcessoDaOperacao(supabase, processoId)
+}
+
+export async function moverProcessoParaEtapa(supabase: SupabaseClient, processoId: string, etapaOperacionalId: string | null): Promise<void> {
+  return service.moverProcessoParaEtapa(supabase, processoId, etapaOperacionalId)
+}
+
+export async function reordenarProcessosDaEtapa(supabase: SupabaseClient, processoIdsEmOrdem: string[]): Promise<void> {
+  return service.reordenarProcessosDaEtapa(supabase, processoIdsEmOrdem)
+}
+
 // Tellus R01/A — expõe o registry de templates pelo contrato público, no
 // mesmo padrão de listarModulosDisponiveis. Leitura pura, sem efeito.
 export function listarTemplatesDisponiveis() {

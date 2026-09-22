@@ -4,13 +4,17 @@
 // este arquivo decide o que é válido.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
+  atualizarEtapaDoProcessoRaw,
+  atualizarOperacaoDoProcessoRaw,
   atualizarProcessoRaw,
   atualizarStatusRaw,
   buscarProcessoPorId,
   inserirModulos,
   inserirProcesso,
   listarModulosRaw,
+  listarProcessosPorOperacaoRaw,
   listarProcessosRaw,
+  reordenarOrdemEtapaRaw,
   upsertModuloVinculo,
 } from '../repository/processo-repository'
 import {
@@ -163,6 +167,54 @@ export async function listarModulosDoProcesso(supabase: SupabaseClient, processo
 
 export function listarModulosDisponiveis() {
   return PROCESSO_MODULES
+}
+
+// ─── Compatibilização Funcional 01 — vínculo com Operação/Etapa ──────────────
+// Processo continua sendo a unidade operacional; estas funções só escrevem
+// os três campos aditivos (operacao_id/etapa_operacional_id/ordem_etapa).
+// A trigger processos_validar_etapa_operacional (banco) garante que a etapa
+// pertence à Operação e à mesma organização — não revalidamos isso aqui,
+// evitaria duplicar a fonte da verdade.
+
+export async function listarProcessosPorOperacao(supabase: SupabaseClient, operacaoId: string): Promise<Processo[]> {
+  return listarProcessosPorOperacaoRaw(supabase, operacaoId)
+}
+
+export async function vincularProcessoAOperacao(supabase: SupabaseClient, processoId: string, operacaoId: string): Promise<Processo> {
+  const existente = await buscarProcessoPorId(supabase, processoId)
+  if (!existente) throw new Error('Processo não encontrado.')
+  await atualizarOperacaoDoProcessoRaw(supabase, processoId, operacaoId)
+  const atualizado = await buscarProcessoPorId(supabase, processoId)
+  if (!atualizado) throw new Error('Processo não encontrado após atualização.')
+  return atualizado
+}
+
+// Remove o Processo da Operação (e da etapa, por consequência) — não apaga
+// nem arquiva o Processo. Ele volta a se comportar como um Processo comum,
+// fora de qualquer Kanban.
+export async function desvincularProcessoDaOperacao(supabase: SupabaseClient, processoId: string): Promise<Processo> {
+  const existente = await buscarProcessoPorId(supabase, processoId)
+  if (!existente) throw new Error('Processo não encontrado.')
+  await atualizarOperacaoDoProcessoRaw(supabase, processoId, null)
+  const atualizado = await buscarProcessoPorId(supabase, processoId)
+  if (!atualizado) throw new Error('Processo não encontrado após atualização.')
+  return atualizado
+}
+
+// Move o card para outra etapa da MESMA Operação (drag-and-drop entre
+// colunas). A ordem exata dentro da coluna de destino é responsabilidade de
+// reordenarProcessosDaEtapa, chamada logo em seguida pela UI.
+export async function moverProcessoParaEtapa(supabase: SupabaseClient, processoId: string, etapaOperacionalId: string | null): Promise<void> {
+  const existente = await buscarProcessoPorId(supabase, processoId)
+  if (!existente) throw new Error('Processo não encontrado.')
+  await atualizarEtapaDoProcessoRaw(supabase, processoId, etapaOperacionalId)
+}
+
+// Persiste a ordem final de TODOS os cards de uma etapa após um
+// drag-and-drop — cobre tanto reordenar dentro da mesma coluna quanto a
+// posição exata após mover de outra coluna.
+export async function reordenarProcessosDaEtapa(supabase: SupabaseClient, processoIdsEmOrdem: string[]): Promise<void> {
+  await reordenarOrdemEtapaRaw(supabase, processoIdsEmOrdem.map((id, ordem) => ({ id, ordem })))
 }
 
 export function listarTemplatesDisponiveis() {

@@ -72,6 +72,61 @@ export async function atualizarStatusRaw(
   if (error) throw new Error(error.message)
 }
 
+// ─── Compatibilização Funcional 01 — vínculo com Operação/Etapa ──────────────
+
+export async function listarProcessosPorOperacaoRaw(supabase: SupabaseClient, operacaoId: string): Promise<Processo[]> {
+  const { data, error } = await supabase
+    .from(TABELA_PROCESSOS)
+    .select('*')
+    .eq('operacao_id', operacaoId)
+    .order('ordem_etapa', { ascending: true })
+  if (error) throw new Error(error.message)
+  return (data as Processo[]) || []
+}
+
+// Vincula à Operação sem etapa definida ainda (Kanban mostra numa coluna
+// "Sem etapa" até o usuário mover o card). Desvincular = chamar com null.
+export async function atualizarOperacaoDoProcessoRaw(
+  supabase: SupabaseClient,
+  processoId: string,
+  operacaoId: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from(TABELA_PROCESSOS)
+    .update({ operacao_id: operacaoId, etapa_operacional_id: null, ordem_etapa: 0, updated_at: new Date().toISOString() })
+    .eq('id', processoId)
+  if (error) throw new Error(error.message)
+}
+
+// Move o card para outra etapa (ou de volta para "sem etapa" com null).
+// operacao_id é resolvido pela trigger processos_validar_etapa_operacional
+// quando etapaId não é null — não precisamos (nem devemos) calculá-lo aqui.
+export async function atualizarEtapaDoProcessoRaw(
+  supabase: SupabaseClient,
+  processoId: string,
+  etapaOperacionalId: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from(TABELA_PROCESSOS)
+    .update({ etapa_operacional_id: etapaOperacionalId, updated_at: new Date().toISOString() })
+    .eq('id', processoId)
+  if (error) throw new Error(error.message)
+}
+
+// Reordenação em lote dos cards de UMA etapa (drag-and-drop) — um UPDATE por
+// card, mesma forma de lib/operacoes/repository (reordenarEtapasRaw).
+export async function reordenarOrdemEtapaRaw(
+  supabase: SupabaseClient,
+  ordens: { id: string; ordem: number }[],
+): Promise<void> {
+  const agora = new Date().toISOString()
+  const resultados = await Promise.all(
+    ordens.map(({ id, ordem }) => supabase.from(TABELA_PROCESSOS).update({ ordem_etapa: ordem, updated_at: agora }).eq('id', id)),
+  )
+  const comErro = resultados.find(r => r.error)
+  if (comErro?.error) throw new Error(comErro.error.message)
+}
+
 export async function inserirModulos(supabase: SupabaseClient, processoId: string, moduleKeys: string[]): Promise<void> {
   if (moduleKeys.length === 0) return
   const agora = new Date().toISOString()
