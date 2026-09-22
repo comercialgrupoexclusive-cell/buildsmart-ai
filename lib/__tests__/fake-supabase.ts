@@ -16,7 +16,7 @@ function normalizarFake(s: string): string {
   return (s || '').normalize('NFD').replace(DIACRITICOS_FAKE, '').toLowerCase()
 }
 
-class FakeQuery implements PromiseLike<{ data: Row[] | Row | null; error: null | { message: string } }> {
+class FakeQuery implements PromiseLike<{ data: Row[] | Row | null; error: null | { message: string }; count?: number }> {
   private filters: ((r: Row) => boolean)[] = []
   private orderCol: string | null = null
   private orderAsc = true
@@ -24,10 +24,16 @@ class FakeQuery implements PromiseLike<{ data: Row[] | Row | null; error: null |
   private mode: 'select' | 'insert' | 'update' | 'delete' = 'select'
   private payload: Row | Row[] | null = null
   private singleMode: 'one' | 'maybe' | null = null
+  private countMode = false
+  private headOnly = false
 
   constructor(private db: FakeDB, private table: string) {}
 
-  select(_cols?: string) { return this }
+  select(_cols?: string, opts?: { count?: 'exact' | 'planned' | 'estimated'; head?: boolean }) {
+    if (opts?.count) this.countMode = true
+    if (opts?.head) this.headOnly = true
+    return this
+  }
   insert(payload: Row | Row[]) { this.mode = 'insert'; this.payload = payload; return this }
   update(payload: Row) { this.mode = 'update'; this.payload = payload; return this }
   delete() { this.mode = 'delete'; return this }
@@ -49,7 +55,7 @@ class FakeQuery implements PromiseLike<{ data: Row[] | Row | null; error: null |
   maybeSingle() { this.singleMode = 'maybe'; return this }
   single() { this.singleMode = 'one'; return this }
 
-  private run(): { data: Row[] | Row | null; error: null | { message: string } } {
+  private run(): { data: Row[] | Row | null; error: null | { message: string }; count?: number } {
     const table = this.db.tables[this.table] || (this.db.tables[this.table] = [])
 
     if (this.mode === 'insert') {
@@ -81,15 +87,17 @@ class FakeQuery implements PromiseLike<{ data: Row[] | Row | null; error: null |
         return this.orderAsc ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1)
       })
     }
+    if (this.countMode && this.headOnly) return { data: null, error: null, count: rows.length }
+
     if (this.limitN != null) rows = rows.slice(0, this.limitN)
 
     if (this.singleMode === 'one') return { data: rows[0] || null, error: rows[0] ? null : { message: 'not found' } }
     if (this.singleMode === 'maybe') return { data: rows[0] || null, error: null }
-    return { data: rows, error: null }
+    return { data: rows, error: null, ...(this.countMode ? { count: rows.length } : {}) }
   }
 
   then<TResult1 = any, TResult2 = never>(
-    onfulfilled?: ((value: { data: Row[] | Row | null; error: null | { message: string } }) => TResult1 | PromiseLike<TResult1>) | null,
+    onfulfilled?: ((value: { data: Row[] | Row | null; error: null | { message: string }; count?: number }) => TResult1 | PromiseLike<TResult1>) | null,
     onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
   ): PromiseLike<TResult1 | TResult2> {
     return Promise.resolve(this.run()).then(onfulfilled, onrejected)

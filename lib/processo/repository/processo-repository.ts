@@ -127,6 +127,18 @@ export async function reordenarOrdemEtapaRaw(
   if (comErro?.error) throw new Error(comErro.error.message)
 }
 
+// Leitura pontual de uma FK estrangeira (operacao_etapas.operacao_id) — só o
+// suficiente para o Service validar, antes de mover um Processo, que a
+// etapa de destino pertence à mesma Operação do Processo. Não é acoplamento
+// de domínio: é a mesma checagem que a trigger do banco já faz, replicada
+// aqui para dar um erro determinístico e legível antes do INSERT/UPDATE (e
+// para servir de contrato seguro a uma futura IA que chame estas Actions
+// diretamente).
+export async function buscarOperacaoIdDaEtapa(supabase: SupabaseClient, etapaId: string): Promise<string | null> {
+  const { data } = await supabase.from('operacao_etapas').select('operacao_id').eq('id', etapaId).maybeSingle()
+  return (data as { operacao_id: string } | null)?.operacao_id ?? null
+}
+
 export async function inserirModulos(supabase: SupabaseClient, processoId: string, moduleKeys: string[]): Promise<void> {
   if (moduleKeys.length === 0) return
   const agora = new Date().toISOString()

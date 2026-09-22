@@ -8,6 +8,7 @@ import {
   atualizarOperacaoDoProcessoRaw,
   atualizarProcessoRaw,
   atualizarStatusRaw,
+  buscarOperacaoIdDaEtapa,
   buscarProcessoPorId,
   inserirModulos,
   inserirProcesso,
@@ -204,16 +205,53 @@ export async function desvincularProcessoDaOperacao(supabase: SupabaseClient, pr
 // Move o card para outra etapa da MESMA Operação (drag-and-drop entre
 // colunas). A ordem exata dentro da coluna de destino é responsabilidade de
 // reordenarProcessosDaEtapa, chamada logo em seguida pela UI.
+//
+// Contrato deliberadamente restrito (Compatibilização Funcional 01/parte A):
+// - um Processo sem Operação nunca é vinculado implicitamente por aqui —
+//   vínculo só acontece por vincularProcessoAOperacao, que o usuário chama
+//   explicitamente;
+// - uma etapa só é aceita se pertencer à MESMA Operação em que o Processo já
+//   está — mover para etapa de outra Operação é rejeitado antes de escrever.
+// A trigger processos_validar_etapa_operacional continua como defesa
+// adicional no banco; esta validação existe para dar um erro legível antes
+// do INSERT/UPDATE e para que uma IA que chame esta Action diretamente não
+// dependa de decifrar o erro do Postgres.
 export async function moverProcessoParaEtapa(supabase: SupabaseClient, processoId: string, etapaOperacionalId: string | null): Promise<void> {
   const existente = await buscarProcessoPorId(supabase, processoId)
   if (!existente) throw new Error('Processo não encontrado.')
+  if (!existente.operacao_id) {
+    throw new Error('Este Processo ainda não está vinculado a uma Operação — vincule antes de movê-lo entre etapas.')
+  }
+  if (etapaOperacionalId) {
+    const operacaoIdDaEtapa = await buscarOperacaoIdDaEtapa(supabase, etapaOperacionalId)
+    if (!operacaoIdDaEtapa || operacaoIdDaEtapa !== existente.operacao_id) {
+      throw new Error('Esta etapa não pertence à Operação deste Processo.')
+    }
+  }
   await atualizarEtapaDoProcessoRaw(supabase, processoId, etapaOperacionalId)
 }
 
 // Persiste a ordem final de TODOS os cards de uma etapa após um
 // drag-and-drop — cobre tanto reordenar dentro da mesma coluna quanto a
-// posição exata após mover de outra coluna.
-export async function reordenarProcessosDaEtapa(supabase: SupabaseClient, processoIdsEmOrdem: string[]): Promise<void> {
+// posição exata após mover de outra coluna. `operacaoId`/`etapaOperacionalId`
+// são o contexto esperado (a coluna que acabou de ser solta): todo
+// `processoId` recebido precisa pertencer exatamente a esse par, senão a
+// escrita inteira é rejeitada — mesma disciplina de reordenarEtapas, e pelo
+// mesmo motivo: esta Action precisa ser segura para uma futura IA, não só
+// para o dnd-kit da UI atual.
+export async function reordenarProcessosDaEtapa(
+  supabase: SupabaseClient,
+  operacaoId: string,
+  etapaOperacionalId: string | null,
+  processoIdsEmOrdem: string[],
+): Promise<void> {
+  if (processoIdsEmOrdem.length === 0) return
+  const processosDaOperacao = await listarProcessosPorOperacaoRaw(supabase, operacaoId)
+  const idsValidos = new Set(
+    processosDaOperacao.filter(p => p.etapa_operacional_id === etapaOperacionalId).map(p => p.id),
+  )
+  const foraDoContexto = processoIdsEmOrdem.filter(id => !idsValidos.has(id))
+  if (foraDoContexto.length > 0) throw new Error('Um ou mais Processos não pertencem a esta etapa desta Operação.')
   await reordenarOrdemEtapaRaw(supabase, processoIdsEmOrdem.map((id, ordem) => ({ id, ordem })))
 }
 

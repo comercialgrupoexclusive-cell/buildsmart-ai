@@ -117,7 +117,7 @@ export function Sistema({ falando = false }: { falando?: boolean }) {
       case 'board':
         return dentro(<TelaBoard processoId={processo.id} />, { largo: true, preencher: true })
       case 'financeiro':
-        return dentro(<TelaFinanceiro processoId={processo.id} />, { largo: true })
+        return dentro(<TelaFinanceiro processoId={processo.id} templateKey={processo.template_key} />, { largo: true })
       case 'config':
         return dentro(<TelaConfig processoId={processo.id} onMudou={() => carregarModulos(processo.id)} />)
       case 'tempo':

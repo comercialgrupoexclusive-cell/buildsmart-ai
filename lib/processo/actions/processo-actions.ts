@@ -71,8 +71,13 @@ export async function moverProcessoParaEtapa(supabase: SupabaseClient, processoI
   return service.moverProcessoParaEtapa(supabase, processoId, etapaOperacionalId)
 }
 
-export async function reordenarProcessosDaEtapa(supabase: SupabaseClient, processoIdsEmOrdem: string[]): Promise<void> {
-  return service.reordenarProcessosDaEtapa(supabase, processoIdsEmOrdem)
+export async function reordenarProcessosDaEtapa(
+  supabase: SupabaseClient,
+  operacaoId: string,
+  etapaOperacionalId: string | null,
+  processoIdsEmOrdem: string[],
+): Promise<void> {
+  return service.reordenarProcessosDaEtapa(supabase, operacaoId, etapaOperacionalId, processoIdsEmOrdem)
 }
 
 // Tellus R01/A — expõe o registry de templates pelo contrato público, no

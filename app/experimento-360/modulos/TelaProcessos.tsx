@@ -12,6 +12,7 @@ import {
   type ProcessoTemplateKey,
 } from '@/lib/processo'
 import {
+  atualizarOperacao,
   criarOperacao,
   listarOperacoes,
   ETAPAS_SEED_INVESTIDOR,
@@ -58,6 +59,9 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
   const [usarTemplateInvestidor, setUsarTemplateInvestidor] = useState(false)
   const [salvandoOperacao, setSalvandoOperacao] = useState(false)
   const [vinculandoId, setVinculandoId] = useState<string | null>(null)
+  const [renomeandoOperacao, setRenomeandoOperacao] = useState(false)
+  const [nomeOperacaoEdit, setNomeOperacaoEdit] = useState('')
+  const [salvandoRenome, setSalvandoRenome] = useState(false)
 
   const carregar = async () => {
     try {
@@ -85,7 +89,13 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
       if (!data.user) { setSemSessao(true); setProcessos([]); setOperacoes([]); return }
       try {
         const [lista, listaOp] = await Promise.all([listarProcessos(supabase), listarOperacoes(supabase)])
-        if (vivo) { setProcessos(lista); setOperacoes(listaOp) }
+        if (!vivo) return
+        setProcessos(lista)
+        setOperacoes(listaOp)
+        // Havendo uma única Operação, abrir direto o Kanban dela — evita o
+        // usuário não achar o Kanban por ele exigir um passo extra de seleção
+        // quando só existe uma Operação de qualquer forma.
+        if (listaOp.length === 1) setOperacaoId(listaOp[0].id)
       } catch {
         if (vivo) { setProcessos([]); setOperacoes([]) }
       }
@@ -137,6 +147,22 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
       setErro(e instanceof Error ? e.message : 'Não foi possível criar a Operação.')
     } finally {
       setSalvandoOperacao(false)
+    }
+  }
+
+  async function salvarRenomeOperacao() {
+    if (!operacaoId) return
+    const nome = nomeOperacaoEdit.trim()
+    if (!nome) { setRenomeandoOperacao(false); return }
+    setSalvandoRenome(true)
+    try {
+      await atualizarOperacao(supabase, operacaoId, { nome })
+      await carregarOperacoes()
+      setRenomeandoOperacao(false)
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível renomear a Operação.')
+    } finally {
+      setSalvandoRenome(false)
     }
   }
 
@@ -238,9 +264,41 @@ export function TelaProcessos({ onAbrir }: { onAbrir: (p: Processo) => void }) {
         </div>
       )}
 
-      {operacaoSelecionada && (
+      {operacaoSelecionada && renomeandoOperacao && (
+        <div className="flex items-center gap-2">
+          <input
+            autoFocus
+            value={nomeOperacaoEdit}
+            onChange={e => setNomeOperacaoEdit(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') salvarRenomeOperacao(); if (e.key === 'Escape') setRenomeandoOperacao(false) }}
+            disabled={salvandoRenome}
+            className="min-w-0 flex-1 rounded-lg border border-cyan-200/40 bg-black/30 px-3 py-1.5 text-[13px] text-white/92 outline-none"
+          />
+          <button type="button" onClick={salvarRenomeOperacao} disabled={salvandoRenome} className="shrink-0 rounded-full bg-cyan-300/90 px-3 py-1.5 text-[12px] font-medium text-slate-950 hover:bg-cyan-200 disabled:opacity-50">
+            {salvandoRenome ? 'Salvando…' : 'Salvar'}
+          </button>
+          <button type="button" onClick={() => setRenomeandoOperacao(false)} disabled={salvandoRenome} className="shrink-0 rounded-full px-2.5 py-1.5 text-[12px] text-white/55 hover:text-white/85">
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {operacaoSelecionada && !renomeandoOperacao && (
         <div className="flex items-center justify-between gap-2 text-[12px] text-white/45">
-          <span>{operacaoSelecionada.descricao || 'Sem descrição'}</span>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{operacaoSelecionada.descricao || 'Sem descrição'}</span>
+            <button
+              type="button"
+              onClick={() => { setNomeOperacaoEdit(operacaoSelecionada.nome); setRenomeandoOperacao(true) }}
+              title="Renomear Operação"
+              aria-label="Renomear Operação"
+              className="shrink-0 rounded p-1 text-white/35 outline-none hover:text-cyan-100/80"
+            >
+              <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
+            </button>
+          </div>
           <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-0.5">
             <button
               type="button"

@@ -252,9 +252,9 @@ export function OperacaoKanban({
       if (origem && origem !== destino) {
         await moverProcessoParaEtapa(supabase, ativoId, destino === SEM_ETAPA ? null : destino)
       }
-      await reordenarProcessosDaEtapa(supabase, colunasFinais[destino])
+      await reordenarProcessosDaEtapa(supabase, operacaoId, destino === SEM_ETAPA ? null : destino, colunasFinais[destino])
       if (origem && origem !== destino && colunasFinais[origem]?.length) {
-        await reordenarProcessosDaEtapa(supabase, colunasFinais[origem])
+        await reordenarProcessosDaEtapa(supabase, operacaoId, origem === SEM_ETAPA ? null : origem, colunasFinais[origem])
       }
       onProcessosMudaram()
     } catch (e) {
@@ -303,7 +303,7 @@ export function OperacaoKanban({
     ;[nova[indice], nova[alvo]] = [nova[alvo], nova[indice]]
     setEtapas(nova)
     try {
-      await reordenarEtapas(supabase, nova.map(e => e.id))
+      await reordenarEtapas(supabase, operacaoId, nova.map(e => e.id))
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não foi possível reordenar as etapas.')
       await carregarEtapas()

@@ -131,8 +131,16 @@ export async function atualizarEtapa(supabase: SupabaseClient, id: string, patch
 
 // Reordena as COLUNAS (etapas) de uma Operação — distinto de reordenar os
 // Processos DENTRO de uma etapa (isso é lib/processo, dono de
-// processos.ordem_etapa).
-export async function reordenarEtapas(supabase: SupabaseClient, etapaIdsEmOrdem: string[]): Promise<void> {
+// processos.ordem_etapa). `operacaoId` é o contexto esperado: toda etapa
+// recebida precisa pertencer a ele, senão a escrita é rejeitada inteira —
+// esta Action é chamada pela UI hoje, mas o contrato precisa ser seguro
+// também para uma futura IA que não tenha a mesma disciplina do dnd-kit.
+export async function reordenarEtapas(supabase: SupabaseClient, operacaoId: string, etapaIdsEmOrdem: string[]): Promise<void> {
+  if (etapaIdsEmOrdem.length === 0) return
+  const etapasDaOperacao = await listarEtapasDaOperacaoRaw(supabase, operacaoId)
+  const idsValidos = new Set(etapasDaOperacao.map(e => e.id))
+  const foraDoContexto = etapaIdsEmOrdem.filter(id => !idsValidos.has(id))
+  if (foraDoContexto.length > 0) throw new Error('Uma ou mais etapas não pertencem a esta Operação.')
   await reordenarEtapasRaw(supabase, etapaIdsEmOrdem.map((id, ordem) => ({ id, ordem })))
 }
 

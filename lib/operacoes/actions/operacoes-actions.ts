@@ -43,8 +43,8 @@ export async function atualizarEtapa(supabase: SupabaseClient, id: string, patch
   return service.atualizarEtapa(supabase, id, patch)
 }
 
-export async function reordenarEtapas(supabase: SupabaseClient, etapaIdsEmOrdem: string[]): Promise<void> {
-  return service.reordenarEtapas(supabase, etapaIdsEmOrdem)
+export async function reordenarEtapas(supabase: SupabaseClient, operacaoId: string, etapaIdsEmOrdem: string[]): Promise<void> {
+  return service.reordenarEtapas(supabase, operacaoId, etapaIdsEmOrdem)
 }
 
 export async function excluirEtapa(supabase: SupabaseClient, id: string): Promise<void> {
