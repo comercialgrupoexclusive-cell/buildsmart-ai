@@ -12,8 +12,10 @@ import { Dock } from './Dock'
 import { Camada } from './Camada'
 import { TelaPlaceholder, TelaTempo } from './telas'
 import { TelaProcessos } from './modulos/TelaProcessos'
+import { TelaInicio } from './modulos/TelaInicio'
 import { TelaConfigGlobal } from './modulos/TelaConfigGlobal'
 import { TelaVisaoGeral } from './modulos/TelaVisaoGeral'
+import { registrarAcesso } from './acesso-recente'
 import { TelaCaixaEntrada } from './modulos/TelaCaixaEntrada'
 import { TelaPesquisa } from './modulos/TelaPesquisa'
 import { TelaBoard } from './modulos/TelaBoard'
@@ -59,15 +61,11 @@ export function Sistema({ falando = false }: { falando?: boolean }) {
   }, [processoId, carregarModulos])
 
   const selecionar = (id: string) => {
-    // "Visão geral" no global é o home: fecha a camada e mostra o Levi.
-    if (id === 'visao-geral' && contexto === 'global') {
-      setAba(null)
-      return
-    }
     setAba(id)
   }
 
   const abrirProcesso = (p: Processo) => {
+    registrarAcesso(p.id)
     setProcesso(p)
     setContexto('processo')
     setAba('visao-geral')
@@ -93,6 +91,7 @@ export function Sistema({ falando = false }: { falando?: boolean }) {
     )
 
     if (contexto === 'global') {
+      if (aba === 'visao-geral') return envolver(<TelaInicio onAbrir={abrirProcesso} />)
       if (aba === 'processos') return envolver(<TelaProcessos onAbrir={abrirProcesso} />)
       if (aba === 'tempo') return envolver(<TelaTempo />)
       if (aba === 'config') return envolver(<TelaConfigGlobal />)
