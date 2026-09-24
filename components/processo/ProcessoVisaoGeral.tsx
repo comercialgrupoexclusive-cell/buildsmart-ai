@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { alterarStatusProcesso, atualizarDadosProcesso, campoOcultoPor, type Processo, type ProcessoStatus, type ProcessoTemplate } from '@/lib/processo'
 import { Button } from '@/components/ui/Button'
 import { ProcessoDadosForm, type DadosProcesso } from './ProcessoDadosForm'
+import { ProcessoImovelBloco } from './ProcessoImovelBloco'
 
 // Aba de abertura do Processo: os dados de cadastro, em leitura, com edição
 // no mesmo lugar. Usa o mesmo formulário do "Editar" da listagem — não há
@@ -39,6 +40,7 @@ export function ProcessoVisaoGeral({ processo, template, onAtualizado }: {
   }
 
   return (
+    <div className="space-y-4">
     <div className="card overflow-hidden">
       {processo.capa_url && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -68,6 +70,9 @@ export function ProcessoVisaoGeral({ processo, template, onAtualizado }: {
           />
         </dl>
       </div>
+    </div>
+
+    <ProcessoImovelBloco processoId={processo.id} processoNome={processo.nome} />
     </div>
   )
 }
