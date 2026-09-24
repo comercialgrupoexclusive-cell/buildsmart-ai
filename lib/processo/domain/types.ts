@@ -22,9 +22,12 @@ export type Processo = {
   archived_at: string | null
   capa_url: string | null
   grupo_id: string | null
-  // Qual receita criou este Processo (ver domain/template-registry.ts).
-  // Decide quais campos do cadastro fazem sentido — num leilão, por exemplo,
-  // não existe cliente contratante.
+  // Qual receita criou este Processo (processo_templates). Decide quais
+  // campos do cadastro fazem sentido — num leilão, por exemplo, não existe
+  // cliente contratante.
+  template_id: string | null
+  // Resquício da branch tellus. Não é mais lido por nada: quem manda é
+  // template_id. Mantido só porque dropar coluna é destrutivo.
   template_key: string | null
 }
 
@@ -66,10 +69,9 @@ export type CriarProcessoInput = {
   // Se omitido, usa os módulos com enabledByDefault do registry (ver
   // domain/module-registry.ts) — o chamador nunca precisa conhecer a lista.
   modulos?: string[]
-  // Receita que originou o Processo (domain/template-registry.ts). Fica
-  // gravada porque decide o que aparece no cadastro depois, não só na
-  // criação.
-  template_key?: string | null
+  // Receita que originou o Processo (processo_templates). Fica gravada
+  // porque decide o que aparece no cadastro depois, não só na criação.
+  template_id?: string | null
 }
 
 export type AtualizarProcessoInput = Partial<

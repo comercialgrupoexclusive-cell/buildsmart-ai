@@ -5,4 +5,4 @@
 export * from './actions/processo-actions'
 export * from './domain/types'
 export * from './domain/module-registry'
-export * from './domain/template-registry'
+export * from './domain/template'

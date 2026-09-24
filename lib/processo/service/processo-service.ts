@@ -13,8 +13,12 @@ import {
   inserirModulos,
   inserirProcesso,
   listarGruposRaw,
+  atualizarTemplateRaw,
+  excluirTemplateRaw,
+  inserirTemplateRaw,
   listarModulosDeVariosRaw,
   listarModulosRaw,
+  listarTemplatesRaw,
   listarProcessosRaw,
   listarUsoRaw,
   registrarUsoRaw,
@@ -32,6 +36,7 @@ import {
   type ProcessoUso,
 } from '../domain/types'
 import { PROCESSO_MODULES, isValidProcessoModuleKey, modulosHabilitadosPorPadrao } from '../domain/module-registry'
+import type { ProcessoTemplate, SalvarTemplateInput } from '../domain/template'
 
 function normalizarTexto(v: string | null | undefined): string | null {
   const t = (v ?? '').trim()
@@ -64,7 +69,7 @@ export async function criarProcesso(supabase: SupabaseClient, input: CriarProces
     organization_id: organizationId,
     status: 'ACTIVE',
     archived_at: null,
-    template_key: normalizarTexto(input.template_key),
+    template_id: input.template_id || null,
   })
 
   await inserirModulos(supabase, processo.id, moduleKeys)
@@ -200,7 +205,7 @@ export async function duplicarProcesso(supabase: SupabaseClient, id: string): Pr
     modulos: habilitados,
     // Cópia de leilão continua leilão — senão o campo Cliente reapareceria
     // na duplicata.
-    template_key: origem.template_key,
+    template_id: origem.template_id,
   })
 }
 
@@ -223,4 +228,56 @@ export async function listarModulosDeVarios(
   processoIds: string[],
 ): Promise<ProcessoModuloVinculo[]> {
   return listarModulosDeVariosRaw(supabase, processoIds)
+}
+
+// ── Templates ────────────────────────────────────────────────────────────
+// O banco guarda module keys como text[] sem check — validar contra o
+// registry aqui evita migration a cada módulo novo e ainda impede gravar
+// chave inexistente.
+function validarModulos(modulos: string[]): string[] {
+  const invalidos = modulos.filter(k => !isValidProcessoModuleKey(k))
+  if (invalidos.length > 0) throw new Error(`Módulo(s) desconhecido(s): ${invalidos.join(', ')}`)
+  return modulos
+}
+
+export async function listarTemplates(supabase: SupabaseClient): Promise<ProcessoTemplate[]> {
+  return listarTemplatesRaw(supabase)
+}
+
+export async function criarTemplate(
+  supabase: SupabaseClient,
+  input: SalvarTemplateInput,
+  organizationId: string | null,
+): Promise<ProcessoTemplate> {
+  const nome = normalizarTexto(input.nome)
+  if (!nome) throw new Error('O template precisa de um nome.')
+  const organizacao = await resolverOrganizacaoUnica(supabase, organizationId)
+  return inserirTemplateRaw(supabase, {
+    nome,
+    descricao: normalizarTexto(input.descricao),
+    modulos: validarModulos(input.modulos),
+    campos_ocultos: input.campos_ocultos,
+    organization_id: organizacao,
+  })
+}
+
+export async function atualizarTemplate(
+  supabase: SupabaseClient,
+  id: string,
+  patch: Partial<SalvarTemplateInput>,
+): Promise<ProcessoTemplate> {
+  const dados: Partial<SalvarTemplateInput> = {}
+  if (patch.nome !== undefined) {
+    const nome = normalizarTexto(patch.nome)
+    if (!nome) throw new Error('O template precisa de um nome.')
+    dados.nome = nome
+  }
+  if (patch.descricao !== undefined) dados.descricao = normalizarTexto(patch.descricao)
+  if (patch.modulos !== undefined) dados.modulos = validarModulos(patch.modulos)
+  if (patch.campos_ocultos !== undefined) dados.campos_ocultos = patch.campos_ocultos
+  return atualizarTemplateRaw(supabase, id, dados)
+}
+
+export async function excluirTemplate(supabase: SupabaseClient, id: string): Promise<void> {
+  await excluirTemplateRaw(supabase, id)
 }

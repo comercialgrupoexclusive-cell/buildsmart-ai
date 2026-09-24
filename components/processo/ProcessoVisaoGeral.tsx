@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { CalendarDays, MapPin, Pencil, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { alterarStatusProcesso, atualizarDadosProcesso, campoOculto, type Processo, type ProcessoStatus } from '@/lib/processo'
+import { alterarStatusProcesso, atualizarDadosProcesso, campoOcultoPor, type Processo, type ProcessoStatus, type ProcessoTemplate } from '@/lib/processo'
 import { Button } from '@/components/ui/Button'
 import { ProcessoDadosForm, type DadosProcesso } from './ProcessoDadosForm'
 
@@ -11,8 +11,9 @@ import { ProcessoDadosForm, type DadosProcesso } from './ProcessoDadosForm'
 // no mesmo lugar. Usa o mesmo formulário do "Editar" da listagem — não há
 // uma segunda versão dos campos para divergir depois.
 
-export function ProcessoVisaoGeral({ processo, onAtualizado }: {
+export function ProcessoVisaoGeral({ processo, template, onAtualizado }: {
   processo: Processo
+  template?: ProcessoTemplate | null
   onAtualizado: (p: Processo) => void
 }) {
   const [editando, setEditando] = useState(false)
@@ -32,7 +33,7 @@ export function ProcessoVisaoGeral({ processo, onAtualizado }: {
     return (
       <div className="card p-5">
         <h2 className="mb-4 font-semibold" style={{ color: 'var(--text-primary)' }}>Dados do processo</h2>
-        <ProcessoDadosForm processo={processo} onSalvar={salvar} onCancelar={() => setEditando(false)} />
+        <ProcessoDadosForm processo={processo} template={template} onSalvar={salvar} onCancelar={() => setEditando(false)} />
       </div>
     )
   }
@@ -53,11 +54,13 @@ export function ProcessoVisaoGeral({ processo, onAtualizado }: {
         </div>
 
         <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-          {!campoOculto(processo.template_key, 'cliente_nome') && (
+          {!campoOcultoPor(template, 'cliente_nome') && (
             <Campo icone={<User size={14} />} rotulo="Cliente" valor={processo.cliente_nome} />
           )}
-          <Campo icone={<MapPin size={14} />} rotulo="Endereço" valor={processo.endereco} />
-          <Campo rotulo="Tipo" valor={processo.tipo} />
+          {!campoOcultoPor(template, 'endereco') && (
+            <Campo icone={<MapPin size={14} />} rotulo="Endereço" valor={processo.endereco} />
+          )}
+          {!campoOcultoPor(template, 'tipo') && <Campo rotulo="Tipo" valor={processo.tipo} />}
           <Campo
             icone={<CalendarDays size={14} />}
             rotulo="Criado em"

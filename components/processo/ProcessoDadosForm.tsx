@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { campoOculto, type AtualizarProcessoInput, type Processo, type ProcessoStatus } from '@/lib/processo'
+import { campoOcultoPor, type AtualizarProcessoInput, type Processo, type ProcessoStatus, type ProcessoTemplate } from '@/lib/processo'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 
@@ -20,8 +20,10 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
 
 export type DadosProcesso = AtualizarProcessoInput & { status?: ProcessoStatus }
 
-export function ProcessoDadosForm({ processo, onSalvar, onCancelar, mostrarStatus = true }: {
+export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mostrarStatus = true }: {
   processo: Processo
+  // Template do Processo, quando tem um. Decide quais campos somem.
+  template?: ProcessoTemplate | null
   onSalvar: (dados: DadosProcesso) => Promise<void>
   onCancelar?: () => void
   mostrarStatus?: boolean
@@ -37,7 +39,8 @@ export function ProcessoDadosForm({ processo, onSalvar, onCancelar, mostrarStatu
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
-  const ocultarCliente = campoOculto(processo.template_key, 'cliente_nome')
+  const oculto = (campo: Parameters<typeof campoOcultoPor>[1]) => campoOcultoPor(template, campo)
+  const ocultarCliente = oculto('cliente_nome')
 
   // Mesmo bucket e mesmo padrão de prefixo da Caixa de Entrada — nenhum
   // bucket novo para a capa.
@@ -70,11 +73,11 @@ export function ProcessoDadosForm({ processo, onSalvar, onCancelar, mostrarStatu
     try {
       await onSalvar({
         nome: nome.trim(),
-        tipo: tipo.trim() || null,
+        tipo: oculto('tipo') ? null : (tipo.trim() || null),
         // Template que esconde o campo nunca grava valor nele — senão um
         // cliente digitado antes da troca de template ficaria preso invisível.
         cliente_nome: ocultarCliente ? null : (clienteNome.trim() || null),
-        endereco: endereco.trim() || null,
+        endereco: oculto('endereco') ? null : (endereco.trim() || null),
         capa_url: capaUrl,
         ...(mostrarStatus ? { status } : {}),
       })
@@ -137,13 +140,17 @@ export function ProcessoDadosForm({ processo, onSalvar, onCancelar, mostrarStatu
       <Input label="Nome" value={nome} onChange={e => setNome(e.target.value)} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Input label="Tipo" value={tipo} onChange={e => setTipo(e.target.value)} placeholder="Residencial, Reforma…" />
+        {!oculto('tipo') && (
+          <Input label="Tipo" value={tipo} onChange={e => setTipo(e.target.value)} placeholder="Residencial, Reforma…" />
+        )}
         {!ocultarCliente && (
           <Input label="Cliente" value={clienteNome} onChange={e => setClienteNome(e.target.value)} />
         )}
       </div>
 
-      <Input label="Endereço" value={endereco} onChange={e => setEndereco(e.target.value)} />
+      {!oculto('endereco') && (
+        <Input label="Endereço" value={endereco} onChange={e => setEndereco(e.target.value)} />
+      )}
 
       {mostrarStatus && (
         <Select label="Status" value={status} onChange={e => setStatus(e.target.value as ProcessoStatus)}>

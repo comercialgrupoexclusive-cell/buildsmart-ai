@@ -15,6 +15,7 @@ import type {
   ProcessoStatus,
   ProcessoUso,
 } from '../domain/types'
+import type { ProcessoTemplate, SalvarTemplateInput } from '../domain/template'
 
 export async function criarProcesso(supabase: SupabaseClient, input: CriarProcessoInput): Promise<Processo> {
   return service.criarProcesso(supabase, input)
@@ -86,4 +87,20 @@ export async function listarUso(supabase: SupabaseClient): Promise<ProcessoUso[]
 
 export async function listarModulosDeVarios(supabase: SupabaseClient, processoIds: string[]): Promise<ProcessoModuloVinculo[]> {
   return service.listarModulosDeVarios(supabase, processoIds)
+}
+
+export async function listarTemplates(supabase: SupabaseClient): Promise<ProcessoTemplate[]> {
+  return service.listarTemplates(supabase)
+}
+
+export async function criarTemplate(supabase: SupabaseClient, input: SalvarTemplateInput, organizationId: string | null): Promise<ProcessoTemplate> {
+  return service.criarTemplate(supabase, input, organizationId)
+}
+
+export async function atualizarTemplate(supabase: SupabaseClient, id: string, patch: Partial<SalvarTemplateInput>): Promise<ProcessoTemplate> {
+  return service.atualizarTemplate(supabase, id, patch)
+}
+
+export async function excluirTemplate(supabase: SupabaseClient, id: string): Promise<void> {
+  return service.excluirTemplate(supabase, id)
 }

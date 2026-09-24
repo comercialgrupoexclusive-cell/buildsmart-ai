@@ -5,6 +5,7 @@
 // lib/__tests__/fake-supabase.ts) sem depender de rede.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AtualizarProcessoInput, Processo, ProcessoGrupo, ProcessoModuloVinculo, ProcessoStatus, ProcessoUso, ListarProcessosFiltros } from '../domain/types'
+import type { ProcessoTemplate, SalvarTemplateInput } from '../domain/template'
 
 const TABELA_PROCESSOS = 'processos'
 const TABELA_MODULOS = 'processo_modulos'
@@ -19,7 +20,7 @@ type NovoProcessoDados = {
   organization_id: string | null
   status: ProcessoStatus
   archived_at: string | null
-  template_key: string | null
+  template_id: string | null
 }
 
 export async function inserirProcesso(supabase: SupabaseClient, dados: NovoProcessoDados): Promise<Processo> {
@@ -204,4 +205,42 @@ export async function listarModulosDeVariosRaw(
     .eq('enabled', true)
   if (error) throw new Error(error.message)
   return (data as ProcessoModuloVinculo[]) || []
+}
+
+// ── Templates (20260924060000) ───────────────────────────────────────────
+const TABELA_TEMPLATES = 'processo_templates'
+
+export async function listarTemplatesRaw(supabase: SupabaseClient): Promise<ProcessoTemplate[]> {
+  const { data, error } = await supabase.from(TABELA_TEMPLATES).select('*').order('nome')
+  if (error) throw new Error(error.message)
+  return (data as ProcessoTemplate[]) || []
+}
+
+export async function inserirTemplateRaw(
+  supabase: SupabaseClient,
+  dados: SalvarTemplateInput & { organization_id: string | null },
+): Promise<ProcessoTemplate> {
+  const { data, error } = await supabase.from(TABELA_TEMPLATES).insert(dados).select('*').single()
+  if (error) throw new Error(error.message)
+  return data as ProcessoTemplate
+}
+
+export async function atualizarTemplateRaw(
+  supabase: SupabaseClient,
+  id: string,
+  patch: Partial<SalvarTemplateInput>,
+): Promise<ProcessoTemplate> {
+  const { data, error } = await supabase
+    .from(TABELA_TEMPLATES)
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single()
+  if (error) throw new Error(error.message)
+  return data as ProcessoTemplate
+}
+
+export async function excluirTemplateRaw(supabase: SupabaseClient, id: string): Promise<void> {
+  const { error } = await supabase.from(TABELA_TEMPLATES).delete().eq('id', id)
+  if (error) throw new Error(error.message)
 }

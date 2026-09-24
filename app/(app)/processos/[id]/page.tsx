@@ -21,11 +21,13 @@ import {
   desabilitarModulo,
   habilitarModulo,
   listarModulosDoProcesso,
+  listarTemplates,
   obterProcesso,
   registrarUso,
   type Processo,
   type ProcessoModuloVinculo,
   type ProcessoStatus,
+  type ProcessoTemplate,
 } from '@/lib/processo'
 import { ProcessProvider } from '@/lib/processo/context'
 import { getOrCreateOrcamentoDoProcesso } from '@/lib/processo/orcamento'
@@ -66,6 +68,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
   const supabase = useMemo(() => createClient(), [])
   const [processo, setProcesso] = useState<Processo | null>(null)
   const [modulos, setModulos] = useState<ProcessoModuloVinculo[]>([])
+  const [template, setTemplate] = useState<ProcessoTemplate | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [savingStatus, setSavingStatus] = useState(false)
@@ -76,7 +79,11 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
 
   async function load() {
     setLoading(true)
-    const [p, m] = await Promise.all([obterProcesso(supabase, id), listarModulosDoProcesso(supabase, id)])
+    const [p, m, ts] = await Promise.all([
+      obterProcesso(supabase, id),
+      listarModulosDoProcesso(supabase, id),
+      listarTemplates(supabase).catch(() => []),
+    ])
     if (!p) {
       setNotFound(true)
       setLoading(false)
@@ -84,6 +91,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     }
     setProcesso(p)
     setModulos(m)
+    setTemplate(ts.find(t => t.id === p.template_id) ?? null)
     setLoading(false)
   }
 
@@ -212,7 +220,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
         <Tabs options={tabOptions} value={tab} onChange={setTab} />
 
         {tab === 'visao_geral' && (
-          <ProcessoVisaoGeral processo={processo} onAtualizado={setProcesso} />
+          <ProcessoVisaoGeral processo={processo} template={template} onAtualizado={setProcesso} />
         )}
 
         {tab === 'mais' && (

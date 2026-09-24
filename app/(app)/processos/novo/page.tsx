@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { campoOculto, criarProcesso, getProcessoTemplate, listarTemplates } from '@/lib/processo'
+import { campoOcultoPor, criarProcesso, listarTemplates, type ProcessoTemplate } from '@/lib/processo'
 import { useProfile } from '@/lib/profile-context'
 import type { Profile } from '@/lib/types'
 import { Input, Select } from '@/components/ui/Input'
@@ -24,7 +24,7 @@ const EMPTY_FORM = {
   cliente_nome: '',
   endereco: '',
   responsavel_id: '',
-  template_key: '',
+  template_id: '',
 }
 
 type OrgOption = {
@@ -37,6 +37,7 @@ export default function NovoProcessoPage() {
   const router = useRouter()
   const { currentProfile } = useProfile()
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [templates, setTemplates] = useState<ProcessoTemplate[]>([])
   const [organizacoes, setOrganizacoes] = useState<OrgOption[]>([])
   const [organizationId, setOrganizationId] = useState('')
   const [loadingOrg, setLoadingOrg] = useState(true)
@@ -48,6 +49,13 @@ export default function NovoProcessoPage() {
     supabase.from('profiles').select('id, name, apelido').order('name').then(({ data }: { data: Profile[] | null }) => {
       setProfiles(data ?? [])
     })
+  }, [supabase])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void listarTemplates(supabase).then(setTemplates).catch(() => setTemplates([]))
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [supabase])
 
   useEffect(() => {
@@ -101,8 +109,9 @@ export default function NovoProcessoPage() {
     return () => { active = false }
   }, [currentProfile?.id, supabase])
 
-  const templateEscolhido = getProcessoTemplate(form.template_key)
-  const ocultarCliente = campoOculto(form.template_key, 'cliente_nome')
+  const templateEscolhido = templates.find(t => t.id === form.template_id) ?? null
+  const oculto = (campo: Parameters<typeof campoOcultoPor>[1]) => campoOcultoPor(templateEscolhido, campo)
+  const ocultarCliente = oculto('cliente_nome')
 
   async function handleSave() {
     setErro(null)
@@ -123,8 +132,8 @@ export default function NovoProcessoPage() {
         endereco: form.endereco || null,
         responsavel_id: form.responsavel_id || null,
         organization_id: organizationId || null,
-        template_key: form.template_key || null,
-        modulos: getProcessoTemplate(form.template_key)?.modulos,
+        template_id: form.template_id || null,
+        modulos: templateEscolhido?.modulos,
       })
       router.push(`/processos/${processo.id}`)
     } catch (e) {
@@ -166,12 +175,12 @@ export default function NovoProcessoPage() {
         )}
         <Select
           label="Template"
-          value={form.template_key}
-          onChange={e => setForm(f => ({ ...f, template_key: e.target.value }))}
+          value={form.template_id}
+          onChange={e => setForm(f => ({ ...f, template_id: e.target.value }))}
         >
           <option value="">— Processo em branco —</option>
-          {listarTemplates().map(t => (
-            <option key={t.key} value={t.key}>{t.label}</option>
+          {templates.map(t => (
+            <option key={t.id} value={t.id}>{t.nome}</option>
           ))}
         </Select>
         {templateEscolhido && (

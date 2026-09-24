@@ -8,7 +8,7 @@
 // os cards de uma vez. Nunca uma consulta por card.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Boxes, Plus } from 'lucide-react'
+import { Boxes, LayoutTemplate, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   agruparProcessos,
@@ -209,9 +209,19 @@ export default function ProcessosPage() {
       <PageHeader
         title="Processos"
         titleAction={
-          <Link href="/processos/novo">
-            <Button size="sm" icon={<Plus size={15} />}>Novo Processo</Button>
-          </Link>
+          // Largura fixa igual nos dois: rótulos curtos ("Processo" e
+          // "Templates") cabem no mesmo w-32 sem quebrar, o que "Novo
+          // Processo" não fazia.
+          <div className="flex items-center gap-2">
+            <Link href="/processos/novo">
+              <Button size="sm" icon={<Plus size={15} />} className="w-32">Processo</Button>
+            </Link>
+            <Link href="/processos/templates">
+              <Button size="sm" variant="secondary" icon={<LayoutTemplate size={15} />} className="w-32">
+                Templates
+              </Button>
+            </Link>
+          </div>
         }
       />
 
