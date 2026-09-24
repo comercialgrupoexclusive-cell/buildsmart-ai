@@ -14,7 +14,7 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart, ShoppingCart, Wallet, Landmark, LayoutTemplate, LayoutDashboard } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart, Inbox, ShoppingCart, Wallet, Landmark, LayoutTemplate, LayoutDashboard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
@@ -38,6 +38,7 @@ import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ProcessoPlantaBaixa } from '@/components/processo/planta-baixa/ProcessoPlantaBaixa'
 import { ProcessoBoard } from '@/components/processo/board/ProcessoBoard'
+import { ProcessoCaixaEntrada } from '@/components/processo/caixa-entrada/ProcessoCaixaEntrada'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
@@ -49,7 +50,7 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board'
+type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board' | 'caixa_entrada'
 
 export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -140,6 +141,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
 
   const tabOptions: TabOption<ProcessoTab>[] = [
     { key: 'modulos', label: 'Módulos', icon: Boxes },
+    { key: 'caixa_entrada', label: 'Caixa de Entrada', icon: Inbox },
     ...(habilitados.has('orcamento') ? [{ key: 'orcamento' as const, label: 'Orçamento', icon: Calculator }] : []),
     ...(habilitados.has('planejamento') ? [{ key: 'planejamento' as const, label: 'Planejamento', icon: CalendarDays }] : []),
     ...(habilitados.has('tarefas') ? [{ key: 'tarefas' as const, label: 'Tarefas', icon: ClipboardList }] : []),
@@ -245,6 +247,8 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
         {tab === 'planta_baixa' && <ProcessoPlantaBaixa processoId={processo.id} />}
 
         {tab === 'board' && <ProcessoBoard processoId={processo.id} />}
+
+        {tab === 'caixa_entrada' && <ProcessoCaixaEntrada processoId={processo.id} />}
       </div>
     </ProcessProvider>
   )
