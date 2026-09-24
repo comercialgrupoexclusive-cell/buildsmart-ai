@@ -43,7 +43,7 @@ export async function proxy(request: NextRequest) {
       if (!organization) {
         if (path.startsWith('/api/')) return finish(NextResponse.json({ error: 'Selecione uma organização.' }, { status: 403 }))
         const target = new URL('/organizacoes', request.url)
-        target.searchParams.set('next', destinoSeguro(path + request.nextUrl.search) || '/experimento-360')
+        target.searchParams.set('next', destinoSeguro(path + request.nextUrl.search) || '/processos')
         return finish(NextResponse.redirect(target))
       }
     }
