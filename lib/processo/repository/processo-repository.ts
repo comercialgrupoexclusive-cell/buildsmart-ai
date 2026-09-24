@@ -19,6 +19,7 @@ type NovoProcessoDados = {
   organization_id: string | null
   status: ProcessoStatus
   archived_at: string | null
+  template_key: string | null
 }
 
 export async function inserirProcesso(supabase: SupabaseClient, dados: NovoProcessoDados): Promise<Processo> {

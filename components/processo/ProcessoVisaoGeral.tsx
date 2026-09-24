@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { CalendarDays, MapPin, Pencil, User } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { alterarStatusProcesso, atualizarDadosProcesso, type Processo, type ProcessoStatus } from '@/lib/processo'
+import { alterarStatusProcesso, atualizarDadosProcesso, campoOculto, type Processo, type ProcessoStatus } from '@/lib/processo'
 import { Button } from '@/components/ui/Button'
 import { ProcessoDadosForm, type DadosProcesso } from './ProcessoDadosForm'
 
@@ -53,7 +53,9 @@ export function ProcessoVisaoGeral({ processo, onAtualizado }: {
         </div>
 
         <dl className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-          <Campo icone={<User size={14} />} rotulo="Cliente" valor={processo.cliente_nome} />
+          {!campoOculto(processo.template_key, 'cliente_nome') && (
+            <Campo icone={<User size={14} />} rotulo="Cliente" valor={processo.cliente_nome} />
+          )}
           <Campo icone={<MapPin size={14} />} rotulo="Endereço" valor={processo.endereco} />
           <Campo rotulo="Tipo" valor={processo.tipo} />
           <Campo

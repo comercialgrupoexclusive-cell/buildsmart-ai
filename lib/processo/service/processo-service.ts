@@ -64,6 +64,7 @@ export async function criarProcesso(supabase: SupabaseClient, input: CriarProces
     organization_id: organizationId,
     status: 'ACTIVE',
     archived_at: null,
+    template_key: normalizarTexto(input.template_key),
   })
 
   await inserirModulos(supabase, processo.id, moduleKeys)
@@ -197,6 +198,9 @@ export async function duplicarProcesso(supabase: SupabaseClient, id: string): Pr
     responsavel_id: origem.responsavel_id,
     organization_id: origem.organization_id,
     modulos: habilitados,
+    // Cópia de leilão continua leilão — senão o campo Cliente reapareceria
+    // na duplicata.
+    template_key: origem.template_key,
   })
 }
 

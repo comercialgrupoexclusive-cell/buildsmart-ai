@@ -32,9 +32,10 @@ type Args = Record<string, any>
 
 export type TarefasAiCtx = {
   actor: string           // nome/telefone de quem está conversando (label livre, sem auth real)
-  origem: 'whatsapp' | 'obra_ai' | 'floating'
+  origem: 'whatsapp' | 'obra_ai' | 'floating' | 'caixa_entrada'
   fixedObraId?: string    // modo escopado (obra-ai, floating dentro de Obra>Tarefas): tarefas restritas a esta obra
   fixedProjetoId?: string // modo escopado (floating dentro de Projeto>Tarefas): tarefas restritas a este projeto
+  fixedProcessoId?: string // modo escopado (triagem de uma entrada da Caixa que nasceu dentro de um Processo)
   profileId?: string | null   // identidade estrutural do remetente (whatsapp: luizia_wa_phone_rules.profile_id; floating: currentProfile.id direto — nunca por nome)
   conversationKey: string     // chave da conversa p/ propostas pendentes (whatsapp: telefone; obra_ai: obra_ai:{obraId}; floating: floating:{profileId})
 }
@@ -385,7 +386,7 @@ async function aplicarPatchTarefa(db: DB, t: Tarefa, patch: Record<string, unkno
 // propose_create_task) — nunca escreve, só resolve nomes e monta o payload
 // pronto para INSERT, mais o rótulo de contexto (obra/projeto/geral) para
 // mostrar na proposta antes de confirmar. ─────────────────────────────────
-async function nomeDe(db: DB, tabela: 'obras' | 'projetos', id: string): Promise<string | null> {
+async function nomeDe(db: DB, tabela: 'obras' | 'projetos' | 'processos', id: string): Promise<string | null> {
   const { data } = await db.from(tabela).select('nome').eq('id', id).maybeSingle()
   return (data as any)?.nome || null
 }
@@ -395,6 +396,7 @@ type CriacaoPayload = {
   descricao: string | null
   obra_id: string | null
   projeto_id: string | null
+  processo_id: string | null
   responsavel_id: string | null
   responsavel_nome: string | null
   prioridade: Tarefa['prioridade']
@@ -445,6 +447,7 @@ async function resolverCriacao(db: DB, args: Args, ctx: TarefasAiCtx): Promise<C
     descricao: args.descricao || null,
     obra_id: obraId,
     projeto_id: projetoId,
+    processo_id: ctx.fixedProcessoId || null,
     responsavel_id: responsavelId,
     responsavel_nome: responsavelNome,
     prioridade: ['baixa', 'normal', 'alta', 'urgente'].includes(args.prioridade) ? args.prioridade : 'normal',
@@ -460,6 +463,9 @@ async function resolverCriacao(db: DB, args: Args, ctx: TarefasAiCtx): Promise<C
   } else if (projetoId) {
     const nome = await nomeDe(db, 'projetos', projetoId)
     contextoLabel = nome ? `Projeto ${nome}` : 'Projeto'
+  } else if (payload.processo_id) {
+    const nome = await nomeDe(db, 'processos', payload.processo_id)
+    contextoLabel = nome ? `Processo ${nome}` : 'Processo'
   }
 
   return { payload, contextoLabel }
@@ -475,6 +481,7 @@ export async function execTarefasAiTool(db: DB, name: string, args: Args, ctx: T
         let query = db.from('tarefas').select('*')
         if (ctx.fixedObraId) query = query.eq('obra_id', ctx.fixedObraId)
         else if (ctx.fixedProjetoId) query = query.eq('projeto_id', ctx.fixedProjetoId)
+        else if (ctx.fixedProcessoId) query = query.eq('processo_id', ctx.fixedProcessoId)
 
         const semEscopoExplicito = !args.obra_nome && !args.projeto_nome && !args.responsavel_nome
         const temIdentidadePessoal = ctx.origem === 'whatsapp' || ctx.origem === 'floating'

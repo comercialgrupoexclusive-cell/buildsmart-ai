@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, HardHat, FileText,
-  BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, MessageCircle, X, ClipboardList, Landmark, Boxes,
+  BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, MessageCircle, X, ClipboardList, Landmark, Boxes, Inbox,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
@@ -12,6 +12,9 @@ import { useProfile } from '@/lib/profile-context'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  // Fica acima de Tarefas de propósito: é onde a coisa entra antes de virar
+  // tarefa, processo ou nada.
+  { href: '/caixa-entrada', label: 'Caixa de Entrada', icon: Inbox },
   // Motor de Processo (P3, em construção) — ao lado de Projetos/Obras, não
   // no lugar delas. Só substitui quando P3.7 remover as entradas legadas.
   { href: '/processos', label: 'Processos', icon: Boxes },

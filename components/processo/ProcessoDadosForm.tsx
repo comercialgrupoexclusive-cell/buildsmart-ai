@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import type { AtualizarProcessoInput, Processo, ProcessoStatus } from '@/lib/processo'
+import { campoOculto, type AtualizarProcessoInput, type Processo, type ProcessoStatus } from '@/lib/processo'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 
@@ -37,6 +37,8 @@ export function ProcessoDadosForm({ processo, onSalvar, onCancelar, mostrarStatu
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
+  const ocultarCliente = campoOculto(processo.template_key, 'cliente_nome')
+
   // Mesmo bucket e mesmo padrão de prefixo da Caixa de Entrada — nenhum
   // bucket novo para a capa.
   async function enviarCapa(arquivo: File | undefined) {
@@ -69,7 +71,9 @@ export function ProcessoDadosForm({ processo, onSalvar, onCancelar, mostrarStatu
       await onSalvar({
         nome: nome.trim(),
         tipo: tipo.trim() || null,
-        cliente_nome: clienteNome.trim() || null,
+        // Template que esconde o campo nunca grava valor nele — senão um
+        // cliente digitado antes da troca de template ficaria preso invisível.
+        cliente_nome: ocultarCliente ? null : (clienteNome.trim() || null),
         endereco: endereco.trim() || null,
         capa_url: capaUrl,
         ...(mostrarStatus ? { status } : {}),
@@ -134,7 +138,9 @@ export function ProcessoDadosForm({ processo, onSalvar, onCancelar, mostrarStatu
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Input label="Tipo" value={tipo} onChange={e => setTipo(e.target.value)} placeholder="Residencial, Reforma…" />
-        <Input label="Cliente" value={clienteNome} onChange={e => setClienteNome(e.target.value)} />
+        {!ocultarCliente && (
+          <Input label="Cliente" value={clienteNome} onChange={e => setClienteNome(e.target.value)} />
+        )}
       </div>
 
       <Input label="Endereço" value={endereco} onChange={e => setEndereco(e.target.value)} />

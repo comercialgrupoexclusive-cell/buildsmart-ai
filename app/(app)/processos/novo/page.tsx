@@ -11,7 +11,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { criarProcesso } from '@/lib/processo'
+import { campoOculto, criarProcesso, getProcessoTemplate, listarTemplates } from '@/lib/processo'
 import { useProfile } from '@/lib/profile-context'
 import type { Profile } from '@/lib/types'
 import { Input, Select } from '@/components/ui/Input'
@@ -24,6 +24,7 @@ const EMPTY_FORM = {
   cliente_nome: '',
   endereco: '',
   responsavel_id: '',
+  template_key: '',
 }
 
 type OrgOption = {
@@ -100,6 +101,9 @@ export default function NovoProcessoPage() {
     return () => { active = false }
   }, [currentProfile?.id, supabase])
 
+  const templateEscolhido = getProcessoTemplate(form.template_key)
+  const ocultarCliente = campoOculto(form.template_key, 'cliente_nome')
+
   async function handleSave() {
     setErro(null)
     if (!form.nome.trim()) {
@@ -119,6 +123,8 @@ export default function NovoProcessoPage() {
         endereco: form.endereco || null,
         responsavel_id: form.responsavel_id || null,
         organization_id: organizationId || null,
+        template_key: form.template_key || null,
+        modulos: getProcessoTemplate(form.template_key)?.modulos,
       })
       router.push(`/processos/${processo.id}`)
     } catch (e) {
@@ -158,6 +164,21 @@ export default function NovoProcessoPage() {
             ))}
           </Select>
         )}
+        <Select
+          label="Template"
+          value={form.template_key}
+          onChange={e => setForm(f => ({ ...f, template_key: e.target.value }))}
+        >
+          <option value="">— Processo em branco —</option>
+          {listarTemplates().map(t => (
+            <option key={t.key} value={t.key}>{t.label}</option>
+          ))}
+        </Select>
+        {templateEscolhido && (
+          <p className="-mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+            {templateEscolhido.descricao}
+          </p>
+        )}
         <Input
           label="Nome *"
           placeholder="Ex: Jardim Allegra"
@@ -170,12 +191,14 @@ export default function NovoProcessoPage() {
           value={form.tipo}
           onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}
         />
-        <Input
-          label="Cliente"
-          placeholder="Nome do cliente"
-          value={form.cliente_nome}
-          onChange={e => setForm(f => ({ ...f, cliente_nome: e.target.value }))}
-        />
+        {!ocultarCliente && (
+          <Input
+            label="Cliente"
+            placeholder="Nome do cliente"
+            value={form.cliente_nome}
+            onChange={e => setForm(f => ({ ...f, cliente_nome: e.target.value }))}
+          />
+        )}
         <Input
           label="Endereço"
           placeholder="Rua, cidade..."

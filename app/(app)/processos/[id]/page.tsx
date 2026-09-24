@@ -38,7 +38,7 @@ import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ProcessoPlantaBaixa } from '@/components/processo/planta-baixa/ProcessoPlantaBaixa'
 import { ProcessoBoard } from '@/components/processo/board/ProcessoBoard'
-import { ProcessoCaixaEntrada } from '@/components/processo/caixa-entrada/ProcessoCaixaEntrada'
+import { CaixaEntrada } from '@/components/caixa-entrada/CaixaEntrada'
 import { ProcessoVisaoGeral } from '@/components/processo/ProcessoVisaoGeral'
 import { ProcessoMais } from '@/components/processo/ProcessoMais'
 import { ProcessoPortalCliente } from '@/components/processo/portal/ProcessoPortalCliente'
@@ -245,7 +245,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
 
         {tab === 'board' && <ProcessoBoard processoId={processo.id} />}
 
-        {tab === 'caixa_entrada' && <ProcessoCaixaEntrada processoId={processo.id} />}
+        {tab === 'caixa_entrada' && <CaixaEntrada processoId={processo.id} />}
 
         {tab === 'portal_cliente' && <ProcessoPortalCliente processoId={processo.id} />}
       </div>

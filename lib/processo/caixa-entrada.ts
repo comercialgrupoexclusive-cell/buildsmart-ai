@@ -17,7 +17,11 @@ export type CaixaEntradaStatus = 'novo' | 'processando' | 'revisado' | 'arquivad
 
 export type EntradaCaixa = {
   id: string
-  processo_id: string
+  // Nulo quando a entrada nasceu na Caixa global — o usuário jogou algo lá
+  // antes de existir Processo para aquilo (migration 20260924040000). A
+  // organização vem por trigger nos dois casos.
+  processo_id: string | null
+  organization_id: string | null
   autor_profile_id: string | null
   tipo: CaixaEntradaTipo
   origem: string
@@ -31,19 +35,22 @@ export type EntradaCaixa = {
   created_at: string
 }
 
-export async function listarEntradasCaixa(supabase: SupabaseClient, processoId: string): Promise<EntradaCaixa[]> {
-  const { data, error } = await supabase
-    .from('processo_caixa_entrada')
-    .select('*')
-    .eq('processo_id', processoId)
-    .order('created_at', { ascending: false })
+// processoId nulo = Caixa global: traz tudo que a RLS deixa ver, incluindo
+// o que está dentro de Processos. É a visão de "tudo que eu joguei".
+export async function listarEntradasCaixa(
+  supabase: SupabaseClient,
+  processoId: string | null,
+): Promise<EntradaCaixa[]> {
+  let query = supabase.from('processo_caixa_entrada').select('*')
+  if (processoId) query = query.eq('processo_id', processoId)
+  const { data, error } = await query.order('created_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as EntradaCaixa[]
 }
 
 export async function criarEntradaTexto(
   supabase: SupabaseClient,
-  processoId: string,
+  processoId: string | null,
   texto: string,
 ): Promise<EntradaCaixa> {
   const { data, error } = await supabase
@@ -65,12 +72,12 @@ function tipoDoArquivo(mime: string): 'imagem' | 'documento' | 'audio' {
 // pequena e dedicada + bucket já existente `project-files`, prefixo próprio.
 export async function criarEntradaArquivo(
   supabase: SupabaseClient,
-  processoId: string,
+  processoId: string | null,
   arquivo: File,
   opts?: { duracaoSegundos?: number },
 ): Promise<EntradaCaixa> {
   const ext = arquivo.name.split('.').pop() || 'bin'
-  const path = `caixa-entrada/${processoId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+  const path = `caixa-entrada/${processoId ?? 'global'}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
   const { error: upErr } = await supabase.storage.from('project-files').upload(path, arquivo)
   if (upErr) throw upErr
   const url = supabase.storage.from('project-files').getPublicUrl(path).data.publicUrl
