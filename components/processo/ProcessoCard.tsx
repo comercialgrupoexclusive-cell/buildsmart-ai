@@ -64,35 +64,41 @@ export function ProcessoCard({ processo, acoes, onEditar, onExcluir, onDuplicar,
         className="block overflow-hidden rounded-xl transition-transform hover:scale-[1.01]"
         style={{ border: '1px solid var(--border)', background: 'var(--bg-card)' }}
       >
-        <div className="relative h-36">
-          {processo.capa_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
+        {processo.capa_url ? (
+          // Com foto: a imagem é o fundo, texto branco sobre um degradê que
+          // só existe para dar contraste à foto real.
+          <div className="relative h-36">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={processo.capa_url} alt="" className="absolute inset-0 h-full w-full object-cover" />
-          ) : (
             <div
               className="absolute inset-0"
-              style={{ background: 'linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%)' }}
+              style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.12) 100%)' }}
             />
-          )}
-          <div
-            className="absolute inset-0"
-            style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.12) 100%)' }}
-          />
-
-          {/* Status só aparece quando é exceção — Ativo é o esperado. */}
-          {processo.status !== 'ACTIVE' && (
-            <div className="absolute top-3 left-3">
-              <Badge variant={STATUS_BADGE_VARIANT[processo.status]}>{STATUS_LABEL[processo.status]}</Badge>
+            {processo.status !== 'ACTIVE' && (
+              <div className="absolute top-3 left-3">
+                <Badge variant={STATUS_BADGE_VARIANT[processo.status]}>{STATUS_LABEL[processo.status]}</Badge>
+              </div>
+            )}
+            <div className="absolute bottom-0 left-0 right-0 p-3.5">
+              <h3 className="font-semibold text-base leading-tight text-white drop-shadow-sm">{processo.nome}</h3>
+              {legenda && <p className="mt-0.5 truncate text-xs text-white/70">{legenda}</p>}
             </div>
-          )}
-
-          <div className="absolute bottom-0 left-0 right-0 p-3.5">
-            <h3 className="font-semibold text-base leading-tight text-white drop-shadow-sm">{processo.nome}</h3>
-            {legenda && <p className="mt-0.5 truncate text-xs text-white/70">{legenda}</p>}
           </div>
-        </div>
+        ) : (
+          // Sem foto: nenhum bloco escuro falso. O card assume o fundo do tema
+          // e o texto usa os tokens normais — limpo em claro e escuro.
+          <div className="p-3.5 pr-10">
+            {processo.status !== 'ACTIVE' && (
+              <div className="mb-2">
+                <Badge variant={STATUS_BADGE_VARIANT[processo.status]}>{STATUS_LABEL[processo.status]}</Badge>
+              </div>
+            )}
+            <h3 className="font-semibold text-base leading-tight" style={{ color: 'var(--text-primary)' }}>{processo.nome}</h3>
+            {legenda && <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{legenda}</p>}
+          </div>
+        )}
 
-        <div className="flex flex-wrap items-center gap-1.5 px-3.5 py-2.5 min-h-[42px]">
+        <div className="flex flex-wrap items-center gap-1.5 px-3.5 py-2.5 min-h-[42px]" style={{ borderTop: '1px solid var(--border)' }}>
           {acoes.length === 0 ? (
             <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Sem módulos habilitados</span>
           ) : (
@@ -114,7 +120,12 @@ export function ProcessoCard({ processo, acoes, onEditar, onExcluir, onDuplicar,
           type="button"
           aria-label="Ações do processo"
           onClick={() => setMenuAberto(v => !v)}
-          className="grid size-7 place-items-center rounded-lg bg-black/45 text-white/90 backdrop-blur-sm transition hover:bg-black/65"
+          className="grid size-7 place-items-center rounded-lg backdrop-blur-sm transition"
+          style={processo.capa_url
+            // Sobre foto: pastilha escura translúcida com ícone branco.
+            ? { background: 'rgba(0,0,0,0.45)', color: 'rgba(255,255,255,0.9)' }
+            // Sobre card do tema: ícone discreto, sem pastilha escura falsa.
+            : { color: 'var(--text-secondary)' }}
         >
           <MoreVertical size={15} />
         </button>
