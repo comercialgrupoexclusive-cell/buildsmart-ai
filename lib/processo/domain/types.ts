@@ -20,6 +20,27 @@ export type Processo = {
   created_at: string
   updated_at: string
   archived_at: string | null
+  capa_url: string | null
+  grupo_id: string | null
+}
+
+// Grupo é só um rótulo que envolve Processos na listagem — sem descrição,
+// sem hierarquia, sem regra de negócio própria. Um Processo pertence a no
+// máximo um grupo (processos.grupo_id).
+export type ProcessoGrupo = {
+  id: string
+  organization_id: string | null
+  nome: string
+  created_at: string
+}
+
+// Rastro de uso por pessoa: alimenta a ordenação da lista ("último uso") e
+// as últimas ações mostradas no card. Uma linha por (processo, pessoa,
+// módulo) — o upsert só empurra `used_at` para frente.
+export type ProcessoUso = {
+  processo_id: string
+  module_key: string
+  used_at: string
 }
 
 export type ProcessoModuloVinculo = {
@@ -44,7 +65,7 @@ export type CriarProcessoInput = {
 }
 
 export type AtualizarProcessoInput = Partial<
-  Pick<Processo, 'nome' | 'tipo' | 'cliente_nome' | 'endereco' | 'responsavel_id'>
+  Pick<Processo, 'nome' | 'tipo' | 'cliente_nome' | 'endereco' | 'responsavel_id' | 'capa_url' | 'grupo_id'>
 >
 
 export type ListarProcessosFiltros = {

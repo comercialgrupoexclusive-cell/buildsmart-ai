@@ -6,17 +6,23 @@ import { cn } from '@/lib/utils'
 // app/(app)/investidor etc. — extraído aqui para não repetir de novo em
 // cada módulo novo do Motor de Processo.
 export function PageHeader({
-  title, subtitle, actions, className,
+  title, subtitle, actions, titleAction, className,
 }: {
   title: string
   subtitle?: string
   actions?: React.ReactNode
+  // Ação colada ao título (ex.: "Novo Processo" ao lado de "Processos"),
+  // em vez de empurrada para a borda direita como `actions`.
+  titleAction?: React.ReactNode
   className?: string
 }) {
   return (
     <div className={cn('flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3', className)}>
       <div>
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{title}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{title}</h1>
+          {titleAction}
+        </div>
         {subtitle && (
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>{subtitle}</p>
         )}

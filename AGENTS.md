@@ -100,3 +100,23 @@ Um pacote só está pronto quando:
 ## 8. Prioridade operacional
 
 Quando houver conflito entre ritual antigo de “rodadas” e estas regras, **estas regras prevalecem**. Rodadas documentadas em planos antigos devem ser interpretadas como milestones/objetivos, não como obrigação de criar uma sessão, commit, deploy ou relatório para cada subitem.
+
+## 9. Consulta ao Supabase: agrupar sempre
+
+Consultar o banco é caro em atenção humana — cada chamada separada vira uma
+autorização. Portanto:
+
+- **auditar em uma consulta só.** Antes de escrever migration ou código que
+  depende do schema, levantar tudo que precisa saber (colunas, policies,
+  funções, buckets, contagens) num único `select` com subqueries, não uma
+  consulta por pergunta;
+- **nunca uma consulta por item na UI.** Listagem com N cards carrega os
+  dados dos N de uma vez (`.in('id', ids)`), nunca N requisições. O mesmo
+  vale para módulos, contadores e rótulos;
+- **paralelizar o que é independente.** Quando duas leituras não dependem
+  uma da outra, `Promise.all` — não sequência;
+- **conferir o que já existe antes de criar tabela.** A auditoria de
+  `information_schema` é parte da migration, e o motivo de não ter
+  reaproveitado uma tabela existente fica escrito no cabeçalho dela;
+- **alteração de schema continua pedindo confirmação explícita.** Leitura e
+  consulta são livres; `apply_migration` não é.

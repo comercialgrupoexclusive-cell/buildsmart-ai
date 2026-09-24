@@ -10,8 +10,10 @@ import type {
   CriarProcessoInput,
   ListarProcessosFiltros,
   Processo,
+  ProcessoGrupo,
   ProcessoModuloVinculo,
   ProcessoStatus,
+  ProcessoUso,
 } from '../domain/types'
 
 export async function criarProcesso(supabase: SupabaseClient, input: CriarProcessoInput): Promise<Processo> {
@@ -52,4 +54,36 @@ export async function listarModulosDoProcesso(supabase: SupabaseClient, processo
 
 export function listarModulosDisponiveis() {
   return service.listarModulosDisponiveis()
+}
+
+export async function listarGrupos(supabase: SupabaseClient): Promise<ProcessoGrupo[]> {
+  return service.listarGrupos(supabase)
+}
+
+export async function criarGrupo(supabase: SupabaseClient, nome: string, organizationId: string | null): Promise<ProcessoGrupo> {
+  return service.criarGrupo(supabase, nome, organizationId)
+}
+
+export async function agruparProcessos(supabase: SupabaseClient, processoIds: string[], grupoId: string | null): Promise<void> {
+  return service.agruparProcessos(supabase, processoIds, grupoId)
+}
+
+export async function duplicarProcesso(supabase: SupabaseClient, id: string): Promise<Processo> {
+  return service.duplicarProcesso(supabase, id)
+}
+
+export async function excluirProcesso(supabase: SupabaseClient, id: string): Promise<void> {
+  return service.excluirProcesso(supabase, id)
+}
+
+export async function registrarUso(supabase: SupabaseClient, processoId: string, profileId: string, moduleKey: string): Promise<void> {
+  return service.registrarUso(supabase, processoId, profileId, moduleKey)
+}
+
+export async function listarUso(supabase: SupabaseClient): Promise<ProcessoUso[]> {
+  return service.listarUso(supabase)
+}
+
+export async function listarModulosDeVarios(supabase: SupabaseClient, processoIds: string[]): Promise<ProcessoModuloVinculo[]> {
+  return service.listarModulosDeVarios(supabase, processoIds)
 }

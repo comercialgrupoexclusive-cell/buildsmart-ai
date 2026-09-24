@@ -19,6 +19,7 @@ export type ProcessoModuleKey =
   | 'planta_baixa'
   | 'board'
   | 'caixa_entrada'
+  | 'portal_cliente'
 
 export type ProcessoModuleDefinition = {
   key: ProcessoModuleKey
@@ -60,6 +61,10 @@ export const PROCESSO_MODULES: readonly ProcessoModuleDefinition[] = [
   // "usuário despeja realidade → sistema trabalha por baixo" para qualquer
   // Processo novo (processo_caixa_entrada, 20260919120000).
   { key: 'caixa_entrada', label: 'Caixa de Entrada', enabledByDefault: true },
+  // Portal do Cliente — superfície de acompanhamento que o cliente do
+  // Processo enxerga. Não habilitado por padrão: só Processos com cliente
+  // externo acompanhando precisam expor o portal.
+  { key: 'portal_cliente', label: 'Portal do Cliente' },
 ]
 
 export function getProcessoModuleDefinition(key: string): ProcessoModuleDefinition | undefined {

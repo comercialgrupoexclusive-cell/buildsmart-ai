@@ -14,15 +14,15 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart, Inbox, ShoppingCart, Wallet, Landmark, LayoutTemplate, LayoutDashboard } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart, Inbox, LayoutGrid, MoreHorizontal, ShoppingCart, Users, Wallet, Landmark, LayoutTemplate, LayoutDashboard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
   desabilitarModulo,
   habilitarModulo,
-  listarModulosDisponiveis,
   listarModulosDoProcesso,
   obterProcesso,
+  registrarUso,
   type Processo,
   type ProcessoModuloVinculo,
   type ProcessoStatus,
@@ -39,6 +39,9 @@ import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ProcessoPlantaBaixa } from '@/components/processo/planta-baixa/ProcessoPlantaBaixa'
 import { ProcessoBoard } from '@/components/processo/board/ProcessoBoard'
 import { ProcessoCaixaEntrada } from '@/components/processo/caixa-entrada/ProcessoCaixaEntrada'
+import { ProcessoVisaoGeral } from '@/components/processo/ProcessoVisaoGeral'
+import { ProcessoMais } from '@/components/processo/ProcessoMais'
+import { ProcessoPortalCliente } from '@/components/processo/portal/ProcessoPortalCliente'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
@@ -50,7 +53,13 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'modulos' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board' | 'caixa_entrada'
+type ProcessoTab = 'visao_geral' | 'mais' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board' | 'caixa_entrada' | 'portal_cliente'
+
+// A aba aberta vira rastro de uso (processo_uso): é isso que ordena a
+// listagem por "último uso" e preenche as últimas ações do card. Visão
+// Geral e Mais não contam — abrir o Processo sempre passa por elas, então
+// registrá-las não diria nada sobre o que a pessoa estava fazendo.
+const TABS_SEM_RASTRO = new Set<ProcessoTab>(['visao_geral', 'mais'])
 
 export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -61,7 +70,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
   const [notFound, setNotFound] = useState(false)
   const [savingStatus, setSavingStatus] = useState(false)
   const [moduloEmEdicao, setModuloEmEdicao] = useState<string | null>(null)
-  const [tab, setTab] = useState<ProcessoTab>('modulos')
+  const [tab, setTab] = useState<ProcessoTab>('visao_geral')
   const [orcamentoId, setOrcamentoId] = useState<string | null>(null)
   const [resolvendoOrcamento, setResolvendoOrcamento] = useState(false)
 
@@ -83,6 +92,23 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     return () => window.clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+
+  useEffect(() => {
+    if (TABS_SEM_RASTRO.has(tab)) return
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const { data } = await supabase.auth.getUser()
+        if (!data.user) return
+        const { data: perfil } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('auth_user_id', data.user.id)
+          .maybeSingle()
+        if (perfil?.id) await registrarUso(supabase, id, perfil.id, tab).catch(() => {})
+      })()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [tab, supabase, id])
 
   useEffect(() => {
     const precisaOrcamento = tab === 'orcamento' || tab === 'planejamento' || tab === 'medicoes' || tab === 'compras' || tab === 'financeiro' || tab === 'financiamento'
@@ -136,11 +162,12 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     )
   }
 
-  const registry = listarModulosDisponiveis()
   const habilitados = new Set(modulos.filter(m => m.enabled).map(m => m.module_key))
 
+  // Visão Geral abre o Processo; "Mais" (configuração) fecha a lista. O
+  // trabalho fica no meio.
   const tabOptions: TabOption<ProcessoTab>[] = [
-    { key: 'modulos', label: 'Módulos', icon: Boxes },
+    { key: 'visao_geral', label: 'Visão Geral', icon: LayoutGrid },
     { key: 'caixa_entrada', label: 'Caixa de Entrada', icon: Inbox },
     ...(habilitados.has('orcamento') ? [{ key: 'orcamento' as const, label: 'Orçamento', icon: Calculator }] : []),
     ...(habilitados.has('planejamento') ? [{ key: 'planejamento' as const, label: 'Planejamento', icon: CalendarDays }] : []),
@@ -151,6 +178,8 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     ...(habilitados.has('financiamento') ? [{ key: 'financiamento' as const, label: 'Financiamento', icon: Landmark }] : []),
     ...(habilitados.has('planta_baixa') ? [{ key: 'planta_baixa' as const, label: 'Planta 2D/3D', icon: LayoutTemplate }] : []),
     ...(habilitados.has('board') ? [{ key: 'board' as const, label: 'Board', icon: LayoutDashboard }] : []),
+    ...(habilitados.has('portal_cliente') ? [{ key: 'portal_cliente' as const, label: 'Portal do Cliente', icon: Users }] : []),
+    { key: 'mais', label: 'Mais', icon: MoreHorizontal },
   ]
 
   return (
@@ -182,44 +211,12 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
 
         <Tabs options={tabOptions} value={tab} onChange={setTab} />
 
-        {tab === 'modulos' && (
-          <div className="card p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Boxes size={18} style={{ color: 'var(--accent)' }} />
-              <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Módulos</h2>
-            </div>
-            <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>
-              Orçamento, Planejamento, Tarefas, Medições, Compras, Financeiro, Financiamento, Planta 2D/3D e Board já
-              têm tela própria. Projeto Técnico/Arquivos e Relatórios ainda são só o vínculo habilitado/desabilitado,
-              sem conteúdo — a migração continua módulo a módulo.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {registry.map(mod => {
-                const ativo = habilitados.has(mod.key)
-                return (
-                  <div
-                    key={mod.key}
-                    className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg"
-                    style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}
-                  >
-                    <span className="text-sm" style={{ color: ativo ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                      {mod.label}
-                    </span>
-                    <button
-                      onClick={() => handleToggleModulo(mod.key, !ativo)}
-                      disabled={moduloEmEdicao === mod.key}
-                      className="text-xs font-medium px-2.5 py-1 rounded-full disabled:opacity-50"
-                      style={ativo
-                        ? { background: 'rgba(16,185,129,0.15)', color: '#10b981' }
-                        : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
-                    >
-                      {ativo ? 'Habilitado' : 'Habilitar'}
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+        {tab === 'visao_geral' && (
+          <ProcessoVisaoGeral processo={processo} onAtualizado={setProcesso} />
+        )}
+
+        {tab === 'mais' && (
+          <ProcessoMais modulos={modulos} moduloEmEdicao={moduloEmEdicao} onAlternar={handleToggleModulo} />
         )}
 
         {(tab === 'orcamento' || tab === 'planejamento' || tab === 'medicoes' || tab === 'compras' || tab === 'financeiro' || tab === 'financiamento') && (
@@ -249,6 +246,8 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
         {tab === 'board' && <ProcessoBoard processoId={processo.id} />}
 
         {tab === 'caixa_entrada' && <ProcessoCaixaEntrada processoId={processo.id} />}
+
+        {tab === 'portal_cliente' && <ProcessoPortalCliente processoId={processo.id} />}
       </div>
     </ProcessProvider>
   )

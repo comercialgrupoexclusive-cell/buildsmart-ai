@@ -16,7 +16,7 @@ export function SearchInput({ className, containerClassName, ...props }: SearchI
   return (
     <div className={cn('relative max-w-sm w-full', containerClassName)}>
       <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-secondary)' }} />
-      <input type="text" className={cn('input-base pl-9', className)} {...props} />
+      <input type="text" className={cn('input-base input-search', className)} {...props} />
     </div>
   )
 }

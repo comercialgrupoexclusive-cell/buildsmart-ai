@@ -4,7 +4,7 @@
 // Recebe o client (nunca cria o seu) para ser testável com FakeDB (ver
 // lib/__tests__/fake-supabase.ts) sem depender de rede.
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { AtualizarProcessoInput, Processo, ProcessoModuloVinculo, ProcessoStatus, ListarProcessosFiltros } from '../domain/types'
+import type { AtualizarProcessoInput, Processo, ProcessoGrupo, ProcessoModuloVinculo, ProcessoStatus, ProcessoUso, ListarProcessosFiltros } from '../domain/types'
 
 const TABELA_PROCESSOS = 'processos'
 const TABELA_MODULOS = 'processo_modulos'
@@ -116,4 +116,91 @@ export async function upsertModuloVinculo(
     .from(TABELA_MODULOS)
     .insert({ processo_id: processoId, module_key: moduleKey, enabled, enabled_at: agora, disabled_at: enabled ? null : agora })
   if (error) throw new Error(error.message)
+}
+
+// ── Grupos, capa e rastro de uso (20260924020000) ────────────────────────
+// Agrupar é só um rótulo na listagem: processos.grupo_id aponta para
+// processo_grupos. Nenhuma regra de negócio depende disso.
+const TABELA_GRUPOS = 'processo_grupos'
+const TABELA_USO = 'processo_uso'
+
+export async function listarGruposRaw(supabase: SupabaseClient): Promise<ProcessoGrupo[]> {
+  const { data, error } = await supabase.from(TABELA_GRUPOS).select('*').order('nome')
+  if (error) throw new Error(error.message)
+  return (data as ProcessoGrupo[]) || []
+}
+
+export async function inserirGrupoRaw(
+  supabase: SupabaseClient,
+  nome: string,
+  organizationId: string | null,
+): Promise<ProcessoGrupo> {
+  const { data, error } = await supabase
+    .from(TABELA_GRUPOS)
+    .insert({ nome, organization_id: organizationId })
+    .select('*')
+    .single()
+  if (error) throw new Error(error.message)
+  return data as ProcessoGrupo
+}
+
+export async function definirGrupoDosProcessosRaw(
+  supabase: SupabaseClient,
+  processoIds: string[],
+  grupoId: string | null,
+): Promise<void> {
+  if (processoIds.length === 0) return
+  const { error } = await supabase
+    .from(TABELA_PROCESSOS)
+    .update({ grupo_id: grupoId, updated_at: new Date().toISOString() })
+    .in('id', processoIds)
+  if (error) throw new Error(error.message)
+}
+
+export async function excluirProcessoRaw(supabase: SupabaseClient, id: string): Promise<void> {
+  const { error } = await supabase.from(TABELA_PROCESSOS).delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+// Uma linha por (processo, pessoa, módulo): o upsert só empurra used_at
+// para frente, então repetir o uso não faz a tabela crescer. profile_id não
+// é enviado pelo cliente por acaso — a RLS exige que seja o da sessão.
+export async function registrarUsoRaw(
+  supabase: SupabaseClient,
+  processoId: string,
+  profileId: string,
+  moduleKey: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from(TABELA_USO)
+    .upsert(
+      { processo_id: processoId, profile_id: profileId, module_key: moduleKey, used_at: new Date().toISOString() },
+      { onConflict: 'processo_id,profile_id,module_key' },
+    )
+  if (error) throw new Error(error.message)
+}
+
+export async function listarUsoRaw(supabase: SupabaseClient): Promise<ProcessoUso[]> {
+  const { data, error } = await supabase
+    .from(TABELA_USO)
+    .select('processo_id, module_key, used_at')
+    .order('used_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data as ProcessoUso[]) || []
+}
+
+// Módulos de vários Processos numa consulta só: a listagem precisa saber o
+// que cada card pode mostrar, e N cards não podem virar N requisições.
+export async function listarModulosDeVariosRaw(
+  supabase: SupabaseClient,
+  processoIds: string[],
+): Promise<ProcessoModuloVinculo[]> {
+  if (processoIds.length === 0) return []
+  const { data, error } = await supabase
+    .from(TABELA_MODULOS)
+    .select('*')
+    .in('processo_id', processoIds)
+    .eq('enabled', true)
+  if (error) throw new Error(error.message)
+  return (data as ProcessoModuloVinculo[]) || []
 }

@@ -7,10 +7,17 @@ import {
   atualizarProcessoRaw,
   atualizarStatusRaw,
   buscarProcessoPorId,
+  definirGrupoDosProcessosRaw,
+  excluirProcessoRaw,
+  inserirGrupoRaw,
   inserirModulos,
   inserirProcesso,
+  listarGruposRaw,
+  listarModulosDeVariosRaw,
   listarModulosRaw,
   listarProcessosRaw,
+  listarUsoRaw,
+  registrarUsoRaw,
   upsertModuloVinculo,
 } from '../repository/processo-repository'
 import {
@@ -19,8 +26,10 @@ import {
   type CriarProcessoInput,
   type ListarProcessosFiltros,
   type Processo,
+  type ProcessoGrupo,
   type ProcessoModuloVinculo,
   type ProcessoStatus,
+  type ProcessoUso,
 } from '../domain/types'
 import { PROCESSO_MODULES, isValidProcessoModuleKey, modulosHabilitadosPorPadrao } from '../domain/module-registry'
 
@@ -87,6 +96,8 @@ export async function atualizarDadosProcesso(
   if (patch.cliente_nome !== undefined) dadosPatch.cliente_nome = normalizarTexto(patch.cliente_nome)
   if (patch.endereco !== undefined) dadosPatch.endereco = normalizarTexto(patch.endereco)
   if (patch.responsavel_id !== undefined) dadosPatch.responsavel_id = patch.responsavel_id || null
+  if (patch.capa_url !== undefined) dadosPatch.capa_url = normalizarTexto(patch.capa_url)
+  if (patch.grupo_id !== undefined) dadosPatch.grupo_id = patch.grupo_id || null
 
   await atualizarProcessoRaw(supabase, id, { ...dadosPatch, updated_at: new Date().toISOString() })
 
@@ -131,4 +142,81 @@ export async function listarModulosDoProcesso(supabase: SupabaseClient, processo
 
 export function listarModulosDisponiveis() {
   return PROCESSO_MODULES
+}
+
+// ── Grupos, duplicação, exclusão e rastro de uso ─────────────────────────
+
+export async function listarGrupos(supabase: SupabaseClient): Promise<ProcessoGrupo[]> {
+  return listarGruposRaw(supabase)
+}
+
+// Nome do grupo é a identidade dele (unique por organização no banco), então
+// reaproveita um grupo homônimo em vez de estourar o unique.
+export async function criarGrupo(
+  supabase: SupabaseClient,
+  nome: string,
+  organizationId: string | null,
+): Promise<ProcessoGrupo> {
+  const limpo = normalizarTexto(nome)
+  if (!limpo) throw new Error('O grupo precisa de um nome.')
+  const existentes = await listarGruposRaw(supabase)
+  const igual = existentes.find(g => g.nome.toLowerCase() === limpo.toLowerCase())
+  if (igual) return igual
+  return inserirGrupoRaw(supabase, limpo, organizationId)
+}
+
+export async function agruparProcessos(
+  supabase: SupabaseClient,
+  processoIds: string[],
+  grupoId: string | null,
+): Promise<void> {
+  await definirGrupoDosProcessosRaw(supabase, processoIds, grupoId)
+}
+
+export async function excluirProcesso(supabase: SupabaseClient, id: string): Promise<void> {
+  const existente = await buscarProcessoPorId(supabase, id)
+  if (!existente) throw new Error('Processo não encontrado.')
+  await excluirProcessoRaw(supabase, id)
+}
+
+// Duplicar copia os dados de cadastro e os módulos habilitados — nunca o
+// conteúdo operacional (orçamento, caixa de entrada, board). O Processo
+// novo nasce vazio de trabalho, com a mesma configuração.
+export async function duplicarProcesso(supabase: SupabaseClient, id: string): Promise<Processo> {
+  const origem = await buscarProcessoPorId(supabase, id)
+  if (!origem) throw new Error('Processo não encontrado.')
+
+  const modulos = await listarModulosRaw(supabase, id)
+  const habilitados = modulos.filter(m => m.enabled).map(m => m.module_key)
+
+  return criarProcesso(supabase, {
+    nome: `${origem.nome} (cópia)`,
+    tipo: origem.tipo,
+    cliente_nome: origem.cliente_nome,
+    endereco: origem.endereco,
+    responsavel_id: origem.responsavel_id,
+    organization_id: origem.organization_id,
+    modulos: habilitados,
+  })
+}
+
+export async function registrarUso(
+  supabase: SupabaseClient,
+  processoId: string,
+  profileId: string,
+  moduleKey: string,
+): Promise<void> {
+  if (!isValidProcessoModuleKey(moduleKey)) return
+  await registrarUsoRaw(supabase, processoId, profileId, moduleKey)
+}
+
+export async function listarUso(supabase: SupabaseClient): Promise<ProcessoUso[]> {
+  return listarUsoRaw(supabase)
+}
+
+export async function listarModulosDeVarios(
+  supabase: SupabaseClient,
+  processoIds: string[],
+): Promise<ProcessoModuloVinculo[]> {
+  return listarModulosDeVariosRaw(supabase, processoIds)
 }
