@@ -706,6 +706,9 @@ export type Prospeccao = {
   // 'leilao' sem sinal nenhum da prospecção-mãe). Cenários novos herdam
   // este valor (ver ProspeccaoCenarios.tsx e lib/investidor-ai-tools.ts).
   tipo_aquisicao: 'leilao' | 'compra_direta'
+  // Processo dono desta oportunidade de aquisição. Índice único parcial no
+  // banco garante no máximo uma aquisição por Processo (is_venda=false).
+  processo_id: string | null
   fase: ProspeccaoFase
   responsavel: string | null
   proxima_acao: string | null

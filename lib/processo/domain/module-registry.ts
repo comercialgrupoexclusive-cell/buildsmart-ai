@@ -20,6 +20,7 @@ export type ProcessoModuleKey =
   | 'board'
   | 'caixa_entrada'
   | 'portal_cliente'
+  | 'pesquisa_mercado'
 
 export type ProcessoModuleDefinition = {
   key: ProcessoModuleKey
@@ -65,6 +66,10 @@ export const PROCESSO_MODULES: readonly ProcessoModuleDefinition[] = [
   // Processo enxerga. Não habilitado por padrão: só Processos com cliente
   // externo acompanhando precisam expor o portal.
   { key: 'portal_cliente', label: 'Portal do Cliente' },
+  // Pesquisa de mercado do imóvel do Processo — reaproveita inteiro o motor
+  // do Investidor (extração de ficha, busca de comparáveis, análise). Não
+  // habilitado por padrão: só Processo de aquisição pesquisa mercado.
+  { key: 'pesquisa_mercado', label: 'Pesquisa de Mercado' },
 ]
 
 export function getProcessoModuleDefinition(key: string): ProcessoModuleDefinition | undefined {

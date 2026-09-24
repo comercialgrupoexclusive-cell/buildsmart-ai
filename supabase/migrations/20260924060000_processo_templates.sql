@@ -80,7 +80,7 @@ insert into public.processo_templates (organization_id, nome, descricao, modulos
 select o.id,
        'Leilão',
        'Aquisição de imóvel em leilão — ainda não há cliente, o comprador é você.',
-       array['dados_gerais', 'caixa_entrada', 'orcamento', 'financeiro', 'tarefas'],
+       array['dados_gerais', 'caixa_entrada', 'pesquisa_mercado', 'orcamento', 'financeiro', 'tarefas'],
        array['cliente_nome']
 from public.organizations o
 on conflict (organization_id, nome) do nothing;
