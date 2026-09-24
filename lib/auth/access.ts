@@ -1,6 +1,6 @@
 import { destinoSeguro } from './next-path'
 
-export const DEFAULT_DESTINATION = '/experimento-360'
+export const DEFAULT_DESTINATION = '/processos'
 
 export function loginDestination(next: string | null, memberships: number) {
   const destination = destinoSeguro(next) || DEFAULT_DESTINATION

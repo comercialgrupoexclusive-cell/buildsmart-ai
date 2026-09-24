@@ -100,19 +100,19 @@ describe('authentication proxy', () => {
     vi.stubEnv('NEXT_PUBLIC_DATA_MODE', 'local')
     createServerClientMock.mockImplementation(providerClient())
 
-    const response = await proxy(new NextRequest('https://buildsmart.test/experimento-360'))
+    const response = await proxy(new NextRequest('https://buildsmart.test/processos'))
 
     expect(response.status).toBe(307)
     const location = new URL(response.headers.get('location') || 'https://invalid.test')
     expect(location.pathname).toBe('/login')
-    expect(location.searchParams.get('next')).toBe('/experimento-360')
+    expect(location.searchParams.get('next')).toBe('/processos')
   })
 
   it('fails closed when Supabase configuration is missing', async () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL
     delete process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 
-    const response = await proxy(new NextRequest('https://buildsmart.test/experimento-360'))
+    const response = await proxy(new NextRequest('https://buildsmart.test/processos'))
 
     expect(response.status).toBe(503)
     await expect(response.text()).resolves.toBe('Acesso temporariamente indisponível.')

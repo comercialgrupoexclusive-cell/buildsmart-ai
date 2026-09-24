@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     if (!access.memberships.some(m => m.organization_id === body?.organizationId)) return authJson({ error: 'Organização indisponível.' }, 403)
     const { error } = await access.db.rpc('select_organization', { p_organization_id: body.organizationId })
     if (error) return authJson({ error: 'Não foi possível selecionar a organização.' }, 403)
-    return authJson({ next: destinoSeguro(typeof body.next === 'string' ? body.next : null) || '/experimento-360' })
+    return authJson({ next: destinoSeguro(typeof body.next === 'string' ? body.next : null) || '/processos' })
   } catch {
     return authJson({ error: 'Não foi possível validar seu acesso.' }, 503)
   }

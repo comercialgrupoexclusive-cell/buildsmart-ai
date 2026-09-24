@@ -10,6 +10,16 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async redirects() {
+    // A experiência Orbi/Tellus (/experimento-360) foi removida na finalização
+    // do BuildSmart. Links salvos, bookmarks e PWAs antigos ainda apontam para
+    // lá — redirecionamos para o app em vez de devolver 404. Temporário (307)
+    // porque a rota pode um dia ser reaproveitada.
+    return [
+      { source: '/experimento-360', destination: '/processos', permanent: false },
+      { source: '/experimento-360/:path*', destination: '/processos', permanent: false },
+    ]
+  },
   async rewrites() {
     return {
       // Motor oficial do módulo Planta 2D/3D (OpenPlan3D) — a SPA SvelteKit

@@ -5,7 +5,7 @@ import { OrganizationPicker } from './OrganizationPicker'
 
 export default async function OrganizationsPage({ searchParams }: { searchParams: Promise<{ next?: string; trocar?: string }> }) {
   const params = await searchParams
-  const next = destinoSeguro(params.next) || '/experimento-360'
+  const next = destinoSeguro(params.next) || '/processos'
   const access = await readAccess()
   if (!access) redirect(`/login?next=${encodeURIComponent(next)}`)
   if (access.active && !params.trocar) redirect(next)

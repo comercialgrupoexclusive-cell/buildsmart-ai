@@ -8,7 +8,7 @@ describe('global auth routing', () => {
   })
   it('retains original internal route after login', () => {
     expect(loginDestination('/processos/abc?tab=board', 1)).toBe('/processos/abc?tab=board')
-    expect(loginDestination('https://evil.com', 1)).toBe('/experimento-360')
+    expect(loginDestination('https://evil.com', 1)).toBe('/processos')
   })
   it('sends zero and multiple memberships to selection without special admin UX', () => {
     expect(loginDestination('/experimento-360', 0)).toBe('/organizacoes?next=%2Fexperimento-360')

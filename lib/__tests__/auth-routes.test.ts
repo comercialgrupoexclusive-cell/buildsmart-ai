@@ -238,7 +238,7 @@ describe('auth route handlers', () => {
     }))
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ next: '/experimento-360' })
+    await expect(response.json()).resolves.toEqual({ next: '/processos' })
   })
 
   it.each([
@@ -267,7 +267,7 @@ describe('auth route handlers', () => {
 
     const response = await selectOrganization(jsonRequest('/api/auth/organization', {
       organizationId: 'org-forbidden',
-      next: '/experimento-360',
+      next: '/processos',
     }))
 
     expect(response.status).toBe(403)
@@ -285,7 +285,7 @@ describe('auth route handlers', () => {
     }))
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ next: '/experimento-360' })
+    await expect(response.json()).resolves.toEqual({ next: '/processos' })
     expect(db.rpc).toHaveBeenCalledWith('select_organization', { p_organization_id: 'org-allowed' })
   })
 
