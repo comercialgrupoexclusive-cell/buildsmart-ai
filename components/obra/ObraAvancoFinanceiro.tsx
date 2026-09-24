@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Banknote, HandCoins, Landmark, LineChart, Wallet, Wallet2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatPercent, TIPO_CUSTO_LABEL } from '@/lib/utils'
 import { loadFinanceiroResumo, type FinanceiroResumo } from '@/lib/financeiro'
+import { LancamentoRapidoProcesso } from '@/components/processo/financeiro/LancamentoRapidoProcesso'
 
 type Visao = 'etapa' | 'tipo_custo'
 
@@ -14,7 +15,7 @@ export function ObraAvancoFinanceiro({ obraId, processoId, orcamentoId, orcament
   const [resumo, setResumo] = useState<FinanceiroResumo | null>(null)
   const [visao, setVisao] = useState<Visao>('etapa')
 
-  useEffect(() => {
+  const carregar = useCallback(() => {
     let cancelado = false
     setLoading(true)
     loadFinanceiroResumo(supabase, { obraId, processoId, orcamentoId, orcamentoIds }).then(r => {
@@ -24,6 +25,11 @@ export function ObraAvancoFinanceiro({ obraId, processoId, orcamentoId, orcament
     })
     return () => { cancelado = true }
   }, [obraId, processoId, orcamentoId, orcamentoIds, supabase])
+
+  useEffect(() => {
+    return carregar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obraId, processoId, orcamentoId, orcamentoIds])
 
   if (loading || !resumo) {
     return <div className="flex justify-center py-12"><div className="w-6 h-6 rounded-full border-2 animate-spin" style={{ borderColor: 'var(--border)', borderTopColor: 'var(--accent)' }} /></div>
@@ -37,6 +43,13 @@ export function ObraAvancoFinanceiro({ obraId, processoId, orcamentoId, orcament
 
   return (
     <div className="flex flex-col gap-4 pb-16">
+      {/* Lançamento rápido — seção 11 canônica, só no contexto de Processo */}
+      {processoId && (
+        <div className="flex justify-end">
+          <LancamentoRapidoProcesso processoId={processoId} orcamentoId={orcamentoId} onSalvo={() => { setResumo(null); void carregar() }} />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <Kpi icon={Wallet} label="Planejado original" value={planejadoOriginal == null ? '—' : formatCurrency(planejadoOriginal)}
           sub={planejadoOriginal == null ? 'baseline não capturada' : 'baseline do orçamento'} />

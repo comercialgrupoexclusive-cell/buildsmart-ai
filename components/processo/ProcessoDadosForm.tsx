@@ -1,15 +1,11 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { ImagePlus, Trash2 } from 'lucide-react'
+import { ImagePlus, Loader2, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { campoOcultoPor, type AtualizarProcessoInput, type Processo, type ProcessoStatus, type ProcessoTemplate } from '@/lib/processo'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-
-// Formulário de cadastro do Processo. Um só, usado pelo "Editar" do card e
-// pela aba Visão Geral — os dois editam exatamente os mesmos campos, então
-// não existem duas versões para divergirem depois.
 
 const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ACTIVE', label: 'Ativo' },
@@ -18,11 +14,12 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
+const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
+
 export type DadosProcesso = AtualizarProcessoInput & { status?: ProcessoStatus }
 
 export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mostrarStatus = true }: {
   processo: Processo
-  // Template do Processo, quando tem um. Decide quais campos somem.
   template?: ProcessoTemplate | null
   onSalvar: (dados: DadosProcesso) => Promise<void>
   onCancelar?: () => void
@@ -32,18 +29,46 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
   const [nome, setNome] = useState(processo.nome)
   const [tipo, setTipo] = useState(processo.tipo ?? '')
   const [clienteNome, setClienteNome] = useState(processo.cliente_nome ?? '')
-  const [endereco, setEndereco] = useState(processo.endereco ?? '')
   const [status, setStatus] = useState<ProcessoStatus>(processo.status)
   const [capaUrl, setCapaUrl] = useState(processo.capa_url)
   const [enviandoCapa, setEnviandoCapa] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
+  // Endereço estruturado
+  const [cep, setCep] = useState(processo.cep ?? '')
+  const [logradouro, setLogradouro] = useState(processo.logradouro ?? '')
+  const [numero, setNumero] = useState(processo.numero ?? '')
+  const [complemento, setComplemento] = useState(processo.complemento ?? '')
+  const [bairro, setBairro] = useState(processo.bairro ?? '')
+  const [cidade, setCidade] = useState(processo.cidade ?? '')
+  const [uf, setUf] = useState(processo.uf ?? '')
+  const [buscandoCep, setBuscandoCep] = useState(false)
+
   const oculto = (campo: Parameters<typeof campoOcultoPor>[1]) => campoOcultoPor(template, campo)
   const ocultarCliente = oculto('cliente_nome')
 
-  // Mesmo bucket e mesmo padrão de prefixo da Caixa de Entrada — nenhum
-  // bucket novo para a capa.
+  async function buscarCep(valor: string) {
+    const limpo = valor.replace(/\D/g, '')
+    setCep(valor)
+    if (limpo.length !== 8) return
+    setBuscandoCep(true)
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${limpo}/json/`)
+      if (!res.ok) return
+      const data = await res.json() as { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string }
+      if (data.erro) return
+      setLogradouro(data.logradouro ?? '')
+      setBairro(data.bairro ?? '')
+      setCidade(data.localidade ?? '')
+      setUf(data.uf ?? '')
+    } catch {
+      // ignora erro de rede — usuário preenche manualmente
+    } finally {
+      setBuscandoCep(false)
+    }
+  }
+
   async function enviarCapa(arquivo: File | undefined) {
     if (!arquivo) return
     setErro('')
@@ -74,10 +99,16 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
       await onSalvar({
         nome: nome.trim(),
         tipo: oculto('tipo') ? null : (tipo.trim() || null),
-        // Template que esconde o campo nunca grava valor nele — senão um
-        // cliente digitado antes da troca de template ficaria preso invisível.
         cliente_nome: ocultarCliente ? null : (clienteNome.trim() || null),
-        endereco: oculto('endereco') ? null : (endereco.trim() || null),
+        cep: cep.replace(/\D/g, '').padEnd(0) || null,
+        logradouro: logradouro.trim() || null,
+        numero: numero.trim() || null,
+        complemento: complemento.trim() || null,
+        bairro: bairro.trim() || null,
+        cidade: cidade.trim() || null,
+        uf: uf || null,
+        // legado — mantido para retrocompatibilidade com cards/buscas antigas
+        endereco: [logradouro.trim(), numero.trim(), bairro.trim(), cidade.trim(), uf].filter(Boolean).join(', ') || null,
         capa_url: capaUrl,
         ...(mostrarStatus ? { status } : {}),
       })
@@ -149,7 +180,41 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
       </div>
 
       {!oculto('endereco') && (
-        <Input label="Endereço" value={endereco} onChange={e => setEndereco(e.target.value)} />
+        <div className="space-y-3">
+          <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Endereço</p>
+
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-[180px]">
+              <Input
+                label="CEP"
+                value={cep}
+                onChange={e => void buscarCep(e.target.value)}
+                placeholder="00000-000"
+                maxLength={9}
+              />
+            </div>
+            {buscandoCep && (
+              <Loader2 size={16} className="animate-spin mt-5 flex-shrink-0" style={{ color: 'var(--text-secondary)' }} />
+            )}
+          </div>
+
+          <Input label="Logradouro" value={logradouro} onChange={e => setLogradouro(e.target.value)} placeholder="Rua, Av., Alameda…" />
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Número" value={numero} onChange={e => setNumero(e.target.value)} placeholder="123" />
+            <Input label="Complemento" value={complemento} onChange={e => setComplemento(e.target.value)} placeholder="Apto, Bloco…" />
+          </div>
+
+          <Input label="Bairro" value={bairro} onChange={e => setBairro(e.target.value)} />
+
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Cidade" value={cidade} onChange={e => setCidade(e.target.value)} />
+            <Select label="UF" value={uf} onChange={e => setUf(e.target.value)}>
+              <option value="">—</option>
+              {UFS.map(u => <option key={u} value={u}>{u}</option>)}
+            </Select>
+          </div>
+        </div>
       )}
 
       {mostrarStatus && (

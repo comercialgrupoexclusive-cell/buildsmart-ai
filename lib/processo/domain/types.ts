@@ -15,6 +15,14 @@ export type Processo = {
   tipo: string | null
   cliente_nome: string | null
   endereco: string | null
+  // Endereço estruturado (seção 3 canônica) — preenchimento via CEP lookup
+  cep: string | null
+  logradouro: string | null
+  numero: string | null
+  complemento: string | null
+  bairro: string | null
+  cidade: string | null
+  uf: string | null
   responsavel_id: string | null
   status: ProcessoStatus
   created_at: string
@@ -22,12 +30,7 @@ export type Processo = {
   archived_at: string | null
   capa_url: string | null
   grupo_id: string | null
-  // Qual receita criou este Processo (processo_templates). Decide quais
-  // campos do cadastro fazem sentido — num leilão, por exemplo, não existe
-  // cliente contratante.
   template_id: string | null
-  // Resquício da branch tellus. Não é mais lido por nada: quem manda é
-  // template_id. Mantido só porque dropar coluna é destrutivo.
   template_key: string | null
 }
 
@@ -75,7 +78,7 @@ export type CriarProcessoInput = {
 }
 
 export type AtualizarProcessoInput = Partial<
-  Pick<Processo, 'nome' | 'tipo' | 'cliente_nome' | 'endereco' | 'responsavel_id' | 'capa_url' | 'grupo_id'>
+  Pick<Processo, 'nome' | 'tipo' | 'cliente_nome' | 'endereco' | 'cep' | 'logradouro' | 'numero' | 'complemento' | 'bairro' | 'cidade' | 'uf' | 'responsavel_id' | 'capa_url' | 'grupo_id'>
 >
 
 export type ListarProcessosFiltros = {

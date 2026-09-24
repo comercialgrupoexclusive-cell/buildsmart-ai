@@ -2,9 +2,22 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Copy, FolderPlus, MoreVertical, Pencil, Trash2 } from 'lucide-react'
+import { Copy, FolderPlus, MapPin, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import type { Processo, ProcessoStatus } from '@/lib/processo'
 import { Badge } from '@/components/ui/Badge'
+
+function enderecoFormatado(p: Processo): string | null {
+  if (p.logradouro) {
+    const partes = [p.logradouro, p.numero, p.bairro, p.cidade, p.uf].filter(Boolean)
+    return partes.join(', ')
+  }
+  return p.endereco ?? null
+}
+
+function urlMapa(p: Processo): string {
+  const end = enderecoFormatado(p)
+  return end ? `https://maps.google.com/?q=${encodeURIComponent(end)}` : ''
+}
 
 // Card do Processo na listagem. A capa é o fundo; o conteúdo vive sobre um
 // degradê para o texto continuar legível com qualquer foto. Sem capa, o
@@ -55,7 +68,9 @@ export function ProcessoCard({ processo, acoes, onEditar, onExcluir, onDuplicar,
     acao()
   }
 
-  const legenda = [processo.cliente_nome, processo.endereco].filter(Boolean).join(' · ')
+  const endFormatado = enderecoFormatado(processo)
+  const legenda = [processo.cliente_nome, endFormatado].filter(Boolean).join(' · ')
+  const mapaUrl = urlMapa(processo)
 
   return (
     <div className="relative group">
@@ -81,7 +96,16 @@ export function ProcessoCard({ processo, acoes, onEditar, onExcluir, onDuplicar,
             )}
             <div className="absolute bottom-0 left-0 right-0 p-3.5">
               <h3 className="font-semibold text-base leading-tight text-white drop-shadow-sm">{processo.nome}</h3>
-              {legenda && <p className="mt-0.5 truncate text-xs text-white/70">{legenda}</p>}
+              {legenda && (
+              <p className="mt-0.5 truncate text-xs text-white/70 flex items-center gap-1">
+                {mapaUrl && endFormatado && (
+                  <a href={mapaUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} aria-label="Abrir no mapa">
+                    <MapPin size={11} className="flex-shrink-0 opacity-70" />
+                  </a>
+                )}
+                {legenda}
+              </p>
+            )}
             </div>
           </div>
         ) : (
@@ -94,7 +118,16 @@ export function ProcessoCard({ processo, acoes, onEditar, onExcluir, onDuplicar,
               </div>
             )}
             <h3 className="font-semibold text-base leading-tight" style={{ color: 'var(--text-primary)' }}>{processo.nome}</h3>
-            {legenda && <p className="mt-0.5 truncate text-xs" style={{ color: 'var(--text-secondary)' }}>{legenda}</p>}
+            {legenda && (
+              <p className="mt-0.5 truncate text-xs flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
+                {mapaUrl && endFormatado && (
+                  <a href={mapaUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} aria-label="Abrir no mapa" style={{ color: 'var(--accent)' }}>
+                    <MapPin size={11} className="flex-shrink-0" />
+                  </a>
+                )}
+                {legenda}
+              </p>
+            )}
           </div>
         )}
 

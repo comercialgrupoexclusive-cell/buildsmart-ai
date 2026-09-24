@@ -14,7 +14,7 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator, CalendarDays, ClipboardList, FileBarChart, Inbox, LayoutGrid, MoreHorizontal, Search, ShoppingCart, Users, Wallet, Landmark, LayoutTemplate, LayoutDashboard } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays, FileBarChart, Inbox, LayoutGrid, MoreHorizontal, Search, ShoppingCart, Users, Wallet, Landmark, LayoutTemplate, LayoutDashboard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
@@ -33,14 +33,13 @@ import { ProcessProvider } from '@/lib/processo/context'
 import { getOrCreateOrcamentoDoProcesso } from '@/lib/processo/orcamento'
 import { ProcessoOrcamento } from '@/components/processo/orcamento/ProcessoOrcamento'
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
-import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
 import { ProcessoCompras } from '@/components/processo/compras/ProcessoCompras'
 import { ObraAvancoFinanceiro } from '@/components/obra/ObraAvancoFinanceiro'
 import { ObraFinanciamento } from '@/components/obra/ObraFinanciamento'
 import { ProcessoPlantaBaixa } from '@/components/processo/planta-baixa/ProcessoPlantaBaixa'
 import { ProcessoBoard } from '@/components/processo/board/ProcessoBoard'
-import { CaixaEntrada } from '@/components/caixa-entrada/CaixaEntrada'
+import { ProcessoFluxo } from '@/components/processo/ProcessoFluxo'
 import { ProcessoVisaoGeral } from '@/components/processo/ProcessoVisaoGeral'
 import { ProcessoMais } from '@/components/processo/ProcessoMais'
 import { ProcessoPortalCliente } from '@/components/processo/portal/ProcessoPortalCliente'
@@ -56,13 +55,13 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'visao_geral' | 'mais' | 'orcamento' | 'planejamento' | 'tarefas' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board' | 'caixa_entrada' | 'portal_cliente' | 'pesquisa_mercado'
+type ProcessoTab = 'visao_geral' | 'mais' | 'orcamento' | 'planejamento' | 'fluxo' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board' | 'portal_cliente' | 'pesquisa_mercado'
 
 // A aba aberta vira rastro de uso (processo_uso): é isso que ordena a
 // listagem por "último uso" e preenche as últimas ações do card. Visão
 // Geral e Mais não contam — abrir o Processo sempre passa por elas, então
 // registrá-las não diria nada sobre o que a pessoa estava fazendo.
-const TABS_SEM_RASTRO = new Set<ProcessoTab>(['visao_geral', 'mais'])
+const TABS_SEM_RASTRO = new Set<ProcessoTab>(['visao_geral', 'mais', 'fluxo'])
 
 export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -177,10 +176,9 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
   // trabalho fica no meio.
   const tabOptions: TabOption<ProcessoTab>[] = [
     { key: 'visao_geral', label: 'Visão Geral', icon: LayoutGrid },
-    { key: 'caixa_entrada', label: 'Caixa de Entrada', icon: Inbox },
+    { key: 'fluxo', label: 'Fluxo', icon: Inbox },
     ...(habilitados.has('orcamento') ? [{ key: 'orcamento' as const, label: 'Orçamento', icon: Calculator }] : []),
     ...(habilitados.has('planejamento') ? [{ key: 'planejamento' as const, label: 'Planejamento', icon: CalendarDays }] : []),
-    ...(habilitados.has('tarefas') ? [{ key: 'tarefas' as const, label: 'Tarefas', icon: ClipboardList }] : []),
     ...(habilitados.has('medicoes') ? [{ key: 'medicoes' as const, label: 'Medições', icon: FileBarChart }] : []),
     ...(habilitados.has('compras') ? [{ key: 'compras' as const, label: 'Compras', icon: ShoppingCart }] : []),
     ...(habilitados.has('financeiro') ? [{ key: 'financeiro' as const, label: 'Financeiro', icon: Wallet }] : []),
@@ -249,13 +247,11 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
           )
         )}
 
-        {tab === 'tarefas' && <ContextoTarefas processoId={processo.id} />}
+        {tab === 'fluxo' && <ProcessoFluxo processoId={processo.id} temTarefas={habilitados.has('tarefas')} />}
 
         {tab === 'planta_baixa' && <ProcessoPlantaBaixa processoId={processo.id} />}
 
         {tab === 'board' && <ProcessoBoard processoId={processo.id} />}
-
-        {tab === 'caixa_entrada' && <CaixaEntrada processoId={processo.id} />}
 
         {tab === 'pesquisa_mercado' && <ProcessoPesquisa processoId={processo.id} processoNome={processo.nome} />}
 
