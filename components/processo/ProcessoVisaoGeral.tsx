@@ -72,7 +72,7 @@ export function ProcessoVisaoGeral({ processo, template, onAtualizado }: {
       </div>
     </div>
 
-    <ProcessoImovelBloco processoId={processo.id} processoNome={processo.nome} />
+    <ProcessoImovelBloco processoId={processo.id} processoNome={processo.nome} processoEndereco={processo.endereco} />
     </div>
   )
 }

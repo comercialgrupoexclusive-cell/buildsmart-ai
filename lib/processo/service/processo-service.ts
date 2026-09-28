@@ -65,6 +65,13 @@ export async function criarProcesso(supabase: SupabaseClient, input: CriarProces
     tipo: normalizarTexto(input.tipo),
     cliente_nome: normalizarTexto(input.cliente_nome),
     endereco: normalizarTexto(input.endereco),
+    cep: normalizarTexto(input.cep),
+    logradouro: normalizarTexto(input.logradouro),
+    numero: normalizarTexto(input.numero),
+    complemento: normalizarTexto(input.complemento),
+    bairro: normalizarTexto(input.bairro),
+    cidade: normalizarTexto(input.cidade),
+    uf: normalizarTexto(input.uf),
     responsavel_id: input.responsavel_id || null,
     organization_id: organizationId,
     status: 'ACTIVE',
@@ -101,6 +108,13 @@ export async function atualizarDadosProcesso(
   if (patch.tipo !== undefined) dadosPatch.tipo = normalizarTexto(patch.tipo)
   if (patch.cliente_nome !== undefined) dadosPatch.cliente_nome = normalizarTexto(patch.cliente_nome)
   if (patch.endereco !== undefined) dadosPatch.endereco = normalizarTexto(patch.endereco)
+  if (patch.cep !== undefined) dadosPatch.cep = normalizarTexto(patch.cep)
+  if (patch.logradouro !== undefined) dadosPatch.logradouro = normalizarTexto(patch.logradouro)
+  if (patch.numero !== undefined) dadosPatch.numero = normalizarTexto(patch.numero)
+  if (patch.complemento !== undefined) dadosPatch.complemento = normalizarTexto(patch.complemento)
+  if (patch.bairro !== undefined) dadosPatch.bairro = normalizarTexto(patch.bairro)
+  if (patch.cidade !== undefined) dadosPatch.cidade = normalizarTexto(patch.cidade)
+  if (patch.uf !== undefined) dadosPatch.uf = normalizarTexto(patch.uf)
   if (patch.responsavel_id !== undefined) dadosPatch.responsavel_id = patch.responsavel_id || null
   if (patch.capa_url !== undefined) dadosPatch.capa_url = normalizarTexto(patch.capa_url)
   if (patch.grupo_id !== undefined) dadosPatch.grupo_id = patch.grupo_id || null

@@ -67,6 +67,13 @@ export type CriarProcessoInput = {
   tipo?: string | null
   cliente_nome?: string | null
   endereco?: string | null
+  cep?: string | null
+  logradouro?: string | null
+  numero?: string | null
+  complemento?: string | null
+  bairro?: string | null
+  cidade?: string | null
+  uf?: string | null
   responsavel_id?: string | null
   organization_id?: string | null
   // Se omitido, usa os módulos com enabledByDefault do registry (ver

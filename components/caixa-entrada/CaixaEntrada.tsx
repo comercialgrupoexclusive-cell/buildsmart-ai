@@ -176,7 +176,15 @@ function CartaoEntrada({ entrada, triagem, onTriar, onStatus, ocupado }: {
   )
 }
 
-export function CaixaEntrada({ processoId = null }: { processoId?: string | null }) {
+export function CaixaEntrada({ processoId = null, filtroStatus, ocultarComposer = false }: {
+  processoId?: string | null
+  // Quando presente, mostra só entradas cuja triagem está nesses status
+  // (usado pelo filtro "Informações" do Fluxo). Sem filtro = tudo.
+  filtroStatus?: TriagemStatus[]
+  // Some com o campo de entrada — para superfícies só de leitura (ex.: filtro
+  // Informações), onde a entrada bruta é feita na aba Entradas ou na Luiza.
+  ocultarComposer?: boolean
+}) {
   const supabase = useMemo(() => createClient(), [])
   const inputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -322,8 +330,13 @@ export function CaixaEntrada({ processoId = null }: { processoId?: string | null
     )
   }
 
+  const entradasVisiveis = filtroStatus
+    ? entradas.filter(e => filtroStatus.includes(triagens[e.id]?.status ?? 'novo'))
+    : entradas
+
   return (
     <div className="space-y-4">
+      {!ocultarComposer && (
       <div className="card p-4">
         <textarea
           value={texto}
@@ -380,18 +393,19 @@ export function CaixaEntrada({ processoId = null }: { processoId?: string | null
           </Button>
         </div>
       </div>
+      )}
 
       {erro && <p className="text-xs px-1" style={{ color: '#f87171' }}>{erro}</p>}
 
-      {entradas.length === 0 ? (
+      {entradasVisiveis.length === 0 ? (
         <EmptyState
           icon={Paperclip}
-          title="Nada na caixa ainda"
-          description="Escreva, grave ou anexe qualquer coisa. A IA lê e transforma em tarefa quando faz sentido."
+          title={filtroStatus ? 'Nenhuma informação por aqui' : 'Nada na caixa ainda'}
+          description={filtroStatus ? 'Entradas que você marcar como conhecimento do Processo aparecem aqui.' : 'Escreva, grave ou anexe qualquer coisa. A IA lê e transforma em tarefa quando faz sentido.'}
         />
       ) : (
         <div className="space-y-3">
-          {entradas.map(e => (
+          {entradasVisiveis.map(e => (
             <CartaoEntrada
               key={e.id}
               entrada={e}

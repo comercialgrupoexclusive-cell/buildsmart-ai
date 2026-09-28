@@ -2,21 +2,19 @@
 
 import { Input, Select } from '@/components/ui/Input'
 
-// Campos do imóvel de um Processo de aquisição. São os mesmos no "Novo
-// Processo" e na Visão Geral — um componente só, para os dois não
-// divergirem. Quem guarda é `prospeccoes` (a oportunidade vinculada ao
-// Processo), não a tabela `processos`: imóvel é objeto do Investidor, e
-// duplicar esses campos em processos criaria duas verdades.
+// Campos específicos do imóvel de aquisição (leilão/compra). O ENDEREÇO NÃO
+// mora aqui: ele é único no Processo (seção 3 canônica, Dados do processo com
+// CEP). Estes campos são só o que é próprio da aquisição — forma, data do
+// leilão e link do anúncio. Quem guarda é `prospeccoes` (a oportunidade
+// vinculada ao Processo).
 
 export type DadosImovel = {
-  endereco: string
   link_leilao: string
   data_leilao: string
   tipo_aquisicao: 'leilao' | 'compra_direta'
 }
 
 export const IMOVEL_VAZIO: DadosImovel = {
-  endereco: '',
   link_leilao: '',
   data_leilao: '',
   tipo_aquisicao: 'leilao',
@@ -31,14 +29,6 @@ export function ImovelCampos({ valor, onChange, desabilitado }: {
 
   return (
     <div className="space-y-4">
-      <Input
-        label="Endereço do imóvel"
-        value={valor.endereco}
-        onChange={e => set({ endereco: e.target.value })}
-        placeholder="Rua, número, bairro, cidade"
-        disabled={desabilitado}
-      />
-
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Select
           label="Forma de aquisição"

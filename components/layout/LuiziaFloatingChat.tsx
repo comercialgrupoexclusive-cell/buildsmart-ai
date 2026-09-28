@@ -652,25 +652,30 @@ export function LuiziaFloatingChat() {
             disabled={loading}
           />
 
-          <button
-            type="button"
-            onClick={() => audioInputRef.current?.click()}
-            title="Enviar áudio para transcrever"
-            className="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center hover:bg-[var(--bg-secondary)]"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <Mic size={18} />
-          </button>
-
-          <button
-            onClick={sendMessage}
-            disabled={(!input.trim() && !anexo) || loading || anexoCarregando}
-            className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center disabled:opacity-50"
-            style={{ background: 'var(--accent)' }}
-            title="Enviar"
-          >
-            {loading ? <Loader2 size={16} className="animate-spin text-white" /> : <Send size={15} className="text-white" />}
-          </button>
+          {/* Botão único que alterna com o contexto (seção 6.1 canônica):
+              campo vazio → microfone; com texto/anexo → enviar. Nunca os dois
+              permanentes ao mesmo tempo. */}
+          {(input.trim() || anexo || uploadedFiles.length > 0) ? (
+            <button
+              onClick={sendMessage}
+              disabled={loading || anexoCarregando}
+              className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center disabled:opacity-50"
+              style={{ background: 'var(--accent)' }}
+              title="Enviar"
+            >
+              {loading ? <Loader2 size={16} className="animate-spin text-white" /> : <Send size={15} className="text-white" />}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => audioInputRef.current?.click()}
+              title="Enviar áudio para transcrever"
+              className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center hover:bg-[var(--bg-secondary)]"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <Mic size={18} />
+            </button>
+          )}
         </div>
         {uploadedFiles.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5 rounded-xl px-2 py-2 text-xs pointer-events-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>

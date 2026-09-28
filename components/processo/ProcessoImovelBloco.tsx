@@ -15,9 +15,12 @@ import { ImovelCampos, IMOVEL_VAZIO, type DadosImovel } from './ImovelCampos'
 // Processo que não é de aquisição nunca precisa ver estes campos, e abrir
 // tudo de uma vez era justamente o que poluía a tela.
 
-export function ProcessoImovelBloco({ processoId, processoNome }: {
+export function ProcessoImovelBloco({ processoId, processoNome, processoEndereco }: {
   processoId: string
   processoNome: string
+  // Endereço único do Processo (Dados do processo). O imóvel não tem endereço
+  // próprio: ele espelha o do Processo em prospeccoes para o Investidor.
+  processoEndereco?: string | null
 }) {
   const supabase = useMemo(() => createClient(), [])
   const [aberto, setAberto] = useState(false)
@@ -33,7 +36,6 @@ export function ProcessoImovelBloco({ processoId, processoNome }: {
       setImovel(atual)
       if (atual) {
         setForm({
-          endereco: atual.endereco ?? '',
           link_leilao: atual.link_leilao ?? '',
           data_leilao: atual.data_leilao ?? '',
           tipo_aquisicao: atual.tipo_aquisicao ?? 'leilao',
@@ -58,13 +60,14 @@ export function ProcessoImovelBloco({ processoId, processoNome }: {
     try {
       let alvo = imovel
       if (!alvo) {
-        alvo = await criarOportunidadeDoProcesso(supabase, processoId, processoNome, form.endereco || null)
+        alvo = await criarOportunidadeDoProcesso(supabase, processoId, processoNome, processoEndereco || null)
         setImovel(alvo)
       }
       const { error } = await supabase
         .from('prospeccoes')
         .update({
-          endereco: form.endereco.trim() || null,
+          // Endereço espelha o do Processo (fonte única) — não há campo próprio.
+          endereco: processoEndereco?.trim() || null,
           link_leilao: form.link_leilao.trim() || null,
           data_leilao: form.data_leilao || null,
           tipo_aquisicao: form.tipo_aquisicao,

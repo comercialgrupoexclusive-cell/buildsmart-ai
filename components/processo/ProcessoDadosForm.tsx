@@ -1,11 +1,12 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { ImagePlus, Loader2, Trash2 } from 'lucide-react'
+import { ImagePlus, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { campoOcultoPor, type AtualizarProcessoInput, type Processo, type ProcessoStatus, type ProcessoTemplate } from '@/lib/processo'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { EnderecoFields, enderecoDe, enderecoResumo, type EnderecoValor } from './EnderecoFields'
 
 const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ACTIVE', label: 'Ativo' },
@@ -13,8 +14,6 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'COMPLETED', label: 'Concluído' },
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
-
-const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO']
 
 export type DadosProcesso = AtualizarProcessoInput & { status?: ProcessoStatus }
 
@@ -35,39 +34,11 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
-  // Endereço estruturado
-  const [cep, setCep] = useState(processo.cep ?? '')
-  const [logradouro, setLogradouro] = useState(processo.logradouro ?? '')
-  const [numero, setNumero] = useState(processo.numero ?? '')
-  const [complemento, setComplemento] = useState(processo.complemento ?? '')
-  const [bairro, setBairro] = useState(processo.bairro ?? '')
-  const [cidade, setCidade] = useState(processo.cidade ?? '')
-  const [uf, setUf] = useState(processo.uf ?? '')
-  const [buscandoCep, setBuscandoCep] = useState(false)
+  // Endereço estruturado (componente compartilhado com o cadastro)
+  const [endereco, setEndereco] = useState<EnderecoValor>(enderecoDe(processo))
 
   const oculto = (campo: Parameters<typeof campoOcultoPor>[1]) => campoOcultoPor(template, campo)
   const ocultarCliente = oculto('cliente_nome')
-
-  async function buscarCep(valor: string) {
-    const limpo = valor.replace(/\D/g, '')
-    setCep(valor)
-    if (limpo.length !== 8) return
-    setBuscandoCep(true)
-    try {
-      const res = await fetch(`https://viacep.com.br/ws/${limpo}/json/`)
-      if (!res.ok) return
-      const data = await res.json() as { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string }
-      if (data.erro) return
-      setLogradouro(data.logradouro ?? '')
-      setBairro(data.bairro ?? '')
-      setCidade(data.localidade ?? '')
-      setUf(data.uf ?? '')
-    } catch {
-      // ignora erro de rede — usuário preenche manualmente
-    } finally {
-      setBuscandoCep(false)
-    }
-  }
 
   async function enviarCapa(arquivo: File | undefined) {
     if (!arquivo) return
@@ -100,15 +71,15 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
         nome: nome.trim(),
         tipo: oculto('tipo') ? null : (tipo.trim() || null),
         cliente_nome: ocultarCliente ? null : (clienteNome.trim() || null),
-        cep: cep.replace(/\D/g, '').padEnd(0) || null,
-        logradouro: logradouro.trim() || null,
-        numero: numero.trim() || null,
-        complemento: complemento.trim() || null,
-        bairro: bairro.trim() || null,
-        cidade: cidade.trim() || null,
-        uf: uf || null,
-        // legado — mantido para retrocompatibilidade com cards/buscas antigas
-        endereco: [logradouro.trim(), numero.trim(), bairro.trim(), cidade.trim(), uf].filter(Boolean).join(', ') || null,
+        cep: endereco.cep.replace(/\D/g, '') || null,
+        logradouro: endereco.logradouro.trim() || null,
+        numero: endereco.numero.trim() || null,
+        complemento: endereco.complemento.trim() || null,
+        bairro: endereco.bairro.trim() || null,
+        cidade: endereco.cidade.trim() || null,
+        uf: endereco.uf || null,
+        // legado — mantido para retrocompatibilidade com cards/buscas/mapa antigos
+        endereco: enderecoResumo(endereco) || null,
         capa_url: capaUrl,
         ...(mostrarStatus ? { status } : {}),
       })
@@ -180,41 +151,7 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
       </div>
 
       {!oculto('endereco') && (
-        <div className="space-y-3">
-          <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Endereço</p>
-
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1 max-w-[180px]">
-              <Input
-                label="CEP"
-                value={cep}
-                onChange={e => void buscarCep(e.target.value)}
-                placeholder="00000-000"
-                maxLength={9}
-              />
-            </div>
-            {buscandoCep && (
-              <Loader2 size={16} className="animate-spin mt-5 flex-shrink-0" style={{ color: 'var(--text-secondary)' }} />
-            )}
-          </div>
-
-          <Input label="Logradouro" value={logradouro} onChange={e => setLogradouro(e.target.value)} placeholder="Rua, Av., Alameda…" />
-
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Número" value={numero} onChange={e => setNumero(e.target.value)} placeholder="123" />
-            <Input label="Complemento" value={complemento} onChange={e => setComplemento(e.target.value)} placeholder="Apto, Bloco…" />
-          </div>
-
-          <Input label="Bairro" value={bairro} onChange={e => setBairro(e.target.value)} />
-
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Cidade" value={cidade} onChange={e => setCidade(e.target.value)} />
-            <Select label="UF" value={uf} onChange={e => setUf(e.target.value)}>
-              <option value="">—</option>
-              {UFS.map(u => <option key={u} value={u}>{u}</option>)}
-            </Select>
-          </div>
-        </div>
+        <EnderecoFields valor={endereco} onChange={setEndereco} disabled={salvando} />
       )}
 
       {mostrarStatus && (

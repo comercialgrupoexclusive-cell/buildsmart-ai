@@ -16,6 +16,7 @@ import { useProfile } from '@/lib/profile-context'
 import type { Profile } from '@/lib/types'
 import { Input, Select } from '@/components/ui/Input'
 import { ImovelCampos, IMOVEL_VAZIO, type DadosImovel } from '@/components/processo/ImovelCampos'
+import { EnderecoFields, ENDERECO_VAZIO, enderecoResumo, type EnderecoValor } from '@/components/processo/EnderecoFields'
 import { criarOportunidadeDoProcesso } from '@/lib/investidor-oportunidade'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -24,7 +25,6 @@ const EMPTY_FORM = {
   nome: '',
   tipo: '',
   cliente_nome: '',
-  endereco: '',
   responsavel_id: '',
   template_id: '',
 }
@@ -42,6 +42,7 @@ export default function NovoProcessoPage() {
   const [templates, setTemplates] = useState<ProcessoTemplate[]>([])
   const [imovelAberto, setImovelAberto] = useState(false)
   const [imovel, setImovel] = useState<DadosImovel>(IMOVEL_VAZIO)
+  const [endereco, setEndereco] = useState<EnderecoValor>(ENDERECO_VAZIO)
   const [organizacoes, setOrganizacoes] = useState<OrgOption[]>([])
   const [organizationId, setOrganizationId] = useState('')
   const [loadingOrg, setLoadingOrg] = useState(true)
@@ -129,22 +130,31 @@ export default function NovoProcessoPage() {
     }
     setSaving(true)
     try {
+      const enderecoTexto = enderecoResumo(endereco)
       const processo = await criarProcesso(supabase, {
         nome: form.nome,
         tipo: form.tipo || null,
         cliente_nome: form.cliente_nome || null,
-        endereco: form.endereco || null,
+        endereco: enderecoTexto || null,
+        cep: endereco.cep.replace(/\D/g, '') || null,
+        logradouro: endereco.logradouro.trim() || null,
+        numero: endereco.numero.trim() || null,
+        complemento: endereco.complemento.trim() || null,
+        bairro: endereco.bairro.trim() || null,
+        cidade: endereco.cidade.trim() || null,
+        uf: endereco.uf || null,
         responsavel_id: form.responsavel_id || null,
         organization_id: organizationId || null,
         template_id: form.template_id || null,
         modulos: templateEscolhido?.modulos,
       })
       // O imóvel só nasce se a pessoa abriu o "+" e preencheu alguma coisa.
-      // Falhar aqui não pode derrubar o Processo, que já existe.
-      const temImovel = imovel.endereco.trim() || imovel.link_leilao.trim() || imovel.data_leilao
+      // Falhar aqui não pode derrubar o Processo, que já existe. O endereço do
+      // imóvel espelha o do Processo (fonte única).
+      const temImovel = imovel.link_leilao.trim() || imovel.data_leilao
       if (temImovel) {
         try {
-          const criado = await criarOportunidadeDoProcesso(supabase, processo.id, form.nome, imovel.endereco.trim() || null)
+          const criado = await criarOportunidadeDoProcesso(supabase, processo.id, form.nome, enderecoTexto || null)
           await supabase.from('prospeccoes').update({
             link_leilao: imovel.link_leilao.trim() || null,
             data_leilao: imovel.data_leilao || null,
@@ -228,12 +238,7 @@ export default function NovoProcessoPage() {
             onChange={e => setForm(f => ({ ...f, cliente_nome: e.target.value }))}
           />
         )}
-        <Input
-          label="Endereço"
-          placeholder="Rua, cidade..."
-          value={form.endereco}
-          onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))}
-        />
+        <EnderecoFields valor={endereco} onChange={setEndereco} disabled={saving} />
         <Select
           label="Responsável"
           value={form.responsavel_id}

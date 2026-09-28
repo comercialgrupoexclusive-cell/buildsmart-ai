@@ -3,10 +3,13 @@
 // Seção 11 canônica: LANÇAMENTO RÁPIDO — form enxuto para registrar uma
 // receita/despesa no contexto de um Processo sem atravessar formulário longo.
 // Grava em compra_itens com processo_id e orcamento_id preenchidos.
+// Fornecedor segue o cadastro no ponto de uso (seção 4): escolhe um cadastrado
+// ou digita manualmente — mesmo padrão de ComprasLancamentos.
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import type { Fornecedor } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
 import { TIPO_CUSTO_LABEL } from '@/lib/utils'
@@ -21,21 +24,36 @@ type Props = {
 }
 
 export function LancamentoRapidoProcesso({ processoId, orcamentoId, onSalvo }: Props) {
+  const supabase = useMemo(() => createClient(), [])
   const [aberto, setAberto] = useState(false)
   const [descricao, setDescricao] = useState('')
   const [valor, setValor] = useState('')
   const [data, setData] = useState(hoje())
   const [tipoCusto, setTipoCusto] = useState('')
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
+  const [fornecedorId, setFornecedorId] = useState('')
   const [fornecedorNome, setFornecedorNome] = useState('')
+  const [fornecedorManual, setFornecedorManual] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
+
+  useEffect(() => {
+    let cancelado = false
+    // Fornecedores da organização (obra_id nulo = compartilhados). RLS isola por org.
+    supabase.from('fornecedores').select('*').is('obra_id', null).order('nome').then(({ data }: { data: Fornecedor[] | null }) => {
+      if (!cancelado) setFornecedores(data ?? [])
+    })
+    return () => { cancelado = true }
+  }, [supabase])
 
   function abrir() {
     setDescricao('')
     setValor('')
     setData(hoje())
     setTipoCusto('')
+    setFornecedorId('')
     setFornecedorNome('')
+    setFornecedorManual(false)
     setErro('')
     setAberto(true)
   }
@@ -47,7 +65,6 @@ export function LancamentoRapidoProcesso({ processoId, orcamentoId, onSalvo }: P
     setErro('')
     setSalvando(true)
     try {
-      const supabase = createClient()
       const { error } = await supabase.from('compra_itens').insert({
         processo_id: processoId,
         orcamento_id: orcamentoId,
@@ -55,7 +72,8 @@ export function LancamentoRapidoProcesso({ processoId, orcamentoId, onSalvo }: P
         valor_total: valorNum,
         data_compra: data || hoje(),
         tipo_custo: tipoCusto || null,
-        fornecedor_nome: fornecedorNome.trim() || null,
+        fornecedor_id: fornecedorManual ? null : (fornecedorId || null),
+        fornecedor_nome: fornecedorManual ? (fornecedorNome.trim() || null) : null,
         status_valor: 'confirmado',
         status_pagamento: 'pendente',
       })
@@ -97,12 +115,31 @@ export function LancamentoRapidoProcesso({ processoId, orcamentoId, onSalvo }: P
         <Input label="Data" type="date" value={data} onChange={e => setData(e.target.value)} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <Select label="Tipo de custo" value={tipoCusto} onChange={e => setTipoCusto(e.target.value)}>
-          <option value="">Não classificado</option>
-          {TIPOS_CUSTO.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </Select>
-        <Input label="Fornecedor" value={fornecedorNome} onChange={e => setFornecedorNome(e.target.value)} placeholder="Nome do fornecedor" />
+      <Select label="Tipo de custo" value={tipoCusto} onChange={e => setTipoCusto(e.target.value)}>
+        <option value="">Não classificado</option>
+        {TIPOS_CUSTO.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </Select>
+
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Fornecedor</label>
+          <button
+            type="button"
+            onClick={() => setFornecedorManual(v => !v)}
+            className="text-xs"
+            style={{ color: 'var(--accent)' }}
+          >
+            {fornecedorManual ? 'Selecionar cadastrado' : 'Digitar manualmente'}
+          </button>
+        </div>
+        {fornecedorManual ? (
+          <Input value={fornecedorNome} onChange={e => setFornecedorNome(e.target.value)} placeholder="Nome do fornecedor" />
+        ) : (
+          <Select value={fornecedorId} onChange={e => setFornecedorId(e.target.value)}>
+            <option value="">Sem fornecedor definido</option>
+            {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+          </Select>
+        )}
       </div>
 
       {erro && <p className="text-xs" style={{ color: '#f87171' }}>{erro}</p>}
