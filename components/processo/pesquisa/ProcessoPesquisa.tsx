@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, FileText, Home, ImageUp, Link2, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Check, FileText, ImageUp, Link2, Loader2, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import {
@@ -66,9 +66,6 @@ export function ProcessoPesquisa({ processoId, processoNome }: { processoId: str
   const [subAba, setSubAba] = useState<SubAba>('relatorio')
   const [recarregar, setRecarregar] = useState(0)
 
-  const [enderecoNovo, setEnderecoNovo] = useState('')
-  const [criando, setCriando] = useState(false)
-
   const [estados, setEstados] = useState<Record<Passo, EstadoPasso>>({
     ficha: 'espera', comparaveis: 'espera', analise: 'espera',
   })
@@ -77,31 +74,41 @@ export function ProcessoPesquisa({ processoId, processoNome }: { processoId: str
 
   const carregar = useCallback(async () => {
     try {
-      setOportunidade(await obterOportunidadeDoProcesso(supabase, processoId))
+      // O imóvel do Processo é automático: se ainda não existe, cria em silêncio.
+      let op = await obterOportunidadeDoProcesso(supabase, processoId)
+      if (!op) op = await criarOportunidadeDoProcesso(supabase, processoId, processoNome, null)
+      setOportunidade(op)
     } catch {
       setOportunidade(null)
       setErro('Não consegui carregar o imóvel deste Processo.')
     }
-  }, [supabase, processoId])
+  }, [supabase, processoId, processoNome])
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void carregar() }, 0)
     return () => window.clearTimeout(timer)
   }, [carregar])
 
-  async function criarImovel() {
-    if (criando) return
-    setErro('')
-    setCriando(true)
-    try {
-      const nova = await criarOportunidadeDoProcesso(supabase, processoId, processoNome, enderecoNovo.trim() || null)
-      setOportunidade(nova)
-    } catch {
-      setErro('Não foi possível criar o imóvel deste Processo.')
-    } finally {
-      setCriando(false)
-    }
-  }
+  // Automático: assim que o imóvel carrega, os dados preenchidos no Processo
+  // (tipo, dormitórios, área, etc.) entram na ficha da pesquisa sozinhos —
+  // preenchendo lacunas sem sobrescrever o que já foi validado/extraído.
+  useEffect(() => {
+    if (!oportunidade) return
+    const dados = dadosImovelDoProcesso(oportunidade)
+    if (Object.keys(dados).length === 0) return
+    void (async () => {
+      try {
+        const { data: ex } = await supabase.from('prospeccao_ficha').select('id,dados_confirmados').eq('prospeccao_id', oportunidade.id).maybeSingle()
+        const existente = (ex?.dados_confirmados as Record<string, unknown>) || {}
+        const adiciona = Object.keys(dados).some(k => !(k in existente))
+        if (ex && !adiciona) return
+        const merged = { ...dados, ...existente }
+        if (ex) await supabase.from('prospeccao_ficha').update({ dados_confirmados: merged, updated_at: new Date().toISOString() }).eq('id', (ex as { id: string }).id)
+        else await supabase.from('prospeccao_ficha').insert({ prospeccao_id: oportunidade.id, dados_extraidos: dados, dados_confirmados: merged, status: 'parcial' })
+      } catch { /* silencioso: a pesquisa ainda funciona com o que houver */ }
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oportunidade?.id])
 
   async function chamar(action: string, extra: Record<string, unknown>) {
     const resposta = await fetch('/api/investidor/mercado', {
@@ -173,35 +180,19 @@ export function ProcessoPesquisa({ processoId, processoNome }: { processoId: str
     setRecarregar(n => n + 1)
   }
 
-  // Pesquisa a partir dos DADOS DO PROCESSO (sem print): semeia a ficha com os
-  // atributos do imóvel preenchidos na Visão Geral e roda comparáveis + análise.
-  async function pesquisarComDadosImovel() {
+  // Busca comparáveis + monta o relatório a partir do que a ficha já tem (os
+  // dados do Processo entram automaticamente; o print, quando enviado, enriquece).
+  async function buscarComparaveis() {
     if (!oportunidade || rodando) return
-    const dados = dadosImovelDoProcesso(oportunidade)
-    if (Object.keys(dados).length === 0) {
-      setErro('Preencha os "Dados do imóvel" na Visão Geral do Processo primeiro.')
-      return
-    }
     setErro('')
     setRodando(true)
     setEstados({ ficha: 'ok', comparaveis: 'rodando', analise: 'espera' })
-    try {
-      const { data: ex } = await supabase.from('prospeccao_ficha').select('id,dados_confirmados').eq('prospeccao_id', oportunidade.id).maybeSingle()
-      const confirmados = { ...((ex?.dados_confirmados as Record<string, unknown>) || {}), ...dados }
-      if (ex) {
-        await supabase.from('prospeccao_ficha').update({ dados_confirmados: confirmados, status: 'validada', updated_at: new Date().toISOString() }).eq('id', (ex as { id: string }).id)
-      } else {
-        await supabase.from('prospeccao_ficha').insert({ prospeccao_id: oportunidade.id, dados_extraidos: dados, dados_confirmados: confirmados, status: 'validada' })
-      }
-    } catch {
-      // segue: a busca ainda tenta com o que houver
-    }
     let ok = false
     try {
       const r = await chamar('pesquisar_comparaveis', { ampliarBusca: false })
       ok = r.status === 'ok' && (r.totalComparaveis ?? 0) > 0
       setEstados(e => ({ ...e, comparaveis: ok ? 'ok' : 'falhou', analise: ok ? 'rodando' : 'espera' }))
-      if (!ok) setErro('Nenhum comparável com esses dados. Tente "Ampliar busca" ou envie o print.')
+      if (!ok) setErro('Nenhum comparável ainda. Envie o print do anúncio para enriquecer a busca.')
     } catch {
       setEstados(e => ({ ...e, comparaveis: 'falhou' }))
       setErro('A busca de comparáveis falhou.')
@@ -249,22 +240,9 @@ export function ProcessoPesquisa({ processoId, processoNome }: { processoId: str
 
   if (!oportunidade) {
     return (
-      <div className="card p-5 max-w-md">
-        <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Imóvel deste Processo</h2>
-        <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          A pesquisa de mercado precisa de um imóvel. O endereço pode ficar em branco — o print do leilão preenche
-          depois.
-        </p>
-        <div className="mt-4 space-y-3">
-          <Input
-            label="Endereço"
-            value={enderecoNovo}
-            onChange={e => setEnderecoNovo(e.target.value)}
-            placeholder="Rua, número, bairro, cidade"
-          />
-          {erro && <p className="text-xs" style={{ color: '#f87171' }}>{erro}</p>}
-          <Button onClick={() => void criarImovel()} loading={criando}>Criar imóvel</Button>
-        </div>
+      <div className="card p-5">
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Não consegui preparar o imóvel deste Processo. Tente recarregar a página.</p>
+        {erro && <p className="mt-2 text-xs" style={{ color: '#f87171' }}>{erro}</p>}
       </div>
     )
   }
@@ -308,21 +286,10 @@ export function ProcessoPesquisa({ processoId, processoNome }: { processoId: str
               variant="secondary"
               size="sm"
               disabled={rodando}
-              icon={<Home size={14} />}
-              onClick={() => void pesquisarComDadosImovel()}
-            >
-              Usar dados do imóvel
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={rodando}
               icon={<RefreshCw size={14} />}
-              onClick={() => void chamar('pesquisar_comparaveis', { ampliarBusca: true })
-                .then(() => setRecarregar(n => n + 1))
-                .catch(() => setErro('Não foi possível ampliar a busca.'))}
+              onClick={() => void buscarComparaveis()}
             >
-              Ampliar busca
+              Buscar comparáveis
             </Button>
           </div>
         </div>

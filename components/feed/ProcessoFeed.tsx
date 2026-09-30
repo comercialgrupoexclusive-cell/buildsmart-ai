@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
-import { Heart, ImagePlus, Loader2, MessageCircle, Newspaper, Send, Star, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Heart, ImagePlus, Loader2, MessageCircle, Newspaper, Send, Star, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -47,6 +47,7 @@ export function ProcessoFeed({ processoId }: { processoId?: string }) {
   const [fotos, setFotos] = useState<string[]>([])
   const [enviando, setEnviando] = useState(false)
   const [comentando, setComentando] = useState<Record<string, string>>({})
+  const [slide, setSlide] = useState<number | null>(null) // índice no storySlides (visualizador)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -162,6 +163,15 @@ export function ProcessoFeed({ processoId }: { processoId?: string }) {
     setPosts(prev => prev.filter(p => p.id !== post.id))
   }
 
+  // Stories = publicações marcadas como Story que têm foto. Viram bolinhas no
+  // topo; cada foto é um slide no visualizador em tela cheia.
+  const storyPosts = posts.filter(p => p.is_story && p.foto_urls.length > 0)
+  const storySlides = storyPosts.flatMap(p => p.foto_urls.map(url => ({ postId: p.id, url, titulo: p.processo?.nome ?? 'Processo' })))
+  function abrirStory(postId: string) {
+    const idx = storySlides.findIndex(s => s.postId === postId)
+    if (idx >= 0) setSlide(idx)
+  }
+
   return (
     <div className="space-y-4">
       {/* Composer */}
@@ -207,6 +217,22 @@ export function ProcessoFeed({ processoId }: { processoId?: string }) {
           </button>
         </div>
       </div>
+
+      {/* Stories (bolinhas) */}
+      {storyPosts.length > 0 && (
+        <div className="flex gap-3 overflow-x-auto pb-1">
+          {storyPosts.map(p => (
+            <button key={p.id} type="button" onClick={() => abrirStory(p.id)} className="flex w-[72px] shrink-0 flex-col items-center gap-1">
+              <span className="grid size-16 place-items-center rounded-full p-[3px]" style={{ background: 'conic-gradient(from 0deg, var(--accent), #22c55e, var(--accent))' }}>
+                <span className="relative block size-full overflow-hidden rounded-full border-2" style={{ borderColor: 'var(--bg-card)' }}>
+                  <Image src={p.foto_urls[0]} alt="" fill unoptimized sizes="60px" className="object-cover" />
+                </span>
+              </span>
+              <span className="w-full truncate text-center text-[11px]" style={{ color: 'var(--text-secondary)' }}>{p.processo?.nome ?? 'Processo'}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="animate-spin" style={{ color: 'var(--text-secondary)' }} /></div>
@@ -279,6 +305,24 @@ export function ProcessoFeed({ processoId }: { processoId?: string }) {
               </article>
             )
           })}
+        </div>
+      )}
+
+      {/* Visualizador de Stories em tela cheia */}
+      {slide !== null && storySlides[slide] && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/90 p-0 sm:p-4" role="dialog" aria-modal="true">
+          <button type="button" onClick={() => setSlide(null)} className="absolute right-4 top-4 z-10 grid size-9 place-items-center rounded-full bg-black/60 text-white"><X size={18} /></button>
+          {slide > 0 && (
+            <button type="button" onClick={() => setSlide(s => (s ?? 0) - 1)} className="absolute left-2 z-10 grid size-9 place-items-center rounded-full bg-black/50 text-white"><ChevronLeft size={20} /></button>
+          )}
+          <div className="relative h-full w-full sm:h-[85vh] sm:w-auto sm:aspect-[9/16]">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={storySlides[slide].url} alt="" className="h-full w-full object-contain" />
+            <p className="absolute left-3 top-3 rounded-full bg-black/50 px-3 py-1 text-xs text-white">{storySlides[slide].titulo}</p>
+          </div>
+          {slide < storySlides.length - 1 && (
+            <button type="button" onClick={() => setSlide(s => (s ?? 0) + 1)} className="absolute right-2 z-10 grid size-9 place-items-center rounded-full bg-black/50 text-white"><ChevronRight size={20} /></button>
+          )}
         </div>
       )}
     </div>
