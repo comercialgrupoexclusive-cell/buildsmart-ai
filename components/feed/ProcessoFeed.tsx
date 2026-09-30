@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
-import { ChevronLeft, ChevronRight, Heart, ImagePlus, Loader2, MessageCircle, Newspaper, Send, Star, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Heart, ImagePlus, Loader2, MessageCircle, Newspaper, Send, Star, Trash2, Users, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -48,6 +48,7 @@ export function ProcessoFeed({ processoId }: { processoId?: string }) {
   const [enviando, setEnviando] = useState(false)
   const [comentando, setComentando] = useState<Record<string, string>>({})
   const [slide, setSlide] = useState<number | null>(null) // índice no storySlides (visualizador)
+  const [visivelCliente, setVisivelCliente] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -128,10 +129,11 @@ export function ProcessoFeed({ processoId }: { processoId?: string }) {
       conteudo: texto.trim() || null,
       foto_urls: fotos,
       is_story: isStory,
+      visibility: visivelCliente ? 'cliente' : 'equipe',
     })
     setEnviando(false)
     if (!error) {
-      setTexto(''); setFotos([]); setIsStory(false)
+      setTexto(''); setFotos([]); setIsStory(false); setVisivelCliente(false)
       if (!processoId) setAlvoProcesso('')
       void carregar()
     }
@@ -205,6 +207,7 @@ export function ProcessoFeed({ processoId }: { processoId?: string }) {
             <button type="button" onClick={() => uploadRef.current?.click()} disabled={enviando} title="Fotos" className="grid size-8 place-items-center rounded-lg" style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}><ImagePlus size={15} /></button>
             <input ref={uploadRef} type="file" accept="image/*" multiple className="hidden" onChange={e => void subirFotos(e.target.files)} />
             <button type="button" onClick={() => setIsStory(v => !v)} title="Story" className="grid size-8 place-items-center rounded-lg" style={{ border: '1px solid var(--border)', color: isStory ? 'var(--accent)' : 'var(--text-secondary)', background: isStory ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : undefined }}><Star size={15} /></button>
+            <button type="button" onClick={() => setVisivelCliente(v => !v)} className="flex items-center gap-1 rounded-lg px-2 h-8 text-xs" style={{ border: '1px solid var(--border)', color: visivelCliente ? 'var(--accent)' : 'var(--text-secondary)', background: visivelCliente ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : undefined }} title="Mostrar no link do cliente"><Users size={14} /> Cliente</button>
           </div>
           <button
             type="button"

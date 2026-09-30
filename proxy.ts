@@ -28,7 +28,7 @@ export async function proxy(request: NextRequest) {
     const { data: { user } } = await db.auth.getUser()
     const path = request.nextUrl.pathname
     const externalEndpoint = path.startsWith('/api/portal/') || path === '/api/whatsapp/webhook'
-    const publicPage = PUBLIC_PAGES.has(path) || path.startsWith('/o/') || PUBLIC_API.has(path) || path.startsWith('/portal/') || externalEndpoint
+    const publicPage = PUBLIC_PAGES.has(path) || path.startsWith('/o/') || PUBLIC_API.has(path) || path.startsWith('/portal/') || path.startsWith('/pc/') || externalEndpoint
     if (!user && !publicPage) {
       if (path.startsWith('/api/')) return finish(NextResponse.json({ error: 'Sessão expirada.' }, { status: 401 }))
       const target = new URL('/login', request.url)
