@@ -1,6 +1,9 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { Input, Select } from '@/components/ui/Input'
+import { ComboboxCriavel } from '@/components/ui/ComboboxCriavel'
 
 // Campos específicos do imóvel de aquisição. O ENDEREÇO NÃO mora aqui: ele é
 // único no Processo (seção 3 canônica, Dados do processo com CEP). Aqui ficam a
@@ -51,23 +54,24 @@ export function numOuNull(s: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-const TIPOS_IMOVEL = [
-  ['apartamento', 'Apartamento'],
-  ['casa', 'Casa'],
-  ['sobrado', 'Sobrado'],
-  ['terreno', 'Terreno'],
-  ['comercial', 'Sala/Loja comercial'],
-  ['galpao', 'Galpão'],
-  ['rural', 'Rural/Chácara'],
-  ['outro', 'Outro'],
-] as const
-
 export function ImovelCampos({ valor, onChange, desabilitado }: {
   valor: DadosImovel
   onChange: (v: DadosImovel) => void
   desabilitado?: boolean
 }) {
   const set = (patch: Partial<DadosImovel>) => onChange({ ...valor, ...patch })
+
+  // Tipo de imóvel é cadastro no ponto de uso: sugere o que já foi usado na org
+  // (RLS isola) e cria ao digitar. Sem lista fixa.
+  const [tiposSug, setTiposSug] = useState<string[]>([])
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.from('prospeccoes').select('tipo_imovel').not('tipo_imovel', 'is', null)
+      .then(({ data }: { data: { tipo_imovel: string | null }[] | null }) => {
+        const nomes = (data ?? []).map(r => (r.tipo_imovel ?? '').trim()).filter(Boolean)
+        setTiposSug(Array.from(new Set(nomes)))
+      })
+  }, [])
 
   return (
     <div className="space-y-5">
@@ -104,15 +108,16 @@ export function ImovelCampos({ valor, onChange, desabilitado }: {
       <div className="space-y-4">
         <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Características do imóvel</p>
 
-        <Select
+        <ComboboxCriavel
           label="Tipo de imóvel"
-          value={valor.tipo_imovel}
-          onChange={e => set({ tipo_imovel: e.target.value })}
+          placeholder="Buscar ou criar tipo (ex.: Apartamento)…"
           disabled={desabilitado}
-        >
-          <option value="">—</option>
-          {TIPOS_IMOVEL.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </Select>
+          opcoes={tiposSug.map(t => ({ id: t, label: t }))}
+          valorLabel={valor.tipo_imovel}
+          onEscolher={o => set({ tipo_imovel: o.label })}
+          onCriar={t => set({ tipo_imovel: t })}
+          onLimpar={() => set({ tipo_imovel: '' })}
+        />
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Input label="Dormitórios" type="number" inputMode="numeric" min={0} value={valor.dormitorios} onChange={e => set({ dormitorios: e.target.value })} disabled={desabilitado} />
