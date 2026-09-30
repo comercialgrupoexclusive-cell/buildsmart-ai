@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Fornecedor } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
+import { ComboboxCriavel } from '@/components/ui/ComboboxCriavel'
 import { TIPO_CUSTO_LABEL } from '@/lib/utils'
 
 const TIPOS_CUSTO = Object.entries(TIPO_CUSTO_LABEL) as [string, string][]
@@ -32,8 +33,6 @@ export function LancamentoRapidoProcesso({ processoId, orcamentoId, onSalvo }: P
   const [tipoCusto, setTipoCusto] = useState('')
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [fornecedorId, setFornecedorId] = useState('')
-  const [fornecedorNome, setFornecedorNome] = useState('')
-  const [fornecedorManual, setFornecedorManual] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -52,10 +51,23 @@ export function LancamentoRapidoProcesso({ processoId, orcamentoId, onSalvo }: P
     setData(hoje())
     setTipoCusto('')
     setFornecedorId('')
-    setFornecedorNome('')
-    setFornecedorManual(false)
     setErro('')
     setAberto(true)
+  }
+
+  // Cadastro no ponto de uso: cria a linha em `fornecedores` (geral da org) e já
+  // seleciona. O banco cresce pelo uso; da próxima vez aparece na busca.
+  async function criarFornecedor(nome: string) {
+    const { data } = await supabase.from('fornecedores').insert({ nome, obra_id: null, categoria: 'MISTO', ativo: true }).select().single()
+    if (data) {
+      setFornecedores(prev => [...prev, data as Fornecedor].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')))
+      setFornecedorId((data as Fornecedor).id)
+    }
+  }
+
+  async function renomearFornecedor(id: string, novo: string) {
+    const { data } = await supabase.from('fornecedores').update({ nome: novo }).eq('id', id).select().single()
+    if (data) setFornecedores(prev => prev.map(f => f.id === id ? (data as Fornecedor) : f).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')))
   }
 
   async function salvar() {
@@ -72,8 +84,8 @@ export function LancamentoRapidoProcesso({ processoId, orcamentoId, onSalvo }: P
         valor_total: valorNum,
         data_compra: data || hoje(),
         tipo_custo: tipoCusto || null,
-        fornecedor_id: fornecedorManual ? null : (fornecedorId || null),
-        fornecedor_nome: fornecedorManual ? (fornecedorNome.trim() || null) : null,
+        fornecedor_id: fornecedorId || null,
+        fornecedor_nome: null,
         status_valor: 'confirmado',
         status_pagamento: 'pendente',
       })
@@ -120,27 +132,16 @@ export function LancamentoRapidoProcesso({ processoId, orcamentoId, onSalvo }: P
         {TIPOS_CUSTO.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
       </Select>
 
-      <div>
-        <div className="mb-1.5 flex items-center justify-between">
-          <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Fornecedor</label>
-          <button
-            type="button"
-            onClick={() => setFornecedorManual(v => !v)}
-            className="text-xs"
-            style={{ color: 'var(--accent)' }}
-          >
-            {fornecedorManual ? 'Selecionar cadastrado' : 'Digitar manualmente'}
-          </button>
-        </div>
-        {fornecedorManual ? (
-          <Input value={fornecedorNome} onChange={e => setFornecedorNome(e.target.value)} placeholder="Nome do fornecedor" />
-        ) : (
-          <Select value={fornecedorId} onChange={e => setFornecedorId(e.target.value)}>
-            <option value="">Sem fornecedor definido</option>
-            {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
-          </Select>
-        )}
-      </div>
+      <ComboboxCriavel
+        label="Fornecedor"
+        placeholder="Buscar ou criar fornecedor…"
+        opcoes={fornecedores.map(f => ({ id: f.id, label: f.nome }))}
+        valorLabel={fornecedores.find(f => f.id === fornecedorId)?.nome ?? ''}
+        onEscolher={o => setFornecedorId(o.id)}
+        onCriar={criarFornecedor}
+        onRenomear={renomearFornecedor}
+        onLimpar={() => setFornecedorId('')}
+      />
 
       {erro && <p className="text-xs" style={{ color: '#f87171' }}>{erro}</p>}
 

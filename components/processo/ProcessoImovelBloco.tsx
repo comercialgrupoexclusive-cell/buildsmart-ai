@@ -9,7 +9,7 @@ import {
 } from '@/lib/investidor-oportunidade'
 import type { Prospeccao } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
-import { ImovelCampos, IMOVEL_VAZIO, type DadosImovel } from './ImovelCampos'
+import { ImovelCampos, IMOVEL_VAZIO, intOuNull, numOuNull, type DadosImovel } from './ImovelCampos'
 
 // Bloco "+ Dados do imóvel" da Visão Geral. Fica fechado por padrão: um
 // Processo que não é de aquisição nunca precisa ver estes campos, e abrir
@@ -39,6 +39,16 @@ export function ProcessoImovelBloco({ processoId, processoNome, processoEndereco
           link_leilao: atual.link_leilao ?? '',
           data_leilao: atual.data_leilao ?? '',
           tipo_aquisicao: atual.tipo_aquisicao ?? 'leilao',
+          tipo_imovel: atual.tipo_imovel ?? '',
+          dormitorios: atual.dormitorios != null ? String(atual.dormitorios) : '',
+          suites: atual.suites != null ? String(atual.suites) : '',
+          banheiros: atual.banheiros != null ? String(atual.banheiros) : '',
+          vagas_garagem: atual.vagas_garagem != null ? String(atual.vagas_garagem) : '',
+          area_util: atual.area_util != null ? String(atual.area_util) : '',
+          area_total: atual.area_total != null ? String(atual.area_total) : '',
+          andar: atual.andar != null ? String(atual.andar) : '',
+          valor_condominio: atual.valor_condominio != null ? String(atual.valor_condominio) : '',
+          valor_iptu: atual.valor_iptu != null ? String(atual.valor_iptu) : '',
         })
       }
     } catch {
@@ -71,6 +81,16 @@ export function ProcessoImovelBloco({ processoId, processoNome, processoEndereco
           link_leilao: form.link_leilao.trim() || null,
           data_leilao: form.data_leilao || null,
           tipo_aquisicao: form.tipo_aquisicao,
+          tipo_imovel: form.tipo_imovel || null,
+          dormitorios: intOuNull(form.dormitorios),
+          suites: intOuNull(form.suites),
+          banheiros: intOuNull(form.banheiros),
+          vagas_garagem: intOuNull(form.vagas_garagem),
+          area_util: numOuNull(form.area_util),
+          area_total: numOuNull(form.area_total),
+          andar: intOuNull(form.andar),
+          valor_condominio: numOuNull(form.valor_condominio),
+          valor_iptu: numOuNull(form.valor_iptu),
           updated_at: new Date().toISOString(),
         })
         .eq('id', alvo.id)

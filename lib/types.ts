@@ -706,6 +706,18 @@ export type Prospeccao = {
   // 'leilao' sem sinal nenhum da prospecção-mãe). Cenários novos herdam
   // este valor (ver ProspeccaoCenarios.tsx e lib/investidor-ai-tools.ts).
   tipo_aquisicao: 'leilao' | 'compra_direta'
+  // Características do imóvel (para busca de mercado eficiente). Todas nullable
+  // — preenchidas no bloco "Dados do imóvel" do Processo.
+  tipo_imovel: string | null
+  dormitorios: number | null
+  suites: number | null
+  banheiros: number | null
+  vagas_garagem: number | null
+  area_util: number | null
+  area_total: number | null
+  andar: number | null
+  valor_condominio: number | null
+  valor_iptu: number | null
   // Processo dono desta oportunidade de aquisição. Índice único parcial no
   // banco garante no máximo uma aquisição por Processo (is_venda=false).
   processo_id: string | null

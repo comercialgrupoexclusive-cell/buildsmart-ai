@@ -15,8 +15,10 @@ import { campoOcultoPor, criarProcesso, listarTemplates, type ProcessoTemplate }
 import { useProfile } from '@/lib/profile-context'
 import type { Profile } from '@/lib/types'
 import { Input, Select } from '@/components/ui/Input'
-import { ImovelCampos, IMOVEL_VAZIO, type DadosImovel } from '@/components/processo/ImovelCampos'
+import { ImovelCampos, IMOVEL_VAZIO, intOuNull, numOuNull, type DadosImovel } from '@/components/processo/ImovelCampos'
 import { EnderecoFields, ENDERECO_VAZIO, enderecoResumo, type EnderecoValor } from '@/components/processo/EnderecoFields'
+import { ComboboxCriavel } from '@/components/ui/ComboboxCriavel'
+import { listarClientesSugeridos } from '@/lib/processo/clientes'
 import { criarOportunidadeDoProcesso } from '@/lib/investidor-oportunidade'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -43,6 +45,7 @@ export default function NovoProcessoPage() {
   const [imovelAberto, setImovelAberto] = useState(false)
   const [imovel, setImovel] = useState<DadosImovel>(IMOVEL_VAZIO)
   const [endereco, setEndereco] = useState<EnderecoValor>(ENDERECO_VAZIO)
+  const [clientesSug, setClientesSug] = useState<string[]>([])
   const [organizacoes, setOrganizacoes] = useState<OrgOption[]>([])
   const [organizationId, setOrganizationId] = useState('')
   const [loadingOrg, setLoadingOrg] = useState(true)
@@ -54,6 +57,7 @@ export default function NovoProcessoPage() {
     supabase.from('profiles').select('id, name, apelido').order('name').then(({ data }: { data: Profile[] | null }) => {
       setProfiles(data ?? [])
     })
+    void listarClientesSugeridos(supabase).then(setClientesSug)
   }, [supabase])
 
   useEffect(() => {
@@ -151,7 +155,8 @@ export default function NovoProcessoPage() {
       // O imóvel só nasce se a pessoa abriu o "+" e preencheu alguma coisa.
       // Falhar aqui não pode derrubar o Processo, que já existe. O endereço do
       // imóvel espelha o do Processo (fonte única).
-      const temImovel = imovel.link_leilao.trim() || imovel.data_leilao
+      const temImovel = imovel.link_leilao.trim() || imovel.data_leilao || imovel.tipo_imovel
+        || imovel.dormitorios || imovel.banheiros || imovel.area_util || imovel.vagas_garagem
       if (temImovel) {
         try {
           const criado = await criarOportunidadeDoProcesso(supabase, processo.id, form.nome, enderecoTexto || null)
@@ -159,6 +164,16 @@ export default function NovoProcessoPage() {
             link_leilao: imovel.link_leilao.trim() || null,
             data_leilao: imovel.data_leilao || null,
             tipo_aquisicao: imovel.tipo_aquisicao,
+            tipo_imovel: imovel.tipo_imovel || null,
+            dormitorios: intOuNull(imovel.dormitorios),
+            suites: intOuNull(imovel.suites),
+            banheiros: intOuNull(imovel.banheiros),
+            vagas_garagem: intOuNull(imovel.vagas_garagem),
+            area_util: numOuNull(imovel.area_util),
+            area_total: numOuNull(imovel.area_total),
+            andar: intOuNull(imovel.andar),
+            valor_condominio: numOuNull(imovel.valor_condominio),
+            valor_iptu: numOuNull(imovel.valor_iptu),
           }).eq('id', criado.id)
         } catch {
           // Segue para o Processo: os dados do imóvel podem ser preenchidos
@@ -231,11 +246,14 @@ export default function NovoProcessoPage() {
           onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}
         />
         {!ocultarCliente && (
-          <Input
+          <ComboboxCriavel
             label="Cliente"
-            placeholder="Nome do cliente"
-            value={form.cliente_nome}
-            onChange={e => setForm(f => ({ ...f, cliente_nome: e.target.value }))}
+            placeholder="Buscar ou criar cliente…"
+            opcoes={clientesSug.map(n => ({ id: n, label: n }))}
+            valorLabel={form.cliente_nome}
+            onEscolher={o => setForm(f => ({ ...f, cliente_nome: o.label }))}
+            onCriar={texto => setForm(f => ({ ...f, cliente_nome: texto }))}
+            onLimpar={() => setForm(f => ({ ...f, cliente_nome: '' }))}
           />
         )}
         <EnderecoFields valor={endereco} onChange={setEndereco} disabled={saving} />

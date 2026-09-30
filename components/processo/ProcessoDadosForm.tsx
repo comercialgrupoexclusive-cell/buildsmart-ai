@@ -1,11 +1,13 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { campoOcultoPor, type AtualizarProcessoInput, type Processo, type ProcessoStatus, type ProcessoTemplate } from '@/lib/processo'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { ComboboxCriavel } from '@/components/ui/ComboboxCriavel'
+import { listarClientesSugeridos } from '@/lib/processo/clientes'
 import { EnderecoFields, enderecoDe, enderecoResumo, type EnderecoValor } from './EnderecoFields'
 
 const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
@@ -36,9 +38,15 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
 
   // Endereço estruturado (componente compartilhado com o cadastro)
   const [endereco, setEndereco] = useState<EnderecoValor>(enderecoDe(processo))
+  const [clientesSug, setClientesSug] = useState<string[]>([])
 
   const oculto = (campo: Parameters<typeof campoOcultoPor>[1]) => campoOcultoPor(template, campo)
   const ocultarCliente = oculto('cliente_nome')
+
+  useEffect(() => {
+    if (ocultarCliente) return
+    void listarClientesSugeridos(createClient()).then(setClientesSug)
+  }, [ocultarCliente])
 
   async function enviarCapa(arquivo: File | undefined) {
     if (!arquivo) return
@@ -146,7 +154,15 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
           <Input label="Tipo" value={tipo} onChange={e => setTipo(e.target.value)} placeholder="Residencial, Reforma…" />
         )}
         {!ocultarCliente && (
-          <Input label="Cliente" value={clienteNome} onChange={e => setClienteNome(e.target.value)} />
+          <ComboboxCriavel
+            label="Cliente"
+            placeholder="Buscar ou criar cliente…"
+            opcoes={clientesSug.map(n => ({ id: n, label: n }))}
+            valorLabel={clienteNome}
+            onEscolher={o => setClienteNome(o.label)}
+            onCriar={texto => setClienteNome(texto)}
+            onLimpar={() => setClienteNome('')}
+          />
         )}
       </div>
 

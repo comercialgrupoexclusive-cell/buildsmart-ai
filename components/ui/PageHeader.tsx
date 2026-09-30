@@ -19,7 +19,7 @@ export function PageHeader({
   return (
     <div className={cn('flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3', className)}>
       <div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>{title}</h1>
           {titleAction}
         </div>

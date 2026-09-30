@@ -212,12 +212,12 @@ export default function ProcessosPage() {
           // Largura fixa igual nos dois: rótulos curtos ("Processo" e
           // "Templates") cabem no mesmo w-32 sem quebrar, o que "Novo
           // Processo" não fazia.
-          <div className="flex items-center gap-2">
-            <Link href="/processos/novo">
-              <Button size="sm" icon={<Plus size={15} />} className="w-32">Processo</Button>
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <Link href="/processos/novo" className="flex-1 sm:flex-none">
+              <Button size="sm" icon={<Plus size={15} />} className="w-full sm:w-32">Processo</Button>
             </Link>
-            <Link href="/processos/templates">
-              <Button size="sm" variant="secondary" icon={<LayoutTemplate size={15} />} className="w-32">
+            <Link href="/processos/templates" className="flex-1 sm:flex-none">
+              <Button size="sm" variant="secondary" icon={<LayoutTemplate size={15} />} className="w-full sm:w-32">
                 Templates
               </Button>
             </Link>
