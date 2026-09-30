@@ -21,6 +21,7 @@ export type ProcessoModuleKey =
   | 'caixa_entrada'
   | 'portal_cliente'
   | 'pesquisa_mercado'
+  | 'tour_360'
 
 export type ProcessoModuleDefinition = {
   key: ProcessoModuleKey
@@ -70,6 +71,10 @@ export const PROCESSO_MODULES: readonly ProcessoModuleDefinition[] = [
   // do Investidor (extração de ficha, busca de comparáveis, análise). Não
   // habilitado por padrão: só Processo de aquisição pesquisa mercado.
   { key: 'pesquisa_mercado', label: 'Pesquisa de Mercado' },
+  // Tour 360 (Planejamento/Execução) — reaproveita o motor de fotos 360 do
+  // Portal (portal_tours + @photo-sphere-viewer), agora vinculável por
+  // processo_id com acesso direto sob RLS. Não habilitado por padrão.
+  { key: 'tour_360', label: 'Tour 360' },
 ]
 
 export function getProcessoModuleDefinition(key: string): ProcessoModuleDefinition | undefined {

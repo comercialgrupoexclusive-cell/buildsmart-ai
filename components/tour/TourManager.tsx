@@ -14,7 +14,7 @@ type RawNode = { id: string; tour_id: string; nome: string; pavimento: string | 
 type RawLink = { id: string; node_origem_id: string; node_destino_id: string; yaw: number; pitch: number; label: string | null }
 type RawTourPayload = RawTour & { nodes: RawNode[]; links: RawLink[] }
 
-export function TourManager({ obraId, projectId }: { obraId?: string | null; projectId?: string }) {
+export function TourManager({ obraId, projectId, processoId }: { obraId?: string | null; projectId?: string; processoId?: string }) {
   const supabase = useMemo(() => createClient(), [])
   const { currentProfile } = useProfile()
   const [tours, setTours] = useState<RawTourPayload[]>([])
@@ -33,7 +33,32 @@ export function TourManager({ obraId, projectId }: { obraId?: string | null; pro
   const links = selected?.links || []
 
   const load = useCallback(async () => {
-    if (!currentProfile || (!obraId && !projectId)) return
+    if (!currentProfile || (!obraId && !projectId && !processoId)) return
+    // Processo: acesso direto sob RLS (o proxy admin está desligado).
+    if (processoId) {
+      const { data: ts, error: e1 } = await supabase.from('portal_tours').select('*').eq('processo_id', processoId).order('created_at')
+      if (e1) { setError(e1.message); return }
+      const tourIds = (ts ?? []).map((t: RawTour) => t.id)
+      let nodesAll: RawNode[] = []
+      let linksAll: RawLink[] = []
+      if (tourIds.length) {
+        const { data: ns } = await supabase.from('portal_tour_nodes').select('*').in('tour_id', tourIds).order('ordem')
+        nodesAll = (ns ?? []) as RawNode[]
+        const nodeIds = nodesAll.map(n => n.id)
+        if (nodeIds.length) {
+          const { data: ls } = await supabase.from('portal_tour_links').select('*').in('node_origem_id', nodeIds)
+          linksAll = (ls ?? []) as RawLink[]
+        }
+      }
+      const list = ((ts ?? []) as RawTour[]).map(t => ({
+        ...t,
+        nodes: nodesAll.filter(n => n.tour_id === t.id),
+        links: linksAll.filter(l => nodesAll.some(n => n.id === l.node_origem_id && n.tour_id === t.id)),
+      })) as RawTourPayload[]
+      setTours(list)
+      setSelectedId(prev => (prev && list.some(t => t.id === prev) ? prev : list[0]?.id || ''))
+      return
+    }
     const { data, error: tourError } = await adminRpc('portal_tour_admin_list', {
       p_obra_id: obraId || null,
       p_project_id: projectId || null,
@@ -43,10 +68,59 @@ export function TourManager({ obraId, projectId }: { obraId?: string | null; pro
     setTours(list)
     const nextSelectedId = selectedId && list.some(tour => tour.id === selectedId) ? selectedId : list[0]?.id || ''
     setSelectedId(nextSelectedId)
-  }, [currentProfile, obraId, projectId, selectedId])
+  }, [currentProfile, obraId, projectId, processoId, selectedId, supabase])
 
   const manage = useCallback(async (action: string, entityId: string | null, payload: Record<string, unknown> = {}) => {
-    if (!currentProfile || (!obraId && !projectId)) return { data: null, error: { message: 'Perfil ou contexto indisponível.' } }
+    if (!currentProfile || (!obraId && !projectId && !processoId)) return { data: null, error: { message: 'Perfil ou contexto indisponível.' } }
+    // Processo: operações diretas nas tabelas (RLS garante o escopo).
+    if (processoId) {
+      const agora = new Date().toISOString()
+      const p = payload as Record<string, unknown>
+      try {
+        if (action === 'create_tour') {
+          const { data, error } = await supabase.from('portal_tours').insert({ processo_id: processoId, nome: p.nome as string, tipo: 'processo' }).select('id').single()
+          return { data: (data?.id as string) ?? null, error: error ? { message: error.message } : null }
+        }
+        if (action === 'rename_tour') {
+          const { error } = await supabase.from('portal_tours').update({ nome: p.nome as string, updated_at: agora }).eq('id', entityId)
+          return { data: null, error: error ? { message: error.message } : null }
+        }
+        if (action === 'delete_tour') {
+          const { error } = await supabase.from('portal_tours').delete().eq('id', entityId)
+          return { data: null, error: error ? { message: error.message } : null }
+        }
+        if (action === 'create_node') {
+          const { data, error } = await supabase.from('portal_tour_nodes').insert({
+            tour_id: entityId, nome: p.nome as string, ambiente: p.ambiente as string, pavimento: (p.pavimento as string) ?? null,
+            imagem_url: p.imagem_url as string, thumbnail_url: (p.thumbnail_url as string) ?? null, ordem: (p.ordem as number) ?? 0, publicado: (p.publicado as boolean) ?? true,
+          }).select('id').single()
+          return { data: (data?.id as string) ?? null, error: error ? { message: error.message } : null }
+        }
+        if (action === 'delete_node') {
+          const { error } = await supabase.from('portal_tour_nodes').delete().eq('id', entityId)
+          return { data: null, error: error ? { message: error.message } : null }
+        }
+        if (action === 'create_link') {
+          const { error } = await supabase.from('portal_tour_links').insert({
+            node_origem_id: p.origem_id as string, node_destino_id: p.destino_id as string,
+            yaw: (p.yaw as number) ?? 0, pitch: (p.pitch as number) ?? 0, label: (p.label as string) ?? null,
+          })
+          return { data: null, error: error ? { message: error.message } : null }
+        }
+        if (action === 'delete_link') {
+          const { error } = await supabase.from('portal_tour_links').delete().eq('id', entityId)
+          return { data: null, error: error ? { message: error.message } : null }
+        }
+        if (action === 'toggle_publish') {
+          const { data: atual } = await supabase.from('portal_tours').select('publicado_cliente').eq('id', entityId).single()
+          const { error } = await supabase.from('portal_tours').update({ publicado_cliente: !(atual?.publicado_cliente), updated_at: agora }).eq('id', entityId)
+          return { data: null, error: error ? { message: error.message } : null }
+        }
+        return { data: null, error: { message: 'Ação desconhecida.' } }
+      } catch (e) {
+        return { data: null, error: { message: e instanceof Error ? e.message : 'Falha na operação do tour.' } }
+      }
+    }
     return adminRpc<string>('portal_tour_admin_manage', {
       p_action: action,
       p_obra_id: obraId || null,
@@ -54,14 +128,14 @@ export function TourManager({ obraId, projectId }: { obraId?: string | null; pro
       p_entity_id: entityId,
       p_payload: payload,
     })
-  }, [currentProfile, obraId, projectId])
+  }, [currentProfile, obraId, projectId, processoId, supabase])
 
   useEffect(() => { void Promise.resolve().then(load) }, [load])
 
   async function createTour() {
     setBusy(true)
     setError('')
-    const baseName = projectId ? 'Tour do projeto' : 'Tour da obra'
+    const baseName = processoId ? 'Tour do processo' : projectId ? 'Tour do projeto' : 'Tour da obra'
     const nome = tours.length ? `${baseName} ${tours.length + 1}` : baseName
     const { data, error: createError } = await manage('create_tour', null, { nome })
     setBusy(false)
@@ -95,7 +169,7 @@ export function TourManager({ obraId, projectId }: { obraId?: string | null; pro
     setBusy(true)
     setError('')
     const safeName = nodeFile.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '-')
-    const path = `tours/${obraId || 'projetos'}/${selectedId}/${nodeFile.lastModified}-${nodeFile.size}-${safeName}`
+    const path = `tours/${processoId || obraId || 'projetos'}/${selectedId}/${nodeFile.lastModified}-${nodeFile.size}-${safeName}`
     const uploaded = await supabase.storage.from('project-files').upload(path, nodeFile, { cacheControl: '3600', upsert: false })
     if (uploaded.error) { setBusy(false); setError(uploaded.error.message); return }
     const imageUrl = supabase.storage.from('project-files').getPublicUrl(path).data.publicUrl

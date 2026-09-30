@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, FileText, ImageUp, Link2, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Check, FileText, Home, ImageUp, Link2, Loader2, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
 import {
@@ -37,6 +37,25 @@ const PASSOS: { id: Passo; label: string }[] = [
 ]
 
 type SubAba = 'relatorio' | 'comparaveis'
+
+// Dados do imóvel do Processo (prospeccao) → atributos que a busca de
+// comparáveis entende. Só inclui o que foi preenchido. Se novos campos forem
+// adicionados ao imóvel, é só mapeá-los aqui.
+function dadosImovelDoProcesso(o: Prospeccao): Record<string, unknown> {
+  const d: Record<string, unknown> = {}
+  if (o.tipo_imovel) d.tipo = o.tipo_imovel
+  if (o.dormitorios != null) d.dormitorios = o.dormitorios
+  if (o.suites != null) d.suites = o.suites
+  if (o.banheiros != null) d.banheiros = o.banheiros
+  if (o.vagas_garagem != null) d.vagas = o.vagas_garagem
+  if (o.area_util != null) d.area = o.area_util
+  if (o.area_total != null) d.area_total = o.area_total
+  if (o.andar != null) d.andar = o.andar
+  if (o.valor_condominio != null) d.condominio = o.valor_condominio
+  if (o.valor_iptu != null) d.iptu = o.valor_iptu
+  if (o.endereco) d.endereco = o.endereco
+  return d
+}
 
 export function ProcessoPesquisa({ processoId, processoNome }: { processoId: string; processoNome: string }) {
   const supabase = useMemo(() => createClient(), [])
@@ -154,6 +173,47 @@ export function ProcessoPesquisa({ processoId, processoNome }: { processoId: str
     setRecarregar(n => n + 1)
   }
 
+  // Pesquisa a partir dos DADOS DO PROCESSO (sem print): semeia a ficha com os
+  // atributos do imóvel preenchidos na Visão Geral e roda comparáveis + análise.
+  async function pesquisarComDadosImovel() {
+    if (!oportunidade || rodando) return
+    const dados = dadosImovelDoProcesso(oportunidade)
+    if (Object.keys(dados).length === 0) {
+      setErro('Preencha os "Dados do imóvel" na Visão Geral do Processo primeiro.')
+      return
+    }
+    setErro('')
+    setRodando(true)
+    setEstados({ ficha: 'ok', comparaveis: 'rodando', analise: 'espera' })
+    try {
+      const { data: ex } = await supabase.from('prospeccao_ficha').select('id,dados_confirmados').eq('prospeccao_id', oportunidade.id).maybeSingle()
+      const confirmados = { ...((ex?.dados_confirmados as Record<string, unknown>) || {}), ...dados }
+      if (ex) {
+        await supabase.from('prospeccao_ficha').update({ dados_confirmados: confirmados, status: 'validada', updated_at: new Date().toISOString() }).eq('id', (ex as { id: string }).id)
+      } else {
+        await supabase.from('prospeccao_ficha').insert({ prospeccao_id: oportunidade.id, dados_extraidos: dados, dados_confirmados: confirmados, status: 'validada' })
+      }
+    } catch {
+      // segue: a busca ainda tenta com o que houver
+    }
+    let ok = false
+    try {
+      const r = await chamar('pesquisar_comparaveis', { ampliarBusca: false })
+      ok = r.status === 'ok' && (r.totalComparaveis ?? 0) > 0
+      setEstados(e => ({ ...e, comparaveis: ok ? 'ok' : 'falhou', analise: ok ? 'rodando' : 'espera' }))
+      if (!ok) setErro('Nenhum comparável com esses dados. Tente "Ampliar busca" ou envie o print.')
+    } catch {
+      setEstados(e => ({ ...e, comparaveis: 'falhou' }))
+      setErro('A busca de comparáveis falhou.')
+    }
+    if (ok) {
+      try { await chamar('analisar_mercado', {}); setEstados(e => ({ ...e, analise: 'ok' })) }
+      catch { setEstados(e => ({ ...e, analise: 'falhou' })); setErro('Comparáveis encontrados, mas o relatório falhou.') }
+    }
+    setRodando(false)
+    setRecarregar(n => n + 1)
+  }
+
   async function enviarPrint(file: File | undefined) {
     if (!file) return
     setErro('')
@@ -244,6 +304,15 @@ export function ProcessoPesquisa({ processoId, processoNome }: { processoId: str
                 Enviar print
               </span>
             </label>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={rodando}
+              icon={<Home size={14} />}
+              onClick={() => void pesquisarComDadosImovel()}
+            >
+              Usar dados do imóvel
+            </Button>
             <Button
               variant="secondary"
               size="sm"

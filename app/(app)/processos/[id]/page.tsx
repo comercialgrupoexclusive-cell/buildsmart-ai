@@ -14,7 +14,7 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator, CalendarDays, FileBarChart, Inbox, LayoutGrid, MoreHorizontal, Search, ShoppingCart, Users, Wallet, Landmark, LayoutTemplate, LayoutDashboard } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays, FileBarChart, Inbox, LayoutGrid, MoreHorizontal, Search, ShoppingCart, Users, Wallet, Landmark, LayoutTemplate, LayoutDashboard, Camera } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
@@ -44,6 +44,7 @@ import { ProcessoVisaoGeral } from '@/components/processo/ProcessoVisaoGeral'
 import { ProcessoMais } from '@/components/processo/ProcessoMais'
 import { ProcessoPortalCliente } from '@/components/processo/portal/ProcessoPortalCliente'
 import { ProcessoPesquisa } from '@/components/processo/pesquisa/ProcessoPesquisa'
+import { TourManager } from '@/components/tour/TourManager'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
@@ -55,7 +56,7 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'visao_geral' | 'mais' | 'orcamento' | 'planejamento' | 'fluxo' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board' | 'portal_cliente' | 'pesquisa_mercado'
+type ProcessoTab = 'visao_geral' | 'mais' | 'orcamento' | 'planejamento' | 'fluxo' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board' | 'portal_cliente' | 'pesquisa_mercado' | 'tour_360'
 
 // A aba aberta vira rastro de uso (processo_uso): é isso que ordena a
 // listagem por "último uso" e preenche as últimas ações do card. Visão
@@ -184,6 +185,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     ...(habilitados.has('financeiro') ? [{ key: 'financeiro' as const, label: 'Financeiro', icon: Wallet }] : []),
     ...(habilitados.has('financiamento') ? [{ key: 'financiamento' as const, label: 'Financiamento', icon: Landmark }] : []),
     ...(habilitados.has('planta_baixa') ? [{ key: 'planta_baixa' as const, label: 'Planta 2D/3D', icon: LayoutTemplate }] : []),
+    ...(habilitados.has('tour_360') ? [{ key: 'tour_360' as const, label: 'Tour 360', icon: Camera }] : []),
     ...(habilitados.has('board') ? [{ key: 'board' as const, label: 'Board', icon: LayoutDashboard }] : []),
     ...(habilitados.has('pesquisa_mercado') ? [{ key: 'pesquisa_mercado' as const, label: 'Pesquisa de Mercado', icon: Search }] : []),
     ...(habilitados.has('portal_cliente') ? [{ key: 'portal_cliente' as const, label: 'Portal do Cliente', icon: Users }] : []),
@@ -250,6 +252,8 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
         {tab === 'fluxo' && <ProcessoFluxo processoId={processo.id} temTarefas={habilitados.has('tarefas')} />}
 
         {tab === 'planta_baixa' && <ProcessoPlantaBaixa processoId={processo.id} />}
+
+        {tab === 'tour_360' && <TourManager processoId={processo.id} />}
 
         {tab === 'board' && <ProcessoBoard processoId={processo.id} />}
 
