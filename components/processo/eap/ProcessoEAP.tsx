@@ -7,7 +7,7 @@
 // (DnD do motor de orçamento) reordena dentro do mesmo nível.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Loader2, MoreVertical, Plus, Search, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, MoreVertical, Plus, Save, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   atualizarEtapa, criarEtapa, excluirEtapa, listarEtapas, reordenarEtapas,
@@ -15,7 +15,15 @@ import {
 } from '@/lib/processo/eap'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { SearchInput } from '@/components/ui/SearchInput'
 import { SortableList } from '@/components/ui/SortableList'
+import { useGuardaAlteracoes } from '@/lib/use-guarda-alteracoes'
+
+// Campos editáveis da etapa que passam por rascunho (salvar explícito).
+type Rascunho = Pick<ProcessoEtapa, 'nome' | 'descricao' | 'status' | 'progresso' | 'data_inicio' | 'data_fim'>
+function rascunhoDe(e: ProcessoEtapa): Rascunho {
+  return { nome: e.nome, descricao: e.descricao, status: e.status, progresso: e.progresso, data_inicio: e.data_inicio, data_fim: e.data_fim }
+}
 
 type Visao = 'arvore' | 'cascata' | 'kanban'
 type Filtro = 'tudo' | EtapaStatus
@@ -46,6 +54,7 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
   const [busca, setBusca] = useState('')
   const [novaSub, setNovaSub] = useState('')
   const [sel, setSel] = useState<string | null>(null)
+  const [rascunho, setRascunho] = useState<Rascunho | null>(null)
   const [exp, setExp] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState<string | null>(null)
 
@@ -77,8 +86,41 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
     return self || filhosDe(e.id).some(subtreeMatch)
   }, [buscaNorm, filtro, filhosDe])
 
+  // Rascunho: as edições da etapa ficam locais até o usuário clicar em Salvar
+  // (disquete). Nada de autosave — evita gravar mudanças acidentais (ex.: no
+  // celular). Ao sair/trocar/fechar com alterações, pergunta salvar ou descartar.
+  const sujo = !!(selecionada && rascunho && (
+    rascunho.nome !== selecionada.nome ||
+    (rascunho.descricao ?? '') !== (selecionada.descricao ?? '') ||
+    rascunho.status !== selecionada.status ||
+    rascunho.progresso !== selecionada.progresso ||
+    (rascunho.data_inicio ?? '') !== (selecionada.data_inicio ?? '') ||
+    (rascunho.data_fim ?? '') !== (selecionada.data_fim ?? '')
+  ))
+  useGuardaAlteracoes(sujo)
+
+  async function salvarRascunho() {
+    if (!sel || !rascunho) return
+    await patch(sel, rascunho)
+  }
+  async function resolverPendencia(): Promise<void> {
+    if (!sujo) return
+    // OK = salvar; Cancelar = descartar.
+    if (window.confirm('Você tem alterações não salvas. OK para salvar, Cancelar para descartar.')) await salvarRascunho()
+  }
+
   function toggleExp(id: string) { setExp(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
-  function selecionar(e: ProcessoEtapa) { setSel(e.id); if (filhosDe(e.id).length > 0) setExp(prev => new Set(prev).add(e.id)) }
+  async function selecionar(e: ProcessoEtapa) {
+    if (sel && sel !== e.id) await resolverPendencia()
+    setSel(e.id)
+    setRascunho(rascunhoDe(e))
+    if (filhosDe(e.id).length > 0) setExp(prev => new Set(prev).add(e.id))
+  }
+  async function fechar() {
+    await resolverPendencia()
+    setSel(null)
+    setRascunho(null)
+  }
 
   async function adicionar(parentId: string | null, nome: string) {
     const n = nome.trim(); if (!n) return
@@ -108,10 +150,15 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
 
   const editor = (e: ProcessoEtapa) => (
     <EditorEtapa
-      etapa={e} subs={filhosDe(e.id)} novaSub={novaSub} setNovaSub={setNovaSub}
+      rascunho={rascunho ?? rascunhoDe(e)}
+      sujo={sujo}
+      onRascunho={p => setRascunho(r => ({ ...(r ?? rascunhoDe(e)), ...p }))}
+      onSalvar={() => void salvarRascunho()}
+      onDescartar={() => setRascunho(rascunhoDe(e))}
+      subs={filhosDe(e.id)} novaSub={novaSub} setNovaSub={setNovaSub}
       onAddSub={() => { void adicionar(e.id, novaSub); setNovaSub('') }}
-      onPatch={p => void patch(e.id, p)} onPatchSub={(id, p) => void patch(id, p)}
-      onRemover={() => void remover(e.id)} onRemoverSub={id => void remover(id)} onFechar={() => setSel(null)}
+      onPatchSub={(id, p) => void patch(id, p)}
+      onRemover={() => void remover(e.id)} onRemoverSub={id => void remover(id)} onFechar={() => void fechar()}
     />
   )
 
@@ -132,8 +179,8 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
               <LinhaEAP
                 etapa={e} numero={numero} nivel={prefixo.split('.').length - 1}
                 temFilhos={temFilhos} expandido={aberto} selecionado={sel === e.id}
-                handle={drag.handle} menuAberto={menu === e.id}
-                onToggle={() => toggleExp(e.id)} onSelect={() => selecionar(e)}
+                handle={drag.handle} menuAberto={menu === e.id} arrastando={drag.isDragging}
+                onToggle={() => toggleExp(e.id)} onSelect={() => void selecionar(e)}
                 onMenu={() => setMenu(m => m === e.id ? null : e.id)}
                 onAddSub={() => { setMenu(null); void adicionar(e.id, 'Nova subetapa') }}
                 onRemover={() => { setMenu(null); void remover(e.id) }}
@@ -160,10 +207,7 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
 
       {/* Busca + Nova etapa + visões */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1">
-          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
-          <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar etapas, subetapas…" className="input-base w-full pl-9" />
-        </div>
+        <SearchInput value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar etapas, subetapas…" containerClassName="min-w-0 flex-1 max-w-none" />
         <div className="hidden items-center gap-1 rounded-lg p-1 sm:flex" style={{ background: 'var(--bg-secondary)' }}>
           {([['arvore', 'Árvore'], ['cascata', 'Cascata'], ['kanban', 'Kanban']] as [Visao, string][]).map(([v, l]) => (
             <button key={v} type="button" onClick={() => setVisao(v)} className="rounded-md px-3 py-1.5 text-xs font-medium"
@@ -189,9 +233,9 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
       {filhosDe(null).length === 0 ? (
         <div className="card p-10 text-center" style={{ color: 'var(--text-secondary)' }}>Nenhuma etapa ainda. Crie a primeira no botão “Etapa”.</div>
       ) : visao === 'cascata' ? (
-        <Cascata etapas={etapas} onAbrir={id => setSel(id)} />
+        <Cascata etapas={etapas} onAbrir={id => { const et = etapas.find(x => x.id === id); if (et) void selecionar(et) }} />
       ) : visao === 'kanban' ? (
-        <Kanban topo={filhosDe(null)} filhosDe={filhosDe} onAbrir={e => selecionar(e)} />
+        <Kanban topo={filhosDe(null)} filhosDe={filhosDe} onAbrir={e => void selecionar(e)} />
       ) : (
         <div className="lg:grid lg:grid-cols-[1fr_380px] lg:gap-4 lg:items-start">
           <div className="card overflow-hidden">
@@ -224,9 +268,9 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
   )
 }
 
-function LinhaEAP({ etapa, numero, nivel, temFilhos, expandido, selecionado, handle, menuAberto, onToggle, onSelect, onMenu, onAddSub, onRemover }: {
+function LinhaEAP({ etapa, numero, nivel, temFilhos, expandido, selecionado, handle, menuAberto, arrastando, onToggle, onSelect, onMenu, onAddSub, onRemover }: {
   etapa: ProcessoEtapa; numero: string; nivel: number; temFilhos: boolean; expandido: boolean
-  selecionado: boolean; handle: React.ReactNode; menuAberto: boolean
+  selecionado: boolean; handle: React.ReactNode; menuAberto: boolean; arrastando: boolean
   onToggle: () => void; onSelect: () => void; onMenu: () => void; onAddSub: () => void; onRemover: () => void
 }) {
   const cor = corDe(etapa.status)
@@ -234,7 +278,12 @@ function LinhaEAP({ etapa, numero, nivel, temFilhos, expandido, selecionado, han
     ? `${etapa.data_inicio ? new Date(etapa.data_inicio).toLocaleDateString('pt-BR') : '—'} → ${etapa.data_fim ? new Date(etapa.data_fim).toLocaleDateString('pt-BR') : '—'}`
     : '—'
   return (
-    <div style={{ borderBottom: '1px solid var(--border)', background: selecionado ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : undefined }}>
+    <div style={{
+      borderBottom: '1px solid var(--border)',
+      background: arrastando ? 'var(--bg-card)' : selecionado ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : undefined,
+      boxShadow: arrastando ? '0 6px 20px rgba(0,0,0,0.25)' : undefined,
+      borderRadius: arrastando ? 8 : undefined,
+    }}>
       <div onClick={onSelect} className="flex cursor-pointer items-center gap-2 px-2 py-2 transition-colors hover:bg-[var(--bg-secondary)]">
         {handle}
         {temFilhos ? (
@@ -274,9 +323,11 @@ function LinhaEAP({ etapa, numero, nivel, temFilhos, expandido, selecionado, han
   )
 }
 
-function EditorEtapa({ etapa, subs, novaSub, setNovaSub, onAddSub, onPatch, onPatchSub, onRemover, onRemoverSub, onFechar }: {
-  etapa: ProcessoEtapa; subs: ProcessoEtapa[]; novaSub: string; setNovaSub: (v: string) => void
-  onAddSub: () => void; onPatch: (p: Partial<ProcessoEtapa>) => void; onPatchSub: (id: string, p: Partial<ProcessoEtapa>) => void
+function EditorEtapa({ rascunho, sujo, onRascunho, onSalvar, onDescartar, subs, novaSub, setNovaSub, onAddSub, onPatchSub, onRemover, onRemoverSub, onFechar }: {
+  rascunho: Rascunho; sujo: boolean
+  onRascunho: (p: Partial<Rascunho>) => void; onSalvar: () => void; onDescartar: () => void
+  subs: ProcessoEtapa[]; novaSub: string; setNovaSub: (v: string) => void
+  onAddSub: () => void; onPatchSub: (id: string, p: Partial<ProcessoEtapa>) => void
   onRemover: () => void; onRemoverSub: (id: string) => void; onFechar: () => void
 }) {
   const [aba, setAba] = useState<AbaDetalhe>('subetapas')
@@ -284,25 +335,39 @@ function EditorEtapa({ etapa, subs, novaSub, setNovaSub, onAddSub, onPatch, onPa
     <div className="card m-2 space-y-3 p-4 lg:m-0">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Detalhes da etapa</h3>
-        <button type="button" onClick={onFechar} style={{ color: 'var(--text-secondary)' }}><X size={16} /></button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={onSalvar} disabled={!sujo}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:opacity-40"
+            style={{ background: sujo ? 'var(--accent)' : 'var(--bg-secondary)', color: sujo ? 'white' : 'var(--text-secondary)' }} title="Salvar alterações">
+            <Save size={14} /> Salvar
+          </button>
+          <button type="button" onClick={onFechar} style={{ color: 'var(--text-secondary)' }}><X size={16} /></button>
+        </div>
       </div>
 
-      <Input label="Nome" value={etapa.nome} onChange={e => onPatch({ nome: e.target.value })} />
-      <Textarea label="Descrição" value={etapa.descricao ?? ''} onChange={e => onPatch({ descricao: e.target.value })} rows={2} />
+      {sujo && (
+        <div className="flex items-center justify-between rounded-lg px-3 py-1.5 text-xs" style={{ background: 'color-mix(in srgb, var(--warning) 14%, transparent)', color: 'var(--warning)' }}>
+          <span>Alterações não salvas.</span>
+          <button type="button" onClick={onDescartar} className="font-medium underline-offset-2 hover:underline">Descartar</button>
+        </div>
+      )}
+
+      <Input label="Nome" value={rascunho.nome} onChange={e => onRascunho({ nome: e.target.value })} />
+      <Textarea label="Descrição" value={rascunho.descricao ?? ''} onChange={e => onRascunho({ descricao: e.target.value })} rows={2} />
 
       <div className="grid grid-cols-2 gap-3">
-        <Select label="Status" value={etapa.status} onChange={e => onPatch({ status: e.target.value as EtapaStatus })}>
+        <Select label="Status" value={rascunho.status} onChange={e => onRascunho({ status: e.target.value as EtapaStatus })}>
           {STATUS_EAP.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
         </Select>
         <div>
-          <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Progresso: {etapa.progresso}%</label>
-          <input type="range" min={0} max={100} value={etapa.progresso} onChange={e => onPatch({ progresso: Number(e.target.value) })} className="mt-3 w-full" />
+          <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Progresso: {rascunho.progresso}%</label>
+          <input type="range" min={0} max={100} value={rascunho.progresso} onChange={e => onRascunho({ progresso: Number(e.target.value) })} className="mt-3 w-full" />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Input label="Início" type="date" value={etapa.data_inicio ?? ''} onChange={e => onPatch({ data_inicio: e.target.value || null })} />
-        <Input label="Fim" type="date" value={etapa.data_fim ?? ''} onChange={e => onPatch({ data_fim: e.target.value || null })} />
+        <Input label="Início" type="date" value={rascunho.data_inicio ?? ''} onChange={e => onRascunho({ data_inicio: e.target.value || null })} />
+        <Input label="Fim" type="date" value={rascunho.data_fim ?? ''} onChange={e => onRascunho({ data_fim: e.target.value || null })} />
       </div>
 
       <div className="flex items-center gap-4 pt-1" style={{ borderBottom: '1px solid var(--border)' }}>
