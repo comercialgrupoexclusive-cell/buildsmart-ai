@@ -14,7 +14,7 @@
 // PROCESSO_P3_PADROES_UI.md) — nenhum estilo inline reinventado aqui.
 import { use, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Boxes, Calculator, CalendarDays, FileBarChart, Inbox, LayoutGrid, MoreHorizontal, Search, ShoppingCart, Users, Wallet, Landmark, LayoutTemplate, LayoutDashboard, Camera } from 'lucide-react'
+import { ArrowLeft, Boxes, Calculator, CalendarDays, FileBarChart, Inbox, LayoutGrid, MoreHorizontal, Search, ShoppingCart, Users, Wallet, Landmark, LayoutTemplate, LayoutDashboard, Camera, ListTree } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   alterarStatusProcesso,
@@ -45,6 +45,7 @@ import { ProcessoMais } from '@/components/processo/ProcessoMais'
 import { ProcessoPortalCliente } from '@/components/processo/portal/ProcessoPortalCliente'
 import { ProcessoPesquisa } from '@/components/processo/pesquisa/ProcessoPesquisa'
 import { TourManager } from '@/components/tour/TourManager'
+import { ProcessoEAP } from '@/components/processo/eap/ProcessoEAP'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
@@ -56,7 +57,7 @@ const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ARCHIVED', label: 'Arquivado' },
 ]
 
-type ProcessoTab = 'visao_geral' | 'mais' | 'orcamento' | 'planejamento' | 'fluxo' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board' | 'portal_cliente' | 'pesquisa_mercado' | 'tour_360'
+type ProcessoTab = 'visao_geral' | 'mais' | 'orcamento' | 'planejamento' | 'eap' | 'fluxo' | 'medicoes' | 'compras' | 'financeiro' | 'financiamento' | 'planta_baixa' | 'board' | 'portal_cliente' | 'pesquisa_mercado' | 'tour_360'
 
 // A aba aberta vira rastro de uso (processo_uso): é isso que ordena a
 // listagem por "último uso" e preenche as últimas ações do card. Visão
@@ -179,6 +180,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     { key: 'visao_geral', label: 'Visão Geral', icon: LayoutGrid },
     { key: 'fluxo', label: 'Fluxo', icon: Inbox },
     ...(habilitados.has('orcamento') ? [{ key: 'orcamento' as const, label: 'Orçamento', icon: Calculator }] : []),
+    { key: 'eap', label: 'Estrutura', icon: ListTree },
     ...(habilitados.has('planejamento') ? [{ key: 'planejamento' as const, label: 'Planejamento', icon: CalendarDays }] : []),
     ...(habilitados.has('medicoes') ? [{ key: 'medicoes' as const, label: 'Medições', icon: FileBarChart }] : []),
     ...(habilitados.has('compras') ? [{ key: 'compras' as const, label: 'Compras', icon: ShoppingCart }] : []),
@@ -248,6 +250,8 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
             <ObraFinanciamento key={orcamentoId} processoId={processo.id} orcamentoId={orcamentoId} orcamentoIds={[orcamentoId]} />
           )
         )}
+
+        {tab === 'eap' && <ProcessoEAP processoId={processo.id} />}
 
         {tab === 'fluxo' && <ProcessoFluxo processoId={processo.id} temTarefas={habilitados.has('tarefas')} />}
 

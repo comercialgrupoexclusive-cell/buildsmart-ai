@@ -22,6 +22,7 @@ export type ProcessoModuleKey =
   | 'portal_cliente'
   | 'pesquisa_mercado'
   | 'tour_360'
+  | 'eap'
 
 export type ProcessoModuleDefinition = {
   key: ProcessoModuleKey
@@ -75,6 +76,9 @@ export const PROCESSO_MODULES: readonly ProcessoModuleDefinition[] = [
   // Portal (portal_tours + @photo-sphere-viewer), agora vinculável por
   // processo_id com acesso direto sob RLS. Não habilitado por padrão.
   { key: 'tour_360', label: 'Tour 360' },
+  // EAP — estrutura própria do Processo (etapas/subetapas), visões Kanban e
+  // Cascata. Habilitada por padrão: é o esqueleto de controle do Processo.
+  { key: 'eap', label: 'Estrutura (EAP)', enabledByDefault: true },
 ]
 
 export function getProcessoModuleDefinition(key: string): ProcessoModuleDefinition | undefined {
