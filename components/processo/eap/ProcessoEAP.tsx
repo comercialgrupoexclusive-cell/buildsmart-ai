@@ -1,14 +1,13 @@
 'use client'
 
-// EAP de Processos: estrutura operacional navegável (não um formulário longo).
-// - Desktop: árvore hierárquica compacta à esquerda + painel de detalhes à direita.
-// - Mobile: linhas expansíveis — só o essencial (nome, status, progresso);
-//   datas/descrição/edição aparecem ao abrir o item.
-// Alça ⠿ (reaproveita o DnD do motor de orçamento) reordena DENTRO do mesmo
-// nível. Toque na linha = selecionar/expandir; arrastar só pela alça.
+// EAP de Processos — estrutura operacional navegável (referência aprovada).
+// Desktop: árvore hierárquica (N níveis) à esquerda + painel de detalhes à
+// direita. Mobile: linhas expansíveis (essencial + progresso), edição ao abrir.
+// Numeração 1 / 1.1 / 1.1.1 é automática e recalcula ao reordenar. Alça ⠿
+// (DnD do motor de orçamento) reordena dentro do mesmo nível.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, Loader2, Plus, Trash2, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Loader2, MoreVertical, Plus, Search, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   atualizarEtapa, criarEtapa, excluirEtapa, listarEtapas, reordenarEtapas,
@@ -16,11 +15,13 @@ import {
 } from '@/lib/processo/eap'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-import { SortableList, type DragSlot } from '@/components/ui/SortableList'
+import { SortableList } from '@/components/ui/SortableList'
 
 type Visao = 'arvore' | 'cascata' | 'kanban'
 type Filtro = 'tudo' | EtapaStatus
+type AbaDetalhe = 'subetapas' | 'tarefas' | 'documentos'
 
+function norm(s: string) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase() }
 function corDe(status: EtapaStatus) { return STATUS_EAP.find(s => s.id === status)?.cor ?? 'var(--accent)' }
 
 function StatusBadge({ status }: { status: EtapaStatus }) {
@@ -30,7 +31,7 @@ function StatusBadge({ status }: { status: EtapaStatus }) {
 
 function Progresso({ valor, cor }: { valor: number; cor: string }) {
   return (
-    <div className="h-1.5 w-full min-w-10 overflow-hidden rounded-full" style={{ background: 'var(--bg-secondary)' }}>
+    <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: 'var(--bg-secondary)' }}>
       <div className="h-full rounded-full" style={{ width: `${valor}%`, background: cor }} />
     </div>
   )
@@ -42,24 +43,24 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
   const [loading, setLoading] = useState(true)
   const [visao, setVisao] = useState<Visao>('arvore')
   const [filtro, setFiltro] = useState<Filtro>('tudo')
-  const [nova, setNova] = useState('')
+  const [busca, setBusca] = useState('')
   const [novaSub, setNovaSub] = useState('')
   const [sel, setSel] = useState<string | null>(null)
   const [exp, setExp] = useState<Set<string>>(new Set())
+  const [menu, setMenu] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
     const lista = await listarEtapas(supabase, processoId)
     setEtapas(lista)
-    setExp(new Set(lista.filter(e => !e.parent_id).map(e => e.id))) // começa expandido
+    setExp(new Set(lista.filter(e => !e.parent_id).map(e => e.id)))
     setLoading(false)
   }, [supabase, processoId])
 
   useEffect(() => { void carregar() }, [carregar])
 
   const ordenar = (a: ProcessoEtapa, b: ProcessoEtapa) => a.ordem - b.ordem || a.created_at.localeCompare(b.created_at)
-  const topo = etapas.filter(e => !e.parent_id).sort(ordenar)
-  const subsDe = (id: string) => etapas.filter(e => e.parent_id === id).sort(ordenar)
+  const filhosDe = useCallback((pid: string | null) => etapas.filter(e => (e.parent_id ?? null) === pid).sort(ordenar), [etapas])
   const selecionada = etapas.find(e => e.id === sel) || null
 
   const contagem = {
@@ -70,42 +71,35 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
     bloqueado: etapas.filter(e => e.status === 'bloqueado').length,
   }
 
-  const topoVisivel = filtro === 'tudo' ? topo : topo.filter(e => e.status === filtro || subsDe(e.id).some(s => s.status === filtro))
+  const buscaNorm = norm(busca)
+  const subtreeMatch = useCallback((e: ProcessoEtapa): boolean => {
+    const self = (!buscaNorm || norm(e.nome).includes(buscaNorm)) && (filtro === 'tudo' || e.status === filtro)
+    return self || filhosDe(e.id).some(subtreeMatch)
+  }, [buscaNorm, filtro, filhosDe])
 
-  function toggleExp(id: string) {
-    setExp(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
-  }
-  function selecionar(e: ProcessoEtapa) {
-    setSel(e.id)
-    if (!e.parent_id && subsDe(e.id).length > 0) setExp(prev => new Set(prev).add(e.id))
-  }
+  function toggleExp(id: string) { setExp(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
+  function selecionar(e: ProcessoEtapa) { setSel(e.id); if (filhosDe(e.id).length > 0) setExp(prev => new Set(prev).add(e.id)) }
 
   async function adicionar(parentId: string | null, nome: string) {
-    const n = nome.trim()
-    if (!n) return
-    const irmaos = parentId ? subsDe(parentId) : topo
-    const e = await criarEtapa(supabase, { processo_id: processoId, nome: n, parent_id: parentId, ordem: irmaos.length })
+    const n = nome.trim(); if (!n) return
+    const e = await criarEtapa(supabase, { processo_id: processoId, nome: n, parent_id: parentId, ordem: filhosDe(parentId).length })
     if (e) { setEtapas(prev => [...prev, e]); if (parentId) setExp(prev => new Set(prev).add(parentId)) }
   }
-
   async function patch(id: string, p: Partial<ProcessoEtapa>) {
     setEtapas(prev => prev.map(e => e.id === id ? { ...e, ...p } : e))
     await atualizarEtapa(supabase, id, p)
   }
-
   async function remover(id: string) {
     if (!window.confirm('Excluir esta etapa (e subetapas)?')) return
     await excluirEtapa(supabase, id)
     setEtapas(prev => prev.filter(e => e.id !== id && e.parent_id !== id))
     if (sel === id) setSel(null)
   }
-
-  async function reordenar(nivelPaiId: string | null, nova: ProcessoEtapa[]) {
-    const ids = nova.map(e => e.id)
+  async function reordenar(parentId: string | null, novaOrdem: ProcessoEtapa[]) {
+    const ids = novaOrdem.map(e => e.id)
     setEtapas(prev => {
-      const outros = prev.filter(e => (nivelPaiId ? e.parent_id !== nivelPaiId : !!e.parent_id))
-      const reord = nova.map((e, i) => ({ ...e, ordem: i }))
-      return [...outros, ...reord]
+      const outros = prev.filter(e => (e.parent_id ?? null) !== parentId)
+      return [...outros, ...novaOrdem.map((e, i) => ({ ...e, ordem: i }))]
     })
     await reordenarEtapas(supabase, ids)
   }
@@ -114,19 +108,48 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
 
   const editor = (e: ProcessoEtapa) => (
     <EditorEtapa
-      etapa={e}
-      subs={subsDe(e.id)}
-      permitirSub={!e.parent_id}
-      novaSub={novaSub}
-      setNovaSub={setNovaSub}
+      etapa={e} subs={filhosDe(e.id)} novaSub={novaSub} setNovaSub={setNovaSub}
       onAddSub={() => { void adicionar(e.id, novaSub); setNovaSub('') }}
-      onPatch={p => void patch(e.id, p)}
-      onPatchSub={(id, p) => void patch(id, p)}
-      onRemover={() => void remover(e.id)}
-      onRemoverSub={id => void remover(id)}
-      onFechar={() => setSel(null)}
+      onPatch={p => void patch(e.id, p)} onPatchSub={(id, p) => void patch(id, p)}
+      onRemover={() => void remover(e.id)} onRemoverSub={id => void remover(id)} onFechar={() => setSel(null)}
     />
   )
+
+  // Renderização recursiva (N níveis). numero = "1", "1.1", "1.1.1"…
+  function renderNivel(parentId: string | null, prefixo: string): React.ReactNode {
+    let irmaos = filhosDe(parentId)
+    if (buscaNorm || filtro !== 'tudo') irmaos = irmaos.filter(subtreeMatch)
+    if (irmaos.length === 0) return null
+    const arrastavel = filtro === 'tudo' && !buscaNorm
+    return (
+      <SortableList items={irmaos} onReorder={n => void reordenar(parentId, n)} disabled={!arrastavel}>
+        {(e, i, drag) => {
+          const numero = `${prefixo}${i + 1}`
+          const temFilhos = filhosDe(e.id).length > 0
+          const aberto = exp.has(e.id) || !!buscaNorm
+          return (
+            <div ref={drag.setNodeRef} style={drag.style}>
+              <LinhaEAP
+                etapa={e} numero={numero} nivel={prefixo.split('.').length - 1}
+                temFilhos={temFilhos} expandido={aberto} selecionado={sel === e.id}
+                handle={drag.handle} menuAberto={menu === e.id}
+                onToggle={() => toggleExp(e.id)} onSelect={() => selecionar(e)}
+                onMenu={() => setMenu(m => m === e.id ? null : e.id)}
+                onAddSub={() => { setMenu(null); void adicionar(e.id, 'Nova subetapa') }}
+                onRemover={() => { setMenu(null); void remover(e.id) }}
+              />
+              {sel === e.id && <div className="lg:hidden">{editor(e)}</div>}
+              {aberto && temFilhos && (
+                <div className="ml-5 border-l" style={{ borderColor: 'var(--border)' }}>
+                  {renderNivel(e.id, `${numero}.`)}
+                </div>
+              )}
+            </div>
+          )
+        }}
+      </SortableList>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -135,132 +158,128 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Planeje e acompanhe todas as etapas do processo.</p>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+      {/* Busca + Nova etapa + visões */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} />
+          <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar etapas, subetapas…" className="input-base w-full pl-9" />
+        </div>
+        <div className="hidden items-center gap-1 rounded-lg p-1 sm:flex" style={{ background: 'var(--bg-secondary)' }}>
           {([['arvore', 'Árvore'], ['cascata', 'Cascata'], ['kanban', 'Kanban']] as [Visao, string][]).map(([v, l]) => (
-            <button key={v} type="button" onClick={() => setVisao(v)} className="px-3 py-1.5 rounded-md text-xs font-medium"
+            <button key={v} type="button" onClick={() => setVisao(v)} className="rounded-md px-3 py-1.5 text-xs font-medium"
               style={visao === v ? { background: 'var(--accent)', color: 'white' } : { color: 'var(--text-secondary)' }}>{l}</button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          <Input value={nova} onChange={e => setNova(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { void adicionar(null, nova); setNova('') } }} placeholder="Nova etapa…" className="w-40 sm:w-48" />
-          <Button size="sm" icon={<Plus size={15} />} onClick={() => { void adicionar(null, nova); setNova('') }}>Etapa</Button>
-        </div>
+        <Button size="sm" icon={<Plus size={15} />} onClick={() => void adicionar(null, 'Nova etapa')}>Etapa</Button>
       </div>
 
+      {/* Pills de filtro com bolinha + contagem */}
       {visao === 'arvore' && (
         <div className="flex flex-wrap items-center gap-1.5">
-          {([['tudo', 'Tudo'], ['em_andamento', 'Em andamento'], ['a_fazer', 'A fazer'], ['concluido', 'Concluídas']] as [Filtro, string][]).map(([f, l]) => (
-            <button key={f} type="button" onClick={() => setFiltro(f)} className="rounded-full px-3 py-1 text-xs font-medium"
+          {([['tudo', 'Tudo', null], ['em_andamento', 'Em andamento', 'em_andamento'], ['a_fazer', 'A fazer', 'a_fazer'], ['concluido', 'Concluídas', 'concluido']] as [Filtro, string, EtapaStatus | null][]).map(([f, l, dot]) => (
+            <button key={f} type="button" onClick={() => setFiltro(f)} className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
               style={filtro === f ? { background: 'var(--accent)', color: 'white' } : { background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+              {dot && <span className="size-1.5 rounded-full" style={{ background: filtro === f ? 'white' : corDe(dot) }} />}
               {l} <span className="opacity-70">{contagem[f === 'tudo' ? 'tudo' : f]}</span>
             </button>
           ))}
         </div>
       )}
 
-      {topo.length === 0 ? (
-        <div className="card p-10 text-center" style={{ color: 'var(--text-secondary)' }}>Nenhuma etapa ainda. Crie a primeira acima.</div>
+      {filhosDe(null).length === 0 ? (
+        <div className="card p-10 text-center" style={{ color: 'var(--text-secondary)' }}>Nenhuma etapa ainda. Crie a primeira no botão “Etapa”.</div>
       ) : visao === 'cascata' ? (
         <Cascata etapas={etapas} onAbrir={id => setSel(id)} />
       ) : visao === 'kanban' ? (
-        <Kanban topo={topoVisivel} subsDe={subsDe} onAbrir={e => selecionar(e)} />
+        <Kanban topo={filhosDe(null)} filhosDe={filhosDe} onAbrir={e => selecionar(e)} />
       ) : (
         <div className="lg:grid lg:grid-cols-[1fr_380px] lg:gap-4 lg:items-start">
-          {/* Árvore */}
           <div className="card overflow-hidden">
-            <SortableList items={topoVisivel} onReorder={n => void reordenar(null, n)} disabled={filtro !== 'tudo'}>
-              {(e, i, drag) => (
-                <div ref={drag.setNodeRef} style={drag.style}>
-                  <LinhaEAP
-                    etapa={e} numero={`${i + 1}`} nivel={0}
-                    temFilhos={subsDe(e.id).length > 0} expandido={exp.has(e.id)}
-                    selecionado={sel === e.id} handle={drag.handle}
-                    onToggle={() => toggleExp(e.id)} onSelect={() => selecionar(e)}
-                  />
-                  {sel === e.id && <div className="lg:hidden">{editor(e)}</div>}
-                  {exp.has(e.id) && subsDe(e.id).length > 0 && (
-                    <div className="ml-5 border-l" style={{ borderColor: 'var(--border)' }}>
-                      <SortableList items={subsDe(e.id)} onReorder={n => void reordenar(e.id, n)}>
-                        {(s, j, dragS) => (
-                          <div ref={dragS.setNodeRef} style={dragS.style}>
-                            <LinhaEAP
-                              etapa={s} numero={`${i + 1}.${j + 1}`} nivel={1}
-                              temFilhos={false} expandido={false}
-                              selecionado={sel === s.id} handle={dragS.handle}
-                              onToggle={() => {}} onSelect={() => selecionar(s)}
-                            />
-                            {sel === s.id && <div className="lg:hidden">{editor(s)}</div>}
-                          </div>
-                        )}
-                      </SortableList>
-                    </div>
-                  )}
-                </div>
-              )}
-            </SortableList>
+            {/* Cabeçalho de colunas (desktop) */}
+            <div className="hidden items-center gap-2 px-2 py-2 text-[11px] font-semibold uppercase tracking-wide sm:flex" style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)' }}>
+              <span className="w-5" /><span className="w-5" /><span className="flex-1">Nome</span>
+              <span className="w-24">Progresso</span><span className="w-10 text-right">%</span>
+              <span className="w-28">Status</span><span className="hidden w-36 md:block">Início → Fim</span><span className="w-7" />
+            </div>
+            {renderNivel(null, '')}
           </div>
 
-          {/* Painel de detalhes (desktop) */}
           <div className="hidden lg:block lg:sticky lg:top-4">
             {selecionada ? editor(selecionada) : (
-              <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Selecione uma etapa para ver os detalhes.
-              </div>
+              <div className="card p-6 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Selecione uma etapa para ver os detalhes.</div>
             )}
           </div>
         </div>
       )}
-    </div>
-  )
-}
 
-function LinhaEAP({ etapa, numero, nivel, temFilhos, expandido, selecionado, handle, onToggle, onSelect }: {
-  etapa: ProcessoEtapa; numero: string; nivel: number; temFilhos: boolean; expandido: boolean
-  selecionado: boolean; handle: React.ReactNode; onToggle: () => void; onSelect: () => void
-}) {
-  const cor = corDe(etapa.status)
-  return (
-    <div
-      onClick={onSelect}
-      className="flex cursor-pointer items-center gap-2 px-2 py-2 transition-colors hover:bg-[var(--bg-secondary)]"
-      style={{ borderBottom: '1px solid var(--border)', background: selecionado ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : undefined }}
-    >
-      {handle}
-      {temFilhos ? (
-        <button type="button" onClick={e => { e.stopPropagation(); onToggle() }} className="grid size-5 flex-shrink-0 place-items-center" style={{ color: 'var(--text-secondary)' }}>
-          {expandido ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+      {/* FAB mobile */}
+      {visao === 'arvore' && (
+        <button type="button" onClick={() => { void adicionar(null, 'Nova etapa') }}
+          className="fixed bottom-24 right-5 z-20 grid size-12 place-items-center rounded-full shadow-lg sm:hidden"
+          style={{ background: 'var(--accent)', color: 'white' }} aria-label="Nova etapa">
+          <Plus size={22} />
         </button>
-      ) : <span className="w-5 flex-shrink-0" />}
-
-      <span className="flex-shrink-0 text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>{numero}</span>
-      <span className="min-w-0 flex-1 truncate text-sm" style={{ color: 'var(--text-primary)', fontWeight: nivel === 0 ? 600 : 400 }}>{etapa.nome}</span>
-
-      <span className="hidden w-24 flex-shrink-0 sm:block"><Progresso valor={etapa.progresso} cor={cor} /></span>
-      <span className="w-9 flex-shrink-0 text-right text-[11px] tabular-nums sm:w-10" style={{ color: 'var(--text-secondary)' }}>{etapa.progresso}%</span>
-      <span className="flex-shrink-0"><StatusBadge status={etapa.status} /></span>
-      {(etapa.data_inicio || etapa.data_fim) && (
-        <span className="hidden flex-shrink-0 text-[11px] md:inline" style={{ color: 'var(--text-secondary)' }}>
-          {etapa.data_inicio ? new Date(etapa.data_inicio).toLocaleDateString('pt-BR') : '—'} → {etapa.data_fim ? new Date(etapa.data_fim).toLocaleDateString('pt-BR') : '—'}
-        </span>
       )}
     </div>
   )
 }
 
-function EditorEtapa({ etapa, subs, permitirSub, novaSub, setNovaSub, onAddSub, onPatch, onPatchSub, onRemover, onRemoverSub, onFechar }: {
-  etapa: ProcessoEtapa
-  subs: ProcessoEtapa[]
-  permitirSub: boolean
-  novaSub: string
-  setNovaSub: (v: string) => void
-  onAddSub: () => void
-  onPatch: (p: Partial<ProcessoEtapa>) => void
-  onPatchSub: (id: string, p: Partial<ProcessoEtapa>) => void
-  onRemover: () => void
-  onRemoverSub: (id: string) => void
-  onFechar: () => void
+function LinhaEAP({ etapa, numero, nivel, temFilhos, expandido, selecionado, handle, menuAberto, onToggle, onSelect, onMenu, onAddSub, onRemover }: {
+  etapa: ProcessoEtapa; numero: string; nivel: number; temFilhos: boolean; expandido: boolean
+  selecionado: boolean; handle: React.ReactNode; menuAberto: boolean
+  onToggle: () => void; onSelect: () => void; onMenu: () => void; onAddSub: () => void; onRemover: () => void
 }) {
+  const cor = corDe(etapa.status)
+  const datas = (etapa.data_inicio || etapa.data_fim)
+    ? `${etapa.data_inicio ? new Date(etapa.data_inicio).toLocaleDateString('pt-BR') : '—'} → ${etapa.data_fim ? new Date(etapa.data_fim).toLocaleDateString('pt-BR') : '—'}`
+    : '—'
+  return (
+    <div style={{ borderBottom: '1px solid var(--border)', background: selecionado ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : undefined }}>
+      <div onClick={onSelect} className="flex cursor-pointer items-center gap-2 px-2 py-2 transition-colors hover:bg-[var(--bg-secondary)]">
+        {handle}
+        {temFilhos ? (
+          <button type="button" onClick={e => { e.stopPropagation(); onToggle() }} className="grid size-5 flex-shrink-0 place-items-center" style={{ color: 'var(--text-secondary)' }}>
+            {expandido ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+          </button>
+        ) : <span className="w-5 flex-shrink-0" />}
+
+        <span className="flex-shrink-0 text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>{numero}</span>
+        <span className="min-w-0 flex-1 truncate text-sm" style={{ color: 'var(--text-primary)', fontWeight: nivel === 0 ? 600 : 400 }}>{etapa.nome}</span>
+
+        <span className="hidden w-24 flex-shrink-0 sm:block"><Progresso valor={etapa.progresso} cor={cor} /></span>
+        <span className="hidden w-10 flex-shrink-0 text-right text-[11px] tabular-nums sm:block" style={{ color: 'var(--text-secondary)' }}>{etapa.progresso}%</span>
+        <span className="hidden w-28 flex-shrink-0 sm:block"><StatusBadge status={etapa.status} /></span>
+        <span className="sm:hidden flex-shrink-0"><StatusBadge status={etapa.status} /></span>
+        <span className="hidden w-36 flex-shrink-0 text-[11px] md:block" style={{ color: 'var(--text-secondary)' }}>{datas}</span>
+
+        <div className="relative w-7 flex-shrink-0">
+          <button type="button" onClick={e => { e.stopPropagation(); onMenu() }} className="grid size-7 place-items-center rounded" style={{ color: 'var(--text-secondary)' }}><MoreVertical size={15} /></button>
+          {menuAberto && (
+            <div className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-lg py-1 shadow-lg" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
+              <button type="button" onClick={onAddSub} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--bg-secondary)]" style={{ color: 'var(--text-primary)' }}><Plus size={14} /> Adicionar subetapa</button>
+              <button type="button" onClick={onRemover} className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--bg-secondary)]" style={{ color: '#f87171' }}><Trash2 size={14} /> Excluir</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Linha de progresso no mobile (sob o nome) */}
+      <div className="flex items-center gap-2 px-2 pb-2 sm:hidden">
+        <span className="w-9" />
+        <div className="flex-1"><Progresso valor={etapa.progresso} cor={cor} /></div>
+        <span className="text-[11px] tabular-nums" style={{ color: 'var(--text-secondary)' }}>{etapa.progresso}%</span>
+        {(etapa.data_inicio || etapa.data_fim) && <span className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>{datas}</span>}
+      </div>
+    </div>
+  )
+}
+
+function EditorEtapa({ etapa, subs, novaSub, setNovaSub, onAddSub, onPatch, onPatchSub, onRemover, onRemoverSub, onFechar }: {
+  etapa: ProcessoEtapa; subs: ProcessoEtapa[]; novaSub: string; setNovaSub: (v: string) => void
+  onAddSub: () => void; onPatch: (p: Partial<ProcessoEtapa>) => void; onPatchSub: (id: string, p: Partial<ProcessoEtapa>) => void
+  onRemover: () => void; onRemoverSub: (id: string) => void; onFechar: () => void
+}) {
+  const [aba, setAba] = useState<AbaDetalhe>('subetapas')
   return (
     <div className="card m-2 space-y-3 p-4 lg:m-0">
       <div className="flex items-center justify-between">
@@ -286,9 +305,15 @@ function EditorEtapa({ etapa, subs, permitirSub, novaSub, setNovaSub, onAddSub, 
         <Input label="Fim" type="date" value={etapa.data_fim ?? ''} onChange={e => onPatch({ data_fim: e.target.value || null })} />
       </div>
 
-      {permitirSub && (
-        <div className="space-y-2 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
-          <p className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>Subetapas ({subs.length})</p>
+      <div className="flex items-center gap-4 pt-1" style={{ borderBottom: '1px solid var(--border)' }}>
+        {([['subetapas', `Subetapas (${subs.length})`], ['tarefas', 'Tarefas'], ['documentos', 'Documentos']] as [AbaDetalhe, string][]).map(([a, l]) => (
+          <button key={a} type="button" onClick={() => setAba(a)} className="pb-2 text-sm font-medium"
+            style={aba === a ? { color: 'var(--accent)', borderBottom: '2px solid var(--accent)' } : { color: 'var(--text-secondary)' }}>{l}</button>
+        ))}
+      </div>
+
+      {aba === 'subetapas' ? (
+        <div className="space-y-2">
           {subs.map(s => (
             <div key={s.id} className="flex items-center gap-2">
               <Input value={s.nome} onChange={e => onPatchSub(s.id, { nome: e.target.value })} className="flex-1" />
@@ -299,10 +324,12 @@ function EditorEtapa({ etapa, subs, permitirSub, novaSub, setNovaSub, onAddSub, 
             </div>
           ))}
           <div className="flex items-center gap-2">
-            <Input value={novaSub} onChange={e => setNovaSub(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') onAddSub() }} placeholder="Nova subetapa…" className="flex-1" />
+            <Input value={novaSub} onChange={e => setNovaSub(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') onAddSub() }} placeholder="Adicionar subetapa…" className="flex-1" />
             <Button size="sm" variant="secondary" icon={<Plus size={14} />} onClick={onAddSub}>Add</Button>
           </div>
         </div>
+      ) : (
+        <p className="py-6 text-center text-sm" style={{ color: 'var(--text-secondary)' }}>Em breve.</p>
       )}
 
       <div className="flex justify-end pt-2">
@@ -312,7 +339,7 @@ function EditorEtapa({ etapa, subs, permitirSub, novaSub, setNovaSub, onAddSub, 
   )
 }
 
-function Kanban({ topo, subsDe, onAbrir }: { topo: ProcessoEtapa[]; subsDe: (id: string) => ProcessoEtapa[]; onAbrir: (e: ProcessoEtapa) => void }) {
+function Kanban({ topo, filhosDe, onAbrir }: { topo: ProcessoEtapa[]; filhosDe: (id: string | null) => ProcessoEtapa[]; onAbrir: (e: ProcessoEtapa) => void }) {
   return (
     <div className="flex gap-3 overflow-x-auto pb-2">
       {STATUS_EAP.map(col => {
@@ -330,7 +357,7 @@ function Kanban({ topo, subsDe, onAbrir }: { topo: ProcessoEtapa[]; subsDe: (id:
                   <div className="mt-2"><Progresso valor={e.progresso} cor={col.cor} /></div>
                   <div className="mt-1.5 flex items-center justify-between text-[11px]" style={{ color: 'var(--text-secondary)' }}>
                     <span>{e.progresso}%</span>
-                    {subsDe(e.id).length > 0 && <span>{subsDe(e.id).length} subetapa(s)</span>}
+                    {filhosDe(e.id).length > 0 && <span>{filhosDe(e.id).length} subetapa(s)</span>}
                   </div>
                 </button>
               ))}
@@ -364,16 +391,14 @@ function Cascata({ etapas, onAbrir }: { etapas: ProcessoEtapa[]; onAbrir: (id: s
     <div className="card p-4">
       {min && max && (
         <div className="mb-2 flex justify-between text-[11px]" style={{ color: 'var(--text-secondary)' }}>
-          <span>{new Date(min).toLocaleDateString('pt-BR')}</span>
-          <span>{new Date(max).toLocaleDateString('pt-BR')}</span>
+          <span>{new Date(min).toLocaleDateString('pt-BR')}</span><span>{new Date(max).toLocaleDateString('pt-BR')}</span>
         </div>
       )}
       <div className="space-y-2">
         {todas.map(e => (
           <div key={e.id} className={`grid grid-cols-[40%_60%] items-center gap-2 ${e.parent_id ? 'pl-4' : ''}`}>
-            <button type="button" onClick={() => onAbrir(e.parent_id ?? e.id)} className="truncate text-left text-sm" style={{ color: 'var(--text-primary)' }}>
-              {e.parent_id && <ChevronRight size={12} className="mr-1 inline" style={{ color: 'var(--text-secondary)' }} />}
-              {e.nome}
+            <button type="button" onClick={() => onAbrir(e.id)} className="truncate text-left text-sm" style={{ color: 'var(--text-primary)' }}>
+              {e.parent_id && <ChevronRight size={12} className="mr-1 inline" style={{ color: 'var(--text-secondary)' }} />}{e.nome}
             </button>
             {barra(e) ?? <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>sem datas</span>}
           </div>
