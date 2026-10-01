@@ -53,6 +53,10 @@ export async function listarModulosDoProcesso(supabase: SupabaseClient, processo
   return service.listarModulosDoProcesso(supabase, processoId)
 }
 
+export async function definirConfigModulo(supabase: SupabaseClient, processoId: string, moduleKey: string, config: Record<string, unknown>): Promise<void> {
+  return service.definirConfigModulo(supabase, processoId, moduleKey, config)
+}
+
 export function listarModulosDisponiveis() {
   return service.listarModulosDisponiveis()
 }

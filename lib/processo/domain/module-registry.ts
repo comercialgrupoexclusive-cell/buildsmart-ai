@@ -24,12 +24,30 @@ export type ProcessoModuleKey =
   | 'tour_360'
   | 'eap'
 
+// Opção de configuração interna de um módulo (exibida no "Mais" ao expandir o
+// módulo). Por ora só boolean — o suficiente para liga/desliga como a numeração
+// da EAP. A fonte do valor é processo_modulos.config[key] por Processo.
+export type ModuloConfigOpcao = {
+  key: string
+  label: string
+  default: boolean
+}
+
 export type ProcessoModuleDefinition = {
   key: ProcessoModuleKey
   label: string
   enabledByDefault?: boolean
   routes?: string[]
   capabilities?: string[]
+  configOpcoes?: ModuloConfigOpcao[]
+}
+
+// Lê uma opção boolean da config do módulo, caindo no default do registry.
+export function lerConfigBool(def: ProcessoModuleDefinition | undefined, config: Record<string, unknown> | undefined, key: string): boolean {
+  const v = config?.[key]
+  if (typeof v === 'boolean') return v
+  const opt = def?.configOpcoes?.find(o => o.key === key)
+  return opt?.default ?? false
 }
 
 // Ordem = ordem de prioridade de migração da seção 4 do plano P3.
@@ -78,7 +96,10 @@ export const PROCESSO_MODULES: readonly ProcessoModuleDefinition[] = [
   { key: 'tour_360', label: 'Tour 360' },
   // EAP — estrutura própria do Processo (etapas/subetapas), visões Kanban e
   // Cascata. Habilitada por padrão: é o esqueleto de controle do Processo.
-  { key: 'eap', label: 'Estrutura (EAP)', enabledByDefault: true },
+  {
+    key: 'eap', label: 'Estrutura (EAP)', enabledByDefault: true,
+    configOpcoes: [{ key: 'mostrar_numeracao', label: 'Exibir numeração automática (1 / 1.1 / 1.1.1)', default: true }],
+  },
 ]
 
 export function getProcessoModuleDefinition(key: string): ProcessoModuleDefinition | undefined {

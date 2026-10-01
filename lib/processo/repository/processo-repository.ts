@@ -85,6 +85,23 @@ export async function inserirModulos(supabase: SupabaseClient, processoId: strin
   if (error) throw new Error(error.message)
 }
 
+export async function definirConfigModuloRaw(
+  supabase: SupabaseClient,
+  processoId: string,
+  moduleKey: string,
+  config: Record<string, unknown>,
+): Promise<void> {
+  const existente = await buscarModuloVinculo(supabase, processoId, moduleKey)
+  if (existente) {
+    const { error } = await supabase.from(TABELA_MODULOS).update({ config }).eq('id', existente.id)
+    if (error) throw new Error(error.message)
+    return
+  }
+  const agora = new Date().toISOString()
+  const { error } = await supabase.from(TABELA_MODULOS).insert({ processo_id: processoId, module_key: moduleKey, enabled: true, enabled_at: agora, config })
+  if (error) throw new Error(error.message)
+}
+
 export async function listarModulosRaw(supabase: SupabaseClient, processoId: string): Promise<ProcessoModuloVinculo[]> {
   const { data, error } = await supabase.from(TABELA_MODULOS).select('*').eq('processo_id', processoId).order('module_key')
   if (error) throw new Error(error.message)

@@ -60,6 +60,7 @@ export type ProcessoModuloVinculo = {
   enabled: boolean
   enabled_at: string
   disabled_at: string | null
+  config: Record<string, unknown>
 }
 
 export type CriarProcessoInput = {

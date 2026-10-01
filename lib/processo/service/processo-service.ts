@@ -23,6 +23,7 @@ import {
   listarUsoRaw,
   registrarUsoRaw,
   upsertModuloVinculo,
+  definirConfigModuloRaw,
 } from '../repository/processo-repository'
 import {
   PROCESSO_STATUSES,
@@ -158,6 +159,11 @@ export async function desabilitarModulo(supabase: SupabaseClient, processoId: st
 
 export async function listarModulosDoProcesso(supabase: SupabaseClient, processoId: string): Promise<ProcessoModuloVinculo[]> {
   return listarModulosRaw(supabase, processoId)
+}
+
+export async function definirConfigModulo(supabase: SupabaseClient, processoId: string, moduleKey: string, config: Record<string, unknown>): Promise<void> {
+  if (!isValidProcessoModuleKey(moduleKey)) throw new Error(`Módulo desconhecido: ${moduleKey}`)
+  await definirConfigModuloRaw(supabase, processoId, moduleKey, config)
 }
 
 export function listarModulosDisponiveis() {

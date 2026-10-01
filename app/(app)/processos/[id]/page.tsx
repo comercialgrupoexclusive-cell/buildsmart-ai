@@ -20,8 +20,11 @@ import {
   alterarStatusProcesso,
   desabilitarModulo,
   habilitarModulo,
+  definirConfigModulo,
   listarModulosDoProcesso,
   listarTemplates,
+  lerConfigBool,
+  getProcessoModuleDefinition,
   obterProcesso,
   registrarUso,
   type Processo,
@@ -154,6 +157,11 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     }
   }
 
+  async function handleSalvarConfig(key: string, config: Record<string, unknown>) {
+    await definirConfigModulo(supabase, id, key, config)
+    setModulos(await listarModulosDoProcesso(supabase, id))
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -228,7 +236,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
         )}
 
         {tab === 'mais' && (
-          <ProcessoMais modulos={modulos} moduloEmEdicao={moduloEmEdicao} onAlternar={handleToggleModulo} />
+          <ProcessoMais modulos={modulos} moduloEmEdicao={moduloEmEdicao} onAlternar={handleToggleModulo} onSalvarConfig={(k, c) => void handleSalvarConfig(k, c)} />
         )}
 
         {(tab === 'orcamento' || tab === 'planejamento' || tab === 'medicoes' || tab === 'compras' || tab === 'financeiro' || tab === 'financiamento') && (
@@ -251,7 +259,12 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
           )
         )}
 
-        {tab === 'eap' && <ProcessoEAP processoId={processo.id} />}
+        {tab === 'eap' && (
+          <ProcessoEAP
+            processoId={processo.id}
+            mostrarNumeracao={lerConfigBool(getProcessoModuleDefinition('eap'), modulos.find(m => m.module_key === 'eap')?.config, 'mostrar_numeracao')}
+          />
+        )}
 
         {tab === 'fluxo' && <ProcessoFluxo processoId={processo.id} temTarefas={habilitados.has('tarefas')} />}
 

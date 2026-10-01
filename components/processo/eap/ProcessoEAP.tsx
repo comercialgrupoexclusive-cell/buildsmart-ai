@@ -50,7 +50,7 @@ function Progresso({ valor, cor }: { valor: number; cor: string }) {
   )
 }
 
-export function ProcessoEAP({ processoId }: { processoId: string }) {
+export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoId: string; mostrarNumeracao?: boolean }) {
   const supabase = useMemo(() => createClient(), [])
   const [etapas, setEtapas] = useState<ProcessoEtapa[]>([])
   const [loading, setLoading] = useState(true)
@@ -258,6 +258,7 @@ export function ProcessoEAP({ processoId }: { processoId: string }) {
             void reordenar(pid, ids.map(id => byId.get(id)).filter((e): e is ProcessoEtapa => !!e))
           }}
           arrastar={filtro === 'tudo' && !buscaNorm}
+          numerar={mostrarNumeracao}
           filtroVisivel={e => (!buscaNorm || norm(e.nome).includes(buscaNorm)) && (filtro === 'tudo' || e.status === filtro)}
           cabecalho={cabecalhoColunas}
           renderConteudo={(e, meta) => conteudoLinha(e, meta)}
