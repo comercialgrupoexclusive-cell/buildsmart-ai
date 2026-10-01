@@ -8,12 +8,13 @@
 // · labels das abas curtas para caber no mobile sem overflow
 // · item livre tem campo de quantidade
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, Loader2, Plus, Search, X } from 'lucide-react'
+import { Loader2, Search, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Input'
+import { ComboboxCriavel } from '@/components/ui/ComboboxCriavel'
 import {
   buscarComposicoesProprias, buscarComposicoesSinapi, buscarInsumosCatalogo,
   type ComposicaoPropriaComCusto, type SinapiComposicaoResumo, type InsumoCatalogo,
@@ -64,11 +65,8 @@ export function OrcamentoItemModal({
 
   const [etapas, setEtapas] = useState<EtapaOpcao[]>([])
   const [etapaId, setEtapaId] = useState<string>(etapaInicial ?? '')
-  const [criandoEtapa, setCriandoEtapa] = useState(false)
-  const [nomeNovaEtapa, setNomeNovaEtapa] = useState('')
 
   // Subetapa pré-preenchida quando vem do contexto de uma subetapa existente.
-  const [subetapaAberta, setSubetapaAberta] = useState(Boolean(grupoInicial))
   const [subetapaNome, setSubetapaNome] = useState(() => {
     if (!grupoInicial) return ''
     const linha = linhas.find(l => l.tipo_linha === 'subetapa' && l.item_id === grupoInicial)
@@ -152,8 +150,8 @@ export function OrcamentoItemModal({
     setBusca('')
   }
 
-  async function criarEtapa() {
-    const nome = nomeNovaEtapa.trim()
+  async function criarEtapa(nomeArg?: string) {
+    const nome = (nomeArg ?? '').trim()
     if (!nome) return
     setErro(null)
     try {
@@ -168,8 +166,6 @@ export function OrcamentoItemModal({
       if (error || !data) throw error || new Error('Falha ao criar etapa.')
       await carregarEtapas()
       setEtapaId(data.id as string)
-      setNomeNovaEtapa('')
-      setCriandoEtapa(false)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não foi possível criar a etapa.')
     }
@@ -236,102 +232,27 @@ export function OrcamentoItemModal({
     <Modal open={aberto} onClose={onFechar} title="Lançar item" size="lg">
       <div className="space-y-4">
 
-        {/* ── Etapa ───────────────────────────────────────────────── */}
-        <div>
-          <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-            Etapa
-          </label>
-          <div className="mt-1.5 flex gap-2">
-            <Select value={etapaId} onChange={e => setEtapaId(e.target.value)} className="flex-1">
-              <option value="">— Selecionar etapa —</option>
-              {etapas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-            </Select>
-            <button
-              type="button"
-              onClick={() => setCriandoEtapa(v => !v)}
-              aria-label="Nova etapa"
-              className="grid size-10 flex-shrink-0 place-items-center rounded-lg"
-              style={{ background: 'var(--accent)', color: 'white' }}
-            >
-              <Plus size={16} />
-            </button>
-          </div>
-          {criandoEtapa && (
-            <div className="mt-2 flex gap-2">
-              <Input
-                value={nomeNovaEtapa}
-                onChange={e => setNomeNovaEtapa(e.target.value)}
-                placeholder="Nome da nova etapa"
-                autoFocus
-                onKeyDown={e => { if (e.key === 'Enter') void criarEtapa() }}
-              />
-              <Button size="sm" onClick={() => void criarEtapa()} disabled={!nomeNovaEtapa.trim()}>Criar</Button>
-            </div>
-          )}
-        </div>
+        {/* ── Etapa (buscar ou criar no uso) ──────────────────────── */}
+        <ComboboxCriavel
+          label="Etapa"
+          placeholder="Buscar ou criar etapa…"
+          opcoes={etapas.map(e => ({ id: e.id, label: e.nome }))}
+          valorLabel={etapas.find(e => e.id === etapaId)?.nome ?? ''}
+          onEscolher={o => setEtapaId(o.id)}
+          onCriar={nome => criarEtapa(nome)}
+          onLimpar={() => setEtapaId('')}
+        />
 
-        {/* ── Serviço / subetapa ───────────────────────────────────── */}
-        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-          <button
-            type="button"
-            onClick={() => setSubetapaAberta(v => !v)}
-            className="flex items-center justify-between w-full px-3.5 py-2.5 text-sm font-medium"
-            style={{
-              background: 'var(--bg-secondary)',
-              color: subetapaNome ? 'var(--accent)' : 'var(--text-secondary)',
-            }}
-          >
-            <span className="flex items-center gap-2 min-w-0">
-              {subetapaNome
-                ? <><Check size={14} className="flex-shrink-0" /><span className="truncate">{subetapaNome}</span></>
-                : <>Serviço / subetapa <span className="font-normal opacity-60">(opcional)</span></>
-              }
-            </span>
-            {subetapaNome
-              ? (
-                <button
-                  type="button"
-                  onClick={e => { e.stopPropagation(); setSubetapaNome('') }}
-                  className="flex-shrink-0 p-0.5 rounded"
-                  aria-label="Limpar serviço"
-                >
-                  <X size={13} />
-                </button>
-              )
-              : null
-            }
-          </button>
-
-          {subetapaAberta && (
-            <div className="px-3.5 pb-3.5 pt-3 flex flex-col gap-2.5" style={{ borderTop: '1px solid var(--border)' }}>
-              {/* Chips de subetapas existentes na etapa */}
-              {subetapasDaEtapa.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {subetapasDaEtapa.map(s => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setSubetapaNome(prev => prev === s.nome ? '' : s.nome)}
-                      className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
-                      style={
-                        subetapaNome === s.nome
-                          ? { background: 'var(--accent)', color: 'white' }
-                          : { background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }
-                      }
-                    >
-                      {s.nome}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <Input
-                value={subetapaNome}
-                onChange={e => setSubetapaNome(e.target.value)}
-                placeholder={subetapasDaEtapa.length > 0 ? 'Ou criar novo serviço...' : 'Nome do serviço'}
-              />
-            </div>
-          )}
-        </div>
+        {/* ── Serviço / subetapa (buscar ou criar no uso) ─────────── */}
+        <ComboboxCriavel
+          label="Serviço / subetapa (opcional)"
+          placeholder="Buscar ou criar serviço…"
+          opcoes={subetapasDaEtapa.map(s => ({ id: s.nome, label: s.nome }))}
+          valorLabel={subetapaNome}
+          onEscolher={o => setSubetapaNome(o.label)}
+          onCriar={t => setSubetapaNome(t)}
+          onLimpar={() => setSubetapaNome('')}
+        />
 
         {/* ── Abas de fonte ───────────────────────────────────────── */}
         <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
