@@ -62,3 +62,10 @@ export async function atualizarEtapa(
 export async function excluirEtapa(supabase: SupabaseClient, id: string): Promise<void> {
   await supabase.from('processo_etapa').delete().eq('id', id)
 }
+
+// Persiste a nova ordem (ordem = posição) de um conjunto de irmãos.
+export async function reordenarEtapas(supabase: SupabaseClient, idsNaOrdem: string[]): Promise<void> {
+  await Promise.all(idsNaOrdem.map((id, i) =>
+    supabase.from('processo_etapa').update({ ordem: i, updated_at: new Date().toISOString() }).eq('id', id),
+  ))
+}

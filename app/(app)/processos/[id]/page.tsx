@@ -180,7 +180,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     { key: 'visao_geral', label: 'Visão Geral', icon: LayoutGrid },
     { key: 'fluxo', label: 'Fluxo', icon: Inbox },
     ...(habilitados.has('orcamento') ? [{ key: 'orcamento' as const, label: 'Orçamento', icon: Calculator }] : []),
-    { key: 'eap', label: 'Estrutura', icon: ListTree },
+    { key: 'eap', label: 'EAP', icon: ListTree },
     ...(habilitados.has('planejamento') ? [{ key: 'planejamento' as const, label: 'Planejamento', icon: CalendarDays }] : []),
     ...(habilitados.has('medicoes') ? [{ key: 'medicoes' as const, label: 'Medições', icon: FileBarChart }] : []),
     ...(habilitados.has('compras') ? [{ key: 'compras' as const, label: 'Compras', icon: ShoppingCart }] : []),
