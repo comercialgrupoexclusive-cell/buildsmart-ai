@@ -3,8 +3,8 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, HardHat, FileText,
-  BotMessageSquare, BarChart3, Settings, FolderOpen, Hammer, MessageCircle, X, ClipboardList, Landmark, Boxes, Inbox, Newspaper,
+  LayoutDashboard,
+  BotMessageSquare, BarChart3, Settings, Hammer, MessageCircle, X, ClipboardList, Boxes, Inbox, Newspaper,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
@@ -19,11 +19,9 @@ const NAV_ITEMS = [
   // Motor de Processo (P3, em construção) — ao lado de Projetos/Obras, não
   // no lugar delas. Só substitui quando P3.7 remover as entradas legadas.
   { href: '/processos', label: 'Processos', icon: Boxes },
-  { href: '/investidor', label: 'Investidor', icon: Landmark },
   { href: '/tarefas', label: 'Tarefas', icon: ClipboardList },
-  { href: '/projetos', label: 'Projetos', icon: FolderOpen },
-  { href: '/obras', label: 'Obras', icon: HardHat },
-  { href: '/orcamentos', label: 'Orçamentos', icon: FileText },
+  // Legados ocultos (tudo vive dentro de Processos agora): Investidor, Projetos,
+  // Obras, Orçamentos e Canteiro. As rotas continuam existindo; só saíram do menu.
   { href: '/canteiro', label: 'Canteiro', icon: Hammer },
   { href: '/buildassist', label: 'BuildAssistente IA', icon: BotMessageSquare, featured: true },
 ]

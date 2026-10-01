@@ -8,7 +8,7 @@
 // os cards de uma vez. Nunca uma consulta por card.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Boxes, LayoutTemplate, Plus } from 'lucide-react'
+import { Boxes, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
   agruparProcessos,
@@ -214,12 +214,7 @@ export default function ProcessosPage() {
           // Processo" não fazia.
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <Link href="/processos/novo" className="flex-1 sm:flex-none">
-              <Button size="sm" icon={<Plus size={15} />} className="w-full sm:w-32">Processo</Button>
-            </Link>
-            <Link href="/processos/templates" className="flex-1 sm:flex-none">
-              <Button size="sm" variant="secondary" icon={<LayoutTemplate size={15} />} className="w-full sm:w-32">
-                Templates
-              </Button>
+              <Button size="sm" icon={<Plus size={15} />} className="w-full sm:w-40">Novo processo</Button>
             </Link>
           </div>
         }

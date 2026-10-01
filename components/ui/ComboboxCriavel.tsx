@@ -32,9 +32,11 @@ type Props = {
   onRenomear?: (id: string, novo: string) => void | Promise<void>
   // Limpar a seleção.
   onLimpar?: () => void
+  // Quando false, não oferece "Criar …" (ex.: escolher um template existente).
+  permitirCriar?: boolean
 }
 
-export function ComboboxCriavel({ label, placeholder, disabled, opcoes, valorLabel, onEscolher, onCriar, onRenomear, onLimpar }: Props) {
+export function ComboboxCriavel({ label, placeholder, disabled, opcoes, valorLabel, onEscolher, onCriar, onRenomear, onLimpar, permitirCriar = true }: Props) {
   const raiz = useRef<HTMLDivElement>(null)
   const [aberto, setAberto] = useState(false)
   const [query, setQuery] = useState('')
@@ -53,7 +55,7 @@ export function ComboboxCriavel({ label, placeholder, disabled, opcoes, valorLab
   const q = normalizar(query)
   const filtradas = q ? opcoes.filter(o => normalizar(o.label).includes(q)) : opcoes
   const existeExato = opcoes.some(o => normalizar(o.label) === q)
-  const podeCriar = q.length > 0 && !existeExato
+  const podeCriar = permitirCriar && q.length > 0 && !existeExato
 
   function abrir() {
     if (disabled) return
@@ -108,9 +110,14 @@ export function ComboboxCriavel({ label, placeholder, disabled, opcoes, valorLab
             <span className={valorLabel ? '' : 'text-[var(--text-secondary)]'} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {valorLabel || placeholder || 'Selecionar…'}
             </span>
-            {valorLabel && onLimpar && (
-              <X size={14} className="flex-shrink-0" style={{ color: 'var(--text-secondary)' }} onClick={e => { e.stopPropagation(); onLimpar() }} />
-            )}
+            <span className="flex flex-shrink-0 items-center gap-1">
+              {valorLabel && onRenomear && (
+                <Pencil size={13} style={{ color: 'var(--text-secondary)' }} onClick={e => { e.stopPropagation(); setQuery(valorLabel); setAberto(true) }} />
+              )}
+              {valorLabel && onLimpar && (
+                <X size={14} style={{ color: 'var(--text-secondary)' }} onClick={e => { e.stopPropagation(); onLimpar() }} />
+              )}
+            </span>
           </button>
         )}
 

@@ -218,16 +218,16 @@ export default function NovoProcessoPage() {
             ))}
           </Select>
         )}
-        <Select
+        <ComboboxCriavel
           label="Template"
-          value={form.template_id}
-          onChange={e => setForm(f => ({ ...f, template_id: e.target.value }))}
-        >
-          <option value="">— Processo em branco —</option>
-          {templates.map(t => (
-            <option key={t.id} value={t.id}>{t.nome}</option>
-          ))}
-        </Select>
+          placeholder="Processo em branco — ou buscar um template…"
+          permitirCriar={false}
+          opcoes={templates.map(t => ({ id: t.id, label: t.nome }))}
+          valorLabel={templateEscolhido?.nome ?? ''}
+          onEscolher={o => setForm(f => ({ ...f, template_id: o.id }))}
+          onCriar={() => {}}
+          onLimpar={() => setForm(f => ({ ...f, template_id: '' }))}
+        />
         {templateEscolhido && (
           <p className="-mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
             {templateEscolhido.descricao}

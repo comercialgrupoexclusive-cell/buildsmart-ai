@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { ComboboxCriavel } from '@/components/ui/ComboboxCriavel'
 import { listarClientesSugeridos } from '@/lib/processo/clientes'
 import { EnderecoFields, enderecoDe, enderecoResumo, type EnderecoValor } from './EnderecoFields'
+import { useGuardaAlteracoes, confirmarDescarte } from '@/lib/use-guarda-alteracoes'
 
 const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ACTIVE', label: 'Ativo' },
@@ -42,6 +43,19 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
 
   const oculto = (campo: Parameters<typeof campoOcultoPor>[1]) => campoOcultoPor(template, campo)
   const ocultarCliente = oculto('cliente_nome')
+
+  const sujo = nome !== processo.nome
+    || tipo !== (processo.tipo ?? '')
+    || clienteNome !== (processo.cliente_nome ?? '')
+    || status !== processo.status
+    || capaUrl !== processo.capa_url
+    || JSON.stringify(endereco) !== JSON.stringify(enderecoDe(processo))
+  useGuardaAlteracoes(sujo)
+
+  function cancelar() {
+    if (!confirmarDescarte(sujo)) return
+    onCancelar?.()
+  }
 
   useEffect(() => {
     if (ocultarCliente) return
@@ -179,7 +193,7 @@ export function ProcessoDadosForm({ processo, template, onSalvar, onCancelar, mo
       {erro && <p className="text-xs" style={{ color: '#f87171' }}>{erro}</p>}
 
       <div className="flex justify-end gap-2">
-        {onCancelar && <Button variant="ghost" onClick={onCancelar} disabled={salvando}>Cancelar</Button>}
+        {onCancelar && <Button variant="ghost" onClick={cancelar} disabled={salvando}>Cancelar</Button>}
         <Button onClick={() => void salvar()} loading={salvando}>Salvar</Button>
       </div>
     </div>
