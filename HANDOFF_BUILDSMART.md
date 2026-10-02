@@ -31,14 +31,23 @@ Fase de **teste** (sem dados reais, nada em produção). Tronco de trabalho:
 **Claude constrói · GPT apoia · o dev faz a verificação de segurança só no final**, antes
 dos testes. Usuário (Luiz) define visão e verifica; delega o "como".
 
-### PRÓXIMO PASSO — começar aqui
-**Aplicar o padrão de módulo (`ARQUITETURA.md` §18).** Organizacional (mover/reunir, NÃO
-reescrever), tela a tela, sem quebrar o app:
-1. **Piloto: Orçamento** — reunir os 4 lugares numa casa só (`lib/modules/orcamento/` +
-   `components/modules/orcamento/`).
-2. Esvaziar o motor (`lib/processo/`) dos arquivos de módulo vazados.
-3. Depois (Fase 2): refazer nativos os 4 módulos acoplados → cortar imports de
-   `components/obra` → deletar o legado (provado antes, regra P2).
+### PRÓXIMO PASSO — continuar daqui
+Padrão de módulo = `lib/<m>/` (cérebro) + `components/processo/<m>/` (telas); motor fininho.
+Ver `ARQUITETURA.md` §18. Organizacional (mover/reunir, NÃO reescrever), 1 de cada vez,
+com `tsc` + app rodando (`localhost:3003`).
+
+**✅ Feito — piloto Orçamento:** `lib/processo/orcamento.ts` → `lib/orcamento/processo.ts`
+(commit 9d0c1b8; tsc limpo, app ok). Cérebro do Orçamento consolidado em `lib/orcamento/`.
+
+**▶ Continuar — esvaziar o motor dos outros arquivos de módulo vazados** (mesmo padrão do
+piloto): `lib/processo/eap.ts`, `caixa-entrada.ts`, `clientes.ts`, `planta-baixa.ts` →
+suas pastas `lib/<m>/`.
+
+**Depois (Fase 2):** refazer nativos os 4 módulos acoplados (planejamento, medições,
+financeiro, compras) → cortar imports de `components/obra` → deletar o legado (regra P2).
+
+**Obs.:** bug pré-existente encontrado (não do piloto): `<a>` aninhado em
+`components/processo/ProcessoCard.tsx` (hydration error na lista). Flagueado como task.
 
 ## Pendências ainda abertas
 - Arquivar `RELATORIO_*`/`LOG_*`/fósseis em `docs/historico/`.
