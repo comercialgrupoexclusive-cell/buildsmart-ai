@@ -556,6 +556,9 @@ export type Tarefa = {
   concluida_em: string | null
   created_at: string
   updated_at: string
+  // Entrada da Caixa que originou a tarefa (referência, não cópia) — ver
+  // migration 20261002140000_work_item_unificacao. Null = tarefa criada direto.
+  origem_entrada_id: string | null
   obra?: { nome: string } | null
   projeto?: { nome: string } | null
 }

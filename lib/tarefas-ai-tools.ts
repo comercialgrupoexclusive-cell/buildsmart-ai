@@ -36,6 +36,7 @@ export type TarefasAiCtx = {
   fixedObraId?: string    // modo escopado (obra-ai, floating dentro de Obra>Tarefas): tarefas restritas a esta obra
   fixedProjetoId?: string // modo escopado (floating dentro de Projeto>Tarefas): tarefas restritas a este projeto
   fixedProcessoId?: string // modo escopado (triagem de uma entrada da Caixa que nasceu dentro de um Processo)
+  fixedEntradaId?: string  // entrada da Caixa que originou a criação (triagem): grava tarefas.origem_entrada_id — referência, não cópia
   profileId?: string | null   // identidade estrutural do remetente (whatsapp: luizia_wa_phone_rules.profile_id; floating: currentProfile.id direto — nunca por nome)
   conversationKey: string     // chave da conversa p/ propostas pendentes (whatsapp: telefone; obra_ai: obra_ai:{obraId}; floating: floating:{profileId})
 }
@@ -403,6 +404,7 @@ type CriacaoPayload = {
   data_prazo: string | null
   status: 'pendente'
   concluida: false
+  origem_entrada_id: string | null
 }
 type CriacaoResultado = { payload: CriacaoPayload; contextoLabel: string } | { erro: string }
 
@@ -454,6 +456,9 @@ async function resolverCriacao(db: DB, args: Args, ctx: TarefasAiCtx): Promise<C
     data_prazo: args.data_prazo || null,
     status: 'pendente',
     concluida: false,
+    // Referência à entrada da Caixa que originou a tarefa (quando veio de
+    // triagem). Nunca vem do cliente da IA — só do contexto da triagem.
+    origem_entrada_id: ctx.fixedEntradaId || null,
   }
 
   let contextoLabel = 'Geral / sem Projeto ou Obra'

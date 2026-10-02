@@ -120,6 +120,9 @@ export async function triarEntrada(
     origem: 'caixa_entrada',
     profileId: opts.profileId,
     conversationKey: `caixa_entrada:${entrada.id}`,
+    // Referência, não cópia: a tarefa criada aponta para esta entrada
+    // (tarefas.origem_entrada_id), tornando o vínculo determinístico.
+    fixedEntradaId: entrada.id,
     ...(entrada.processo_id ? { fixedProcessoId: entrada.processo_id } : {}),
   }
 
@@ -130,12 +133,13 @@ export async function triarEntrada(
     prioridade: classificacao.prioridade || 'normal',
   }, ctx)
 
-  // execTarefasAiTool devolve texto, não id. Busca a tarefa recém-criada para
-  // amarrar a triagem a ela — mesma janela, mesmo título.
+  // execTarefasAiTool devolve texto, não id. Com a referência gravada, a tarefa
+  // desta entrada é encontrada de forma determinística (não mais "pelo título
+  // mais recente", que falhava quando havia títulos parecidos).
   const { data } = await db
     .from('tarefas')
     .select('id')
-    .eq('titulo', classificacao.titulo.trim())
+    .eq('origem_entrada_id', entrada.id)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
