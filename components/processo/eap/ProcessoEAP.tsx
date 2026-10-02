@@ -12,7 +12,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   atualizarEtapa, criarEtapa, excluirEtapa, listarEtapas, reordenarEtapas,
   STATUS_EAP, type EtapaStatus, type ProcessoEtapa,
-} from '@/lib/processo/eap'
+} from '@/lib/eap'
 import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { SearchInput } from '@/components/ui/SearchInput'

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Tarefa } from './types'
-import { listarEntradasCaixa, type EntradaCaixa } from './processo/caixa-entrada'
+import { listarEntradasCaixa, type EntradaCaixa } from './caixa-entrada/entradas'
 import { listarTriagens, type TriagemStatus } from './caixa-entrada/triagem'
 
 // WorkItem — visão unificada de "o que precisa de atenção" num Processo (ou na

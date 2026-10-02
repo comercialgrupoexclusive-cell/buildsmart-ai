@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   listarEntradasCaixa,
   type EntradaCaixa,
-} from '@/lib/processo/caixa-entrada'
+} from '@/lib/caixa-entrada/entradas'
 import {
   definirTriagem,
   listarTriagens,

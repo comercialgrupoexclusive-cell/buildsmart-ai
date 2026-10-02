@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { criarEntradaArquivo, criarEntradaTexto, listarEntradasCaixa } from '../processo/caixa-entrada'
+import { criarEntradaArquivo, criarEntradaTexto, listarEntradasCaixa } from '../caixa-entrada/entradas'
 
 // A regra de segurança de verdade mora no banco (RLS por processo_is_accessible
 // + trigger processo_caixa_entrada_set_autor forçando autor_profile_id a

@@ -7,7 +7,7 @@ import { campoOcultoPor, type AtualizarProcessoInput, type Processo, type Proces
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { ComboboxCriavel } from '@/components/ui/ComboboxCriavel'
-import { listarClientesSugeridos } from '@/lib/processo/clientes'
+import { listarClientesSugeridos } from '@/lib/clientes'
 import { EnderecoFields, enderecoDe, enderecoResumo, type EnderecoValor } from './EnderecoFields'
 import { useGuardaAlteracoes, confirmarDescarte } from '@/lib/use-guarda-alteracoes'
 

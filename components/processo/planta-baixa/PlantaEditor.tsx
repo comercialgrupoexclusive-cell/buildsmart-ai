@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { obterPlanta, salvarPlanoPlanta, wrapOpenPlan3DProject, unwrapOpenPlan3DProject, type Planta } from '@/lib/processo/planta-baixa'
+import { obterPlanta, salvarPlanoPlanta, wrapOpenPlan3DProject, unwrapOpenPlan3DProject, type Planta } from '@/lib/planta-baixa'
 import { useProfile } from '@/lib/profile-context'
 
 // Motor oficial do Planta 2D/3D: OpenPlan3D vendorizado

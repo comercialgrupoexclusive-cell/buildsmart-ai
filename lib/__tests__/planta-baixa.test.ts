@@ -16,7 +16,7 @@ import {
   salvarPlanoPlanta,
   unwrapOpenPlan3DProject,
   wrapOpenPlan3DProject,
-} from '../processo/planta-baixa'
+} from '../planta-baixa'
 
 describe('unwrapOpenPlan3DProject / wrapOpenPlan3DProject', () => {
   it('planta nova (plan_json vazio/null) extrai null — bridge inicia documento em branco', () => {

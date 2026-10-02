@@ -11,7 +11,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Mic, Paperclip, Send, Square } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { criarEntradaArquivo, criarEntradaTexto, type EntradaCaixa } from '@/lib/processo/caixa-entrada'
+import { criarEntradaArquivo, criarEntradaTexto, type EntradaCaixa } from '@/lib/caixa-entrada/entradas'
 import { Button } from '@/components/ui/Button'
 
 export function CaixaComposer({ processoId, onEnviada, placeholder }: {
