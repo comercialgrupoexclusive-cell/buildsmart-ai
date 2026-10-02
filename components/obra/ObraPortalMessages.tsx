@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Loader2, MessageSquareText, Send } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
-import { adminRpc } from '@/lib/portal-admin-client'
+import { adminRpc } from '@/lib/portal/admin-client'
 import type { PortalMessageDTO } from '@/lib/portal/types'
 
 type Recipient = { id: string; nome: string; papel: string }

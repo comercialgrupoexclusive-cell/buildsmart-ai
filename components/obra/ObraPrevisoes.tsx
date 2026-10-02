@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarClock, ChevronDown, Eye, Pencil, Plus, RefreshCw, Truck, Undo2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { adminRpc } from '@/lib/portal-admin-client'
+import { adminRpc } from '@/lib/portal/admin-client'
 import { TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
 import { formatCurrency } from '@/lib/utils'
 import { Badge } from '@/components/ui/Badge'

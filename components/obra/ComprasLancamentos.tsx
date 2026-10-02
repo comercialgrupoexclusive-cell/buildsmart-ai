@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { adminRpc } from '@/lib/portal-admin-client'
+import { adminRpc } from '@/lib/portal/admin-client'
 import { formatCurrency, FORMA_PAGAMENTO_LABEL, TIPO_CUSTO_LABEL, TIPO_CUSTO_COLOR } from '@/lib/utils'
 import { CompraItem, CompraPagamento, Etapa, Fornecedor, TipoCusto } from '@/lib/types'
 import type { ObraPrevisao } from '@/lib/previsoes'

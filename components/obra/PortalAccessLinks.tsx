@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, Copy, ExternalLink, Link2, Loader2 } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
-import { adminRpc } from '@/lib/portal-admin-client'
+import { adminRpc } from '@/lib/portal/admin-client'
 
 type PortalLink = {
   id: string

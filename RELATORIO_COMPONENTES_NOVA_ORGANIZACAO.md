@@ -54,10 +54,18 @@ como fazer: dados entram por props, widgets compostos por um registry + `RenderW
   → Resolve-se na **Fase 2** (refazer os módulos nativos **compondo** o design system),
   **não** copiando o legado pra pastas novas.
 
-## 5. Feito nesta sessão (organização)
-- **Motor limpo:** `orcamento`, `eap`, `caixa-entrada`, `clientes`, `planta-baixa` saíram
-  de dentro de `lib/processo/` para suas casas `lib/<m>/`. `lib/processo/` agora = só o
-  núcleo (`domain/ actions/ service/ repository/ index/ context`). Verificado (tsc + app).
+## 5. Feito nesta sessão autônoma (organização)
+- **Motor limpo:** `eap`, `caixa-entrada`, `clientes`, `planta-baixa`, `orcamento` saíram
+  de `lib/processo/` → suas casas `lib/<m>/`. `lib/processo/` = só o núcleo
+  (`domain/ actions/ service/ repository/ index/ context`). Verificado (tsc + app).
+- **Casas de módulo consolidadas** (lib espalhada → 1 pasta por módulo; tsc + app a cada passo):
+  - `lib/orcamento/` (processo, arvore, buscar-catalogo, inserir-item, vinculos, export,
+    import-export, ai, import-export-templates)
+  - `lib/investidor/` (ai-tools, calculadora, oportunidade, venda + carteira)
+  - `lib/portal/` (+ admin-client)
+- **Bug de frontend corrigido:** `<a>` aninhado no `ProcessoCard` (hydration error) → `<span>`.
+- **Deixado de propósito p/ você:** cluster Luiza/IA (13 arquivos `luizia-*` soltos) —
+  organizá-lo é decisão da camada de IA; legados `obra-*`/`projeto-*` saem na Fase 2.
 
 ## 6. Recomendação para a Fase 2 (refazer os 4 módulos acoplados)
 Cada módulo legado, ao virar nativo no Processo, deve **compor** (não recriar):

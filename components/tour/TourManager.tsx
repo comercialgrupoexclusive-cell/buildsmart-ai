@@ -5,7 +5,7 @@ import Image from 'next/image'
 import { ChevronDown, Eye, ImagePlus, Link2, Loader2, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/profile-context'
-import { adminRpc } from '@/lib/portal-admin-client'
+import { adminRpc } from '@/lib/portal/admin-client'
 import { BuildSmartTourViewer } from '@/components/portal/BuildSmartTourViewer'
 import type { PortalTourDTO } from '@/lib/portal/types'
 

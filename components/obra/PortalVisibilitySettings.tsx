@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, ChevronDown, Eye, EyeOff, Loader2, PanelsTopLeft } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
-import { adminRpc } from '@/lib/portal-admin-client'
+import { adminRpc } from '@/lib/portal/admin-client'
 import {
   DEFAULT_PORTAL_CONTENT_VISIBILITY, DEFAULT_PORTAL_VISIBILITY, PORTAL_CONTENT_ITEMS, PORTAL_SECTIONS,
   normalizePortalContentVisibility, normalizePortalVisibility, type PortalContentSection,
