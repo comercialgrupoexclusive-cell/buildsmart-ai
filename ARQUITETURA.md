@@ -364,23 +364,22 @@ pelo motor — nunca ressuscitados como raízes concorrentes.
 módulo vazados (`eap.ts`, `orcamento.ts`, `caixa-entrada.ts`, `clientes.ts`, `planta-baixa.ts`).
 O padrão reúne cada módulo num lugar só e deixa o motor fininho.
 
-Estrutura canônica de um módulo `<m>`:
+Estrutura canônica de um módulo `<m>` (segue a convenção que o projeto **já usa** — sem
+inventar uma árvore `lib/modules/` nova; respeita "não reorganizar tudo por hipótese"):
 
-    lib/modules/<m>/
-       domain/      → tipos e regras só dele
-       actions/     → contrato público (a ÚNICA porta; UI/IA/API chamam só isto)
-       service/     → lógica
-       repository/  → acesso ao banco (tabelas do módulo, sempre com processo_id)
-       index.ts     → reexporta só actions + tipos públicos
-    components/modules/<m>/   → telas do módulo (compondo HierarchyTree, Button, Modal…)
-    supabase/migrations/…     → tabelas do módulo (sempre com processo_id)
+    lib/<m>/                 → o cérebro do módulo (tipos, lógica, acesso a dados)
+       actions.ts           → contrato público (a ÚNICA porta; UI/IA/API chamam só isto)
+    components/processo/<m>/ → as telas do módulo (compondo HierarchyTree, Button, Modal…)
+    supabase/migrations/…    → tabelas do módulo (sempre com processo_id)
 
 Regras:
 - Um módulo **nunca importa a entranha de outro** — só fala via `processo_id` / contrato.
-- O motor (`lib/processo/`) fica só com o núcleo (Processo, registry, contrato); os
-  arquivos de módulo que estão lá hoje **migram** para `lib/modules/<m>/`.
-- **Adicionar** módulo = pasta + migration + linha no registry. **Remover** = apaga a
-  pasta + tira do registry. Nada mais quebra.
+- O motor (`lib/processo/`) fica só com o núcleo (`domain/ actions/ service/ repository/
+  index/ context`); arquivos de módulo que vazaram pra lá (`eap.ts`, `caixa-entrada.ts`,
+  `clientes.ts`, `planta-baixa.ts`) migram para `lib/<m>/`.
+- **Adicionar** módulo = pasta `lib/<m>/` + migration + linha no registry. **Remover** =
+  apaga a pasta + tira do registry. Nada mais quebra.
 - A migração é **organizacional** (mover/reunir, não reescrever), **tela a tela**, com
   teste, sem quebrar o app rodando.
-- **Piloto de referência: Orçamento** (reunir os 4 lugares numa casa só).
+- **Piloto: Orçamento** — cérebro consolidado em `lib/orcamento/` (✅ `orcamento.ts` do
+  motor → `lib/orcamento/processo.ts`); telas em `components/processo/orcamento/`.

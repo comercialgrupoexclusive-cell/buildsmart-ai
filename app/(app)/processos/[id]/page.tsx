@@ -33,7 +33,7 @@ import {
   type ProcessoTemplate,
 } from '@/lib/processo'
 import { ProcessProvider } from '@/lib/processo/context'
-import { getOrCreateOrcamentoDoProcesso } from '@/lib/processo/orcamento'
+import { getOrCreateOrcamentoDoProcesso } from '@/lib/orcamento/processo'
 import { ProcessoOrcamento } from '@/components/processo/orcamento/ProcessoOrcamento'
 import { ObraPlanejamento2 } from '@/components/obra/ObraPlanejamento2'
 import { ObraMedicoes } from '@/components/obra/ObraMedicoes'
