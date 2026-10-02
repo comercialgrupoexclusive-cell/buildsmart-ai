@@ -36,18 +36,25 @@ Padrão de módulo = `lib/<m>/` (cérebro) + `components/processo/<m>/` (telas);
 Ver `ARQUITETURA.md` §18. Organizacional (mover/reunir, NÃO reescrever), 1 de cada vez,
 com `tsc` + app rodando (`localhost:3003`).
 
-**✅ Feito — piloto Orçamento:** `lib/processo/orcamento.ts` → `lib/orcamento/processo.ts`
-(commit 9d0c1b8; tsc limpo, app ok). Cérebro do Orçamento consolidado em `lib/orcamento/`.
+**✅ Feito (sessão autônoma 02/out):**
+- **Motor limpo:** `orcamento` (commit 9d0c1b8) + `eap`/`caixa-entrada`/`clientes`/`planta-baixa`
+  (commit 1381851) saíram de `lib/processo/` → suas casas `lib/<m>/`. Motor = só núcleo
+  (`domain/ actions/ service/ repository/ index/ context`). Verificado (tsc + app rodando).
+- **`RELATORIO_COMPONENTES_NOVA_ORGANIZACAO.md`** criado — inventário de reutilizáveis +
+  análise de duplicação (design system bem reusado; dívida real está no legado).
+- Auditoria **"Visão Geral"**: as 3 são **features distintas, não cópias** → mantidas
+  separadas (sem abstração forçada).
 
-**▶ Continuar — esvaziar o motor dos outros arquivos de módulo vazados** (mesmo padrão do
-piloto): `lib/processo/eap.ts`, `caixa-entrada.ts`, `clientes.ts`, `planta-baixa.ts` →
-suas pastas `lib/<m>/`.
+**▶ Continuar — frentes seguras (mecânicas):**
+- Consolidar os demais arquivos de lib do Orçamento (`orcamento-ai`, `import-export-orcamento`…)
+  em `lib/orcamento/`, fechando a "casa" do módulo piloto.
 
-**Depois (Fase 2):** refazer nativos os 4 módulos acoplados (planejamento, medições,
-financeiro, compras) → cortar imports de `components/obra` → deletar o legado (regra P2).
+**Fase 2 (grande e sensível — recomendo SUPERVISIONADA):** refazer nativos os 4 módulos
+acoplados (planejamento, medições, financeiro, compras) **compondo o design system** →
+cortar imports de `components/obra` → deletar o legado (regra P2). Ver `RELATORIO_COMPONENTES` §6.
 
-**Obs.:** bug pré-existente encontrado (não do piloto): `<a>` aninhado em
-`components/processo/ProcessoCard.tsx` (hydration error na lista). Flagueado como task.
+**Obs.:** bug pré-existente: `<a>` aninhado em `components/processo/ProcessoCard.tsx`
+(hydration error na lista de processos). Flagueado como task.
 
 ## Pendências ainda abertas
 - Arquivar `RELATORIO_*`/`LOG_*`/fósseis em `docs/historico/`.
