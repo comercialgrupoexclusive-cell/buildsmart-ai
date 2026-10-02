@@ -15,7 +15,7 @@ import { ImportExportModal } from '@/components/ui/ImportExportModal'
 import { ImportarBaseAntigaModal } from '@/components/servicos/ImportarBaseAntigaModal'
 import {
   ConfigImportacao, normalizarTexto, normalizarOpcao, normalizarNumero, normalizarBooleano,
-} from '@/lib/import-export-templates'
+} from '@/lib/orcamento/import-export-templates'
 import { formatCurrency, fixMojibake } from '@/lib/utils'
 
 const GRUPOS = [

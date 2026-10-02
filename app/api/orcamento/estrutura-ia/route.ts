@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { gerarEstruturaOrcamento, type EtapaEstrutura } from '@/lib/orcamento-ai'
+import { gerarEstruturaOrcamento, type EtapaEstrutura } from '@/lib/orcamento/ai'
 
 export async function POST(req: NextRequest) {
   try {

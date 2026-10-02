@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { formatCurrency } from '@/lib/utils'
-import type { EtapaEstrutura } from '@/lib/orcamento-ai'
+import type { EtapaEstrutura } from '@/lib/orcamento/ai'
 
 type ComposicaoCatalogo = { id: string; codigo: string; descricao: string; unidade: string; custo_calculado?: number }
 

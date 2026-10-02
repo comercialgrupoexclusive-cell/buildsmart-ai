@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import {
   ConfigImportacao, LinhaImportada, ResultadoLeitura,
   baixarModeloXLSX, lerPlanilhaImportacao,
-} from '@/lib/import-export-templates'
+} from '@/lib/orcamento/import-export-templates'
 
 type ImportExportModalProps = {
   open: boolean

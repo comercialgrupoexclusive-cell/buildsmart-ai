@@ -6,7 +6,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import {
   ConfigImportacao, LinhaImportada, ResultadoLeitura,
-} from '@/lib/import-export-templates'
+} from '@/lib/orcamento/import-export-templates'
 import {
   CONFIG_IMPORT_ORCAMENTO,
   LinhaOrcamentoTabular,
@@ -14,7 +14,7 @@ import {
   exportarOrcamentoTabularXLSX,
   lerPlanilhaOrcamentoAnalitico,
   lerPlanilhaOrcamentoAntigo,
-} from '@/lib/import-export-orcamento'
+} from '@/lib/orcamento/import-export'
 
 export type ResultadoImportacaoOrcamento = { inseridos: number; ignorados: number; erros: string[] }
 
