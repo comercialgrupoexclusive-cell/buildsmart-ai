@@ -83,6 +83,10 @@ export type CriarProcessoInput = {
   // Receita que originou o Processo (processo_templates). Fica gravada
   // porque decide o que aparece no cadastro depois, não só na criação.
   template_id?: string | null
+  // Config padrão por módulo vinda do template, aplicada sobre
+  // processo_modulos.config dos módulos habilitados na criação.
+  // { "<module_key>": { "<opcao>": <valor> } }.
+  config_padrao?: Record<string, Record<string, unknown>>
 }
 
 export type AtualizarProcessoInput = Partial<

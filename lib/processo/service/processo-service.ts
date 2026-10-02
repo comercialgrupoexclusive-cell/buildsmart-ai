@@ -81,6 +81,19 @@ export async function criarProcesso(supabase: SupabaseClient, input: CriarProces
   })
 
   await inserirModulos(supabase, processo.id, moduleKeys)
+
+  // Config padrão do template: só aplica em módulos que de fato nasceram
+  // habilitados, e só chaves conhecidas do registry (ignora resto em silêncio
+  // para um template antigo não quebrar a criação).
+  if (input.config_padrao) {
+    const habilitados = new Set(moduleKeys)
+    for (const [moduleKey, config] of Object.entries(input.config_padrao)) {
+      if (!habilitados.has(moduleKey) || !isValidProcessoModuleKey(moduleKey)) continue
+      if (!config || Object.keys(config).length === 0) continue
+      await definirConfigModuloRaw(supabase, processo.id, moduleKey, config)
+    }
+  }
+
   return processo
 }
 
@@ -277,6 +290,7 @@ export async function criarTemplate(
     descricao: normalizarTexto(input.descricao),
     modulos: validarModulos(input.modulos),
     campos_ocultos: input.campos_ocultos,
+    config_padrao: filtrarConfigPadrao(input.config_padrao, input.modulos),
     organization_id: organizacao,
   })
 }
@@ -295,7 +309,30 @@ export async function atualizarTemplate(
   if (patch.descricao !== undefined) dados.descricao = normalizarTexto(patch.descricao)
   if (patch.modulos !== undefined) dados.modulos = validarModulos(patch.modulos)
   if (patch.campos_ocultos !== undefined) dados.campos_ocultos = patch.campos_ocultos
+  if (patch.config_padrao !== undefined) {
+    // Sem modulos no patch, filtra pela lista que vem junto; senão não filtra
+    // por módulo (deixa o service da criação ignorar chaves órfãs).
+    dados.config_padrao = filtrarConfigPadrao(patch.config_padrao, patch.modulos)
+  }
   return atualizarTemplateRaw(supabase, id, dados)
+}
+
+// Mantém na config padrão só módulos válidos (e, quando a lista de módulos é
+// conhecida, só os habilitados) — evita gravar config de módulo que o template
+// nem liga. Sempre um objeto, nunca undefined, para o default '{}' valer.
+function filtrarConfigPadrao(
+  config: Record<string, Record<string, unknown>> | undefined,
+  modulos: string[] | undefined,
+): Record<string, Record<string, unknown>> {
+  if (!config) return {}
+  const habilitados = modulos ? new Set(modulos) : null
+  const saida: Record<string, Record<string, unknown>> = {}
+  for (const [key, valor] of Object.entries(config)) {
+    if (!isValidProcessoModuleKey(key)) continue
+    if (habilitados && !habilitados.has(key)) continue
+    if (valor && Object.keys(valor).length > 0) saida[key] = valor
+  }
+  return saida
 }
 
 export async function excluirTemplate(supabase: SupabaseClient, id: string): Promise<void> {

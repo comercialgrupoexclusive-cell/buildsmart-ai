@@ -12,9 +12,12 @@ import {
   atualizarTemplate,
   criarTemplate,
   excluirTemplate,
+  getProcessoModuleDefinition,
+  lerConfigBool,
   listarModulosDisponiveis,
   listarTemplates,
   type CampoOcultavel,
+  type ConfigPadraoTemplate,
   type ProcessoTemplate,
 } from '@/lib/processo'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -28,9 +31,10 @@ type Rascunho = {
   descricao: string
   modulos: string[]
   campos_ocultos: CampoOcultavel[]
+  config_padrao: ConfigPadraoTemplate
 }
 
-const VAZIO: Rascunho = { nome: '', descricao: '', modulos: [], campos_ocultos: [] }
+const VAZIO: Rascunho = { nome: '', descricao: '', modulos: [], campos_ocultos: [], config_padrao: {} }
 
 export default function TemplatesPage() {
   const supabase = useMemo(() => createClient(), [])
@@ -71,6 +75,7 @@ export default function TemplatesPage() {
       descricao: t.descricao ?? '',
       modulos: [...t.modulos],
       campos_ocultos: [...t.campos_ocultos],
+      config_padrao: { ...(t.config_padrao ?? {}) },
     })
     setEditando(t)
   }
@@ -97,6 +102,21 @@ export default function TemplatesPage() {
         : [...r.campos_ocultos, campo],
     }))
   }
+
+  function definirConfig(moduleKey: string, optKey: string, valor: boolean) {
+    setRascunho(r => ({
+      ...r,
+      config_padrao: {
+        ...r.config_padrao,
+        [moduleKey]: { ...(r.config_padrao[moduleKey] ?? {}), [optKey]: valor },
+      },
+    }))
+  }
+
+  // Só módulos habilitados no template e que têm opções de configuração.
+  const modulosComConfig = registry.filter(
+    m => rascunho.modulos.includes(m.key) && (m.configOpcoes?.length ?? 0) > 0,
+  )
 
   async function salvar() {
     if (!rascunho.nome.trim()) {
@@ -289,6 +309,43 @@ export default function TemplatesPage() {
               })}
             </div>
           </div>
+
+          {modulosComConfig.length > 0 && (
+            <div>
+              <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
+                Configuração padrão dos módulos
+              </label>
+              <p className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                Como cada módulo já nasce num Processo criado por este template. Pode ser mudado depois em cada Processo.
+              </p>
+              <div className="mt-2 space-y-2">
+                {modulosComConfig.map(mod => (
+                  <div key={mod.key} className="rounded-lg p-3" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
+                    <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{mod.label}</p>
+                    <div className="mt-2 space-y-2">
+                      {mod.configOpcoes!.map(opt => {
+                        const valor = lerConfigBool(getProcessoModuleDefinition(mod.key), rascunho.config_padrao[mod.key], opt.key)
+                        return (
+                          <label key={opt.key} className="flex items-center justify-between gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                            <span>{opt.label}</span>
+                            <button
+                              type="button"
+                              onClick={() => definirConfig(mod.key, opt.key, !valor)}
+                              className="relative h-5 w-9 flex-shrink-0 rounded-full transition-colors"
+                              style={{ background: valor ? 'var(--accent)' : 'var(--border)' }}
+                              aria-pressed={valor}
+                            >
+                              <span className="absolute top-0.5 size-4 rounded-full bg-white transition-all" style={{ left: valor ? 18 : 2 }} />
+                            </button>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {erro && <p className="text-xs" style={{ color: '#f87171' }}>{erro}</p>}
 

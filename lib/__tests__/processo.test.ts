@@ -58,6 +58,25 @@ describe('Motor de Processo — P3.1', () => {
       expect(modulos.map(m => m.module_key)).toEqual(['orcamento'])
     })
 
+    it('aplica config_padrao do template só em módulos habilitados e conhecidos', async () => {
+      const processo = await criarProcesso(supa(), {
+        nome: 'Leilão Bella',
+        modulos: ['eap', 'orcamento'],
+        config_padrao: {
+          eap: { mostrar_numeracao: false }, // habilitado → aplica
+          tarefas: { foo: true },            // não habilitado → ignora
+          modulo_inexistente: { x: 1 },      // desconhecido → ignora
+        },
+      })
+      const modulos = await listarModulosDoProcesso(supa(), processo.id)
+      const eap = modulos.find(m => m.module_key === 'eap')
+      const orcamento = modulos.find(m => m.module_key === 'orcamento')
+      expect(eap?.config).toEqual({ mostrar_numeracao: false })
+      expect(orcamento?.config ?? {}).toEqual({})
+      // Config de módulo não habilitado não cria vínculo novo.
+      expect(modulos.map(m => m.module_key).sort()).toEqual(['eap', 'orcamento'])
+    })
+
     it('rejeita nome vazio', async () => {
       await expect(criarProcesso(supa(), { nome: '   ' })).rejects.toThrow('Nome do processo é obrigatório.')
     })

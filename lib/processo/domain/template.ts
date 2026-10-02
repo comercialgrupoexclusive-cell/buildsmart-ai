@@ -13,6 +13,10 @@ export const CAMPOS_OCULTAVEIS: { campo: CampoOcultavel; label: string }[] = [
   { campo: 'responsavel_id', label: 'Responsável' },
 ]
 
+// Config padrão por módulo que o template aplica na criação do Processo:
+// { "<module_key>": { "<opcao>": <valor> } }. Ex.: { eap: { mostrar_numeracao: false } }.
+export type ConfigPadraoTemplate = Record<string, Record<string, unknown>>
+
 export type ProcessoTemplate = {
   id: string
   organization_id: string
@@ -20,6 +24,7 @@ export type ProcessoTemplate = {
   descricao: string | null
   modulos: string[]
   campos_ocultos: CampoOcultavel[]
+  config_padrao: ConfigPadraoTemplate
   created_at: string
   updated_at: string
 }
@@ -29,6 +34,7 @@ export type SalvarTemplateInput = {
   descricao?: string | null
   modulos: string[]
   campos_ocultos: CampoOcultavel[]
+  config_padrao?: ConfigPadraoTemplate
 }
 
 // Sem template, nada é escondido — um Processo em branco mostra tudo.

@@ -151,6 +151,7 @@ export default function NovoProcessoPage() {
         organization_id: organizationId || null,
         template_id: form.template_id || null,
         modulos: templateEscolhido?.modulos,
+        config_padrao: templateEscolhido?.config_padrao,
       })
       // O imóvel só nasce se a pessoa abriu o "+" e preencheu alguma coisa.
       // Falhar aqui não pode derrubar o Processo, que já existe. O endereço do
