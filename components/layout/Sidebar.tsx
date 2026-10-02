@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard,
+  LayoutDashboard, Gauge,
   BotMessageSquare, BarChart3, Settings, Hammer, MessageCircle, X, ClipboardList, Boxes, Inbox, Newspaper,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -11,6 +11,8 @@ import { APP_VERSION } from '@/lib/version'
 import { useProfile } from '@/lib/profile-context'
 
 const NAV_ITEMS = [
+  // Visão Geral configurável por módulo/usuário (investidor nesta fase).
+  { href: '/visao-geral', label: 'Visão geral', icon: Gauge },
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   // Fica acima de Tarefas de propósito: é onde a coisa entra antes de virar
   // tarefa, processo ou nada.
