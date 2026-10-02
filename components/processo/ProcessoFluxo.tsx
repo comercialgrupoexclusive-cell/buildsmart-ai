@@ -8,6 +8,7 @@
 import { useState } from 'react'
 import { CaixaEntrada } from '@/components/caixa-entrada/CaixaEntrada'
 import { ContextoTarefas } from '@/components/tarefas/ContextoTarefas'
+import { WorkItemsStream } from '@/components/work-items/WorkItemsStream'
 import type { TriagemStatus } from '@/lib/caixa-entrada/triagem'
 
 type Filtro = 'tudo' | 'entradas' | 'informacoes' | 'acoes'
@@ -17,7 +18,8 @@ type Filtro = 'tudo' | 'entradas' | 'informacoes' | 'acoes'
 const STATUS_INFORMACAO: TriagemStatus[] = ['processo', 'um_dia_talvez']
 
 export function ProcessoFluxo({ processoId, temTarefas }: { processoId: string; temTarefas: boolean }) {
-  const [filtro, setFiltro] = useState<Filtro>('entradas')
+  // "Tudo" é a lista única (Caixa + Tarefas, deduplicada): a visão padrão.
+  const [filtro, setFiltro] = useState<Filtro>('tudo')
 
   const filtros: { id: Filtro; label: string }[] = [
     { id: 'tudo', label: 'Tudo' },
@@ -42,17 +44,16 @@ export function ProcessoFluxo({ processoId, temTarefas }: { processoId: string; 
         ))}
       </div>
 
-      {(filtro === 'tudo' || filtro === 'entradas') && (
-        <CaixaEntrada processoId={processoId} />
-      )}
+      {/* Tudo = lista única (Caixa + Tarefas por referência, sem duplicar). */}
+      {filtro === 'tudo' && <WorkItemsStream processoId={processoId} />}
+
+      {filtro === 'entradas' && <CaixaEntrada processoId={processoId} />}
 
       {filtro === 'informacoes' && (
         <CaixaEntrada processoId={processoId} filtroStatus={STATUS_INFORMACAO} ocultarComposer />
       )}
 
-      {temTarefas && (filtro === 'tudo' || filtro === 'acoes') && (
-        <ContextoTarefas processoId={processoId} />
-      )}
+      {temTarefas && filtro === 'acoes' && <ContextoTarefas processoId={processoId} />}
     </div>
   )
 }
