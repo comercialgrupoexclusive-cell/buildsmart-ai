@@ -99,9 +99,14 @@ export function ProcessoCard({ processo, acoes, onEditar, onExcluir, onDuplicar,
               {legenda && (
               <p className="mt-0.5 truncate text-xs text-white/70 flex items-center gap-1">
                 {mapaUrl && endFormatado && (
-                  <a href={mapaUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} aria-label="Abrir no mapa">
+                  <span
+                    role="button"
+                    aria-label="Abrir no mapa"
+                    className="cursor-pointer"
+                    onClick={e => { e.preventDefault(); e.stopPropagation(); window.open(mapaUrl, '_blank', 'noopener,noreferrer') }}
+                  >
                     <MapPin size={11} className="flex-shrink-0 opacity-70" />
-                  </a>
+                  </span>
                 )}
                 {legenda}
               </p>
@@ -121,9 +126,15 @@ export function ProcessoCard({ processo, acoes, onEditar, onExcluir, onDuplicar,
             {legenda && (
               <p className="mt-0.5 truncate text-xs flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
                 {mapaUrl && endFormatado && (
-                  <a href={mapaUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} aria-label="Abrir no mapa" style={{ color: 'var(--accent)' }}>
+                  <span
+                    role="button"
+                    aria-label="Abrir no mapa"
+                    className="cursor-pointer"
+                    style={{ color: 'var(--accent)' }}
+                    onClick={e => { e.preventDefault(); e.stopPropagation(); window.open(mapaUrl, '_blank', 'noopener,noreferrer') }}
+                  >
                     <MapPin size={11} className="flex-shrink-0" />
-                  </a>
+                  </span>
                 )}
                 {legenda}
               </p>
