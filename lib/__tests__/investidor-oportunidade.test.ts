@@ -15,7 +15,7 @@ import {
   listarOportunidadesVinculaveis,
   obterOportunidadeDoProcesso,
   vincularOportunidadeAoProcesso,
-} from '../investidor-oportunidade'
+} from '../investidor/oportunidade'
 
 describe('Vínculo Processo ↔ Oportunidade — Tellus R01 Seção B', () => {
   let db: FakeDB

@@ -15,7 +15,7 @@
 // Prospecção-sombra de VENDA (is_venda=true) não é oportunidade de aquisição:
 // ela pertence a um Ativo via project_id e nunca entra neste vínculo.
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Prospeccao } from './types'
+import type { Prospeccao } from '../types'
 
 const TABELA = 'prospeccoes'
 

@@ -15,7 +15,7 @@ import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
-import { calcularCenario, pendenciasCenario, type PremissasCenario, type CampoFaltantePremissa } from '@/lib/investidor-calculadora'
+import { calcularCenario, pendenciasCenario, type PremissasCenario, type CampoFaltantePremissa } from '@/lib/investidor/calculadora'
 import type { ProspeccaoCenario } from '@/lib/types'
 
 export const PENDENCIA_PREMISSA_LABEL: Record<CampoFaltantePremissa, string> = {

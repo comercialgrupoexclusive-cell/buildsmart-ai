@@ -28,7 +28,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import OpenAI from 'openai'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { investidorAiToolDefs, execInvestidorAiTool, type InvestidorAiCtx } from './investidor-ai-tools'
+import { investidorAiToolDefs, execInvestidorAiTool, type InvestidorAiCtx } from './investidor/ai-tools'
 import { isChangeIntent, MENSAGEM_BLOQUEIO_CHAT } from './luizia-work'
 import { listarPendentesAtivas } from './luizia-pending-actions'
 

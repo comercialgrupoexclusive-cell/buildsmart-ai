@@ -22,7 +22,7 @@ import { ProspeccaoEvidencias } from '@/components/investidor/ProspeccaoEvidenci
 import { ProspeccaoCenarios, TIPO_AQUISICAO_LABEL } from '@/components/investidor/ProspeccaoCenarios'
 import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
-import { resultadoCenarioValido } from '@/lib/investidor-calculadora'
+import { resultadoCenarioValido } from '@/lib/investidor/calculadora'
 import { formatCurrency } from '@/lib/utils'
 import type { Prospeccao, ProspeccaoFase, ProspeccaoCenario } from '@/lib/types'
 

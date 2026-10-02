@@ -26,13 +26,13 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type OpenAI from 'openai'
-import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from './ai-resolve'
-import { criarPropostaPendente, acharPendenteParaResolver, marcarRejeitada, marcarExecutada, formatarListaPendentes } from './luizia-pending-actions'
-import { geocodeEndereco, haversineKm, corrigirSimilaridadePorDistancia } from './geocoding'
-import { calcularCenario, pendenciasCenario, type PremissasCenario } from './investidor-calculadora'
-import { extrairConteudoDeLink } from './link-extract'
-import { formatCurrency } from './utils'
-import type { InvestidorAgente, InvestidorRotina, Prospeccao, ProspeccaoCenario, ProspeccaoEvidencia, ProspeccaoFase, ProspeccaoFicha } from './types'
+import { resolverComSeguranca, formatarAmbiguidade, type ResolveOutcome } from '../ai-resolve'
+import { criarPropostaPendente, acharPendenteParaResolver, marcarRejeitada, marcarExecutada, formatarListaPendentes } from '../luizia-pending-actions'
+import { geocodeEndereco, haversineKm, corrigirSimilaridadePorDistancia } from '../geocoding'
+import { calcularCenario, pendenciasCenario, type PremissasCenario } from './calculadora'
+import { extrairConteudoDeLink } from '../link-extract'
+import { formatCurrency } from '../utils'
+import type { InvestidorAgente, InvestidorRotina, Prospeccao, ProspeccaoCenario, ProspeccaoEvidencia, ProspeccaoFase, ProspeccaoFicha } from '../types'
 
 type DB = SupabaseClient
 // `any` aqui é deliberado, não uma sobra — mesma convenção de

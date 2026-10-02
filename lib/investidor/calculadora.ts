@@ -20,7 +20,7 @@
 // marcos futuros, pela Luiza — ver princípio "não duplicar lógica entre
 // frontend e Luiza" da especificação.
 // ═══════════════════════════════════════════════════════════════════════════
-import type { ProspeccaoCenario } from './types'
+import type { ProspeccaoCenario } from '../types'
 
 export type ModalidadeCenario = ProspeccaoCenario['modalidade']
 

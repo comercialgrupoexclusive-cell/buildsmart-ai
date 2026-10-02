@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcularCenario, pendenciasCenario, resultadoCenarioValido, type PremissasCenario } from '../investidor-calculadora'
+import { calcularCenario, pendenciasCenario, resultadoCenarioValido, type PremissasCenario } from '../investidor/calculadora'
 
 // Valores-ouro extraídos/derivados de "Calculadora do Leilão.xlsx" (anexo do
 // usuário, teste-ouro da especificação do Investidor). O caso "à vista" usa

@@ -17,7 +17,7 @@ import { ProjetoResumoInvestimento } from '@/components/investidor/ProjetoResumo
 import { ProspeccaoFicha } from '@/components/investidor/ProspeccaoFicha'
 import { ProspeccaoMercado } from '@/components/investidor/ProspeccaoMercado'
 import { ProspeccaoCenarios } from '@/components/investidor/ProspeccaoCenarios'
-import { getOrCreateProspeccaoVenda } from '@/lib/investidor-venda'
+import { getOrCreateProspeccaoVenda } from '@/lib/investidor/venda'
 import { entregarObra, type ProjectPhase } from '@/lib/project-cycle'
 import type { ProspeccaoCenario } from '@/lib/types'
 import dynamic from 'next/dynamic'

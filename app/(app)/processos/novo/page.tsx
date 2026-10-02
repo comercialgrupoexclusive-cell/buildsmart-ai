@@ -19,7 +19,7 @@ import { ImovelCampos, IMOVEL_VAZIO, intOuNull, numOuNull, type DadosImovel } fr
 import { EnderecoFields, ENDERECO_VAZIO, enderecoResumo, type EnderecoValor } from '@/components/processo/EnderecoFields'
 import { ComboboxCriavel } from '@/components/ui/ComboboxCriavel'
 import { listarClientesSugeridos } from '@/lib/clientes'
-import { criarOportunidadeDoProcesso } from '@/lib/investidor-oportunidade'
+import { criarOportunidadeDoProcesso } from '@/lib/investidor/oportunidade'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
 

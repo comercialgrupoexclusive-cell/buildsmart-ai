@@ -7,7 +7,7 @@ import { useProfile } from '@/lib/profile-context'
 import {
   criarOportunidadeDoProcesso,
   obterOportunidadeDoProcesso,
-} from '@/lib/investidor-oportunidade'
+} from '@/lib/investidor/oportunidade'
 import type { Prospeccao } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'

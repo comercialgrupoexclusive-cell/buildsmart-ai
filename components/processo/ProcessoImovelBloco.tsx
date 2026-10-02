@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   criarOportunidadeDoProcesso,
   obterOportunidadeDoProcesso,
-} from '@/lib/investidor-oportunidade'
+} from '@/lib/investidor/oportunidade'
 import type { Prospeccao } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { ImovelCampos, IMOVEL_VAZIO, intOuNull, numOuNull, type DadosImovel } from './ImovelCampos'

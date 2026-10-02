@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { FakeDB } from './fake-supabase'
-import { execInvestidorAiTool, type InvestidorAiCtx } from '../investidor-ai-tools'
+import { execInvestidorAiTool, type InvestidorAiCtx } from '../investidor/ai-tools'
 import { extrairConteudoDeLink } from '../link-extract'
 import { geocodeEndereco } from '../geocoding'
 
