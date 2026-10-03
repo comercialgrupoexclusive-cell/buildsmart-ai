@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Gauge,
-  BotMessageSquare, BarChart3, Settings, Hammer, MessageCircle, X, ClipboardList, Boxes, Inbox, Newspaper,
+  BotMessageSquare, BarChart3, Settings, MessageCircle, X, ClipboardList, Boxes, Inbox, Newspaper,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
@@ -24,8 +24,7 @@ const NAV_ITEMS = [
   { href: '/tarefas', label: 'Tarefas', icon: ClipboardList },
   // Legados ocultos (tudo vive dentro de Processos agora): Investidor, Projetos,
   // Obras, Orçamentos e Canteiro. As rotas continuam existindo; só saíram do menu.
-  { href: '/canteiro', label: 'Canteiro', icon: Hammer },
-  { href: '/buildassist', label: 'BuildAssistente IA', icon: BotMessageSquare, featured: true },
+  { href: '/buildassist', label: 'Assistente IA', icon: BotMessageSquare, featured: true },
 ]
 
 const NAV_BOTTOM_BASE = [
@@ -34,7 +33,7 @@ const NAV_BOTTOM_BASE = [
 ]
 
 // Painel da Luiza WhatsApp só aparece no menu para o perfil ADM — acesso direto via /admin-luiza para os demais
-const ADMIN_LUIZA_ITEM = { href: '/admin-luiza', label: 'Luiza WhatsApp', icon: MessageCircle }
+const ADMIN_LUIZA_ITEM = { href: '/admin-luiza', label: 'Assistente (WhatsApp)', icon: MessageCircle }
 
 type NavEntry = { href: string; label: string; icon: typeof LayoutDashboard; featured?: boolean }
 
