@@ -55,6 +55,22 @@ verificado com `tsc` limpo + app rodando a cada passo.
 - Verificado que **nada da EAP foi removido** (commit `c37e72a` está na branch; arraste só pela alça,
   mesmo nível, atraso de 200 ms no toque). `origin/main` **não tem a EAP** — link vindo de `main` não mostra nada disso.
 
+### ✅ Rodada 03/out (2) — EAP inutilizável no celular (reportado pelo usuário, reproduzido em 375×812)
+- **Rolar a tela arrastava as etapas.** Causa: `SortableList` usava `PointerSensor`, que também aceita
+  toque → um deslize de rolagem sobre a alça iniciava o arraste na hora (proteção de "segurar 200 ms" do
+  `TouchSensor` era furada); alça com `touch-action: none` (nem rolava a partir dela) e só 20×20 px.
+  Agora: `MouseSensor` (4 px) + `TouchSensor` (**segurar ~250 ms parado**, tolerância 8 px), alça com
+  `touch-action: manipulation` e 32×32 px em tela de toque. Vale também pro orçamento (mesmo componente).
+- **Sem onde salvar no celular.** O Salvar ficava só no topo do cartão de detalhes e saía da tela ao
+  rolar. Nova `components/processo/eap/BarraSalvar.tsx`: barra fixa *Alterações não salvas · Descartar ·
+  Salvar* acima da barra do chat, **só com edição pendente e só abaixo de `lg`**; o "+" flutuante some
+  nesse período; o Salvar do cartão fica só no desktop (`max-lg:hidden`). Tocar numa etapa leva a tela
+  até o cartão de detalhes.
+- Testado em 375×812: deslize de rolagem não arrasta; toque longo arrasta; mouse arrasta; barra visível
+  em toda posição de rolagem; Salvar grava; Descartar volta o valor; desktop sem a barra e com Salvar.
+- **Lição:** os testes anteriores da EAP foram só em desktop e passaram — testar TAMBÉM em viewport de
+  celular antes de dizer que "funciona". O toque real (dedo/gesto) ainda é do usuário confirmar no aparelho.
+
 ### ⚠️ Limitações / pendências desta rodada
 - **"Voltar" do navegador/celular agora é interceptado** (`GuardaNavegacao`, técnica da "sentinela": o
   Next não tem API pra bloquear o voltar no App Router; usa `pushState` nativo). Testado no app com

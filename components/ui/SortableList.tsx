@@ -2,14 +2,19 @@
 
 // Lista com arraste reutilizável — mesmo padrão do motor de orçamento
 // (components/obra/ObraOrcamento.tsx): só a alça ⠿ dispara o arraste, o resto da
-// linha segue clicável; sensores com constraint para não começar drag num toque
-// acidental (Pointer distance 4px; Touch delay 200ms). Reordena dentro do mesmo
-// nível (uma lista por nível).
+// linha segue clicável. Reordena dentro do mesmo nível (uma lista por nível).
+//
+// Mouse e toque têm sensores SEPARADOS de propósito:
+// - mouse: arrasta depois de mover 4px;
+// - toque: só depois de SEGURAR o dedo ~250ms parado. Antes disso o gesto é
+//   rolagem normal da página.
+// Não usar PointerSensor aqui: ele também aceita toque e iniciava o arraste na
+// hora quando o dedo deslizava sobre a alça para rolar a tela.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { GripVertical } from 'lucide-react'
 import {
-  DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
+  DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
 } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -28,8 +33,12 @@ export function DragHandle({ attributes, listeners, size = 14 }: { attributes: a
       {...attributes}
       {...listeners}
       onClick={e => e.stopPropagation()}
-      className="flex-shrink-0 flex items-center justify-center rounded touch-none cursor-grab active:cursor-grabbing hover:bg-[var(--bg-card)]"
-      style={{ color: 'var(--text-secondary)', width: 20, height: 20 }}
+      className={
+        'flex flex-shrink-0 items-center justify-center rounded size-5 ' +
+        '[@media(pointer:coarse)]:size-8 touch-manipulation cursor-grab ' +
+        'active:cursor-grabbing hover:bg-[var(--bg-card)]'
+      }
+      style={{ color: 'var(--text-secondary)' }}
       title="Arrastar para reordenar"
       aria-label="Arrastar para reordenar"
     >
@@ -47,8 +56,8 @@ export function SortableList<T extends { id: string }>({
   children: (item: T, index: number, drag: DragSlot) => React.ReactNode
 }) {
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   )
 
   if (disabled) {

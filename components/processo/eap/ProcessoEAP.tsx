@@ -17,6 +17,7 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { HierarchyTree } from '@/components/ui/HierarchyTree'
+import { BarraSalvar } from './BarraSalvar'
 import { useGuardaNavegacao, useRascunhoNaoSalvo } from '@/components/ui/GuardaNavegacao'
 import { useGuardaAlteracoes } from '@/lib/use-guarda-alteracoes'
 import { mensagemDeErro } from '@/lib/erros'
@@ -65,6 +66,7 @@ export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoI
   const [exp, setExp] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [salvandoRascunho, setSalvandoRascunho] = useState(false)
   const { confirmarSaida } = useGuardaNavegacao()
 
   const carregar = useCallback(async () => {
@@ -76,6 +78,14 @@ export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoI
   }, [supabase, processoId])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // No celular o detalhe abre embaixo da linha, às vezes fora da tela: leva até ele.
+  useEffect(() => {
+    if (!sel) return
+    const visivel = Array.from(document.querySelectorAll('[data-detalhe-etapa]'))
+      .find(el => (el as HTMLElement).offsetParent !== null)
+    visivel?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [sel])
 
   const ordenar = (a: ProcessoEtapa, b: ProcessoEtapa) => a.ordem - b.ordem || a.created_at.localeCompare(b.created_at)
   const filhosDe = useCallback((pid: string | null) => etapas.filter(e => (e.parent_id ?? null) === pid).sort(ordenar), [etapas])
@@ -115,6 +125,13 @@ export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoI
   }
   function descartarRascunho() {
     if (selecionada) setRascunho(rascunhoDe(selecionada))
+  }
+
+  // Salvar pela barra fixa (celular): mesma gravação, com indicador de "salvando".
+  async function salvarPelaBarra() {
+    setSalvandoRascunho(true)
+    await tentar(salvarRascunho, 'Não foi possível salvar a etapa.')
+    setSalvandoRascunho(false)
   }
 
   // Roda uma gravação e mostra o motivo se o banco recusar.
@@ -318,8 +335,17 @@ export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoI
         />
       )}
 
-      {/* FAB mobile */}
-      {visao === 'arvore' && (
+      {/* Salvar sempre à vista no celular enquanto houver edição pendente */}
+      {sujo && (
+        <BarraSalvar
+          salvando={salvandoRascunho}
+          onSalvar={() => void salvarPelaBarra()}
+          onDescartar={descartarRascunho}
+        />
+      )}
+
+      {/* FAB mobile (some durante a edição: ocupa o mesmo canto da barra) */}
+      {visao === 'arvore' && !sujo && (
         <button type="button" onClick={() => { void adicionar(null, 'Nova etapa') }}
           className="fixed bottom-24 right-5 z-20 grid size-12 place-items-center rounded-full shadow-lg sm:hidden"
           style={{ background: 'var(--accent)', color: 'white' }} aria-label="Nova etapa">
@@ -339,12 +365,12 @@ function EditorEtapa({ rascunho, sujo, onRascunho, onSalvar, onDescartar, subs, 
 }) {
   const [aba, setAba] = useState<AbaDetalhe>('subetapas')
   return (
-    <div className="card m-2 space-y-3 p-4 lg:m-0">
+    <div className="card m-2 space-y-3 p-4 lg:m-0" data-detalhe-etapa="">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Detalhes da etapa</h3>
         <div className="flex items-center gap-2">
           <button type="button" onClick={onSalvar} disabled={!sujo}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:opacity-40 max-lg:hidden"
             style={{ background: sujo ? 'var(--accent)' : 'var(--bg-secondary)', color: sujo ? 'white' : 'var(--text-secondary)' }} title="Salvar alterações">
             <Save size={14} /> Salvar
           </button>
