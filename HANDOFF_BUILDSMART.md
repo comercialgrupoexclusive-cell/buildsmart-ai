@@ -36,6 +36,34 @@ verificado com `tsc` limpo + app rodando a cada passo.
 - Migrations desta rodada: `20261002160000_organizations_assistente_nome`,
   `20261002170000_organizacao_branding_atualizar` (aplicadas direto — fase de teste).
 
+### ✅ Rodada 03/out — dois defeitos reportados pelo usuário (testados ponta a ponta)
+- **Lançar item "Livre" no orçamento falhava** ("Não foi possível adicionar o item"). Causa raiz: a
+  tabela contador `orcamento_codigo_livre_seq` tinha RLS com **só política RESTRITIVA e nenhuma
+  PERMISSIVA** (acesso negado a todos) — foi esquecida quando a RLS por organização entrou.
+  Corrigido com política permissiva igual à das tabelas irmãs
+  (`20261003100000_orcamento_codigo_livre_seq_policy.sql`, já aplicada no banco). Testado como o
+  usuário autenticado (gera `LIV-001`) e recusado em orçamento de outra organização.
+  A tela escondia o motivo: erro do Supabase não é `Error`. Novo `lib/erros.ts` (`mensagemDeErro`),
+  aplicado nos 7 pontos do fluxo orçamento/processo.
+- **EAP: o aviso de "alterações não salvas" só cobria trocar de etapa e fechar a aba do navegador.**
+  Trocar de aba do Processo ou clicar no menu **perdia a edição em silêncio**. Novo guarda de
+  navegação (`components/ui/GuardaNavegacao.tsx` + `ConfirmarSaidaModal.tsx`): aviso com
+  *Salvar e sair / Descartar / Continuar editando* (substitui o `confirm()` em que "Cancelar" = descartar).
+  Gravações da EAP (`lib/eap`) agora **lançam o erro do banco** (antes ignoravam) e a tela mostra o
+  motivo; se o salvar falhar, o usuário **fica na tela**. Testado: aba, link do menu, as 3 escolhas e
+  falha simulada de gravação.
+- Verificado que **nada da EAP foi removido** (commit `c37e72a` está na branch; arraste só pela alça,
+  mesmo nível, atraso de 200 ms no toque). `origin/main` **não tem a EAP** — link vindo de `main` não mostra nada disso.
+
+### ⚠️ Limitações / pendências desta rodada
+- O guarda **não intercepta o botão "voltar" do navegador/celular** (limitação do App Router);
+  `beforeunload` cobre fechar/recarregar.
+- O padrão `instanceof Error ? e.message : '…'` que esconde erro do banco existe em **~71 outros
+  pontos** do código (fora do fluxo orçamento/processo). Trocar por `mensagemDeErro` aos poucos.
+- Varredura de RLS: 16 tabelas sem **nenhuma** política (`feed_*`, `portal_*`, `luizia_*`,
+  `bootstrap_owner_tokens`, `board_item_comments`, `obra_previsoes`). Padrão do projeto = só servidor
+  (service role/RPC), então **não mexi** — mas não verifiquei se alguma é acessada direto pelo navegador.
+
 ### ⚠️ Gaps conhecidos (decisão do usuário necessária)
 - **WhatsApp** (`app/(app)/admin-luiza`, `luizia_wa_config`: `bot_name`, `persona_global`) é
   **global** e ainda diz "Luiza" → precisa virar config **por organização**.

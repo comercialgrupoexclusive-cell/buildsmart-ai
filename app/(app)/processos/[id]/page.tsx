@@ -52,6 +52,7 @@ import { ProcessoEAP } from '@/components/processo/eap/ProcessoEAP'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, type TabOption } from '@/components/ui/Tabs'
+import { useGuardaNavegacao } from '@/components/ui/GuardaNavegacao'
 
 const STATUS_OPCOES: { value: ProcessoStatus; label: string }[] = [
   { value: 'ACTIVE', label: 'Ativo' },
@@ -79,6 +80,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
   const [savingStatus, setSavingStatus] = useState(false)
   const [moduloEmEdicao, setModuloEmEdicao] = useState<string | null>(null)
   const [tab, setTab] = useState<ProcessoTab>('visao_geral')
+  const { confirmarSaida } = useGuardaNavegacao()
   const [orcamentoId, setOrcamentoId] = useState<string | null>(null)
   const [resolvendoOrcamento, setResolvendoOrcamento] = useState(false)
 
@@ -134,6 +136,13 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
     }, 0)
     return () => window.clearTimeout(timer)
   }, [tab, orcamentoId, supabase, id])
+
+  // Trocar de aba descarta a tela atual: se houver edição não salva, o guarda
+  // pergunta antes (salvar, descartar ou continuar editando).
+  async function mudarAba(destino: ProcessoTab) {
+    if (destino === tab) return
+    if (await confirmarSaida()) setTab(destino)
+  }
 
   async function handleStatusChange(status: ProcessoStatus) {
     if (!processo) return
@@ -229,7 +238,7 @@ export default function ProcessoDetalhePage({ params }: { params: Promise<{ id: 
           </Select>
         </div>
 
-        <Tabs options={tabOptions} value={tab} onChange={setTab} />
+        <Tabs options={tabOptions} value={tab} onChange={mudarAba} />
 
         {tab === 'visao_geral' && (
           <ProcessoVisaoGeral processo={processo} template={template} onAtualizado={setProcesso} />

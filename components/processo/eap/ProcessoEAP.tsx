@@ -17,7 +17,9 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { SearchInput } from '@/components/ui/SearchInput'
 import { HierarchyTree } from '@/components/ui/HierarchyTree'
+import { useGuardaNavegacao, useRascunhoNaoSalvo } from '@/components/ui/GuardaNavegacao'
 import { useGuardaAlteracoes } from '@/lib/use-guarda-alteracoes'
+import { mensagemDeErro } from '@/lib/erros'
 
 // Campos editáveis da etapa que passam por rascunho (salvar explícito).
 type Rascunho = Pick<ProcessoEtapa, 'nome' | 'descricao' | 'status' | 'progresso' | 'data_inicio' | 'data_fim'>
@@ -62,6 +64,8 @@ export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoI
   const [rascunho, setRascunho] = useState<Rascunho | null>(null)
   const [exp, setExp] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const { confirmarSaida } = useGuardaNavegacao()
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -98,45 +102,78 @@ export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoI
     (rascunho.data_inicio ?? '') !== (selecionada.data_inicio ?? '') ||
     (rascunho.data_fim ?? '') !== (selecionada.data_fim ?? '')
   ))
+  // Fechar/recarregar a aba do navegador (aviso nativo) e sair da tela por dentro
+  // do app — trocar de aba do Processo ou clicar no menu (aviso de 3 escolhas).
   useGuardaAlteracoes(sujo)
+  useRascunhoNaoSalvo(sujo, salvarRascunho, descartarRascunho)
 
+  // Lança se o banco recusar: o aviso de saída usa isso para não deixar o
+  // usuário sair achando que salvou.
   async function salvarRascunho() {
     if (!sel || !rascunho) return
     await patch(sel, rascunho)
   }
-  async function resolverPendencia(): Promise<void> {
-    if (!sujo) return
-    // OK = salvar; Cancelar = descartar.
-    if (window.confirm('Você tem alterações não salvas. OK para salvar, Cancelar para descartar.')) await salvarRascunho()
+  function descartarRascunho() {
+    if (selecionada) setRascunho(rascunhoDe(selecionada))
+  }
+
+  // Roda uma gravação e mostra o motivo se o banco recusar.
+  async function tentar(operacao: () => Promise<unknown>, aoFalhar: string) {
+    setErro(null)
+    try {
+      await operacao()
+    } catch (e) {
+      setErro(mensagemDeErro(e, aoFalhar))
+    }
   }
 
   function toggleExp(id: string) { setExp(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n }) }
   async function selecionar(e: ProcessoEtapa) {
-    if (sel && sel !== e.id) await resolverPendencia()
+    if (sel && sel !== e.id && !(await confirmarSaida())) return
     setSel(e.id)
     setRascunho(rascunhoDe(e))
     if (filhosDe(e.id).length > 0) setExp(prev => new Set(prev).add(e.id))
   }
   async function fechar() {
-    await resolverPendencia()
+    if (!(await confirmarSaida())) return
     setSel(null)
     setRascunho(null)
   }
 
   async function adicionar(parentId: string | null, nome: string) {
-    const n = nome.trim(); if (!n) return
-    const e = await criarEtapa(supabase, { processo_id: processoId, nome: n, parent_id: parentId, ordem: filhosDe(parentId).length })
-    if (e) { setEtapas(prev => [...prev, e]); if (parentId) setExp(prev => new Set(prev).add(parentId)) }
+    const n = nome.trim()
+    if (!n) return
+    await tentar(async () => {
+      const nova = await criarEtapa(supabase, {
+        processo_id: processoId,
+        nome: n,
+        parent_id: parentId,
+        ordem: filhosDe(parentId).length,
+      })
+      if (!nova) return
+      setEtapas(prev => [...prev, nova])
+      if (parentId) setExp(prev => new Set(prev).add(parentId))
+    }, 'Não foi possível criar a etapa.')
   }
+  // Atualiza na tela já, grava depois; se o banco recusar, devolve o valor antigo
+  // e lança o erro para quem chamou mostrar.
   async function patch(id: string, p: Partial<ProcessoEtapa>) {
-    setEtapas(prev => prev.map(e => e.id === id ? { ...e, ...p } : e))
-    await atualizarEtapa(supabase, id, p)
+    const antes = etapas.find(e => e.id === id)
+    setEtapas(prev => prev.map(e => (e.id === id ? { ...e, ...p } : e)))
+    try {
+      await atualizarEtapa(supabase, id, p)
+    } catch (e) {
+      if (antes) setEtapas(prev => prev.map(x => (x.id === id ? antes : x)))
+      throw e
+    }
   }
   async function remover(id: string) {
     if (!window.confirm('Excluir esta etapa (e subetapas)?')) return
-    await excluirEtapa(supabase, id)
-    setEtapas(prev => prev.filter(e => e.id !== id && e.parent_id !== id))
-    if (sel === id) setSel(null)
+    await tentar(async () => {
+      await excluirEtapa(supabase, id)
+      setEtapas(prev => prev.filter(e => e.id !== id && e.parent_id !== id))
+      if (sel === id) setSel(null)
+    }, 'Não foi possível excluir a etapa.')
   }
   async function reordenar(parentId: string | null, novaOrdem: ProcessoEtapa[]) {
     const ids = novaOrdem.map(e => e.id)
@@ -144,7 +181,12 @@ export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoI
       const outros = prev.filter(e => (e.parent_id ?? null) !== parentId)
       return [...outros, ...novaOrdem.map((e, i) => ({ ...e, ordem: i }))]
     })
-    await reordenarEtapas(supabase, ids)
+    try {
+      await reordenarEtapas(supabase, ids)
+    } catch (e) {
+      setErro(mensagemDeErro(e, 'Não foi possível reordenar.'))
+      void carregar()
+    }
   }
 
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="animate-spin" style={{ color: 'var(--text-secondary)' }} /></div>
@@ -154,11 +196,11 @@ export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoI
       rascunho={rascunho ?? rascunhoDe(e)}
       sujo={sujo}
       onRascunho={p => setRascunho(r => ({ ...(r ?? rascunhoDe(e)), ...p }))}
-      onSalvar={() => void salvarRascunho()}
+      onSalvar={() => void tentar(salvarRascunho, 'Não foi possível salvar a etapa.')}
       onDescartar={() => setRascunho(rascunhoDe(e))}
       subs={filhosDe(e.id)} novaSub={novaSub} setNovaSub={setNovaSub}
       onAddSub={() => { void adicionar(e.id, novaSub); setNovaSub('') }}
-      onPatchSub={(id, p) => void patch(id, p)}
+      onPatchSub={(id, p) => void tentar(() => patch(id, p), 'Não foi possível salvar a subetapa.')}
       onRemover={() => void remover(e.id)} onRemoverSub={id => void remover(id)} onFechar={() => void fechar()}
     />
   )
@@ -211,6 +253,13 @@ export function ProcessoEAP({ processoId, mostrarNumeracao = true }: { processoI
         <h2 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>EAP de Processos</h2>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Planeje e acompanhe todas as etapas do processo.</p>
       </div>
+
+      {erro && (
+        <p className="rounded-lg px-3 py-2 text-xs" role="alert"
+          style={{ background: 'color-mix(in srgb, #f87171 14%, transparent)', color: '#f87171' }}>
+          {erro}
+        </p>
+      )}
 
       {/* Busca + Nova etapa + visões */}
       <div className="flex flex-wrap items-center gap-2">

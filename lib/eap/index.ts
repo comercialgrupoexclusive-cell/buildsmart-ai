@@ -37,35 +37,71 @@ export async function listarEtapas(supabase: SupabaseClient, processoId: string)
   return (data ?? []) as ProcessoEtapa[]
 }
 
+// As gravações abaixo LANÇAM o erro do banco. Antes elas ignoravam a resposta e a
+// tela mostrava "salvo" mesmo quando o banco recusava (permissão, rede, etc.).
+
+type NovaEtapa = {
+  processo_id: string
+  nome: string
+  parent_id?: string | null
+  status?: EtapaStatus
+  ordem?: number
+}
+
+type CamposEditaveis =
+  | 'nome' | 'descricao' | 'status' | 'ordem' | 'data_inicio' | 'data_fim'
+  | 'progresso' | 'parent_id' | 'responsavel_id'
+
 export async function criarEtapa(
   supabase: SupabaseClient,
-  input: { processo_id: string; nome: string; parent_id?: string | null; status?: EtapaStatus; ordem?: number },
+  input: NovaEtapa,
 ): Promise<ProcessoEtapa | null> {
-  const { data } = await supabase.from('processo_etapa').insert({
-    processo_id: input.processo_id,
-    nome: input.nome,
-    parent_id: input.parent_id ?? null,
-    status: input.status ?? 'a_fazer',
-    ordem: input.ordem ?? 0,
-  }).select('*').single()
+  const { data, error } = await supabase
+    .from('processo_etapa')
+    .insert({
+      processo_id: input.processo_id,
+      nome: input.nome,
+      parent_id: input.parent_id ?? null,
+      status: input.status ?? 'a_fazer',
+      ordem: input.ordem ?? 0,
+    })
+    .select('*')
+    .single()
+  if (error) throw error
   return (data as ProcessoEtapa) ?? null
 }
 
 export async function atualizarEtapa(
   supabase: SupabaseClient,
   id: string,
-  patch: Partial<Pick<ProcessoEtapa, 'nome' | 'descricao' | 'status' | 'ordem' | 'data_inicio' | 'data_fim' | 'progresso' | 'parent_id' | 'responsavel_id'>>,
+  patch: Partial<Pick<ProcessoEtapa, CamposEditaveis>>,
 ): Promise<void> {
-  await supabase.from('processo_etapa').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id)
+  const { error } = await supabase
+    .from('processo_etapa')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
 }
 
 export async function excluirEtapa(supabase: SupabaseClient, id: string): Promise<void> {
-  await supabase.from('processo_etapa').delete().eq('id', id)
+  const { error } = await supabase.from('processo_etapa').delete().eq('id', id)
+  if (error) throw error
 }
 
 // Persiste a nova ordem (ordem = posição) de um conjunto de irmãos.
-export async function reordenarEtapas(supabase: SupabaseClient, idsNaOrdem: string[]): Promise<void> {
-  await Promise.all(idsNaOrdem.map((id, i) =>
-    supabase.from('processo_etapa').update({ ordem: i, updated_at: new Date().toISOString() }).eq('id', id),
-  ))
+export async function reordenarEtapas(
+  supabase: SupabaseClient,
+  idsNaOrdem: string[],
+): Promise<void> {
+  const agora = new Date().toISOString()
+  const resultados = await Promise.all(
+    idsNaOrdem.map((id, posicao) =>
+      supabase
+        .from('processo_etapa')
+        .update({ ordem: posicao, updated_at: agora })
+        .eq('id', id),
+    ),
+  )
+  const falha = resultados.find(r => r.error)
+  if (falha?.error) throw falha.error
 }
