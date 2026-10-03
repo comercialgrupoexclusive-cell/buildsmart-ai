@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowLeftRight, BotMessageSquare, CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
+import { useAssistenteNome } from '@/lib/organizacao/contexto'
 import { logLuizia } from '@/lib/luizia-monitor'
 import { createClient } from '@/lib/supabase/client'
 import { useObraOrcamento, TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
@@ -39,8 +40,8 @@ type UploadedFile = {
 
 const ASSIST_ON_ENTRY_KEY = 'buildsmart-open-luizia-on-entry'
 
-function greeting(name?: string) {
-  return `Oi${name ? `, ${name}` : ''}! Eu sou a Luiza.
+function greeting(name?: string, assistente = 'Assistente') {
+  return `Oi${name ? `, ${name}` : ''}! Eu sou ${assistente}.
 
 Prometo nao complicar sua vida: posso ajudar com orcamento, materiais, compras, cronograma e aquelas duvidas de obra que aparecem do nada.
 
@@ -97,6 +98,7 @@ function derivarContextoPagina(pathname: string | null, tabParam: string | null,
 
 export function LuiziaFloatingChat() {
   const { currentProfile } = useProfile()
+  const assistenteNome = useAssistenteNome()
   const supabaseRef = useRef(createClient())
   const supabase = supabaseRef.current
   const pathname = usePathname()
@@ -158,7 +160,7 @@ export function LuiziaFloatingChat() {
       setHistoryOpen(true)
       setMessages(current => current.length > 0
         ? current
-        : [{ role: 'assistant', content: greeting(currentProfile?.apelido || currentProfile?.name) }]
+        : [{ role: 'assistant', content: greeting(currentProfile?.apelido || currentProfile?.name, assistenteNome) }]
       )
     }
     // apelido/name só entram na saudação; deliberadamente não disparam este
@@ -172,7 +174,7 @@ export function LuiziaFloatingChat() {
       setHistoryOpen(true)
       setMessages(current => current.length > 0
         ? current
-        : [{ role: 'assistant', content: greeting(currentProfile?.apelido || currentProfile?.name) }]
+        : [{ role: 'assistant', content: greeting(currentProfile?.apelido || currentProfile?.name, assistenteNome) }]
       )
     }
 
@@ -484,7 +486,7 @@ export function LuiziaFloatingChat() {
                   <BotMessageSquare size={16} />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Luiza</p>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{assistenteNome}</p>
                   <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Assistente rapida da obra</p>
                 </div>
               </div>
@@ -513,7 +515,7 @@ export function LuiziaFloatingChat() {
             <div className="h-72 overflow-y-auto p-3 flex flex-col gap-3">
               {messages.length === 0 && (
                 <div className="text-sm leading-relaxed rounded-xl p-3 whitespace-pre-line" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
-                  {greeting(currentProfile?.name)}
+                  {greeting(currentProfile?.name, assistenteNome)}
                 </div>
               )}
               {messages.map((msg, index) => (
@@ -646,7 +648,7 @@ export function LuiziaFloatingChat() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && sendMessage()}
             onFocus={() => messages.length > 0 && setHistoryOpen(true)}
-            placeholder={anexo ? 'Descreva o que quer saber sobre o anexo (opcional)...' : modo === 'work' ? 'Peça uma alteração ou pergunte à Luiza...' : 'Pergunte à Luiza...'}
+            placeholder={anexo ? 'Descreva o que quer saber sobre o anexo (opcional)...' : modo === 'work' ? `Peça uma alteração ou pergunte à ${assistenteNome}...` : `Pergunte à ${assistenteNome}...`}
             className="flex-1 min-w-0 h-10 text-sm bg-transparent border-0 outline-none placeholder:text-[var(--text-secondary)]"
             style={{ color: 'var(--text-primary)' }}
             disabled={loading}
