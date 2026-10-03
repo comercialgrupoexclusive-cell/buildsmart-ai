@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { BackupRestauracaoModal } from '@/components/ui/BackupRestauracaoModal'
+import { OrganizacaoBranding } from '@/components/organizacao/OrganizacaoBranding'
 import { APP_VERSION } from '@/lib/version'
 import { CLIMA_ATIVO_KEY, CLIMA_THRESHOLD_KEY, CLIMA_THRESHOLD_DEFAULT, readClimaSettings } from '@/components/dashboard/ClimaWidgets'
 import { SINAPI_UFS, type Profile } from '@/lib/types'
@@ -576,6 +577,9 @@ export default function ConfiguracoesPage() {
 
   return (
     <div className="flex flex-col gap-6 max-w-2xl">
+
+      {/* Nome do assistente de IA + foto da organização (só owner/admin) */}
+      <OrganizacaoBranding />
 
       {/* Perfil + Aparência (unificado conforme pedido) */}
       <div className="card p-6">

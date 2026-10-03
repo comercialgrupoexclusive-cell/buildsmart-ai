@@ -9,6 +9,26 @@ import {
 import { cn } from '@/lib/utils'
 import { APP_VERSION } from '@/lib/version'
 import { useProfile } from '@/lib/profile-context'
+import { useOrganizacao } from '@/lib/organizacao/contexto'
+
+// Marca do menu: a foto da organização, ou a letra "B" enquanto ela não tem uma.
+function MarcaLogo({ logoUrl }: { logoUrl: string | null }) {
+  if (logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={logoUrl} alt="" className="h-8 w-8 flex-shrink-0 rounded-lg object-cover" />
+    )
+  }
+  const caixa = 'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg'
+  return (
+    <div
+      className={`${caixa} text-sm font-bold text-white`}
+      style={{ background: 'var(--accent)' }}
+    >
+      B
+    </div>
+  )
+}
 
 const NAV_ITEMS = [
   // Visão Geral configurável por módulo/usuário (investidor nesta fase).
@@ -62,6 +82,7 @@ function NavLink({ href, label, icon: Icon, featured, active, onNavigate }: NavE
 export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: boolean; onCloseMobile?: () => void }) {
   const pathname = usePathname()
   const { currentProfile } = useProfile()
+  const { logoUrl } = useOrganizacao()
   const isAdmin = currentProfile?.tipo === 'admin'
   const navBottom = isAdmin
     ? [NAV_BOTTOM_BASE[0], ADMIN_LUIZA_ITEM, NAV_BOTTOM_BASE[1]]
@@ -86,12 +107,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.width = '56px' }}
       >
         <div className="flex items-center h-16 px-3.5 flex-shrink-0 border-b overflow-hidden" style={{ borderColor: 'var(--border)' }}>
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-            style={{ background: 'var(--accent)' }}
-          >
-            B
-          </div>
+          <MarcaLogo logoUrl={logoUrl} />
           <div className="ml-3 overflow-hidden whitespace-nowrap" style={{ transition: 'opacity 0.15s ease' }}>
             <p className="font-semibold text-sm leading-tight" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-sans)' }}>
               BuildSmart
@@ -129,12 +145,7 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: { mobileOpen?: bo
           >
             <div className="flex items-center justify-between h-16 px-3.5 flex-shrink-0 border-b" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center">
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-                  style={{ background: 'var(--accent)' }}
-                >
-                  B
-                </div>
+                <MarcaLogo logoUrl={logoUrl} />
                 <div className="ml-3">
                   <p className="font-semibold text-sm leading-tight" style={{ color: 'var(--text-primary)' }}>BuildSmart</p>
                   <p className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--accent)' }}>

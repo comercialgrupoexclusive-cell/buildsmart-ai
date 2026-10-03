@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowLeftRight, BotMessageSquare, CheckCircle2, ChevronDown, ChevronUp, ExternalLink, Loader2, Mic, Paperclip, Plus, Send, Trash2, X } from 'lucide-react'
 import { useProfile } from '@/lib/profile-context'
 import { useAssistenteNome } from '@/lib/organizacao/contexto'
+import { perguntarA, seApresentar } from '@/lib/organizacao/branding'
 import { logLuizia } from '@/lib/luizia-monitor'
 import { createClient } from '@/lib/supabase/client'
 import { useObraOrcamento, TODOS_ORCAMENTOS } from '@/lib/obra-orcamento-context'
@@ -41,7 +42,7 @@ type UploadedFile = {
 const ASSIST_ON_ENTRY_KEY = 'buildsmart-open-luizia-on-entry'
 
 function greeting(name?: string, assistente = 'Assistente') {
-  return `Oi${name ? `, ${name}` : ''}! Eu sou ${assistente}.
+  return `Oi${name ? `, ${name}` : ''}! Eu sou ${seApresentar(assistente)}.
 
 Prometo nao complicar sua vida: posso ajudar com orcamento, materiais, compras, cronograma e aquelas duvidas de obra que aparecem do nada.
 
@@ -180,7 +181,7 @@ export function LuiziaFloatingChat() {
 
     window.addEventListener('buildsmart:open-luizia', openFromGuide)
     return () => window.removeEventListener('buildsmart:open-luizia', openFromGuide)
-  }, [currentProfile?.apelido, currentProfile?.name])
+  }, [currentProfile?.apelido, currentProfile?.name, assistenteNome])
 
   useEffect(() => {
     if (!loaded || typeof window === 'undefined') return
@@ -472,6 +473,12 @@ export function LuiziaFloatingChat() {
     }
   }
 
+  const placeholderEntrada = anexo
+    ? 'Descreva o que quer saber sobre o anexo (opcional)...'
+    : modo === 'work'
+      ? `Peça uma alteração ou pergunte ${perguntarA(assistenteNome)}...`
+      : `Pergunte ${perguntarA(assistenteNome)}...`
+
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-3 sm:px-4 sm:pb-4 pointer-events-none">
       <div className="w-full max-w-2xl pointer-events-auto">
@@ -648,7 +655,7 @@ export function LuiziaFloatingChat() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && sendMessage()}
             onFocus={() => messages.length > 0 && setHistoryOpen(true)}
-            placeholder={anexo ? 'Descreva o que quer saber sobre o anexo (opcional)...' : modo === 'work' ? `Peça uma alteração ou pergunte à ${assistenteNome}...` : `Pergunte à ${assistenteNome}...`}
+            placeholder={placeholderEntrada}
             className="flex-1 min-w-0 h-10 text-sm bg-transparent border-0 outline-none placeholder:text-[var(--text-secondary)]"
             style={{ color: 'var(--text-primary)' }}
             disabled={loading}
