@@ -5,6 +5,8 @@ import { BotMessageSquare, Copy, RefreshCw, Search, ShieldAlert } from 'lucide-r
 import { Button } from '@/components/ui/Button'
 import { LuiziaLogEntry, getLocalLuiziaLogs } from '@/lib/luizia-monitor'
 import { useProfile } from '@/lib/profile-context'
+import { useAssistenteNome } from '@/lib/organizacao/contexto'
+import { doAssistente } from '@/lib/organizacao/branding'
 
 function when(value?: string) {
   if (!value) return '-'
@@ -18,6 +20,7 @@ function when(value?: string) {
 
 export default function LuiziaMonitorPage() {
   const { currentProfile } = useProfile()
+  const assistente = useAssistenteNome()
   const souAdmin = currentProfile?.tipo === 'admin'
   const [logs, setLogs] = useState<LuiziaLogEntry[]>([])
   const [remote, setRemote] = useState<boolean | null>(null)
@@ -80,7 +83,7 @@ export default function LuiziaMonitorPage() {
         <ShieldAlert size={32} style={{ color: 'var(--text-secondary)' }} />
         <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Acesso restrito</h1>
         <p className="text-sm max-w-sm" style={{ color: 'var(--text-secondary)' }}>
-          O Monitor da Luiza (histórico de conversas) é só para administradores. Troque para um perfil administrador para acessar.
+          O Monitor {doAssistente(assistente)} (histórico de conversas) é só para administradores. Troque para um perfil administrador para acessar.
         </p>
       </div>
     )
@@ -92,7 +95,7 @@ export default function LuiziaMonitorPage() {
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
             <BotMessageSquare size={21} style={{ color: 'var(--accent)' }} />
-            Monitor da Luiza
+            Monitor {doAssistente(assistente)}
           </h1>
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
             {logs.length} conversa(s) registradas {remote ? 'online' : 'neste navegador'}.

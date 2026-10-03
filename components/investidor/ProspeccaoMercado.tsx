@@ -28,6 +28,8 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Input'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
+import { useAssistenteNome } from '@/lib/organizacao/contexto'
+import { doAssistente, oAssistente, primeiraMaiuscula } from '@/lib/organizacao/branding'
 import type { ProspeccaoComparavel, ProspeccaoFicha, ProspeccaoAnaliseMercado } from '@/lib/types'
 
 type Ordenacao = 'relevancia' | 'menor_preco' | 'maior_preco' | 'menor_m2'
@@ -84,6 +86,7 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
   onSelecaoChange?: (selecionados: ProspeccaoComparavel[]) => void
 }) {
   const { currentProfile } = useProfile()
+  const assistente = useAssistenteNome()
   const [ficha, setFicha] = useState<ProspeccaoFicha | null>(null)
   const [comparaveis, setComparaveis] = useState<ProspeccaoComparavel[]>([])
   const [analisesAnteriores, setAnalisesAnteriores] = useState<ProspeccaoAnaliseMercado[]>([])
@@ -214,7 +217,9 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Falha na análise.')
       if (data.blocked) throw new Error(data.message)
-      if (!data.analiseMercado) throw new Error('A Luiza não retornou uma análise estruturada.')
+      if (!data.analiseMercado) throw new Error(
+        `${primeiraMaiuscula(oAssistente(assistente))} não retornou uma análise estruturada.`,
+      )
       setAnaliseAtual(data.analiseMercado as AnaliseAtual)
     } catch (err) {
       setErroAnalise(err instanceof Error ? err.message : 'Não consegui gerar o resumo automático agora.')
@@ -343,7 +348,7 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
           </div>
         </div>
       ) : comparaveis.length === 0 ? (
-        <EmptyState icon={Search} title="Nenhum comparável ainda" description="Clique em 'Pesquisar comparáveis' para a Luiza buscar via web_search." />
+        <EmptyState icon={Search} title="Nenhum comparável ainda" description={`Clique em 'Pesquisar comparáveis' para ${oAssistente(assistente)} buscar via web_search.`} />
       ) : (
         <>
           <div className="card p-4 flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
@@ -507,11 +512,11 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
             </div>
 
             {analisando && !analiseAtual && (
-              <p className="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}><Loader2 size={14} className="animate-spin" /> Gerando resumo automático da Luiza…</p>
+              <p className="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}><Loader2 size={14} className="animate-spin" /> Gerando resumo automático {doAssistente(assistente)}…</p>
             )}
 
             {erroAnalise && !analiseAtual && (
-              <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}><AlertTriangle size={12} /> {erroAnalise} (as estatísticas acima já são a conclusão útil da pesquisa mesmo sem o resumo da Luiza).</p>
+              <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}><AlertTriangle size={12} /> {erroAnalise} (as estatísticas acima já são a conclusão útil da pesquisa mesmo sem o resumo {doAssistente(assistente)}).</p>
             )}
 
             {analiseAtual && (
@@ -535,7 +540,7 @@ export function ProspeccaoMercado({ prospeccaoId, onSelecaoChange }: {
                 </div>
 
                 <div className="card p-4" style={{ background: 'var(--bg-secondary)' }}>
-                  <p className="text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Resumo da Luiza</p>
+                  <p className="text-xs font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>Resumo {doAssistente(assistente)}</p>
                   <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-primary)' }}>{analiseAtual.resumo}</p>
                   {analiseAtual.pendencias && (
                     <p className="text-xs mt-2 flex items-start gap-1.5" style={{ color: '#f59e0b' }}><AlertTriangle size={12} className="mt-0.5 flex-shrink-0" /> {analiseAtual.pendencias}</p>

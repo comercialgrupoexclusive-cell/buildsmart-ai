@@ -24,6 +24,25 @@ verificado com `tsc` limpo + app rodando a cada passo.
 5. Auditoria **"Visão Geral"**: 3 componentes **distintos, não cópias** → mantidos separados.
 6. **Bug de frontend corrigido:** `<a>` aninhado no `ProcessoCard` (hydration error) → `<span>`.
 
+### ✅ Também feito (mesma sessão, após feedback de UX)
+- **Sidebar:** Canteiro (legado) saiu do menu; itens de IA viraram "Assistente IA" /
+  "Assistente (WhatsApp)"; marca única `MarcaLogo` com a **foto da organização**.
+- **Assistente configurável por organização** (não é mais "Luiza"): `organizations.assistente_nome`,
+  RPC `organizacao_branding_atualizar` (só owner/admin da org; sem UPDATE geral na tabela),
+  `lib/organizacao/{contexto,branding}`, card **Identidade da organização** em Configurações
+  (nome + upload de logo). Textos visíveis trocados (chat, boas-vindas, Assistente IA, monitor,
+  telas do Investidor) com helpers neutros de gênero. Testado ponta a ponta (salvar + isolamento
+  entre orgs + logo no menu); dados de teste restaurados.
+- Migrations desta rodada: `20261002160000_organizations_assistente_nome`,
+  `20261002170000_organizacao_branding_atualizar` (aplicadas direto — fase de teste).
+
+### ⚠️ Gaps conhecidos (decisão do usuário necessária)
+- **WhatsApp** (`app/(app)/admin-luiza`, `luizia_wa_config`: `bot_name`, `persona_global`) é
+  **global** e ainda diz "Luiza" → precisa virar config **por organização**.
+- **Telas legadas de obra** (`components/obra/*`, `/obras`) ainda dizem "Luiza"; saem na Fase 2.
+- **Boas-vindas** ainda descreve "A obra é o centro do sistema" (modelo antigo; hoje é Processo).
+- Saudação inicial gravada na conversa usa o nome padrão se o chat abrir antes da org carregar.
+
 ### Governança (fechada)
 Claude constrói · GPT apoia · o dev faz verificação de segurança só no final · regras
 desta fase (docs do repo) prevalecem sobre os docs antigos do dev no Drive `00 - CENTRAL`.

@@ -15,7 +15,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/medicoes': 'Diário / Medições',
   '/servicos': 'Composições',
   '/sinapi': 'Base de referência',
-  '/buildassist': 'BuildAssistente IA',
+  '/buildassist': 'Assistente IA',
   '/relatorios': 'Relatórios',
   '/configuracoes': 'Configurações',
 }

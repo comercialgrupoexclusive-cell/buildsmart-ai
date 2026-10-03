@@ -15,6 +15,8 @@ import { Input, Select, Textarea } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { useAssistenteNome } from '@/lib/organizacao/contexto'
+import { oAssistente } from '@/lib/organizacao/branding'
 import type { ProspeccaoEvidencia } from '@/lib/types'
 
 const NATUREZA_LABEL: Record<ProspeccaoEvidencia['natureza'], string> = {
@@ -37,6 +39,7 @@ function fmtData(iso: string | null) {
 const FORM_VAZIO = { informacao: '', tipo: '', fonte: '', url: '', data_evidencia: '', natureza: 'observado' as ProspeccaoEvidencia['natureza'] }
 
 export function ProspeccaoEvidencias({ prospeccaoId }: { prospeccaoId: string }) {
+  const assistente = useAssistenteNome()
   const [evidencias, setEvidencias] = useState<ProspeccaoEvidencia[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
@@ -116,7 +119,7 @@ export function ProspeccaoEvidencias({ prospeccaoId }: { prospeccaoId: string })
           <div>
             <h2 className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>Informações adicionais</h2>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Documentos, links e observações sobre este imóvel que não vieram diretamente do anúncio — dados do edital, uma dívida encontrada, um comparável que a Luiza citou no chat.
+              Documentos, links e observações sobre este imóvel que não vieram diretamente do anúncio — dados do edital, uma dívida encontrada, um comparável que {oAssistente(assistente)} citou no chat.
             </p>
           </div>
           <Button onClick={abrirNova} icon={<Plus size={15} />} className="flex-shrink-0">Adicionar informação</Button>
@@ -127,7 +130,7 @@ export function ProspeccaoEvidencias({ prospeccaoId }: { prospeccaoId: string })
         <EmptyState
           icon={FileSearch}
           title="Nenhuma informação adicional ainda"
-          description="Anote aqui algo que você descobriu sobre o imóvel, ou peça para a Luiza pesquisar no chat."
+          description={`Anote aqui algo que você descobriu sobre o imóvel, ou peça para ${oAssistente(assistente)} pesquisar no chat.`}
           action={<Button onClick={abrirNova} icon={<Plus size={15} />}>Adicionar informação</Button>}
         />
       ) : (

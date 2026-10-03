@@ -8,6 +8,8 @@ import {
 import { useProfile } from '@/lib/profile-context'
 import { createClient } from '@/lib/supabase/client'
 import { logLuizia } from '@/lib/luizia-monitor'
+import { useAssistenteNome } from '@/lib/organizacao/contexto'
+import { oAssistente } from '@/lib/organizacao/branding'
 
 type Message = {
   role: 'user' | 'assistant'
@@ -130,6 +132,7 @@ function readAsDataUrl(file: File) {
 
 export default function BuildAssistPage() {
   const { currentProfile } = useProfile()
+  const assistente = useAssistenteNome()
   const supabase = createClient()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -279,7 +282,9 @@ export default function BuildAssistPage() {
     if (ctx.arquivos.length > 0) {
       msg += `E ${ctx.arquivos.length} arquivo(s) anexado(s) à obra. `
     }
-    msg += 'Eu sou a Luiza, sua IA da obra. Posso ajudar a interpretar projetos, organizar orçamento, prever materiais, compras, avanço e próximas decisões.'
+    msg += `Eu sou ${oAssistente(assistente)}, sua IA da obra. `
+    msg += 'Posso ajudar a interpretar projetos, organizar orçamento, prever materiais, '
+    msg += 'compras, avanço e próximas decisões.'
     setOpeningMsg(msg)
   }
 

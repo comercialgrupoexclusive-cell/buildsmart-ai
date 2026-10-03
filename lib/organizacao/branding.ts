@@ -8,15 +8,27 @@ const TAMANHO_MAXIMO_BYTES = 2 * 1024 * 1024
 export const ASSISTENTE_NOME_MAX = 40
 export const ASSISTENTE_NOME_PADRAO = 'Assistente'
 
-// Textos neutros de gênero: o nome é livre, então nada de "à"/"o" fixos.
-// "Eu sou o assistente." / "Eu sou Teo."
-export function seApresentar(nome: string): string {
+// Textos neutros de gênero: o nome é livre, então nada de "a/da/à" fixos. Cada
+// helper devolve a forma certa para o padrão ("assistente") e para um nome próprio.
+
+// "o assistente" / "Teo"      → "Eu sou {…}.", "peça para {…} pesquisar"
+export function oAssistente(nome: string): string {
   return nome === ASSISTENTE_NOME_PADRAO ? 'o assistente' : nome
 }
 
-// "Pergunte ao assistente…" / "Pergunte a Teo…"
-export function perguntarA(nome: string): string {
+// "do assistente" / "de Teo"  → "o resumo {…}"
+export function doAssistente(nome: string): string {
+  return nome === ASSISTENTE_NOME_PADRAO ? 'do assistente' : `de ${nome}`
+}
+
+// "ao assistente" / "a Teo"   → "Pergunte {…}…"
+export function aoAssistente(nome: string): string {
   return nome === ASSISTENTE_NOME_PADRAO ? 'ao assistente' : `a ${nome}`
+}
+
+// Para começo de frase: "O assistente extrai…" / "Teo extrai…"
+export function primeiraMaiuscula(texto: string): string {
+  return texto.charAt(0).toUpperCase() + texto.slice(1)
 }
 
 export type BrandingInput = {

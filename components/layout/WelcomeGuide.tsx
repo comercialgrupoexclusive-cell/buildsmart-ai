@@ -7,16 +7,20 @@ import {
 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { useProfile } from '@/lib/profile-context'
+import { useAssistenteNome } from '@/lib/organizacao/contexto'
+import { oAssistente } from '@/lib/organizacao/branding'
 
 const STORAGE_KEY = 'buildsmart-welcome-hidden'
 
-const LUIZIA_LINES = [
-  'Eu fico ali no botão da Luiza. Pode perguntar simples, do seu jeito, que eu tento organizar a resposta sem enrolar.',
-  'Quando bater aquela dúvida de obra, chama a Luiza. Eu ajudo a olhar orçamento, compras, cronograma e próximos passos.',
-  'Sou sua IA de apoio. Não salvo nada sozinha ainda, mas ajudo você a pensar, revisar e decidir com mais clareza.',
+// Falas do assistente: sem nome nem gênero fixos, porque cada organização
+// escolhe como chamar o seu assistente.
+const FALAS_DO_ASSISTENTE = [
+  'Fico no chat aqui embaixo. Pode perguntar simples, do seu jeito, que eu tento organizar a resposta sem enrolar.',
+  'Quando bater aquela dúvida de obra, é só me chamar. Eu ajudo a olhar orçamento, compras, cronograma e próximos passos.',
+  'Sou sua IA de apoio. Não salvo nada por conta própria ainda, mas ajudo você a pensar, revisar e decidir com mais clareza.',
 ]
 
-const STEPS = [
+const PASSOS_BASE = [
   {
     icon: AlertTriangle,
     title: 'Sistema beta',
@@ -48,19 +52,31 @@ const STEPS = [
     title: 'Cronograma',
     description: 'Acompanhe etapas no Gantt e registre avanço no Diário / Medições.',
   },
-  {
-    icon: BotMessageSquare,
-    title: 'Luiza',
-    description: 'Oi, eu sou a Luiza, sua parceira de obra. Ajudo a tirar dúvidas, organizar ideias e prever próximos passos sem complicar.',
-  },
 ]
+
+// O último passo apresenta o assistente com o nome que a organização escolheu.
+function passosDe(assistente: string) {
+  return [
+    ...PASSOS_BASE,
+    {
+      icon: BotMessageSquare,
+      title: assistente,
+      description: `Oi, eu sou ${oAssistente(assistente)}, seu apoio na obra. Ajudo a tirar dúvidas, organizar ideias e prever próximos passos sem complicar.`,
+    },
+  ]
+}
 
 export function WelcomeGuide() {
   const { currentProfile } = useProfile()
+  const assistente = useAssistenteNome()
+  const passos = useMemo(() => passosDe(assistente), [assistente])
   const [open, setOpen] = useState(false)
   const [dontShow, setDontShow] = useState(false)
   const [step, setStep] = useState(0)
-  const luiziaLine = useMemo(() => LUIZIA_LINES[Math.floor(Math.random() * LUIZIA_LINES.length)], [])
+  const falaDoAssistente = useMemo(
+    () => FALAS_DO_ASSISTENTE[Math.floor(Math.random() * FALAS_DO_ASSISTENTE.length)],
+    [],
+  )
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -73,12 +89,12 @@ export function WelcomeGuide() {
       localStorage.setItem(STORAGE_KEY, 'true')
     }
     setOpen(false)
-    if (step === STEPS.length - 1 && typeof window !== 'undefined') {
+    if (step === passos.length - 1 && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('buildsmart:open-luizia'))
     }
   }
 
-  const item = STEPS[step]
+  const item = passos[step]
   const Icon = item.icon
   const SecondIcon = 'secondIcon' in item ? item.secondIcon : null
 
@@ -92,7 +108,7 @@ export function WelcomeGuide() {
           </div>
           <div className="min-w-0">
             <p className="text-xs font-bold tracking-wider mb-1" style={{ color: 'var(--accent)' }}>
-              PASSO {step + 1} DE {STEPS.length}
+              PASSO {step + 1} DE {passos.length}
             </p>
             <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
               {item.title}
@@ -103,8 +119,8 @@ export function WelcomeGuide() {
           </div>
         </div>
 
-        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${STEPS.length}, minmax(0, 1fr))` }}>
-          {STEPS.map((s, index) => (
+        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${passos.length}, minmax(0, 1fr))` }}>
+          {passos.map((s, index) => (
             <button
               key={s.title}
               onClick={() => setStep(index)}
@@ -117,9 +133,9 @@ export function WelcomeGuide() {
 
         <div className="rounded-lg p-4" style={{ background: 'var(--bg-secondary)' }}>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>
-            {step === STEPS.length - 1
-              ? luiziaLine
-              : 'Fluxo básico: escolha uma obra, revise orçamento, confira materiais, acompanhe cronograma e use a Luiza quando quiser ajuda para decidir o próximo passo.'}
+            {step === passos.length - 1
+              ? falaDoAssistente
+              : `Fluxo básico: escolha uma obra, revise orçamento, confira materiais, acompanhe cronograma e use ${oAssistente(assistente)} quando quiser ajuda para decidir o próximo passo.`}
           </p>
         </div>
 
@@ -139,7 +155,7 @@ export function WelcomeGuide() {
                 Voltar
               </button>
             )}
-            {step < STEPS.length - 1 ? (
+            {step < passos.length - 1 ? (
               <button className="btn-primary px-4 py-2" onClick={() => setStep(s => s + 1)}>
                 Avançar
               </button>

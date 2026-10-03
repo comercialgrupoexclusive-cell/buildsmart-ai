@@ -16,6 +16,8 @@ import { useProfile } from '@/lib/profile-context'
 import { Input, Select } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { formatCurrency } from '@/lib/utils'
+import { useAssistenteNome } from '@/lib/organizacao/contexto'
+import { oAssistente } from '@/lib/organizacao/branding'
 import type { ProspeccaoFicha as ProspeccaoFichaType, ProspeccaoFichaConflito, Prospeccao } from '@/lib/types'
 
 const CAMPO_LABEL: Record<string, string> = {
@@ -72,6 +74,7 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
   prospeccaoId: string; linkLeilao?: string | null; tipoAquisicao?: Prospeccao['tipo_aquisicao']
 }) {
   const { currentProfile } = useProfile()
+  const assistente = useAssistenteNome()
   const [ficha, setFicha] = useState<ProspeccaoFichaType | null>(null)
   const [loading, setLoading] = useState(true)
   const [fonteTipo, setFonteTipo] = useState<'link' | 'pdf' | 'imagem'>('link')
@@ -274,7 +277,7 @@ export function ProspeccaoFicha({ prospeccaoId, linkLeilao, tipoAquisicao }: {
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <div>
             <h2 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Dados do imóvel</h2>
-            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>O que o anúncio diz é evidência, não verdade — a Luiza extrai, você confirma ou corrige.</p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>O que o anúncio diz é evidência, não verdade — {oAssistente(assistente)} extrai, você confirma ou corrige.</p>
           </div>
           {ficha && (
             <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full" style={{ background: `${STATUS_COLOR[ficha.status]}22`, color: STATUS_COLOR[ficha.status] }}>
