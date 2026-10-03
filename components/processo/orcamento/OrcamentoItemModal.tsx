@@ -7,6 +7,7 @@
 // · quantidade fica junto ao item selecionado, não isolada no rodapé
 // · labels das abas curtas para caber no mobile sem overflow
 // · item livre tem campo de quantidade
+import { mensagemDeErro } from '@/lib/erros'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Search, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -167,7 +168,7 @@ export function OrcamentoItemModal({
       await carregarEtapas()
       setEtapaId(data.id as string)
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível criar a etapa.')
+      setErro(mensagemDeErro(e, 'Não foi possível criar a etapa.'))
     }
   }
 
@@ -220,7 +221,7 @@ export function OrcamentoItemModal({
       setBusca('')
       await onInserido()
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível adicionar o item.')
+      setErro(mensagemDeErro(e, 'Não foi possível adicionar o item.'))
     } finally {
       setSalvando(false)
     }

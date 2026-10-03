@@ -3,6 +3,7 @@
 // Árvore BOQ inline (referência 06, normativa): Etapa → Subetapa → Item, cada
 // nível expansível/recolhível. window.prompt/confirm removidos — quebram no
 // iOS: substituídos por formulários inline e estados de confirmação próprios.
+import { mensagemDeErro } from '@/lib/erros'
 import { useMemo, useState } from 'react'
 import { Check, ChevronDown, ChevronRight, MoreVertical, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -129,7 +130,7 @@ export function OrcamentoArvore({
       setNomeNovaSubetapa('')
       await onAtualizado()
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível criar o serviço.')
+      setErro(mensagemDeErro(e, 'Não foi possível criar o serviço.'))
     } finally {
       setCriandoSub(false)
     }
@@ -156,7 +157,7 @@ export function OrcamentoArvore({
       setNomeRenomear('')
       await onAtualizado()
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível renomear.')
+      setErro(mensagemDeErro(e, 'Não foi possível renomear.'))
     } finally {
       setSalvandoRenome(false)
     }
@@ -177,7 +178,7 @@ export function OrcamentoArvore({
       setConfirmandoExclusaoId(null)
       await onAtualizado()
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível excluir.')
+      setErro(mensagemDeErro(e, 'Não foi possível excluir.'))
     } finally {
       setExcluindo(false)
     }

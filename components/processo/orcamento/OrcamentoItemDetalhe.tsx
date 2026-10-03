@@ -12,6 +12,7 @@
 // Exclusão passa por lib/orcamento/vinculos.ts: bloqueia com mensagem clara
 // quando há avanço físico registrado, compra ou material vinculado — nunca
 // apaga histórico em cascata silenciosamente.
+import { mensagemDeErro } from '@/lib/erros'
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronUp, MoreVertical, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -114,7 +115,7 @@ export function OrcamentoItemDetalhe({
       await onAtualizado()
       onVoltar()
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível salvar.')
+      setErro(mensagemDeErro(e, 'Não foi possível salvar.'))
     } finally {
       setSalvando(false)
     }
@@ -127,7 +128,7 @@ export function OrcamentoItemDetalhe({
       await excluirItemComVinculo(supabase, itemId)
       await onExcluido()
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não foi possível excluir.')
+      setErro(mensagemDeErro(e, 'Não foi possível excluir.'))
       setExcluindo(false)
       setConfirmandoExclusao(false)
       setMenuAberto(false)
