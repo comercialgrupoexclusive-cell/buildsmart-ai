@@ -9,14 +9,24 @@
 // - uma tela com rascunho chama useRascunhoNaoSalvo(sujo, salvar, descartar);
 // - quem vai navegar chama confirmarSaida(): sem rascunho devolve true na hora;
 //   com rascunho abre o aviso (Salvar e sair / Descartar / Continuar editando);
-// - cliques em links internos são interceptados aqui mesmo.
+// - cliques em links internos são interceptados aqui mesmo;
+// - o botão "voltar" do navegador/celular também (veja "Sentinela" abaixo).
 //
-// Limitação conhecida: o botão "voltar" do navegador/celular não passa por aqui.
+// Sentinela: o Next não tem API para bloquear o "voltar" no App Router. Enquanto
+// há rascunho, empurramos uma entrada extra no histórico (mesma URL, com uma
+// marca). Ao apertar "voltar" o navegador só consome essa entrada e continua na
+// página — aí mostramos o aviso. Se o usuário seguir em frente, voltamos de
+// verdade; se ficar, recolocamos a sentinela. Uma sentinela velha (rascunho já
+// salvo) é pulada sozinha no próximo "voltar", sem aviso.
+//
+// Não cobre: fechar a aba/app (o navegador só permite o aviso genérico, ver
+// useGuardaAlteracoes) nem o navegador ignorar a sentinela por não haver toque
+// recente do usuário na página (proteção dele contra sequestro do "voltar").
 
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { mensagemDeErro } from '@/lib/erros'
 import { ConfirmarSaidaModal, type EscolhaDeSaida } from './ConfirmarSaidaModal'
 
@@ -37,6 +47,14 @@ const SEM_GUARDA: Contexto = {
 
 const Ctx = createContext<Contexto>(SEM_GUARDA)
 
+// Marca gravada no estado do histórico para reconhecer a entrada-sentinela.
+const MARCA = 'guardaSaida'
+
+function entradaEhSentinela(): boolean {
+  const estado = window.history.state as Record<string, unknown> | null
+  return Boolean(estado?.[MARCA])
+}
+
 // Caminho de destino se o clique é numa navegação interna para OUTRA página;
 // null para tudo que não deve ser interceptado (outra aba, download, externo,
 // âncora na mesma página).
@@ -52,15 +70,26 @@ function destinoInterno(ancora: Element | null): string | null {
 
 export function GuardaNavegacaoProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const pathname = usePathname()
   const rascunhoRef = useRef<Rascunho | null>(null)
   const decisaoRef = useRef<((podeSair: boolean) => void) | null>(null)
+  const temMarcaRef = useRef(false)
+  const urlDaSentinelaRef = useRef<string | null>(null)
   const [aberto, setAberto] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
+  const colocarSentinela = useCallback(() => {
+    if (entradaEhSentinela()) return
+    window.history.pushState({ [MARCA]: true }, '', window.location.href)
+    temMarcaRef.current = true
+    urlDaSentinelaRef.current = window.location.href
+  }, [])
+
   const registrar = useCallback((rascunho: Rascunho | null) => {
     rascunhoRef.current = rascunho
-  }, [])
+    if (rascunho) colocarSentinela()
+  }, [colocarSentinela])
 
   const confirmarSaida = useCallback((): Promise<boolean> => {
     if (!rascunhoRef.current) return Promise.resolve(true)
@@ -114,6 +143,39 @@ export function GuardaNavegacaoProvider({ children }: { children: React.ReactNod
     document.addEventListener('click', aoClicar, true)
     return () => document.removeEventListener('click', aoClicar, true)
   }, [confirmarSaida, router])
+
+  // Navegar por link troca a entrada atual do histórico; reavalia a marca.
+  useEffect(() => {
+    temMarcaRef.current = entradaEhSentinela()
+  }, [pathname])
+
+  useEffect(() => {
+    temMarcaRef.current = entradaEhSentinela()
+    if (temMarcaRef.current) urlDaSentinelaRef.current = window.location.href
+
+    function aoNavegarNoHistorico() {
+      const estavaNaSentinela = temMarcaRef.current
+      temMarcaRef.current = entradaEhSentinela()
+      const voltouDaSentinela =
+        estavaNaSentinela &&
+        !temMarcaRef.current &&
+        window.location.href === urlDaSentinelaRef.current
+      if (!voltouDaSentinela) return
+
+      // Sentinela velha (nada pendente): pula para o "voltar" seguir normal.
+      if (!rascunhoRef.current) return window.history.back()
+      // Já há um aviso aberto: só recoloca a sentinela e espera a escolha.
+      if (decisaoRef.current) return colocarSentinela()
+
+      void confirmarSaida().then(podeSair => {
+        if (podeSair) window.history.back()
+        else colocarSentinela()
+      })
+    }
+
+    window.addEventListener('popstate', aoNavegarNoHistorico)
+    return () => window.removeEventListener('popstate', aoNavegarNoHistorico)
+  }, [colocarSentinela, confirmarSaida])
 
   const valor = useMemo(() => ({ registrar, confirmarSaida }), [registrar, confirmarSaida])
 

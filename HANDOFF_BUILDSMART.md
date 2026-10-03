@@ -56,8 +56,16 @@ verificado com `tsc` limpo + app rodando a cada passo.
   mesmo nível, atraso de 200 ms no toque). `origin/main` **não tem a EAP** — link vindo de `main` não mostra nada disso.
 
 ### ⚠️ Limitações / pendências desta rodada
-- O guarda **não intercepta o botão "voltar" do navegador/celular** (limitação do App Router);
-  `beforeunload` cobre fechar/recarregar.
+- **"Voltar" do navegador/celular agora é interceptado** (`GuardaNavegacao`, técnica da "sentinela": o
+  Next não tem API pra bloquear o voltar no App Router; usa `pushState` nativo). Testado no app com
+  `history.back()` (avisa; continuar recoloca a proteção; descartar completa o voltar; depois de salvar,
+  um toque vai direto, pulando a sentinela velha). **NÃO testado no celular de verdade**: o Chrome
+  pode ignorar entradas de histórico criadas sem toque recente do usuário (proteção dele contra
+  "sequestro do voltar") — se isso ocorrer, o voltar passa sem aviso. Conferir no aparelho.
+- **"Fechar" a aba/app**: só o aviso nativo genérico do navegador (`beforeunload`, não customizável),
+  e só dispara com edição pendente (testado). No celular costuma NÃO aparecer ao fechar pelo seletor de
+  abas/trocar de app. Solução real seria **rascunho local com "restaurar"** (não é autosave no banco) —
+  proposta, não implementada.
 - O padrão `instanceof Error ? e.message : '…'` que esconde erro do banco existe em **~71 outros
   pontos** do código (fora do fluxo orçamento/processo). Trocar por `mensagemDeErro` aos poucos.
 - Varredura de RLS: 16 tabelas sem **nenhuma** política (`feed_*`, `portal_*`, `luizia_*`,
